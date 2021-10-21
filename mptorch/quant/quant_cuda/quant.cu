@@ -223,16 +223,10 @@ std::tuple<Tensor, Tensor> fixed_point_quantize_nearest_mask_cuda(Tensor a, int 
 
 void float_quantize_gemm_cuda(Tensor a, Tensor b, Tensor c, int M, int N, int K, 
           int man_bits, int exp_bits) {
-  dim3 grid_size;
-  dim3 block_size;
-  grid_size.x = ((M + 15) / 16);
-  grid_size.y = ((N + 15) / 16);
-  grid_size.z = 1;
 
-  block_size.x = 8;
-  block_size.y = 8;
-  block_size.z = 1;
-  tvm_gemm_fp<<<grid_size, block_size>>>(a.data<float>(), b.data<float>(), c.data<float>(),
+	dim3 dimBlock(2, 2);
+	dim3 dimGrid((int)ceil(N/2),(int)ceil(M/2));
+  tvm_gemm_fp<<<dimGrid, dimBlock>>>(a.data<float>(), b.data<float>(), c.data<float>(),
             M, K, N, man_bits, exp_bits);
   //tvm_gemm_fp_fp<<<grid_size, block_size>>>(a.data<float>(), b.data<float>(), c.data<float>(),
   //          M, K, N, man_bits, exp_bits, man_bits, exp_bits);

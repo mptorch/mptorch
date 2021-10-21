@@ -20,11 +20,11 @@ torch.backends.cudnn.deterministic = True
 
 '''Hyperparameters'''
 batch_size = 64        # batch size
-lr_init = 0.01         # initial learning rate
+lr_init = 0.05         # initial learning rate
 num_epochs = 10        # epochs
 momentum = 0.9
 weight_decay = 0
-exp = 4
+exp = 5
 man = 2
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
