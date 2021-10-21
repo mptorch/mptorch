@@ -1,10 +1,13 @@
+import sys
+# sys.path.insert(0, '/home/sfilip/Projects/mptorch/')
+print(sys.path[0])
 import torch 
 from torch.optim import SGD
 from mptorch import FloatingPoint
 from mptorch.quant import float_quantize, QLinear, QConv2d, Quantizer
 from mptorch.optim import OptimLP
 import torch.nn as nn
-from trainer import trainer
+from mptorch.utils import trainer
 import torchvision
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
