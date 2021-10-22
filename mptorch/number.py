@@ -1,11 +1,13 @@
 __all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint"]
 
+
 class Number:
     def __init__(self):
         pass
 
     def __str__(self):
         raise NotImplemented
+
 
 class FixedPoint(Number):
     r"""
