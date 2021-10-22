@@ -1,6 +1,4 @@
 import sys
-# sys.path.insert(0, '/home/sfilip/Projects/mptorch/')
-print(sys.path[0])
 import torch 
 from torch.optim import SGD
 from mptorch import FloatingPoint
