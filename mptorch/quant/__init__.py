@@ -15,5 +15,5 @@ __all__ = [
     "QAvgPool2d",
     "QBatchNorm",
     "QBatchNorm1d",
-    "QBatchNorm2d"
+    "QBatchNorm2d",
 ]
