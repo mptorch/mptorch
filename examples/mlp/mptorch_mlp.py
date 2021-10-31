@@ -28,25 +28,17 @@ exp = 5
 man = 2
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-transform_train = transforms.Compose(
-    [
-        transforms.ToTensor(),
-    ]
-)
-transform_test = transforms.Compose(
-    [
-        transforms.ToTensor(),
-    ]
+transform = transforms.Compose(
+    [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
 )
 
 """download dataset: MNIST"""
 train_dataset = torchvision.datasets.MNIST(
-    "./data", train=True, transform=transform_train, download=True
+    "./data", train=True, transform=transform, download=True
 )
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_dataset = torchvision.datasets.MNIST(
-    "./data", train=False, transform=transform_test, download=False
+    "./data", train=False, transform=transform, download=False
 )
 test_loader = DataLoader(test_dataset, batch_size=int(batch_size / 2), shuffle=False)
 
