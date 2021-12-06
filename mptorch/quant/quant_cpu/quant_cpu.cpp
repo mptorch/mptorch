@@ -307,7 +307,7 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
   return quantized;
 }
 
-void tvm_gemm(float *a, float *b, float *c, int M, int K, int N, int man_bits,
+void gemm_fp(float *a, float *b, float *c, int M, int K, int N, int man_bits,
               int exp_bits) {
   for (int64_t i = 0; i < M; ++i)
     for (int64_t j = 0; j < N; ++j)
@@ -321,7 +321,7 @@ void tvm_gemm(float *a, float *b, float *c, int M, int K, int N, int man_bits,
 
 void float_quantize_gemm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                          int man_bits, int exp_bits) {
-  tvm_gemm(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
+  gemm_fp(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
            N, man_bits, exp_bits);
 }
 
