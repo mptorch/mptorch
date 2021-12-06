@@ -348,8 +348,10 @@ __global__ void gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
             #pragma unroll
             for(int i = 0; i < 4; ++i) {
               c[(m_pos + threadIdx.y + blockDim.y * i) * N + 
-                  (n_pos + threadIdx.x + blockDim.x * j)] = cast_fp(c[(m_pos + threadIdx.y + blockDim.y * i) * N + (n_pos + threadIdx.x + blockDim.x * j)] + dreg[j][i],
-                  man_bits, exp_bits);
+                  (n_pos + threadIdx.x + blockDim.x * j)] = cast_fp(
+                    c[(m_pos + threadIdx.y + blockDim.y * i) * N + 
+                    (n_pos + threadIdx.x + blockDim.x * j)] + dreg[j][i],
+                    man_bits, exp_bits);
             }
           }
         } else {
