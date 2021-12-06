@@ -126,6 +126,12 @@ __device__ float cast_fp(float origin_float, int man_bits, int exp_bits) {
   return quantized;
 }
 
+// ALGORITHM 0: naive GEMM kernel
+// code adapted from: 
+// https://bluewaters.ncsa.illinois.edu/liferay-content/image-gallery/content/BLA-final 
+// (slides 17 - 28)
+// see also https://github.com/DmitryLyakh/CUDA_Tutorial/blob/master/bla_lib.cu
+// (function gpu_gemm_nn)
 __global__ void gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
@@ -155,6 +161,10 @@ __global__ void gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
   return;
 }
 
+// ALGORITHM 1: shared memory GEMM kernel (v1)
+// code adapted from:
+// https://github.com/CoffeeBeforeArch/cuda_programming/blob/8711be08e2060680820304594f3691cc0016edd1/02_matrix_mul/nonMultiple/mmul.cu
+// (see function matrixMul)
 __global__ void gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
@@ -194,6 +204,12 @@ __global__ void gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
   if (row < M && col < N) c[row * N + col] = tmp;
 }
 
+// ALGORITHM 2: shared memory GEMM kernel (v2)
+// code adapted from: 
+// https://bluewaters.ncsa.illinois.edu/liferay-content/image-gallery/content/BLA-final 
+// (slides 30 - 36)
+// see also https://github.com/DmitryLyakh/CUDA_Tutorial/blob/master/bla_lib.cu
+// (function gpu_gemm_sh_nn)
 __global__ void gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
@@ -251,6 +267,12 @@ __global__ void gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
   } // m_pos
 }
 
+// ALGORITHM 3: shared memory + registers GEMM kernel (v1)
+// code adapted from: 
+// https://bluewaters.ncsa.illinois.edu/liferay-content/image-gallery/content/BLA-final 
+// (slides 38 - 45)
+// see also https://github.com/DmitryLyakh/CUDA_Tutorial/blob/master/bla_lib.cu
+// (function gpu_gemm_sh_reg_nn)
 __global__ void gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
   float *__restrict__ c, int M, int K, int N,
   int man_bits, int exp_bits) {
@@ -384,6 +406,10 @@ __global__ void gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
     return;
 }
 
+// ALGORITHM 4: shared memory + registers GEMM kernel (v2)
+// code adapted from: 
+// https://github.com/drcut/CPD/blob/master/CPDtorch/quant/quant_cuda/float_kernel.cu
+// (function tvm_gemm)
 __global__ void gemm_fp_algo4(float *__restrict__ a,
                                  float *__restrict__ b,
                                  float *__restrict__ c, int M, int K, int N,
