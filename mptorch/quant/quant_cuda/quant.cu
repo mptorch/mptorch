@@ -205,45 +205,33 @@ void float_quantize_gemm_cuda(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 
   dim3 threads(32, 32);
   dim3 blocks((N - 1) / 32 + 1, (M - 1) / 32 + 1);
-  tvm_gemm_fp_algo0<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
+  gemm_fp_algo0<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                            c.data<float>(), M, K, N, man_bits,
                                            exp_bits);
 
   /*dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
-  tvm_gemm_fp_algo1<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
+  gemm_fp_algo1<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                    c.data<float>(), M, K, N, man_bits,
                                    exp_bits);*/
 
   /*dim3 threads(16, 16);
   dim3 blocks((N - 1) / 16 + 1, (M - 1) / 16 + 1);
-  tvm_gemm_fp_algo2<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
+  gemm_fp_algo2<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                          c.data<float>(), M, K, N, man_bits,
                                          exp_bits);*/
 
   /*dim3 threads(16, 16);
   dim3 blocks((N - 1) / 16 + 1, (M - 1) / 16 + 1);
-  tvm_gemm_fp_algo3<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
+  gemm_fp_algo3<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                          c.data<float>(), M, K, N, man_bits,
                                          exp_bits);*/
 
   /*dim3 threads(8, 8);
   dim3 blocks((M + 15) / 16, (N + 15) / 16);
-  tvm_gemm_fp_algo4<<<blocks, threads>>>(
+  gemm_fp_algo4<<<blocks, threads>>>(
       a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, man_bits,
       exp_bits);*/
 
-  /*dim3 grid_size;
-  dim3 block_size;
-  grid_size.x = ((M + 15) / 16);
-  grid_size.y = ((N + 15) / 16);
-  grid_size.z = 1;
-
-  block_size.x = 8;
-  block_size.y = 8;
-  block_size.z = 1;
-  tvm_gemm_fp_fpv2<<<grid_size, block_size>>>(
-      a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, man_bits,
-      exp_bits, man_bits, exp_bits);*/
   return;
 }

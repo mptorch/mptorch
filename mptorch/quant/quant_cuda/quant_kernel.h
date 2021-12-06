@@ -39,23 +39,22 @@ __global__ void block_kernel_sim_stochastic(float *__restrict__ a,
 __global__ void block_kernel_sim_nearest(float *__restrict__ a, float *o,
                                          int size, float *max_entry, int wl);
 
-__global__ void tvm_gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits);
 
-__global__ void tvm_gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits);
 
-__global__ void tvm_gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits);
 
-__global__ void tvm_gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits);
 
-__global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
-                                 float *__restrict__ kernel,
-                                 float *__restrict__ gemm, int M, int K, int N,
+__global__ void gemm_fp_algo4(float *__restrict__ a, float *__restrict__ b,
+                                 float *__restrict__ c, int M, int K, int N,
                                  int man_bits, int exp_bits);

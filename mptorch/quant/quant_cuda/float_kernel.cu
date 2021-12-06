@@ -126,7 +126,7 @@ __device__ float cast_fp(float origin_float, int man_bits, int exp_bits) {
   return quantized;
 }
 
-__global__ void tvm_gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
   size_t ty = blockIdx.y * blockDim.y + threadIdx.y; // global thread index Y
@@ -155,7 +155,7 @@ __global__ void tvm_gemm_fp_algo0(float *__restrict__ a, float *__restrict__ b,
   return;
 }
 
-__global__ void tvm_gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
 
@@ -194,7 +194,7 @@ __global__ void tvm_gemm_fp_algo1(float *__restrict__ a, float *__restrict__ b,
   if (row < M && col < N) c[row * N + col] = tmp;
 }
 
-__global__ void tvm_gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_bits, int exp_bits) {
   __shared__ float lbuf[64][16], rbuf[16][64];
@@ -251,7 +251,7 @@ __global__ void tvm_gemm_fp_algo2(float *__restrict__ a, float *__restrict__ b,
   } // m_pos
 }
 
-__global__ void tvm_gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
   float *__restrict__ c, int M, int K, int N,
   int man_bits, int exp_bits) {
     __shared__ float lbuf[16][64], rbuf[64][16];
@@ -384,47 +384,41 @@ __global__ void tvm_gemm_fp_algo3(float *__restrict__ a, float *__restrict__ b,
     return;
 }
 
-__global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
-                                 float *__restrict__ kernel,
-                                 float *__restrict__ gemm, int M, int K, int N,
+__global__ void gemm_fp_algo4(float *__restrict__ a,
+                                 float *__restrict__ b,
+                                 float *__restrict__ c, int M, int K, int N,
                                  int man_bits, int exp_bits) {
-  float gemm_local[4];
-  __shared__ float feature_shared[128];
-  __shared__ float kernel_shared[128];
-  float feature_shared_local[4];
-  float kernel_shared_local[4];
-  float gemm_local1[4];
-  float feature_shared_local1[4];
-  float kernel_shared_local1[4];
-  if (((int)blockIdx.x) < (M / 16)) {
+  float c_local[4];
+  __shared__ float a_shared[128];
+  __shared__ float b_shared[128];
+  float a_shared_local[4];
+  float b_shared_local[4];
+  float c_local1[4];
+  float a_shared_local1[4];
+  float b_shared_local1[4];
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int bx = blockIdx.x;
+  int by = blockIdx.y;
+  if (bx < (M / 16)) {
     for (int i_c_init = 0; i_c_init < 2; ++i_c_init) {
       for (int j_c_init = 0; j_c_init < 2; ++j_c_init) {
-        gemm_local[((i_c_init * 2) + j_c_init)] = 0.0f;
+        c_local[i_c_init * 2 + j_c_init] = 0.0f;
       }
     }
     for (int rx_outer = 0; rx_outer < ((K + 7) / 8); ++rx_outer) {
       __syncthreads();
       for (int ax0_inner = 0; ax0_inner < 2; ++ax0_inner) {
-        if ((rx_outer * 8) < (K - ((int)threadIdx.x))) {
-          feature_shared[(((((int)threadIdx.y) * 16) + (ax0_inner * 8)) +
-                          ((int)threadIdx.x))] =
-              feature[(((rx_outer * 8) + ((((((int)blockIdx.x) * 16) +
-                                            (((int)threadIdx.y) * 2)) +
-                                           ax0_inner) *
-                                          K)) +
-                       ((int)threadIdx.x))];
+        if (rx_outer * 8 < K - tx) {
+          a_shared[ty * 16 + ax0_inner * 8 + tx] =
+                  a[rx_outer * 8 + (bx * 16 + ty * 2 + ax0_inner) * K + tx];
         }
       }
       for (int ax1_inner = 0; ax1_inner < 2; ++ax1_inner) {
-        if ((rx_outer * 8) < (K - ((int)threadIdx.x))) {
-          if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-              (N - ax1_inner)) {
-            kernel_shared[(
-                ((((int)threadIdx.x) * 16) + (((int)threadIdx.y) * 2)) +
-                ax1_inner)] =
-                kernel[((((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) +
-                         (((rx_outer * 8) + ((int)threadIdx.x)) * N)) +
-                        ax1_inner)];
+        if (rx_outer * 8 < K - tx) {
+          if (by * 16 + ty * 2 < N - ax1_inner) {
+            b_shared[tx * 16 + ty * 2 + ax1_inner] =
+                  b[by * 16 + ty * 2 + (rx_outer * 8 + tx) * N + ax1_inner];
           }
         }
       }
@@ -432,23 +426,18 @@ __global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
       for (int rx_inner_outer = 0; rx_inner_outer < 4; ++rx_inner_outer) {
         for (int ax0 = 0; ax0 < 2; ++ax0) {
           for (int ax1 = 0; ax1 < 2; ++ax1) {
-            if (((rx_outer * 8) + (rx_inner_outer * 2)) < (K - ax1)) {
-              feature_shared_local[((ax0 * 2) + ax1)] =
-                  feature_shared[((((((int)threadIdx.x) * 16) + (ax0 * 8)) +
-                                   (rx_inner_outer * 2)) +
-                                  ax1)];
+            if (rx_outer * 8 + rx_inner_outer * 2 < K - ax1) {
+              a_shared_local[ax0 * 2 + ax1] = 
+                      a_shared[tx * 16 + ax0 * 8 + rx_inner_outer * 2 + ax1];
             }
           }
         }
         for (int ax01 = 0; ax01 < 2; ++ax01) {
           for (int ax11 = 0; ax11 < 2; ++ax11) {
-            if (((rx_outer * 8) + (rx_inner_outer * 2)) < (K - ax01)) {
-              if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-                  (N - ax11)) {
-                kernel_shared_local[((ax01 * 2) + ax11)] =
-                    kernel_shared[((((rx_inner_outer * 32) + (ax01 * 16)) +
-                                    (((int)threadIdx.y) * 2)) +
-                                   ax11)];
+            if (rx_outer * 8 + rx_inner_outer * 2 < K - ax01) {
+              if (by * 16 + ty * 2 < N - ax11) {
+                b_shared_local[ax01 * 2 + ax11] =
+                        b_shared[rx_inner_outer * 32 + ax01 * 16 + ty * 2 + ax11];
               }
             }
           }
@@ -456,18 +445,12 @@ __global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
         for (int i_c = 0; i_c < 2; ++i_c) {
           for (int j_c = 0; j_c < 2; ++j_c) {
             for (int rx_inner_inner = 0; rx_inner_inner < 2; ++rx_inner_inner) {
-              if (((rx_outer * 8) + (rx_inner_outer * 2)) <
-                  (K - rx_inner_inner)) {
-                if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-                    (N - j_c)) {
-                  gemm_local[((i_c * 2) + j_c)] =
-                      cast_fp(gemm_local[((i_c * 2) + j_c)] +
-                                  cast_fp(feature_shared_local[(
-                                              (i_c * 2) + rx_inner_inner)] *
-                                              kernel_shared_local[(
-                                                  (rx_inner_inner * 2) + j_c)],
-                                          man_bits, exp_bits),
-                              man_bits, exp_bits);
+              if (rx_outer * 8 + rx_inner_outer * 2 < K - rx_inner_inner) {
+                if (by * 16 + ty * 2 < N - j_c) {
+                  c_local[i_c * 2 + j_c] = cast_fp(c_local[i_c * 2 + j_c] +
+                        cast_fp(a_shared_local[i_c * 2 + rx_inner_inner] * 
+                        b_shared_local[rx_inner_inner * 2 + j_c], 
+                        man_bits, exp_bits), man_bits, exp_bits);
                 }
               }
             }
@@ -477,74 +460,54 @@ __global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
     }
     for (int i_inner_inner = 0; i_inner_inner < 2; ++i_inner_inner) {
       for (int j_inner_inner = 0; j_inner_inner < 2; ++j_inner_inner) {
-        if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-            (N - j_inner_inner)) {
-          gemm[((((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) +
-                 ((((((int)blockIdx.x) * 16) + (((int)threadIdx.x) * 2)) +
-                   i_inner_inner) *
-                  N)) +
-                j_inner_inner)] =
-              gemm_local[((i_inner_inner * 2) + j_inner_inner)];
+        if (by * 16 + ty * 2 < N - j_inner_inner) {
+          c[by * 16 + ty * 2 + (bx * 16 + tx * 2 + i_inner_inner) * N + j_inner_inner] =
+              c_local[i_inner_inner * 2 + j_inner_inner];
         }
       }
     }
   } else {
     for (int i_c_init1 = 0; i_c_init1 < 2; ++i_c_init1) {
       for (int j_c_init1 = 0; j_c_init1 < 2; ++j_c_init1) {
-        gemm_local1[((i_c_init1 * 2) + j_c_init1)] = 0.000000e+00f;
+        c_local1[i_c_init1 * 2 + j_c_init1] = 0.0f;
       }
     }
-    for (int rx_outer1 = 0; rx_outer1 < ((K + 7) / 8); ++rx_outer1) {
+    for (int rx_outer1 = 0; rx_outer1 < (K + 7) / 8; ++rx_outer1) {
+      __syncthreads();
       for (int ax0_inner1 = 0; ax0_inner1 < 2; ++ax0_inner1) {
-        if (((((int)blockIdx.x) * 16) + (((int)threadIdx.y) * 2)) <
-            (M - ax0_inner1)) {
-          if ((rx_outer1 * 8) < (K - ((int)threadIdx.x))) {
-            feature_shared[(((((int)threadIdx.y) * 16) + (ax0_inner1 * 8)) +
-                            ((int)threadIdx.x))] =
-                feature[(((rx_outer1 * 8) + ((((((int)blockIdx.x) * 16) +
-                                               (((int)threadIdx.y) * 2)) +
-                                              ax0_inner1) *
-                                             K)) +
-                         ((int)threadIdx.x))];
+        if (bx * 16 + ty * 2 < M - ax0_inner1) {
+          if (rx_outer1 * 8 < K - tx) {
+            a_shared[ty * 16 + ax0_inner1 * 8 + tx] =
+                a[rx_outer1 * 8 + (bx * 16 + ty * 2 + ax0_inner1) * K + tx];
           }
         }
       }
       for (int ax1_inner1 = 0; ax1_inner1 < 2; ++ax1_inner1) {
-        if ((rx_outer1 * 8) < (K - ((int)threadIdx.x))) {
-          if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-              (N - ax1_inner1)) {
-            kernel_shared[(
-                ((((int)threadIdx.x) * 16) + (((int)threadIdx.y) * 2)) +
-                ax1_inner1)] =
-                kernel[((((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) +
-                         (((rx_outer1 * 8) + ((int)threadIdx.x)) * N)) +
-                        ax1_inner1)];
+        if (rx_outer1 * 8 < K - tx) {
+          if (by * 16 + ty * 2 < N - ax1_inner1) {
+            b_shared[tx * 16 + ty * 2 + ax1_inner1] =
+                b[by * 16 + ty * 2 + (rx_outer1 * 8 + tx) * N + ax1_inner1];
           }
         }
       }
+      __syncthreads();
       for (int rx_inner_outer1 = 0; rx_inner_outer1 < 4; ++rx_inner_outer1) {
         for (int ax02 = 0; ax02 < 2; ++ax02) {
           for (int ax12 = 0; ax12 < 2; ++ax12) {
-            if (((((int)blockIdx.x) * 16) + (((int)threadIdx.x) * 2)) <
-                (M - ax02)) {
-              if (((rx_outer1 * 8) + (rx_inner_outer1 * 2)) < (K - ax12)) {
-                feature_shared_local1[((ax02 * 2) + ax12)] =
-                    feature_shared[((((((int)threadIdx.x) * 16) + (ax02 * 8)) +
-                                     (rx_inner_outer1 * 2)) +
-                                    ax12)];
+            if (bx * 16 + tx * 2 < M - ax02) {
+              if (rx_outer1 * 8 + rx_inner_outer1 * 2 < K - ax12) {
+                a_shared_local1[ax02 * 2 + ax12] = 
+                    a_shared[tx * 16 + ax02 * 8 + rx_inner_outer1 * 2 + ax12];
               }
             }
           }
         }
         for (int ax03 = 0; ax03 < 2; ++ax03) {
           for (int ax13 = 0; ax13 < 2; ++ax13) {
-            if (((rx_outer1 * 8) + (rx_inner_outer1 * 2)) < (K - ax03)) {
-              if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-                  (N - ax13)) {
-                kernel_shared_local1[((ax03 * 2) + ax13)] =
-                    kernel_shared[((((rx_inner_outer1 * 32) + (ax03 * 16)) +
-                                    (((int)threadIdx.y) * 2)) +
-                                   ax13)];
+            if (rx_outer1 * 8 + rx_inner_outer1 * 2 < K - ax03) {
+              if (by * 16 + ty * 2 < N - ax13) {
+                b_shared_local1[ax03 * 2 + ax13] =
+                    b_shared[rx_inner_outer1 * 32 + ax03 * 16 + ty * 2 + ax13];
               }
             }
           }
@@ -553,20 +516,13 @@ __global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
           for (int j_c1 = 0; j_c1 < 2; ++j_c1) {
             for (int rx_inner_inner1 = 0; rx_inner_inner1 < 2;
                  ++rx_inner_inner1) {
-              if (((rx_outer1 * 8) + (rx_inner_outer1 * 2)) <
-                  (K - rx_inner_inner1)) {
-                if (((((int)blockIdx.x) * 16) + (((int)threadIdx.x) * 2)) <
-                    (M - i_c1)) {
-                  if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-                      (N - j_c1)) {
-                    gemm_local1[((i_c1 * 2) + j_c1)] = cast_fp(
-                        gemm_local1[((i_c1 * 2) + j_c1)] +
-                            cast_fp(feature_shared_local1[((i_c1 * 2) +
-                                                           rx_inner_inner1)] *
-                                        kernel_shared_local1[(
-                                            (rx_inner_inner1 * 2) + j_c1)],
-                                    man_bits, exp_bits),
-                        man_bits, exp_bits);
+              if (rx_outer1 * 8 + rx_inner_outer1 * 2 < K - rx_inner_inner1) {
+                if (bx * 16 + tx * 2 < M - i_c1) {
+                  if (by * 16 + ty * 2 < N - j_c1) {
+                    c_local1[i_c1 * 2 + j_c1] = cast_fp(c_local1[i_c1 * 2 + j_c1] +
+                      cast_fp(a_shared_local1[i_c1 * 2 + rx_inner_inner1] * 
+                      b_shared_local1[rx_inner_inner1 * 2 + j_c1], 
+                      man_bits, exp_bits), man_bits, exp_bits);
                   }
                 }
               }
@@ -577,16 +533,10 @@ __global__ void tvm_gemm_fp_algo4(float *__restrict__ feature,
     }
     for (int i_inner_inner1 = 0; i_inner_inner1 < 2; ++i_inner_inner1) {
       for (int j_inner_inner1 = 0; j_inner_inner1 < 2; ++j_inner_inner1) {
-        if (((((int)blockIdx.x) * 16) + (((int)threadIdx.x) * 2)) <
-            (M - i_inner_inner1)) {
-          if (((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) <
-              (N - j_inner_inner1)) {
-            gemm[((((((int)blockIdx.y) * 16) + (((int)threadIdx.y) * 2)) +
-                   ((((((int)blockIdx.x) * 16) + (((int)threadIdx.x) * 2)) +
-                     i_inner_inner1) *
-                    N)) +
-                  j_inner_inner1)] =
-                gemm_local1[((i_inner_inner1 * 2) + j_inner_inner1)];
+        if (bx * 16 + tx * 2 < M - i_inner_inner1) {
+          if (by * 16 + ty * 2 < N - j_inner_inner1) {
+            c[by * 16 + ty * 2 + (bx * 16 + tx * 2 + i_inner_inner1) * N + j_inner_inner1] =
+                c_local1[i_inner_inner1 * 2 + j_inner_inner1];
           }
         }
       }
