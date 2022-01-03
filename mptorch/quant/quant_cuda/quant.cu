@@ -203,17 +203,17 @@ fixed_point_quantize_nearest_mask_cuda(Tensor a, int wl, int fl,
 void float_quantize_gemm_cuda(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                               int man_bits, int exp_bits) {
 
-  dim3 threads(32, 32);
+  /*dim3 threads(32, 32);
   dim3 blocks((N - 1) / 32 + 1, (M - 1) / 32 + 1);
   gemm_fp_algo0<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                            c.data<float>(), M, K, N, man_bits,
-                                           exp_bits);
+                                           exp_bits);*/
 
-  /*dim3 threads(8, 8);
+  dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   gemm_fp_algo1<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                    c.data<float>(), M, K, N, man_bits,
-                                   exp_bits);*/
+                                   exp_bits);
 
   /*dim3 threads(16, 16);
   dim3 blocks((N - 1) / 16 + 1, (M - 1) / 16 + 1);
