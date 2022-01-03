@@ -140,3 +140,4 @@ cython_debug/
 cmake-build-debug/
 examples/testing/
 .idea/
+.vscode/

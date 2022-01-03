@@ -1,10 +1,15 @@
 import torch
-from .. import Number, FixedPoint, FloatingPoint, BlockFloatingPoint
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
+from mptorch import Number, FixedPoint, FloatingPoint, BlockFloatingPoint
 from torch.utils.cpp_extension import load
 import os
+
+__all__ = [
+    "fixed_point_quantize",
+    "block_quantize",
+    "float_quantize",
+    "quantizer",
+    "quant_gemm",
+]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
 quant_cpu = load(
@@ -31,14 +36,6 @@ if torch.cuda.is_available():
     )
 else:
     quant_cuda = quant_cpu
-
-__all__ = [
-    "fixed_point_quantize",
-    "block_quantize",
-    "float_quantize",
-    "quantizer",
-    "quant_gemm",
-]
 
 
 def assert_wl_fl(wl, fl, stage=""):

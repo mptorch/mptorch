@@ -8,7 +8,7 @@ def try_gpu():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-# function addapted from the torch.nn.init code
+# function adapted from the torch.nn.init code
 def get_fan_in_and_fan_out(tensor):
     dims = tensor.dim()
     num_ifmaps = tensor.size(1)
