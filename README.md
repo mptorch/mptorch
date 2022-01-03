@@ -8,12 +8,11 @@ arithmetic in PyTorch, especially for DNN training.
 
 It reimplements many of the underlying computations of 
 commonly used layers for CNNs (e.g., matrix multiplication
-and batch normalization) using user-specified floating-point formats for each operation (e.g., addition, multiplication).
+and batch normalization) using user-specified floating-point formats for each operation (e.g., addition, multiplication). All the operations are internally done using IEEE-754 32-bit floating point
+arithmetic, with the results rounded to the specified format.
 
-MPTorch is still in its early stages of development, but
-is already capable of training CNNs using custom floating-point
-formats that are specified at the layer level (and for every
-operator type) for both forward and backward pass computations.
+MPTorch is still in its early stages of development, but it
+is already capable of training convolutional neural networks using custom floating-point formats that are specified at the layer level (and for every operator type) for both forward and backward pass computations.
 
 ## Installation
 
