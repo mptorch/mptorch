@@ -1,12 +1,12 @@
 from .quant_function import *
 from .quant_module import *
+from .quant_format import *
 
 __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
     "quantizer",
-    "quant_gemm",
     "Quantizer",
     "QLinear",
     "QConv2d",
@@ -16,4 +16,5 @@ __all__ = [
     "QBatchNorm",
     "QBatchNorm1d",
     "QBatchNorm2d",
+    "QAffineFormats",
 ]

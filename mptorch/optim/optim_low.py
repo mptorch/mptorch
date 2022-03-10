@@ -1,13 +1,12 @@
 import torch
 from torch.optim import Optimizer, SGD, Adam
 
-__all__ = ["OptimLP"]
+__all__ = ["OptimMP"]
 
 
-class OptimLP(Optimizer):
+class OptimMP(Optimizer):
     """
     A low-precision optimizer wrapper that handles weight, gradient, accumulator quantization.
-
     Args:
         - :attr: `optim`: underlying optimizer to use
         - :attr: `weight_quant`: a weight quantization function which takes a pytorch tensor and returns a tensor. If None, does not quantize weight.
@@ -19,7 +18,6 @@ class OptimLP(Optimizer):
                               a pytorch tensor and returns a tensor. If not None, a
                               OptimLP object would create memory copies of model parameters that serve as
                               gradient accumulators. If None, does not use gradient accumulators.
-
     Example:
         >>> weight_q = quantizer(...) # define weight quantization
         >>> optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9)
@@ -36,7 +34,7 @@ class OptimLP(Optimizer):
         acc_quant=None,
     ):
         assert isinstance(optim, SGD) or isinstance(optim, Adam)
-        super(OptimLP, self).__init__(
+        super(OptimMP, self).__init__(
             optim.param_groups, optim.defaults
         )  # place holder
 
@@ -116,7 +114,7 @@ class OptimLP(Optimizer):
         return loss
 
     def __repr__(self):
-        return "LP Optimizer: {}".format(self.optim.__repr__())
+        return "MP Optimizer: {}".format(self.optim.__repr__())
 
     def __str__(self):
-        return "LP Optimizer: {}".format(self.optim.__str__())
+        return "MP Optimizer: {}".format(self.optim.__str__())

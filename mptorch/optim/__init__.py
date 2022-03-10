@@ -1,3 +1,3 @@
 from .optim_low import *
 
-__all__ = ["OptimLP"]
+__all__ = ["OptimMP"]
