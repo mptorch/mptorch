@@ -90,11 +90,12 @@ class FloatingPoint(Number):
                         supposed to be stored on hardware (not counting the virtual bits).
     """
 
-    def __init__(self, exp, man):
+    def __init__(self, exp, man, subnormals=False):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         self.exp = exp
         self.man = man
+        self.subnormals = subnormals
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)

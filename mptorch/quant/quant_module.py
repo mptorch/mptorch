@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from .quant_function import *
+from mptorch import Number, FixedPoint, FloatingPoint
 import numpy as np
 import math
 
@@ -39,13 +40,16 @@ class Quantizer(nn.Module):
 
 class QAddFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, y, exp=8, man=23, rounding="nearest"):
+    def forward(ctx, x, y, exp=8, man=23, rounding="nearest", subnormals=True):
         ctx.save_for_backward(x, y)
         ctx.man = man
         ctx.exp = exp
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         z = x + y
-        z = float_quantize(z.contiguous(), exp=exp, man=man, rounding=rounding)
+        z = float_quantize(
+            z.contiguous(), exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         return z
 
     @staticmethod
@@ -55,23 +59,34 @@ class QAddFunction(torch.autograd.Function):
         grad_y = grad_z * torch.ones_like(y, device=y.device)
         # need to compute gradients in order of inputs
         grad_x = float_quantize(
-            grad_x.contiguous(), exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            grad_x.contiguous(),
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
         grad_y = float_quantize(
-            grad_y.contiguous(), exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            grad_y.contiguous(),
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
-        return grad_x, grad_y, None, None, None
+        return grad_x, grad_y, None, None, None, None
 
 
 class QMulFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, y, exp=8, man=23, rounding="nearest"):
+    def forward(ctx, x, y, exp=8, man=23, rounding="nearest", subnormals=True):
         ctx.save_for_backward(x, y)
         ctx.man = man
         ctx.exp = exp
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         z = x * y
-        z = float_quantize(z.contiguous(), exp=exp, man=man, rounding=rounding)
+        z = float_quantize(
+            z.contiguous(), exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         return z
 
     @staticmethod
@@ -80,12 +95,20 @@ class QMulFunction(torch.autograd.Function):
         grad_x = grad_z * y
         grad_y = grad_z * x
         grad_x = float_quantize(
-            grad_x.contiguous(), exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            grad_x.contiguous(),
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
         grad_y = float_quantize(
-            grad_y.contiguous(), exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            grad_y.contiguous(),
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
-        return grad_x, grad_y, None, None, None
+        return grad_x, grad_y, None, None, None, None
 
 
 # see the following link for a discussion regarding numerical stability of
@@ -93,11 +116,14 @@ class QMulFunction(torch.autograd.Function):
 # of this implementation: https://github.com/pytorch/pytorch/issues/43414
 class QDivFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, y, exp=8, man=23, rounding="nearest"):
+    def forward(ctx, x, y, exp=8, man=23, rounding="nearest", subnormals=True):
         ctx.exp = exp
         ctx.man = man
         ctx.rounding = rounding
-        z = float_quantize(x / y, exp=exp, man=man, rounding=rounding)
+        ctx.subnormals = subnormals
+        z = float_quantize(
+            x / y, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         ctx.save_for_backward(x, y, z)
         return z
 
@@ -107,27 +133,44 @@ class QDivFunction(torch.autograd.Function):
         grad_x = grad_y = None
         if ctx.needs_input_grad[0]:
             grad_x = float_quantize(
-                grad_z / y, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+                grad_z / y,
+                exp=ctx.exp,
+                man=ctx.man,
+                rounding=ctx.rounding,
+                subnormals=ctx.subnormals,
             )
         if ctx.needs_input_grad[1]:
             grad_y = float_quantize(
-                -grad_z * z, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+                -grad_z * z,
+                exp=ctx.exp,
+                man=ctx.man,
+                rounding=ctx.rounding,
+                subnormals=ctx.subnormals,
             )
             grad_y = float_quantize(
-                grad_y / y, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+                grad_y / y,
+                exp=ctx.exp,
+                man=ctx.man,
+                rounding=ctx.rounding,
+                subnormals=ctx.subnormals,
             )
-        return grad_x, grad_y, None, None, None
+        return grad_x, grad_y, None, None, None, None
 
 
 class QPowFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, n=2, exp=8, man=23, rounding="nearest"):
+    def forward(ctx, x, n=2, exp=8, man=23, rounding="nearest", subnormals=True):
         ctx.man = man
         ctx.exp = exp
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         ctx.n = n
-        y = float_quantize(x ** n, exp=exp, man=man, rounding=rounding)
-        gy = float_quantize(x ** (n - 1), exp=exp, man=man, rounding=rounding)
+        y = float_quantize(
+            x ** n, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
+        gy = float_quantize(
+            x ** (n - 1), exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         ctx.save_for_backward(gy)
         return y
 
@@ -135,36 +178,57 @@ class QPowFunction(torch.autograd.Function):
     def backward(ctx, grad_y):
         (gy,) = ctx.saved_tensors
         grad_x = float_quantize(
-            gy * ctx.n, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            gy * ctx.n,
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
         grad_x = float_quantize(
-            grad_y * grad_x, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            grad_y * grad_x,
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
-        return grad_x, None, None, None, None
+        return grad_x, None, None, None, None, None
 
 
 class QSqrtFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, exp=8, man=23, rounding="nearest"):
+    def forward(ctx, x, exp=8, man=23, rounding="nearest", subnormals=True):
         ctx.man = man
         ctx.exp = exp
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         x = torch.sqrt(x)
-        y = float_quantize(x, exp=exp, man=man, rounding=rounding)
+        y = float_quantize(
+            x, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         ctx.save_for_backward(y)
         return y
 
     @staticmethod
     def backward(ctx, grad_y):
         (y,) = ctx.saved_tensors
-        grad_x = float_quantize(y * 2, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding)
         grad_x = float_quantize(
-            grad_y / grad_x, exp=ctx.exp, man=ctx.man, rounding=ctx.rounding
+            y * 2,
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
-        return grad_x, None, None, None
+        grad_x = float_quantize(
+            grad_y / grad_x,
+            exp=ctx.exp,
+            man=ctx.man,
+            rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
+        )
+        return grad_x, None, None, None, None
 
 
-def qsum_kernel(x, dim, exp=8, man=23, rounding="nearest"):
+def qsum_kernel(x, dim, exp=8, man=23, rounding="nearest", subnormals=True):
     shape = list(x.shape)
     shape[dim] = 1
     vs = torch.zeros(shape, device=x.device)
@@ -173,16 +237,25 @@ def qsum_kernel(x, dim, exp=8, man=23, rounding="nearest"):
     shape[dim] = x.shape[0]
     shape[0] = 1
     for k in range(x.shape[dim]):
-        vs = float_quantize(vs + vx[:, k : k + 1], exp=exp, man=man, rounding=rounding)
+        vs = float_quantize(
+            vs + vx[:, k : k + 1],
+            exp=exp,
+            man=man,
+            rounding=rounding,
+            subnormals=subnormals,
+        )
     return vs.transpose(0, 1).reshape(shape).transpose(0, dim)
 
 
 class QSumFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, dim=0, keepdim=False, exp=8, man=23, rounding="nearest"):
+    def forward(
+        ctx, x, dim=0, keepdim=False, exp=8, man=23, rounding="nearest", subnormals=True
+    ):
         ctx.exp = exp
         ctx.man = man
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         ctx.save_for_backward(x)
 
         if dim is None:
@@ -193,7 +266,9 @@ class QSumFunction(torch.autograd.Function):
         ctx.dim = dim
         sums = x
         for d in dim:
-            sums = qsum_kernel(sums, d, exp=exp, man=man, rounding=rounding)
+            sums = qsum_kernel(
+                sums, d, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+            )
         if keepdim is False:
             for _ in dim:
                 idx = 0
@@ -209,15 +284,18 @@ class QSumFunction(torch.autograd.Function):
         for d in ctx.dim:
             grad_output = torch.unsqueeze(grad_output, d)
         grad_x = grad_output * torch.ones_like(x, device=x.device)
-        return grad_x, None, None, None, None, None
+        return grad_x, None, None, None, None, None, None
 
 
 class QMeanFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, dim=3, keepdim=False, exp=8, man=23, rounding="nearest"):
+    def forward(
+        ctx, x, dim=3, keepdim=False, exp=8, man=23, rounding="nearest", subnormals=True
+    ):
         ctx.exp = exp
         ctx.man = man
         ctx.rounding = rounding
+        ctx.subnormals = subnormals
         ctx.save_for_backward(x)
 
         if dim is None:
@@ -229,10 +307,14 @@ class QMeanFunction(torch.autograd.Function):
         sums = x
         numel = 1
         for d in dim:
-            sums = qsum_kernel(sums, d, exp=exp, man=man, rounding=rounding)
+            sums = qsum_kernel(
+                sums, d, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+            )
             numel *= x.shape[d]
         ctx.numel = numel
-        sums = float_quantize(sums / numel, exp=exp, man=man, rounding=rounding)
+        sums = float_quantize(
+            sums / numel, exp=exp, man=man, rounding=rounding, subnormals=subnormals
+        )
         if keepdim is False:
             for _ in dim:
                 idx = 0
@@ -252,55 +334,153 @@ class QMeanFunction(torch.autograd.Function):
             exp=ctx.exp,
             man=ctx.man,
             rounding=ctx.rounding,
+            subnormals=ctx.subnormals,
         )
-        return grad_x, None, None, None, None, None
+        return grad_x, None, None, None, None, None, None
 
 
 class QLinearFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weight, bias, exp=8, man=23, rounding="nearest"):
-        ctx.exp = exp
-        ctx.man = man
-        ctx.rounding = rounding
-        qweight = float_quantize(weight, exp=exp, man=man, rounding=rounding)
-        output = quant_gemm(input, qweight.t(), man, exp)
-        if bias is not None:
-            qbias = float_quantize(bias, exp=exp, man=man, rounding=rounding)
-            output += qbias.unsqueeze(0).expand_as(output)
-            ctx.save_for_backward(input, qweight, qbias)
+    def forward(ctx, input, weight, bias, formats):
+        ctx.formats = formats
+        qinput = formats.input_quant(input)
+        qweight = formats.param_quant(weight)
+
+        if type(formats.fwd_add) == FloatingPoint:
+            output = float_gemm(
+                qinput,
+                qweight.t(),
+                man_add=formats.fwd_add.man,
+                exp_add=formats.fwd_add.exp,
+                man_mul=formats.fwd_mul.man,
+                exp_mul=formats.fwd_mul.exp,
+                rounding=formats.fwd_rnd,
+                fma=formats.fwd_fma,
+            )
         else:
-            ctx.save_for_backward(input, qweight, bias)
-        output = float_quantize(
-            output.contiguous(), exp=exp, man=man, rounding=rounding
-        )
+            output = fxp_gemm(
+                qinput,
+                qweight.t(),
+                wl_add=formats.fwd_add.wl,
+                fl_add=formats.fwd_add.fl,
+                wl_mul=formats.fwd_mul.wl,
+                fl_mul=formats.fwd_mul.fl,
+                symmetric=False,
+                rounding=formats.fwd_rnd,
+                fma=formats.fwd_fma,
+            )
+        if bias is not None:
+            qbias = formats.param_quant(bias)
+            output += qbias.unsqueeze(0).expand_as(output)
+            ctx.save_for_backward(qinput, qweight, qbias)
+        else:
+            ctx.save_for_backward(qinput, qweight, bias)
+        if type(formats.fwd_add) == FloatingPoint:
+            output = float_quantize(
+                output.contiguous(),
+                exp=formats.fwd_add.exp,
+                man=formats.fwd_add.man,
+                rounding=formats.fwd_rnd,
+            )
+        else:
+            output = fixed_point_quantize(
+                output.contiguous(),
+                wl=formats.fwd_add.wl,
+                fl=formats.fwd_add.fl,
+                symmetric=False,
+                rounding=formats.fwd_rnd,
+            )
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, weight, bias = ctx.saved_tensors
+        qinput, qweight, qbias = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
+        qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            grad_input = quant_gemm(grad_output, weight, ctx.man, ctx.exp)
+            if type(ctx.formats.bwd_add) == FloatingPoint:
+                grad_input = float_gemm(
+                    qgrad_output,
+                    qweight,
+                    man_add=ctx.formats.bwd_add.man,
+                    exp_add=ctx.formats.bwd_add.exp,
+                    man_mul=ctx.formats.bwd_mul.man,
+                    exp_mul=ctx.formats.bwd_mul.exp,
+                    rounding=ctx.formats.bwd_rnd,
+                    fma=ctx.formats.bwd_fma,
+                )
+            else:
+                grad_input = fxp_gemm(
+                    qgrad_output,
+                    qweight,
+                    wl_add=ctx.formats.bwd_add.wl,
+                    fl_add=ctx.formats.bwd_add.fl,
+                    wl_mul=ctx.formats.bwd_mul.wl,
+                    fl_mul=ctx.formats.bwd_mul.fl,
+                    rounding=ctx.formats.bwd_rnd,
+                    symmetric=False,
+                    fma=ctx.formats.bwd_fma,
+                )
         if ctx.needs_input_grad[1]:
-            grad_weight = quant_gemm(grad_output.t(), input, ctx.man, ctx.exp)
-        if bias is not None and ctx.needs_input_grad[2]:
-            ones = torch.ones(grad_output.shape[0], 1, device=grad_output.device)
-            grad_bias = quant_gemm(grad_output.t(), ones, ctx.man, ctx.exp).reshape(-1)
+            if type(ctx.formats.bwd_add) == FloatingPoint:
+                grad_weight = float_gemm(
+                    qgrad_output.t(),
+                    qinput,
+                    man_add=ctx.formats.bwd_add.man,
+                    exp_add=ctx.formats.bwd_add.exp,
+                    man_mul=ctx.formats.bwd_mul.man,
+                    exp_mul=ctx.formats.bwd_mul.exp,
+                    rounding=ctx.formats.bwd_rnd,
+                    fma=ctx.formats.bwd_fma,
+                )
+            else:
+                grad_weight = fxp_gemm(
+                    qgrad_output.t(),
+                    qinput,
+                    wl_add=ctx.formats.bwd_add.wl,
+                    fl_add=ctx.formats.bwd_add.fl,
+                    wl_mul=ctx.formats.bwd_mul.wl,
+                    fl_mul=ctx.formats.bwd_mul.fl,
+                    rounding=ctx.formats.bwd_rnd,
+                    symmetric=False,
+                    fma=ctx.formats.bwd_fma,
+                )
+        if qbias is not None and ctx.needs_input_grad[2]:
+            ones = torch.ones(qgrad_output.shape[0], 1, device=grad_output.device)
+            if type(ctx.formats.bwd_add) == FloatingPoint:
+                grad_bias = float_gemm(
+                    qgrad_output.t(),
+                    ones,
+                    man_add=ctx.formats.bwd_add.man,
+                    exp_add=ctx.formats.bwd_add.exp,
+                    man_mul=ctx.formats.bwd_mul.man,
+                    exp_mul=ctx.formats.bwd_mul.exp,
+                    rounding=ctx.formats.bwd_rnd,
+                    fma=ctx.formats.bwd_fma,
+                ).reshape(-1)
+            else:
+                grad_bias = fxp_gemm(
+                    qgrad_output.t(),
+                    ones,
+                    wl_add=ctx.formats.bwd_add.wl,
+                    fl_add=ctx.formats.bwd_add.fl,
+                    wl_mul=ctx.formats.bwd_mul.wl,
+                    fl_mul=ctx.formats.bwd_mul.fl,
+                    rounding=ctx.formats.bwd_rnd,
+                    symmetric=False,
+                    fma=ctx.formats.bwd_fma,
+                ).reshape(-1)
 
         return grad_input, grad_weight, grad_bias, None, None, None
 
 
 class QLinear(nn.Module):
-    def __init__(
-        self, in_features, out_features, bias=True, exp=8, man=23, rounding="nearest"
-    ):
+    def __init__(self, in_features, out_features, formats, bias=True):
         super(QLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.exp = exp
-        self.man = man
-        self.rounding = rounding
+        self.formats = formats
         self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_features))
@@ -310,15 +490,20 @@ class QLinear(nn.Module):
 
     def reset_parameters(self):
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.weight.data = self.formats.param_quant(self.weight.data)
         if self.bias is not None:
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
+            self.bias.data = self.formats.param_quant(self.bias.data)
+
+    def quant_parameters(self):
+        self.weight.data = self.formats.param_quant(self.weight.data)
+        if self.bias is not None:
+            self.bias.data = self.formats.param_quant(self.bias.data)
 
     def forward(self, input):
-        return QLinearFunction.apply(
-            input, self.weight, self.bias, self.exp, self.man, self.rounding
-        )
+        return QLinearFunction.apply(input, self.weight, self.bias, self.formats)
 
 
 # TODO: will probably need to update this function a bit to allow for different
@@ -329,14 +514,12 @@ class QConv2d(nn.Module):
         in_channels,
         out_channels,
         kernel_size,
+        formats,
         stride=1,
         padding=0,
         dilation=1,
         groups=1,
         bias=True,
-        exp=8,
-        man=23,
-        rounding="nearest",
     ):
         super(QConv2d, self).__init__()
         self.weight = nn.Parameter(
@@ -351,18 +534,23 @@ class QConv2d(nn.Module):
         self.kernel_size = (kernel_size, kernel_size)
         self.stride = stride
         self.padding = padding
+        self.formats = formats
         self.reset_parameters()
-        self.man = man
-        self.exp = exp
-        self.rounding = rounding
 
     def reset_parameters(self):
         n = self.in_channels
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+        self.weight.data = self.formats.param_quant(self.weight.data)
         if self.bias is not None:
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
+            self.bias.data = self.formats.param_quant(self.bias.data)
+
+    def quant_parameters(self):
+        self.weight.data = self.formats.param_quant(self.weight.data)
+        if self.bias is not None:
+            self.bias.data = self.formats.param_quant(self.bias.data)
 
     def forward(self, input):
         batch, in_channel, in_height, in_width = input.shape
@@ -371,7 +559,7 @@ class QConv2d(nn.Module):
         out_height = (in_height - kernel_h + 2 * self.padding) // self.stride + 1
         out_width = (in_width - kernel_w + 2 * self.padding) // self.stride + 1
 
-        def tmp_matmul(a, b, bias, exp, man):
+        def tmp_matmul(a, b, bias, formats):
             assert len(a.shape) == 3
             assert len(b.shape) == 2
             assert a.shape[2] == b.shape[1]
@@ -380,17 +568,13 @@ class QConv2d(nn.Module):
             a = a.contiguous()
             b = b.contiguous()
             a = a.view(batch * m, k)
-            return QLinearFunction.apply(a, b, bias, exp, man).view(batch, m, n)
+            return QLinearFunction.apply(a, b, bias, formats).view(batch, m, n)
 
         inp_unf = torch.nn.functional.unfold(
             input, self.kernel_size, stride=self.stride, padding=self.padding
         ).transpose(1, 2)
         out_unf = tmp_matmul(
-            inp_unf,
-            self.weight.view(self.weight.size(0), -1),
-            self.bias,
-            self.exp,
-            self.man,
+            inp_unf, self.weight.view(self.weight.size(0), -1), self.bias, self.formats
         ).transpose(1, 2)
         return out_unf.view(batch, num_filter, out_height, out_width)
 

@@ -8,7 +8,8 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "quantizer",
-    "quant_gemm",
+    "float_gemm",
+    "fxp_gemm",
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -51,32 +52,181 @@ def get_module(x):
     return quant_module
 
 
-def quant_gemm(a, b, man=23, exp=8):
+def fxp_gemm(
+    a,
+    b,
+    wl_add=16,
+    fl_add=8,
+    wl_mul=16,
+    fl_mul=8,
+    symmetric=False,
+    rounding="nearest",
+    fma=True,
+):
     """
-    Quantize GEMM with customized precision as accumulator
+    Quantize GEMM with customized formats for the multipliers and accumulators
     Args:
-        - :attr: `a` (torch.Tensor) : the input of GEMM, with shape:(M, K)
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
         - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
-        - :attr: `exp` (int) : number of bits allocated for exponent
-        - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
+        - :attr: `wl_add` (int) : word length of the fixed point number being simulated for addition
+        - :attr: `fl_add` (int) : fractional length of the fixed point number being simulated for addition
+        - :attr: `wl_mul` (int) : word length of the fixed point number being simulated for multiplication
+        - :attr: `fl_mul` (int) : fractional length of the fixed point number being simulated for multiplicaiton
+        - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
+        wl_add and fl_add parameters for the rounding of the fma results)
     Returns:
         - the result of GEMM (torch.Tensor)
     """
+
     assert len(a.shape) == 2
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
     quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
-    quant_module.float_quantize_gemm(
-        a.contiguous(),
-        b.contiguous(),
-        c.contiguous(),
-        a.shape[0],
-        b.shape[1],
-        a.shape[1],
-        man,
-        exp,
-    )
+    if rounding == "nearest":
+        if not fma:
+            quant_module.fixed_point_quantize_nearest_gemm(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                wl_add,
+                fl_add,
+                wl_mul,
+                fl_mul,
+                symmetric,
+            )
+        else:
+            quant_module.fixed_point_quantize_nearest_gemm_fma(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                wl_add,
+                fl_add,
+                symmetric,
+            )
+    else:
+        if not fma:
+            quant_module.fixed_point_quantize_stochastic_gemm(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                wl_add,
+                fl_add,
+                wl_mul,
+                fl_mul,
+                symmetric,
+            )
+        else:
+            quant_module.fixed_point_quantize_stochastic_gemm_fma(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                wl_add,
+                fl_add,
+                symmetric,
+            )
+    return c
+
+
+def float_gemm(
+    a,
+    b,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    fma=True,
+    subnormals=True,
+):
+    """
+    Quantize GEMM with customized formats for the multipliers and accumulators
+    Args:
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
+        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
+        - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
+        - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
+        - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
+        - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
+        - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
+        man_add and exp_add parameters for the rounding of the fma results)
+    Returns:
+        - the result of GEMM (torch.Tensor)
+    """
+
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+    if rounding == "nearest":
+        if not fma:
+            quant_module.float_quantize_nearest_gemm(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                subnormals,
+            )
+        else:
+            quant_module.float_quantize_nearest_gemm_fma(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                subnormals,
+            )
+    else:
+        if not fma:
+            quant_module.float_quantize_stochastic_gemm(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                subnormals,
+            )
+        else:
+            quant_module.float_quantize_stochastic_gemm_fma(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                subnormals,
+            )
     return c
 
 
@@ -137,7 +287,10 @@ def quantizer(
             elif type(forward_number) == FloatingPoint:
                 forward_quant = (
                     lambda x, quant_module: quant_module.float_quantize_nearest(
-                        x, forward_number.man, forward_number.exp
+                        x,
+                        forward_number.man,
+                        forward_number.exp,
+                        forward_number.subnormals,
                     )
                 )
         elif forward_rounding == "stochastic":
@@ -158,7 +311,10 @@ def quantizer(
             elif type(forward_number) == FloatingPoint:
                 forward_quant = (
                     lambda x, quant_module: quant_module.float_quantize_stochastic(
-                        x, forward_number.man, forward_number.exp
+                        x,
+                        forward_number.man,
+                        forward_number.exp,
+                        forward_number.subnormals,
                     )
                 )
     else:
@@ -197,7 +353,10 @@ def quantizer(
         elif type(backward_number) == FloatingPoint:
             backward_quant = (
                 lambda a, quant_module: quant_module.float_quantize_nearest(
-                    a, backward_number.man, backward_number.exp
+                    a,
+                    backward_number.man,
+                    backward_number.exp,
+                    backward_number.subnormals,
                 )
             )
     elif backward_rounding == "stochastic":
@@ -220,7 +379,10 @@ def quantizer(
         elif type(backward_number) == FloatingPoint:
             backward_quant = (
                 lambda a, quant_module: quant_module.float_quantize_stochastic(
-                    a, backward_number.man, backward_number.exp
+                    a,
+                    backward_number.man,
+                    backward_number.exp,
+                    backward_number.subnormals,
                 )
             )
 
@@ -346,7 +508,7 @@ def block_quantize(x, wl, dim=-1, rounding="stochastic"):
     return out
 
 
-def float_quantize(x, exp, man, rounding="stochastic"):
+def float_quantize(x, exp, man, rounding="stochastic", subnormals=True):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -355,6 +517,7 @@ def float_quantize(x, exp, man, rounding="stochastic"):
         - :attr: `exp` (int) : number of bits allocated for exponent
         - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
         - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
+        - :attr: `subnormals` (bool): if subnormals are supported or not
 
     Returns:
         - a quantized low-precision floating point number (torch.Tensor)
@@ -367,7 +530,9 @@ def float_quantize(x, exp, man, rounding="stochastic"):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.float_quantize_nearest(x.contiguous(), man, exp)
+        out = quant_module.float_quantize_nearest(x.contiguous(), man, exp, subnormals)
     elif rounding == "stochastic":
-        out = quant_module.float_quantize_stochastic(x.contiguous(), man, exp)
+        out = quant_module.float_quantize_stochastic(
+            x.contiguous(), man, exp, subnormals
+        )
     return out

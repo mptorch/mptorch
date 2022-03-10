@@ -1,13 +1,14 @@
 import torch
-from torch.optim import SGD
-from mptorch import FloatingPoint
-from mptorch.quant import float_quantize, QLinear, QConv2d, Quantizer
-from mptorch.optim import OptimLP
 import torch.nn as nn
-from mptorch.utils import trainer
+from torch.optim import SGD
+from torch.utils.data import DataLoader
 import torchvision
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from mptorch import FloatingPoint
+import mptorch.quant as qpt
+from mptorch.optim import OptimMP
+from mptorch.utils import trainer
+
 import random
 import numpy as np
 
@@ -24,12 +25,14 @@ lr_init = 0.05  # initial learning rate
 num_epochs = 10  # epochs
 momentum = 0.9
 weight_decay = 0
-exp = 5
-man = 2
 
+"""Prepare the transforms on the dataset"""
 device = "cuda" if torch.cuda.is_available() else "cpu"
 transform = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,)),
+    ]
 )
 
 """download dataset: MNIST"""
@@ -40,16 +43,30 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_dataset = torchvision.datasets.MNIST(
     "./data", train=False, transform=transform, download=False
 )
-test_loader = DataLoader(test_dataset, batch_size=int(batch_size / 2), shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False)
 
-float_format = FloatingPoint(exp=exp, man=man)
-# define a lambda function so that the Quantizer module can be duplicated easily
-act_error_quant = lambda: Quantizer(
-    forward_number=float_format,
-    backward_number=float_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fe5m2 = FloatingPoint(exp=5, man=2, subnormals=True)
+quant_fp = lambda x: qpt.float_quantize(
+    x, exp=5, man=2, rounding="nearest", subnormals=True
 )
+quant_fxp = lambda x: qpt.fixed_point_quantize(
+    x, wl=22, fl=16, rounding="nearest", subnormals=True
+)
+
+layer_formats = qpt.QAffineFormats(
+    fwd_add=fe5m2,
+    fwd_mul=fe5m2,
+    fwd_rnd="nearest",
+    bwd_add=fe5m2,
+    bwd_mul=fe5m2,
+    bwd_rnd="nearest",
+    param_quant=quant_fp,
+    input_quant=quant_fp,
+    grad_quant=quant_fp,
+)
+
+"""Construct the model"""
 
 
 class Reshape(torch.nn.Module):
@@ -59,21 +76,28 @@ class Reshape(torch.nn.Module):
 
 model = nn.Sequential(
     Reshape(),
-    act_error_quant(),
-    QLinear(784, 128, man=man, exp=exp),
+    qpt.QLinear(784, 128, formats=layer_formats),
     nn.ReLU(),
-    act_error_quant(),
-    QLinear(128, 96, man=man, exp=exp),
+    qpt.QLinear(128, 96, formats=layer_formats),
     nn.ReLU(),
-    act_error_quant(),
-    QLinear(96, 10, man=man, exp=exp),
-    act_error_quant(),
+    qpt.QLinear(96, 10, formats=layer_formats),
 )
 
+"""Prepare and launch the training process"""
 model = model.to(device)
 optimizer = SGD(
     model.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
 )
+
+weight_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
+optimizer = OptimMP(
+    optimizer,
+    weight_quant=weight_q,
+    acc_quant=acc_q,
+    momentum_quant=acc_q,
+)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
 trainer(
     model,
@@ -84,4 +108,5 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
+    loss_scaling=1.0,
 )

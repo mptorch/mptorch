@@ -2,6 +2,7 @@ import torch
 import math
 from torch import nn
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 # utility function to see if execution can be done on a CUDA-enabled GPU
 def try_gpu():
@@ -83,16 +84,19 @@ def trainer(
     lr,
     batch_size,
     loss=nn.CrossEntropyLoss(reduction="mean"),
-    loss_scaling=1,
+    loss_scaling=1.0,
     optimizer=None,
     device=try_gpu(),
     scheduler=None,
+    plot_file="output.png",
 ):
     # 1. initialize the weights
     net.apply(init_weights)
 
     # 2. move the model to the appropriate device for training
     net.to(device)
+    train_acc_list = []
+    test_acc_list = []
 
     # 3. set up the optimizer and updater
     if optimizer is None:
@@ -121,6 +125,8 @@ def trainer(
             for p in list(net.parameters()):
                 if hasattr(p, "org"):
                     p.data.copy_(p.org)
+            for p in list(net.parameters()):
+                p.grad = p.grad / loss_scaling
             optimizer.step()
             for p in list(net.parameters()):
                 if hasattr(p, "org"):
@@ -142,6 +148,13 @@ def trainer(
         test_acc = evaluate_accuracy(net, test_loader, device)
         if scheduler is not None:
             scheduler.step()
+        train_acc_list.append(train_acc / train_size)
+        test_acc_list.append(test_acc)
         print(
             f"loss {train_loss / train_size:.3f}, train acc {train_acc / train_size:.3f}, test acc {test_acc:.3f}"
         )
+
+    plt.plot(range(num_epochs), train_acc_list, label="train_acc")
+    plt.plot(range(num_epochs), test_acc_list, label="test_acc")
+    plt.legend()
+    plt.savefig(plot_file)
