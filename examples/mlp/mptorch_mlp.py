@@ -46,9 +46,9 @@ test_dataset = torchvision.datasets.MNIST(
 test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False)
 
 """Specify the formats and quantization functions for the layer operations and signals"""
-fe5m2 = FloatingPoint(exp=5, man=2, subnormals=True)
+fe5m2 = FloatingPoint(exp=3, man=2, subnormals=True)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="nearest", subnormals=True
+    x, exp=3, man=2, rounding="nearest", subnormals=True
 )
 quant_fxp = lambda x: qpt.fixed_point_quantize(
     x, wl=22, fl=16, rounding="nearest", subnormals=True
@@ -89,8 +89,8 @@ optimizer = SGD(
     model.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
 )
 
-weight_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
+weight_q = lambda x: qpt.float_quantize(x, exp=8, man=23, rounding="nearest")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=23, rounding="nearest")
 optimizer = OptimMP(
     optimizer,
     weight_quant=weight_q,
