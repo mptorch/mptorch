@@ -15,7 +15,7 @@ import torch.nn.functional as F
 """Hyperparameters"""
 batch_size = 64  # batch size
 lr_init = 0.01  # initial learning rate
-num_epochs = 150  # epochs
+num_epochs = 250  # epochs
 momentum = 0.9
 weight_decay = 5e-4
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -224,7 +224,7 @@ def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
 
-net = resnet32()
+net = resnet20()
 net = net.to(device)
 optimizer = SGD(
     net.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay

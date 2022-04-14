@@ -84,7 +84,7 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
     o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support);
 }
 
-/*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
+__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
                                 int exp_mul, bool subnormal_support) {
@@ -128,10 +128,10 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
   // write back results
   if (row < M && col < N)
     c[row * N + col] = tmp;
-}*/
+}
 
 /* FABsum implementation */
-__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
+/*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
                                 int exp_mul, bool subnormal_support) {
@@ -172,7 +172,7 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     currFactor %= blockFactor;
     if (currFactor == 0) {
       // do bfloat16 summation here by default
-      accSum = cast_fp_nearest(accSum + fastSum, 5, 5, subnormal_support);
+      accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support);
       fastSum = 0.0f;
     }
     
@@ -182,11 +182,11 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
   }
 
-  accSum = cast_fp_nearest(accSum + fastSum, 5, 5, subnormal_support);
+  accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support);
   // write back results
   if (row < M && col < N)
     c[row * N + col] = accSum;
-}
+/*}
 
 /* Kahan summation-based version
 __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,

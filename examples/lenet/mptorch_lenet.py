@@ -33,7 +33,7 @@ lr_init = 0.001  # initial learning rate
 num_epochs = 10  # epochs
 momentum = 0.9
 weight_decay = 0
-exp = 3
+exp = 5
 man = 2
 
 float_format = FloatingPoint(exp=exp, man=man, subnormals=True)
@@ -92,6 +92,8 @@ layer_formats = QAffineFormats(
     param_quant=param_q,
 )
 
+batchnorm_q = lambda x: float_quantize(x, exp=8, man=23, rounding="nearest")
+
 
 class QLenet(nn.Module):
     def __init__(self):
@@ -101,11 +103,11 @@ class QLenet(nn.Module):
         self.fc1 = QLinear(16 * 5 * 5, 120, formats=layer_formats)
         self.fc2 = QLinear(120, 84, formats=layer_formats)
         self.fc3 = QLinear(84, 10, formats=layer_formats)
-        # self.bn1 = QBatchNorm2d(6)
-        # self.bn2 = QBatchNorm2d(16)
+        self.bn1 = QBatchNorm2d(6, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
+        self.bn2 = QBatchNorm2d(16, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
 
-        self.bn1 = nn.BatchNorm2d(6)
-        self.bn2 = nn.BatchNorm2d(16)
+        # self.bn1 = nn.BatchNorm2d(6)
+        # self.bn2 = nn.BatchNorm2d(16)
 
     def forward(self, x):
         x = act_error_quant(x)
@@ -140,5 +142,5 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
-    loss_scaling=256.0,
+    loss_scaling=1.0,
 )
