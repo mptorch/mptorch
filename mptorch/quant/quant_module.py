@@ -236,6 +236,8 @@ class QLinearFunction(torch.autograd.Function):
                 exp_mul=formats.fwd_mul.exp,
                 rounding=formats.fwd_rnd,
                 fma=formats.fwd_fma,
+                subnormals=formats.fwd_add.subnormals,
+                saturate=formats.fwd_add.saturate,
             )
         else:
             output = fxp_gemm(
@@ -261,6 +263,8 @@ class QLinearFunction(torch.autograd.Function):
                 exp=formats.fwd_add.exp,
                 man=formats.fwd_add.man,
                 rounding=formats.fwd_rnd,
+                subnormals=formats.fwd_add.subnormals,
+                saturate=formats.fwd_add.saturate,
             )
         else:
             output = fixed_point_quantize(
@@ -289,6 +293,8 @@ class QLinearFunction(torch.autograd.Function):
                     exp_mul=ctx.formats.bwd_mul.exp,
                     rounding=ctx.formats.bwd_rnd,
                     fma=ctx.formats.bwd_fma,
+                    subnormals=ctx.formats.bwd_add.subnormals,
+                    saturate=ctx.formats.bwd_add.saturate,
                 )
             else:
                 grad_input = fxp_gemm(
@@ -313,6 +319,8 @@ class QLinearFunction(torch.autograd.Function):
                     exp_mul=ctx.formats.bwd_mul.exp,
                     rounding=ctx.formats.bwd_rnd,
                     fma=ctx.formats.bwd_fma,
+                    subnormals=ctx.formats.bwd_add.subnormals,
+                    saturate=ctx.formats.bwd_add.saturate,
                 )
             else:
                 grad_weight = fxp_gemm(
@@ -338,6 +346,8 @@ class QLinearFunction(torch.autograd.Function):
                     exp_mul=ctx.formats.bwd_mul.exp,
                     rounding=ctx.formats.bwd_rnd,
                     fma=ctx.formats.bwd_fma,
+                    subnormals=ctx.formats.bwd_add.subnormals,
+                    saturate=ctx.formats.bwd_add.saturate,
                 ).reshape(-1)
             else:
                 grad_bias = fxp_gemm(

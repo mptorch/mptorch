@@ -33,9 +33,10 @@ Tensor block_quantize_sim_nearest(Tensor a, int wl) {
   return block_quantize_sim_nearest_cuda(a, wl);
 }
 
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals) {
+Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, 
+                              bool subnormals, bool saturate) {
   CHECK_INPUT(a);
-  return float_quantize_nearest_cuda(a, man_bits, exp_bits, subnormals);
+  return float_quantize_nearest_cuda(a, man_bits, exp_bits, subnormals, saturate);
 }
 
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
@@ -60,46 +61,50 @@ Tensor block_quantize_sim_stochastic(Tensor a, int wl) {
   return block_quantize_sim_stochastic_cuda(a, wl);
 }
 
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subnormals) {
+Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, 
+                                 bool subnormals, bool saturate) {
   CHECK_INPUT(a);
-  return float_quantize_stochastic_cuda(a, man_bits, exp_bits, subnormals);
+  return float_quantize_stochastic_cuda(a, man_bits, exp_bits, subnormals, saturate);
 }
 
 void float_quantize_nearest_gemm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                         int man_mul, int exp_mul, int man_add, int exp_add, bool subnormals) {
+                         int man_mul, int exp_mul, int man_add, int exp_add, 
+                         bool subnormals, bool saturate) {
   CHECK_INPUT(a);
   CHECK_INPUT(b);
   CHECK_INPUT(c);
   float_quantize_nearest_gemm_cuda(a, b, c, M, N, K, 
-                            man_mul, exp_mul, man_add, exp_add, subnormals);
+                            man_mul, exp_mul, man_add, exp_add, 
+                            subnormals, saturate);
   return;
 }
 
 void float_quantize_nearest_gemm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                         int man_fma, int exp_fma, bool subnormals) {
+                         int man_fma, int exp_fma, bool subnormals, bool saturate) {
   CHECK_INPUT(a);
   CHECK_INPUT(b);
   CHECK_INPUT(c);
-  float_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, subnormals);
+  float_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, subnormals, saturate);
   return;
 }
 
 void float_quantize_stochastic_gemm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                         int man_mul, int exp_mul, int man_add, int exp_add, bool subnormals) {
+                         int man_mul, int exp_mul, int man_add, int exp_add, 
+                         bool subnormals, bool saturate) {
   CHECK_INPUT(a);
   CHECK_INPUT(b);
   CHECK_INPUT(c);
   float_quantize_stochastic_gemm_cuda(a, b, c, M, N, K, 
-                              man_mul, exp_mul, man_add, exp_add, subnormals);
+                              man_mul, exp_mul, man_add, exp_add, subnormals, saturate);
   return;
 }
 
 void float_quantize_stochastic_gemm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                         int man_fma, int exp_fma, bool subnormals) {
+                         int man_fma, int exp_fma, bool subnormals, bool saturate) {
   CHECK_INPUT(a);
   CHECK_INPUT(b);
   CHECK_INPUT(c);
-  float_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, subnormals);
+  float_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, subnormals, saturate);
   return;
 }
 

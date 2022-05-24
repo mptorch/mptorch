@@ -76,7 +76,7 @@ Tensor block_quantize_sim_nearest_cuda(Tensor a, int wl);
  * Stochastic Rounding.
  **/
 Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
-                      bool subnormals);
+                      bool subnormals, bool saturate);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
@@ -85,28 +85,28 @@ Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
  * Nearest Rounding.
  **/
 Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits, 
-                      bool subnormals);
+                      bool subnormals, bool saturate);
 
 void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K,
                               int man_add, int exp_add,
                               int man_mul, int exp_mul,
-                              bool subnormals);
+                              bool subnormals, bool saturate);
 
 void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K,
                               int man_fma, int exp_fma,
-                              bool subnormals);
+                              bool subnormals, bool saturate);
 
 void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K, int man_add, int exp_add,
                               int man_mul, int exp_mul,
-                              bool subnormals);
+                              bool subnormals, bool saturate);
 
 void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K,
                               int man_fma, int exp_fma,
-                              bool subnormals);
+                              bool subnormals, bool saturate);
 
 void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K,

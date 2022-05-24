@@ -33,7 +33,7 @@ round_bitwise_nearest(unsigned int target, int man_bits) {
 
 __device__ __forceinline__ unsigned int
 clip_exponent(int exp_bits, int man_bits, unsigned int old_num,
-              unsigned int quantized_num) {
+              unsigned int quantized_num, bool saturate = false) {
   if (quantized_num == 0)
     return quantized_num;
 
@@ -44,14 +44,17 @@ clip_exponent(int exp_bits, int man_bits, unsigned int old_num,
       127; // we are not reserving an exponent bit for infinity, nan, etc
   // Clippping Value Up
   if (quantized_exponent_store > max_exponent_store) {
-    unsigned int max_man =
-        (unsigned int)-1 << 9 >>
-        9 >> (23 - man_bits)
-                 << (23 -
-                     man_bits); // 1 sign bit, 8 exponent bits, 1 virtual bit
-    unsigned int max_num = ((unsigned int)max_exponent_store << 23) | max_man;
-    unsigned int old_sign = old_num >> 31 << 31;
-    quantized_num = old_sign | max_num;
+    if (saturate) {  // round to max value
+      unsigned int max_man = (unsigned int)-1 << 9 >> 9 >> (23 - man_bits)
+                 << (23 - man_bits); // 1 sign bit, 8 exponent bits, 1 virtual bit
+      unsigned int max_num = ((unsigned int)max_exponent_store << 23) | max_man;
+      unsigned int old_sign = old_num >> 31 << 31;
+      quantized_num = old_sign | max_num;
+    } else {    // round to infinity
+      unsigned int old_sign = old_num >> 31 << 31;
+      quantized_num = ((((unsigned int)1 << 31) - 1) ^ (((unsigned int)1 << 23) - 1));
+      quantized_num = quantized_num | old_sign;
+    }
   }
   return quantized_num;
 }

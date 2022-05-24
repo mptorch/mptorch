@@ -92,7 +92,8 @@ Tensor block_quantize_sim_nearest_cuda(Tensor a, int wl) {
   return o;
 }
 
-Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits, bool subnormals) {
+Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits, 
+            bool subnormals, bool saturate) {
   // use external random number right now
   auto o = zeros_like(a);
   auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
@@ -102,11 +103,12 @@ Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits, bool
 
   float_kernel_stochastic<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, subnormals);
+      man_bits, exp_bits, subnormals, saturate);
   return o;
 }
 
-Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits, bool subnormals) {
+Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits, 
+            bool subnormals, bool saturate) {
   // use external random number right now
   auto o = zeros_like(a);
   int size = a.numel();
@@ -114,7 +116,8 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits, bool su
   int blockNums = (size + blockSize - 1) / blockSize;
 
   float_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, 
+      subnormals, saturate);
   return o;
 }
 
@@ -206,33 +209,36 @@ __global__ void init(unsigned int seed, curandState_t* state) {
 
 void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K, int man_add, int exp_add,
-                              int man_mul, int exp_mul, bool subnormals) {
+                              int man_mul, int exp_mul, 
+                              bool subnormals, bool saturate) {
 
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   gemm_fp_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                    c.data<float>(), M, K, N, man_add,
-                                   exp_add, man_mul, exp_mul, subnormals);
+                                   exp_add, man_mul, exp_mul, 
+                                   subnormals, saturate);
 
   return;
 }
 
 void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K, int man_fma, int exp_fma,
-                              bool subnormals) {
+                              bool subnormals, bool saturate) {
 
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   gemm_fp_fma_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                    c.data<float>(), M, K, N, man_fma,
-                                   exp_fma, subnormals);
+                                   exp_fma, subnormals, saturate);
 
   return;
 }
 
 void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K, int man_add, int exp_add,
-                              int man_mul, int exp_mul, bool subnormals) {
+                              int man_mul, int exp_mul, 
+                              bool subnormals, bool saturate) {
 
   // auto rand_ints = randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8) * 2},
   //                    device(kCUDA).dtype(kInt));
@@ -245,14 +251,14 @@ void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
                                    c.data<float>(), state, // rand_ints.data<int>(),
                                    M, K, N, man_add,
                                    exp_add, man_mul, exp_mul,
-                                   subnormals);
+                                   subnormals, saturate);
   cudaFree(state);
   return;
 }
 
 void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
                               int M, int N, int K, int man_fma, int exp_fma,
-                              bool subnormals) {
+                              bool subnormals, bool saturate) {
 
   auto rand_ints = randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8)},
                       device(kCUDA).dtype(kInt));
@@ -263,7 +269,8 @@ void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
   init<<<blocks, 1>>>(time(0), state);
   gemm_fp_fma_stochastic<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
                                    c.data<float>(), state, // rand_ints.data<int>(), 
-                                   M, K, N, man_fma, exp_fma, subnormals);
+                                   M, K, N, man_fma, exp_fma, 
+                                   subnormals, saturate);
   cudaFree(state);
   return;
 }

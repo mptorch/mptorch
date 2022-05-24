@@ -151,6 +151,7 @@ def float_gemm(
     rounding="nearest",
     fma=True,
     subnormals=True,
+    saturate=True,
 ):
     """
     Quantize GEMM with customized formats for the multipliers and accumulators
@@ -163,6 +164,9 @@ def float_gemm(
         - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
         - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
         man_add and exp_add parameters for the rounding of the fma results)
+        - :attr: `subnormals` (bool): allow the use of subnormal values
+        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
+        in the format instead of outputting infinities)
     Returns:
         - the result of GEMM (torch.Tensor)
     """
@@ -187,6 +191,7 @@ def float_gemm(
                 man_mul,
                 exp_mul,
                 subnormals,
+                saturate,
             )
         else:
             quant_module.float_quantize_nearest_gemm_fma(
@@ -199,6 +204,7 @@ def float_gemm(
                 man_add,
                 exp_add,
                 subnormals,
+                saturate,
             )
     else:
         if not fma:
@@ -214,6 +220,7 @@ def float_gemm(
                 man_mul,
                 exp_mul,
                 subnormals,
+                saturate,
             )
         else:
             quant_module.float_quantize_stochastic_gemm_fma(
@@ -226,6 +233,7 @@ def float_gemm(
                 man_add,
                 exp_add,
                 subnormals,
+                saturate,
             )
     return c
 
@@ -291,6 +299,7 @@ def quantizer(
                         forward_number.man,
                         forward_number.exp,
                         forward_number.subnormals,
+                        forward_number.saturate,
                     )
                 )
         elif forward_rounding == "stochastic":
@@ -315,6 +324,7 @@ def quantizer(
                         forward_number.man,
                         forward_number.exp,
                         forward_number.subnormals,
+                        forward_number.saturate,
                     )
                 )
     else:
@@ -357,6 +367,7 @@ def quantizer(
                     backward_number.man,
                     backward_number.exp,
                     backward_number.subnormals,
+                    backward_number.saturate,
                 )
             )
     elif backward_rounding == "stochastic":
@@ -383,6 +394,7 @@ def quantizer(
                     backward_number.man,
                     backward_number.exp,
                     backward_number.subnormals,
+                    backward_number.saturate,
                 )
             )
 
@@ -508,7 +520,7 @@ def block_quantize(x, wl, dim=-1, rounding="stochastic"):
     return out
 
 
-def float_quantize(x, exp, man, rounding="stochastic", subnormals=True):
+def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate=True):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -518,6 +530,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True):
         - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
         - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
         - :attr: `subnormals` (bool): if subnormals are supported or not
+        - :attr: `saturate` (bool): saturate on overflow or use infinities
 
     Returns:
         - a quantized low-precision floating point number (torch.Tensor)
@@ -530,9 +543,11 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.float_quantize_nearest(x.contiguous(), man, exp, subnormals)
+        out = quant_module.float_quantize_nearest(
+            x.contiguous(), man, exp, subnormals, saturate
+        )
     elif rounding == "stochastic":
         out = quant_module.float_quantize_stochastic(
-            x.contiguous(), man, exp, subnormals
+            x.contiguous(), man, exp, subnormals, saturate
         )
     return out

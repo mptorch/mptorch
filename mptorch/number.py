@@ -80,22 +80,24 @@ class FloatingPoint(Number):
     """
     Low-Precision Floating Point Format.
 
-    We set the exponent bias to be :math:`2^{exp-1}`. In our simulation, we do
-    not handle denormal/subnormal numbers and infinities/NaNs. For rounding
+    We set the exponent bias to be :math:`2^{exp-1}`. For rounding
     mode, we apply *round to nearest even*.
 
     Args:
         - :attr: `exp`: number of bits allocated for exponent
         - :attr: `man`: number of bits allocated for mantissa, referring to number of bits that are
-                        supposed to be stored on hardware (not counting the virtual bits).
+                        supposed to be stored on hardware (not counting the virtual bits)
+        - :attr: `subnormals`: allow the use of subnormal values
+        - :attr: `saturate`: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp, man, subnormals=False):
+    def __init__(self, exp, man, subnormals=False, saturate=True):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         self.exp = exp
         self.man = man
         self.subnormals = subnormals
+        self.saturate = saturate
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)

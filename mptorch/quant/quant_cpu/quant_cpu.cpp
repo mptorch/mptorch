@@ -249,7 +249,7 @@ Tensor block_quantize_stochastic(Tensor a, int wl, int dim) {
 }
 
 Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding, 
-                        bool subnormal_support) {
+                        bool subnormal_support, bool saturate = false) {
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
@@ -274,7 +274,7 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
       quantized = quantized - shift_float;
     } else {
       quantize_bits = round_bitwise(target, man_bits, rounding);
-      quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits);
+      quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       BITS_TO_FLOAT(quantize_bits, quantized);
     }
     o_array[i] = quantized;
@@ -283,7 +283,7 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
 }
 
 float float_quantize(float origin_float, int man_bits, int exp_bits,
-                     Mode rounding, bool subnormal_support) {
+                     Mode rounding, bool subnormal_support, bool saturate = false) {
   unsigned int target, quantize_bits;
   FLOAT_TO_BITS(origin_float, target);
   float quantized;
@@ -302,36 +302,38 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
     quantized = quantized - shift_float;
   } else {
     quantize_bits = round_bitwise(target, man_bits, rounding);
-    quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits);
+    quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
     BITS_TO_FLOAT(quantize_bits, quantized);
   }
   return quantized;
 }
 
 void gemm_fp(float *a, float *b, float *c, int M, int K, int N, int man_bits,
-              int exp_bits, bool subnormals) {
+              int exp_bits, bool subnormals, bool saturate) {
   for (int64_t i = 0; i < M; ++i)
     for (int64_t j = 0; j < N; ++j)
       for (int64_t k = 0; k < K; ++k) {
         c[i * N + j] = float_quantize(
             c[i * N + j] + float_quantize(a[i * K + k] * b[k * N + j], man_bits,
-                                          exp_bits, rNearest, subnormals),
-            man_bits, exp_bits, rNearest, subnormals);
+                                          exp_bits, rNearest, subnormals, saturate),
+            man_bits, exp_bits, rNearest, subnormals, saturate);
       }
 }
 
 void float_quantize_gemm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                         int man_bits, int exp_bits, bool subnormals) {
+                         int man_bits, int exp_bits, bool subnormals, bool saturate) {
   gemm_fp(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
-           N, man_bits, exp_bits, subnormals);
+           N, man_bits, exp_bits, subnormals, saturate);
 }
 
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subnormals) {
-  return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals);
+Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, 
+                bool subnormals, bool saturate) {
+  return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals, saturate);
 }
 
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals) {
-  return float_quantize(a, man_bits, exp_bits, rNearest, subnormals);
+Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, 
+                bool subnormals, bool saturate) {
+  return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

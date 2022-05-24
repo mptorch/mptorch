@@ -3,7 +3,7 @@
 #include "sim_helper.cu"
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                 bool subnormal_support = true) {
+                                 bool subnormal_support = true, bool saturate = true) {
   unsigned int target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -26,7 +26,7 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
       quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
     } else {
       quantize_bits = round_bitwise_nearest(target, man_bits);
-      quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits);
+      quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = BITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -36,7 +36,7 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
 
 __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
                                     int man_bits, int exp_bits,
-                                    bool subnormal_support = true) {
+                                    bool subnormal_support = true, bool saturate = true) {
   unsigned int target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -55,7 +55,7 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
     quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
   } else {
     quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
-    quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits);
+    quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
 
@@ -67,27 +67,28 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
 __global__ void float_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
                                         int man_bits, int exp_bits,
-                                        bool subnormal_support) {
+                                        bool subnormal_support, bool saturate) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
     o[index] = cast_fp_stochastic(a[index], (unsigned int)r[index], man_bits,
-                                  exp_bits, subnormal_support);
+                                  exp_bits, subnormal_support, saturate);
 }
 
 // quantize a float into a floating point with [exp_bits] exponent and
 // [man_bits] mantissa
 __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      int man_bits, int exp_bits,
-                                     bool subnormal_support) {
+                                     bool subnormal_support, bool saturate) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
-    o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support);
+    o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support, saturate);
 }
 
 __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
-                                int exp_mul, bool subnormal_support) {
+                                int exp_mul, bool subnormal_support, 
+                                bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -114,10 +115,8 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
       tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul,
-                                                  subnormal_support),
-                            man_add, exp_add, subnormal_support);
+              s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support, saturate),
+              man_add, exp_add, subnormal_support, saturate);
     }
 
     // wait for all threads to finish using current tiles
@@ -134,7 +133,8 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
 /*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
-                                int exp_mul, bool subnormal_support) {
+                                int exp_mul, bool subnormal_support, 
+                                bool saturate) {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
   __shared__ float s_b[64];
@@ -162,17 +162,16 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      fastSum = cast_fp_nearest(fastSum + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul,
-                                                  subnormal_support),
-                            man_add, exp_add, subnormal_support);
+      fastSum = cast_fp_nearest(fastSum + 
+            cast_fp_nearest(s_a[ty * blockDim.x + j] *s_b[j * blockDim.x + tx],
+            man_mul, exp_mul, subnormal_support, saturate),
+            man_add, exp_add, subnormal_support, saturate);
     }
     currFactor++;
     currFactor %= blockFactor;
     if (currFactor == 0) {
       // do bfloat16 summation here by default
-      accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support);
+      accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support, saturate);
       fastSum = 0.0f;
     }
     
@@ -182,18 +181,19 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
   }
 
-  accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support);
+  accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support, saturate);
   // write back results
   if (row < M && col < N)
     c[row * N + col] = accSum;
-/*}
+}*/
 
-/* Kahan summation-based version
-__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
+/* Kahan summation-based version */
+/*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                   float *__restrict__ c, int M, int K, int N,
                                   int man_add, int exp_add,
                                   int man_mul, int exp_mul,
-                                  bool subnormal_support) {
+                                  bool subnormal_support,
+                                  bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -219,12 +219,13 @@ col] : 0.0;
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      float y = cast_fp_nearest(cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                  s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support)
-- comp, man_add, exp_add, subnormal_support); float t = cast_fp_nearest(sum + y,
-man_add, exp_add, subnormal_support); comp = cast_fp_nearest(cast_fp_nearest(t -
-sum, man_add, exp_add, subnormal_support) - y, man_add, exp_add,
-subnormal_support); sum = t;
+      float y = cast_fp_nearest(cast_fp_nearest(s_a[ty * blockDim.x + j] * 
+          s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support, saturate) - 
+          comp, man_add, exp_add, subnormal_support, saturate); 
+      float t = cast_fp_nearest(sum + y, man_add, exp_add, subnormal_support, saturate); 
+      comp = cast_fp_nearest(cast_fp_nearest(t - sum, man_add, exp_add, 
+          subnormal_support, saturate) - y, man_add, exp_add, subnormal_support, saturate);
+      sum = t;
     }
 
     // wait for all threads to finish using current tiles
@@ -240,7 +241,8 @@ __global__ void gemm_fp_fma_nearest(float *__restrict__ a,
                                     float *__restrict__ b,
                                     float *__restrict__ c, int M, int K, int N,
                                     int man_fma, int exp_fma,
-                                    bool subnormal_support) {
+                                    bool subnormal_support,
+                                    bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -268,7 +270,7 @@ __global__ void gemm_fp_fma_nearest(float *__restrict__ a,
     for (int j = 0; j < blockDim.x; j++) {
       tmp = cast_fp_nearest(
           fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp),
-          man_fma, exp_fma, subnormal_support);
+          man_fma, exp_fma, subnormal_support, saturate);
     }
 
     // wait for all threads to finish using current tiles
@@ -286,7 +288,8 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
                                    curandState_t *state, // int *__restrict__ r,
                                    int M, int K, int N, int man_add,
                                    int exp_add, int man_mul, int exp_mul,
-                                   bool subnormal_support) {
+                                   bool subnormal_support,
+                                   bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -321,9 +324,9 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
       // rmul = (unsigned int)r[bidx + 2 * (i + j) + 1];
       tmp = cast_fp_stochastic(
           tmp + cast_fp_stochastic(s_a[ty * blockDim.x + j] *
-                                       s_b[j * blockDim.x + tx],
-                                   rmul, man_mul, exp_mul, subnormal_support),
-          radd, man_add, exp_add, subnormal_support);
+          s_b[j * blockDim.x + tx],
+          rmul, man_mul, exp_mul, subnormal_support, saturate),
+          radd, man_add, exp_add, subnormal_support, saturate);
     }
 
     // wait for all threads to finish using current tiles
@@ -339,7 +342,8 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
 __global__ void gemm_fp_fma_stochastic(
     float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
     curandState_t *state, // int *__restrict__ r,
-    int M, int K, int N, int man_fma, int exp_fma, bool subnormal_support) {
+    int M, int K, int N, int man_fma, int exp_fma, 
+    bool subnormal_support, bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -372,7 +376,7 @@ __global__ void gemm_fp_fma_stochastic(
       rfma = curand(&state[sidx]);
       tmp = cast_fp_stochastic(
           fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma,
-          man_fma, exp_fma, subnormal_support);
+          man_fma, exp_fma, subnormal_support, saturate);
     }
 
     // wait for all threads to finish using current tiles
