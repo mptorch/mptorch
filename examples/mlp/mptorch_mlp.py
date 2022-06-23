@@ -7,7 +7,7 @@ from torchvision import datasets, transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
-from mptorch.utils import trainer
+from mptorch.utils import trainer, trainer_old
 
 import random
 import numpy as np
@@ -46,18 +46,19 @@ test_dataset = torchvision.datasets.MNIST(
 test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False)
 
 """Specify the formats and quantization functions for the layer operations and signals"""
-fe5m2 = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
+exp, man = 3, 2
+fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=True)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="nearest", subnormals=True, saturate=False
+    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=True
 )
-quant_fxp = lambda x: qpt.fixed_point_quantize(x, wl=22, fl=16, rounding="nearest")
+# quant_fxp = lambda x: qpt.fixed_point_quantize(x, wl=22, fl=16, rounding="nearest")
 
 layer_formats = qpt.QAffineFormats(
-    fwd_add=fe5m2,
-    fwd_mul=fe5m2,
+    fwd_add=fp_format,
+    fwd_mul=fp_format,
     fwd_rnd="nearest",
-    bwd_add=fe5m2,
-    bwd_mul=fe5m2,
+    bwd_add=fp_format,
+    bwd_mul=fp_format,
     bwd_rnd="nearest",
     param_quant=quant_fp,
     input_quant=quant_fp,
@@ -106,5 +107,5 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
-    loss_scaling=1.0,
+    init_scale=1024.0,
 )
