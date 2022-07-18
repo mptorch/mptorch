@@ -46,7 +46,7 @@ test_dataset = torchvision.datasets.MNIST(
 test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False)
 
 """Specify the formats and quantization functions for the layer operations and signals"""
-exp, man = 3, 2
+exp, man = 4, 2
 fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=True)
 quant_fp = lambda x: qpt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=True
