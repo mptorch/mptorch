@@ -28,7 +28,7 @@ class OptimMP(Optimizer):
         self,
         optim,
         weight_quant=None,
-        grad_scaling=1.0,
+        # grad_scaling=1.0,
         grad_quant=None,
         momentum_quant=None,
         acc_quant=None,
@@ -42,8 +42,8 @@ class OptimMP(Optimizer):
         self.param_groups = optim.param_groups
         self.optim = optim
 
-        assert grad_scaling > 0, "gradient scaling must be positive"
-        self.grad_scaling = grad_scaling
+        # assert grad_scaling > 0, "gradient scaling must be positive"
+        # self.grad_scaling = grad_scaling
 
         self.weight_quant = weight_quant
         self.grad_quant = grad_quant
@@ -76,7 +76,7 @@ class OptimMP(Optimizer):
                     # None gradient is equivalent to 0 gradient, skip
                     if p.grad is None:
                         continue
-                    p.grad.data = self.grad_quant(p.grad.data * self.grad_scaling)
+                    p.grad.data = self.grad_quant(p.grad.data)
 
         # switch acc into weight before stepping
         if not self.acc_quant is None:

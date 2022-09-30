@@ -41,13 +41,13 @@ transform = transforms.Compose(
 )
 
 """download dataset: MNIST"""
-train_dataset = torchvision.datasets.MNIST(
+train_dataset = datasets.MNIST(
     "./data", train=True, transform=transform, download=True
 )
 train_loader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True
 )
-test_dataset = torchvision.datasets.MNIST(
+test_dataset = datasets.MNIST(
     "./data", train=False, transform=transform, download=False
 )
 test_loader = DataLoader(
@@ -58,21 +58,21 @@ test_loader = DataLoader(
 Specify the formats and quantization functions 
 for the layer operations and signals
 """
-fe5m2 = FloatingPoint(exp=5, man=2, subnormals=True)
+exp, man = 4, 2
+fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="nearest", subnormals=True
+    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_add=fe5m2,
-    fwd_mul=fe5m2,
+    fwd_mac=(fp_format, fp_format),
     fwd_rnd="nearest",
-    bwd_add=fe5m2,
-    bwd_mul=fe5m2,
+    bwd_mac=(fp_format, fp_format),
     bwd_rnd="nearest",
-    param_quant=quant_fp,
+    weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
+    bias_quant=quant_fp,
 )
 
 """Construct the model"""
@@ -100,13 +100,8 @@ optimizer = SGD(
 )
 
 """
-Specify the formats to be used for storing
-the high precision parameters and for doing
-the update of said parameters
+Specify the format to be used for updating model parameters
 """
-weight_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=15, rounding="nearest"
-)
 acc_q = lambda x: qpt.float_quantize(
     x, exp=8, man=15, rounding="nearest"
 )
@@ -116,12 +111,10 @@ optimizer = OptimMP(
     acc_quant=acc_q,
     momentum_quant=acc_q,
 )
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=num_epochs
-)
 
 """
-Utility function used to train the model
+Utility function used to train the model (loss scaling is
+supported)
 """
 trainer(
     model,
@@ -132,6 +125,7 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
+    init_scale=1024.0,
 )
 
 ```

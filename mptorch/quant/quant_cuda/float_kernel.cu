@@ -3,7 +3,8 @@
 #include "sim_helper.cu"
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                 bool subnormal_support = true, bool saturate = true) {
+                                 bool subnormal_support = true,
+                                 bool saturate = false) {
   unsigned int target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -26,7 +27,8 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
       quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
     } else {
       quantize_bits = round_bitwise_nearest(target, man_bits);
-      quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantize_bits =
+          clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = BITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -36,7 +38,8 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
 
 __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
                                     int man_bits, int exp_bits,
-                                    bool subnormal_support = true, bool saturate = true) {
+                                    bool subnormal_support = true,
+                                    bool saturate = false) {
   unsigned int target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -55,7 +58,8 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
     quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
   } else {
     quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
-    quantize_bits = clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+    quantize_bits =
+        clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
 
@@ -81,13 +85,14 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      bool subnormal_support, bool saturate) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
-    o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support, saturate);
+    o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support,
+                               saturate);
 }
 
 __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
-                                int exp_mul, bool subnormal_support, 
+                                int exp_mul, bool subnormal_support,
                                 bool saturate) {
 
   // declare shared memory matrices for A and B matrices
@@ -99,15 +104,15 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
   int col = blockIdx.x * blockDim.x + threadIdx.x;
   int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-  float tmp = 0.0;
+  float tmp = 0.0f;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0;
+        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
     s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0;
+        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
 
     // wait for both tiles to be loaded in before doing computation
     __syncthreads();
@@ -115,8 +120,10 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
       tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-              s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support, saturate),
-              man_add, exp_add, subnormal_support, saturate);
+                                                      s_b[j * blockDim.x + tx],
+                                                  man_mul, exp_mul,
+                                                  subnormal_support, saturate),
+                            man_add, exp_add, subnormal_support, saturate);
     }
 
     // wait for all threads to finish using current tiles
@@ -133,7 +140,7 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
 /*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
                                 float *__restrict__ c, int M, int K, int N,
                                 int man_add, int exp_add, int man_mul,
-                                int exp_mul, bool subnormal_support, 
+                                int exp_mul, bool subnormal_support,
                                 bool saturate) {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -162,7 +169,7 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      fastSum = cast_fp_nearest(fastSum + 
+      fastSum = cast_fp_nearest(fastSum +
             cast_fp_nearest(s_a[ty * blockDim.x + j] *s_b[j * blockDim.x + tx],
             man_mul, exp_mul, subnormal_support, saturate),
             man_add, exp_add, subnormal_support, saturate);
@@ -171,10 +178,10 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
     currFactor %= blockFactor;
     if (currFactor == 0) {
       // do bfloat16 summation here by default
-      accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support, saturate);
-      fastSum = 0.0f;
+      accSum = cast_fp_nearest(accSum + fastSum, 8, 7, subnormal_support,
+saturate); fastSum = 0.0f;
     }
-    
+
 
     // wait for all threads to finish using current tiles
     // before loading in new ones
@@ -219,13 +226,12 @@ col] : 0.0;
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      float y = cast_fp_nearest(cast_fp_nearest(s_a[ty * blockDim.x + j] * 
-          s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support, saturate) - 
-          comp, man_add, exp_add, subnormal_support, saturate); 
-      float t = cast_fp_nearest(sum + y, man_add, exp_add, subnormal_support, saturate); 
-      comp = cast_fp_nearest(cast_fp_nearest(t - sum, man_add, exp_add, 
-          subnormal_support, saturate) - y, man_add, exp_add, subnormal_support, saturate);
-      sum = t;
+      float y = cast_fp_nearest(cast_fp_nearest(s_a[ty * blockDim.x + j] *
+          s_b[j * blockDim.x + tx], man_mul, exp_mul, subnormal_support,
+saturate) - comp, man_add, exp_add, subnormal_support, saturate); float t =
+cast_fp_nearest(sum + y, man_add, exp_add, subnormal_support, saturate); comp =
+cast_fp_nearest(cast_fp_nearest(t - sum, man_add, exp_add, subnormal_support,
+saturate) - y, man_add, exp_add, subnormal_support, saturate); sum = t;
     }
 
     // wait for all threads to finish using current tiles
@@ -241,8 +247,7 @@ __global__ void gemm_fp_fma_nearest(float *__restrict__ a,
                                     float *__restrict__ b,
                                     float *__restrict__ c, int M, int K, int N,
                                     int man_fma, int exp_fma,
-                                    bool subnormal_support,
-                                    bool saturate) {
+                                    bool subnormal_support, bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -253,15 +258,15 @@ __global__ void gemm_fp_fma_nearest(float *__restrict__ a,
   int col = blockIdx.x * blockDim.x + threadIdx.x;
   int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-  float tmp = 0.0;
+  float tmp = 0.0f;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0;
+        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
     s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0;
+        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
 
     // wait for both tiles to be loaded in before doing computation
     __syncthreads();
@@ -288,8 +293,7 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
                                    curandState_t *state, // int *__restrict__ r,
                                    int M, int K, int N, int man_add,
                                    int exp_add, int man_mul, int exp_mul,
-                                   bool subnormal_support,
-                                   bool saturate) {
+                                   bool subnormal_support, bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -302,16 +306,16 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
   // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x) * 2;
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
-  float tmp = 0.0;
+  float tmp = 0.0f;
   unsigned int radd, rmul;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0;
+        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
     s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0;
+        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
 
     // wait for both tiles to be loaded in before doing computation
     __syncthreads();
@@ -323,9 +327,9 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
       // radd = (unsigned int)r[bidx + 2 * (i + j)];
       // rmul = (unsigned int)r[bidx + 2 * (i + j) + 1];
       tmp = cast_fp_stochastic(
-          tmp + cast_fp_stochastic(s_a[ty * blockDim.x + j] *
-          s_b[j * blockDim.x + tx],
-          rmul, man_mul, exp_mul, subnormal_support, saturate),
+          tmp + cast_fp_stochastic(
+                    s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul,
+                    man_mul, exp_mul, subnormal_support, saturate),
           radd, man_add, exp_add, subnormal_support, saturate);
     }
 
@@ -339,11 +343,12 @@ __global__ void gemm_fp_stochastic(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = tmp;
 }
 
-__global__ void gemm_fp_fma_stochastic(
-    float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
-    curandState_t *state, // int *__restrict__ r,
-    int M, int K, int N, int man_fma, int exp_fma, 
-    bool subnormal_support, bool saturate) {
+__global__ void
+gemm_fp_fma_stochastic(float *__restrict__ a, float *__restrict__ b,
+                       float *__restrict__ c,
+                       curandState_t *state, // int *__restrict__ r,
+                       int M, int K, int N, int man_fma, int exp_fma,
+                       bool subnormal_support, bool saturate) {
 
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[64];
@@ -356,16 +361,16 @@ __global__ void gemm_fp_fma_stochastic(
   // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x);
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
-  float tmp = 0.0;
+  float tmp = 0.0f;
   unsigned int rfma;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0;
+        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
     s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0;
+        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
 
     // wait for both tiles to be loaded in before doing computation
     __syncthreads();

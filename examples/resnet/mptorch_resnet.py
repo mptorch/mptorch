@@ -6,10 +6,7 @@ from mptorch.optim import OptimMP
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
-import random
-import numpy as np
+from torchvision import transforms
 import torch.nn.functional as F
 
 """Hyperparameters"""
@@ -25,11 +22,8 @@ man1 = 2
 exp2 = 5
 man2 = 10
 
-bfloat16 = FloatingPoint(exp=8, man=7)
-bfloat24 = FloatingPoint(exp=8, man=15)
-
-fpe5m2 = FloatingPoint(exp=exp1, man=man1, subnormals=True)
-fpe5m10 = FloatingPoint(exp=exp2, man=man2, subnormals=True)
+fpe5m2 = FloatingPoint(exp=exp1, man=man1, subnormals=True, saturate=False)
+fpe5m10 = FloatingPoint(exp=exp2, man=man2, subnormals=True, saturate=False)
 
 transform_train = transforms.Compose(
     [
@@ -70,27 +64,39 @@ act_error_quant = lambda: qpt.Quantizer(
 )
 
 param_q = lambda x: qpt.float_quantize(
-    x, exp=exp1, man=man1, rounding="nearest", subnormals=True
+    x,
+    exp=exp1,
+    man=man1,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False,
 )
 input_q = lambda x: qpt.float_quantize(
-    x, exp=exp1, man=man1, rounding="nearest", subnormals=True
+    x,
+    exp=exp1,
+    man=man1,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False,
 )
 grad_q = lambda x: qpt.float_quantize(
-    x, exp=exp1, man=man1, rounding="nearest", subnormals=True
+    x,
+    exp=exp1,
+    man=man1,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False,
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_add=fpe5m2,
-    fwd_mul=fpe5m2,
+    fwd_mac=(fpe5m2, fpe5m2),
     fwd_rnd="nearest",
-    bwd_add=fpe5m2,
-    bwd_mul=fpe5m2,
+    bwd_mac=(fpe5m2, fpe5m2),
     bwd_rnd="nearest",
-    param_quant=param_q,
+    weight_quant=param_q,
+    bias_quant=param_q,
     input_quant=input_q,
     grad_quant=grad_q,
-    fwd_fma=False,
-    bwd_fma=False,
 )
 
 
@@ -230,15 +236,10 @@ optimizer = SGD(
     net.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
 )
 
-weight_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=23, rounding="nearest", subnormals=True
-)
 acc_q = lambda x: qpt.float_quantize(
     x, exp=8, man=23, rounding="nearest", subnormals=True
 )
-optimizer = OptimMP(
-    optimizer, weight_quant=weight_q, acc_quant=acc_q, momentum_quant=acc_q
-)
+optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
 trainer(
@@ -251,5 +252,5 @@ trainer(
     optimizer=optimizer,
     device=device,
     scheduler=scheduler,
-    loss_scaling=256.0,
+    init_scale=256.0,
 )

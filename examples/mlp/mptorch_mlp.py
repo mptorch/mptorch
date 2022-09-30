@@ -3,11 +3,11 @@ import torch.nn as nn
 from torch.optim import SGD
 from torch.utils.data import DataLoader
 import torchvision
-from torchvision import datasets, transforms
+from torchvision import transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
-from mptorch.utils import trainer, trainer_old
+from mptorch.utils import trainer
 
 import random
 import numpy as np
@@ -47,22 +47,20 @@ test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False
 
 """Specify the formats and quantization functions for the layer operations and signals"""
 exp, man = 4, 2
-fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=True)
+fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=True
+    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
-# quant_fxp = lambda x: qpt.fixed_point_quantize(x, wl=22, fl=16, rounding="nearest")
 
 layer_formats = qpt.QAffineFormats(
-    fwd_add=fp_format,
-    fwd_mul=fp_format,
+    fwd_mac=(fp_format, fp_format),
     fwd_rnd="nearest",
-    bwd_add=fp_format,
-    bwd_mul=fp_format,
+    bwd_mac=(fp_format, fp_format),
     bwd_rnd="nearest",
-    param_quant=quant_fp,
+    weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
+    bias_quant=quant_fp,
 )
 
 """Construct the model"""
@@ -88,15 +86,12 @@ optimizer = SGD(
     model.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
 )
 
-weight_q = lambda x: qpt.float_quantize(x, exp=8, man=23, rounding="nearest")
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=23, rounding="nearest")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
 optimizer = OptimMP(
     optimizer,
-    weight_quant=weight_q,
     acc_quant=acc_q,
     momentum_quant=acc_q,
 )
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
 trainer(
     model,
@@ -107,5 +102,5 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=1024.0,
+    init_scale=256.0,
 )

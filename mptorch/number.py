@@ -105,6 +105,18 @@ class FloatingPoint(Number):
     def __repr__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
 
+    @property
+    def is_fp32(self) -> bool:
+        return self.man == 23 and self.exp == 8
+
+    @property
+    def is_fp16(self) -> bool:
+        return self.man == 10 and self.exp == 5
+
+    @property
+    def is_bfloat16(self) -> bool:
+        return self.man == 7 and self.exp == 8
+
 
 class BlockFloatingPoint(Number):
     """

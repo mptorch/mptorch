@@ -14,11 +14,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from mptorch.utils import trainer
 import torchvision
-from torchvision import datasets, transforms
+from torchvision import transforms
 from torch.utils.data import DataLoader
 import random
 import numpy as np
-import os
 
 seed = 123
 torch.manual_seed(seed)
@@ -29,14 +28,15 @@ torch.backends.cudnn.deterministic = True
 
 """Hyperparameters"""
 batch_size = 64  # batch size
-lr_init = 0.001  # initial learning rate
-num_epochs = 10  # epochs
+lr_init = 0.1  # initial learning rate
+num_epochs = 2  # epochs
 momentum = 0.9
 weight_decay = 0
 exp = 5
 man = 2
 
-float_format = FloatingPoint(exp=exp, man=man, subnormals=True)
+float_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+mac_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -71,28 +71,23 @@ act_error_quant = Quantizer(
     backward_rounding="nearest",
 )
 
-act_error_quant = Quantizer(
-    forward_number=float_format,
-    backward_number=float_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
-)
-
 param_q = lambda x: float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True
+    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 
 layer_formats = QAffineFormats(
-    fwd_add=float_format,
-    fwd_mul=float_format,
+    fwd_mac=(mac_format, mac_format),
+    bwd_mac=(mac_format, mac_format),
     fwd_rnd="nearest",
-    bwd_add=float_format,
-    bwd_mul=float_format,
     bwd_rnd="nearest",
-    param_quant=param_q,
+    weight_quant=param_q,
+    input_quant=param_q,
+    output_quant=param_q,
 )
 
-batchnorm_q = lambda x: float_quantize(x, exp=8, man=23, rounding="nearest")
+batchnorm_q = lambda x: float_quantize(
+    x, exp=8, man=23, rounding="nearest", saturate=False
+)
 
 
 class QLenet(nn.Module):
@@ -103,11 +98,11 @@ class QLenet(nn.Module):
         self.fc1 = QLinear(16 * 5 * 5, 120, formats=layer_formats)
         self.fc2 = QLinear(120, 84, formats=layer_formats)
         self.fc3 = QLinear(84, 10, formats=layer_formats)
-        self.bn1 = QBatchNorm2d(6, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
-        self.bn2 = QBatchNorm2d(16, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
+        # self.bn1 = QBatchNorm2d(6, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
+        # self.bn2 = QBatchNorm2d(16, fwd_quant=batchnorm_q, bwd_quant=batchnorm_q)
 
-        # self.bn1 = nn.BatchNorm2d(6)
-        # self.bn2 = nn.BatchNorm2d(16)
+        self.bn1 = nn.BatchNorm2d(6)
+        self.bn2 = nn.BatchNorm2d(16)
 
     def forward(self, x):
         x = act_error_quant(x)
@@ -142,5 +137,5 @@ trainer(
     batch_size=batch_size,
     optimizer=optimizer,
     device=device,
-    loss_scaling=1.0,
+    init_scale=128.0,
 )

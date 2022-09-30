@@ -92,8 +92,8 @@ Tensor block_quantize_sim_nearest_cuda(Tensor a, int wl) {
   return o;
 }
 
-Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits, 
-            bool subnormals, bool saturate) {
+Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
+                                      bool subnormals, bool saturate) {
   // use external random number right now
   auto o = zeros_like(a);
   auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
@@ -107,8 +107,8 @@ Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
   return o;
 }
 
-Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits, 
-            bool subnormals, bool saturate) {
+Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
+                                   bool subnormals, bool saturate) {
   // use external random number right now
   auto o = zeros_like(a);
   int size = a.numel();
@@ -116,7 +116,7 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
   int blockNums = (size + blockSize - 1) / blockSize;
 
   float_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, 
+      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits,
       subnormals, saturate);
   return o;
 }
@@ -203,83 +203,85 @@ fixed_point_quantize_nearest_mask_cuda(Tensor a, int wl, int fl,
   return std::make_tuple(o, m);
 }
 
-__global__ void init(unsigned int seed, curandState_t* state) {
-  curand_init(seed, blockIdx.x * blockIdx.y, 0, &state[blockIdx.x * blockIdx.y]);
+__global__ void init(unsigned int seed, curandState_t *state) {
+  curand_init(seed, blockIdx.x * blockIdx.y, 0,
+              &state[blockIdx.x * blockIdx.y]);
 }
 
-void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K, int man_add, int exp_add,
-                              int man_mul, int exp_mul, 
-                              bool subnormals, bool saturate) {
+void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                      int N, int K, int man_add, int exp_add,
+                                      int man_mul, int exp_mul, bool subnormals,
+                                      bool saturate) {
 
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
-  gemm_fp_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                   c.data<float>(), M, K, N, man_add,
-                                   exp_add, man_mul, exp_mul, 
-                                   subnormals, saturate);
+  gemm_fp_nearest<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, man_add,
+      exp_add, man_mul, exp_mul, subnormals, saturate);
 
   return;
 }
 
-void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K, int man_fma, int exp_fma,
-                              bool subnormals, bool saturate) {
+void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                          int N, int K, int man_fma,
+                                          int exp_fma, bool subnormals,
+                                          bool saturate) {
 
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   gemm_fp_fma_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                   c.data<float>(), M, K, N, man_fma,
-                                   exp_fma, subnormals, saturate);
+                                           c.data<float>(), M, K, N, man_fma,
+                                           exp_fma, subnormals, saturate);
 
   return;
 }
 
-void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K, int man_add, int exp_add,
-                              int man_mul, int exp_mul, 
-                              bool subnormals, bool saturate) {
+void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                         int N, int K, int man_add, int exp_add,
+                                         int man_mul, int exp_mul,
+                                         bool subnormals, bool saturate) {
 
-  // auto rand_ints = randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8) * 2},
+  // auto rand_ints = randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K +
+  // 8 - K % 8) * 2},
   //                    device(kCUDA).dtype(kInt));
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
-  curandState_t* state;
-  cudaMalloc((void**) &state, blocks.x * blocks.y * sizeof(curandState_t));
+  curandState_t *state;
+  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
-  gemm_fp_stochastic<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                   c.data<float>(), state, // rand_ints.data<int>(),
-                                   M, K, N, man_add,
-                                   exp_add, man_mul, exp_mul,
-                                   subnormals, saturate);
+  gemm_fp_stochastic<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(), c.data<float>(),
+      state, // rand_ints.data<int>(),
+      M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
   cudaFree(state);
   return;
 }
 
-void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K, int man_fma, int exp_fma,
-                              bool subnormals, bool saturate) {
+void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                             int M, int N, int K, int man_fma,
+                                             int exp_fma, bool subnormals,
+                                             bool saturate) {
 
-  auto rand_ints = randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8)},
-                      device(kCUDA).dtype(kInt));
+  auto rand_ints =
+      randint(INT_MAX, {(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8)},
+              device(kCUDA).dtype(kInt));
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
-  curandState_t* state;
-  cudaMalloc((void**) &state, blocks.x * blocks.y * sizeof(curandState_t));
+  curandState_t *state;
+  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
-  gemm_fp_fma_stochastic<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                   c.data<float>(), state, // rand_ints.data<int>(), 
-                                   M, K, N, man_fma, exp_fma, 
-                                   subnormals, saturate);
+  gemm_fp_fma_stochastic<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(), c.data<float>(),
+      state, // rand_ints.data<int>(),
+      M, K, N, man_fma, exp_fma, subnormals, saturate);
   cudaFree(state);
   return;
 }
 
-void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K,
-                              int wl_add, int fl_add,
-                              int wl_mul, int fl_mul, bool symmetric)
-{
+void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                            int N, int K, int wl_add,
+                                            int fl_add, int wl_mul, int fl_mul,
+                                            bool symmetric) {
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_add = -fl_add;
@@ -287,32 +289,30 @@ void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c,
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  gemm_fxp_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                  c.data<float>(), M, K, N,
-                                  sigma_add, t_min_add, t_max_add,
-                                  sigma_mul, t_min_mul, t_max_mul);
+  gemm_fxp_nearest<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, sigma_add,
+      t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
   return;
 }
 
-void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K,
-                              int wl_fma, int fl_fma, bool symmetric)
-{
+void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                int M, int N, int K, int wl_fma,
+                                                int fl_fma, bool symmetric) {
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
   gemm_fxp_fma_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                  c.data<float>(), M, K, N,
-                                  sigma_fma, t_min_fma, t_max_fma);
+                                            c.data<float>(), M, K, N, sigma_fma,
+                                            t_min_fma, t_max_fma);
   return;
 }
 
-void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K, int wl_add, int fl_add,
-                              int wl_mul, int fl_mul, bool symmetric)
-{
+void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
+                                               int M, int N, int K, int wl_add,
+                                               int fl_add, int wl_mul,
+                                               int fl_mul, bool symmetric) {
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_add = -fl_add;
@@ -320,39 +320,41 @@ void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  //auto rand_probs = at::rand({(M + 8 - M % 8), (N + 8 - N % 8), (K + 8 - K % 8) * 2},
-  //                    device(kCUDA).dtype(kFloat));
-  curandState_t* state;
-  cudaMalloc((void**) &state, blocks.x * blocks.y * sizeof(curandState_t));
-  // TODO: change this to a fixed seed?! 
+  // auto rand_probs = at::rand({(M + 8 - M % 8), (N + 8 - N % 8), (K + 8 - K %
+  // 8) * 2},
+  //                     device(kCUDA).dtype(kFloat));
+  curandState_t *state;
+  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
+  // TODO: change this to a fixed seed?!
   init<<<blocks, 1>>>(time(0), state);
-  gemm_fxp_stochastic<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                  c.data<float>(), // rand_probs.data<float>(), M, K, N, 
-                                  state, M, K, N,
-                                  sigma_add, t_min_add, t_max_add,
-                                  sigma_mul, t_min_mul, t_max_mul);
+  gemm_fxp_stochastic<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(),
+      c.data<float>(), // rand_probs.data<float>(), M, K, N,
+      state, M, K, N, sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul,
+      t_max_mul);
   cudaFree(state);
   return;
 }
 
-void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, 
-                              int M, int N, int K,
-                              int wl_fma, int fl_fma, bool symmetric)
-{
+void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                   int M, int N, int K,
+                                                   int wl_fma, int fl_fma,
+                                                   bool symmetric) {
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  //auto rand_probs = at::rand({(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K % 8)},
-  //                    device(kCUDA).dtype(kFloat));
-  curandState_t* state;
-  cudaMalloc((void**) &state, blocks.x * blocks.y * sizeof(curandState_t));
+  // auto rand_probs = at::rand({(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K
+  // % 8)},
+  //                     device(kCUDA).dtype(kFloat));
+  curandState_t *state;
+  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
-  gemm_fxp_fma_stochastic<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                  c.data<float>(), // rand_probs.data<float>(), M, K, N,
-                                  state, M, K, N,
-                                  sigma_fma, t_min_fma, t_max_fma);
+  gemm_fxp_fma_stochastic<<<blocks, threads>>>(
+      a.data<float>(), b.data<float>(),
+      c.data<float>(), // rand_probs.data<float>(), M, K, N,
+      state, M, K, N, sigma_fma, t_min_fma, t_max_fma);
   cudaFree(state);
   return;
 }
