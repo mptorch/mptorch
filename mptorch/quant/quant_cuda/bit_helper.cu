@@ -31,6 +31,30 @@ round_bitwise_nearest(unsigned int target, int man_bits) {
   return quantized;
 }
 
+__device__ __forceinline__ unsigned int round_bitwise_up(unsigned int target,
+                                                         int man_bits) {
+  unsigned int mask = (1 << (23 - man_bits)) - 1;
+
+  unsigned int nexact = ((target << 1 >> 1) & mask) > 0u ? 1u : 0u;
+  unsigned int sign = target >> 31;
+  unsigned int rand_prob = (nexact & ~sign) << (23 - man_bits);
+  unsigned int add_r = target + rand_prob;
+  unsigned int quantized = add_r & ~mask;
+  return quantized;
+}
+
+__device__ __forceinline__ unsigned int round_bitwise_down(unsigned int target,
+                                                           int man_bits) {
+  unsigned int mask = (1 << (23 - man_bits)) - 1;
+
+  unsigned int nexact = ((target << 1 >> 1) & mask) > 0u ? 1u : 0u;
+  unsigned int sign = target >> 31;
+  unsigned int rand_prob = (nexact & sign) << (23 - man_bits);
+  unsigned int add_r = target + rand_prob;
+  unsigned int quantized = add_r & ~mask;
+  return quantized;
+}
+
 __device__ __forceinline__ unsigned int
 clip_exponent(int exp_bits, int man_bits, unsigned int old_num,
               unsigned int quantized_num, bool saturate = false) {

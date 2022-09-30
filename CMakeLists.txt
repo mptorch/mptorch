@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 14)
 
 
 include_directories(mptorch/quant/quant_cpu)
-include_directories(mptorch/quant/quant_cpu)
 include_directories(mptorch/quant/quant_cuda)
 
 add_executable(mptorch
