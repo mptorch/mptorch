@@ -74,6 +74,7 @@ class QConv1d(nn.Conv1d):
 
     def quant_function(self, fwd_quant):
         class round(torch.autograd.Function):
+            @staticmethod
             def forward(ctx, x):
                 if x is not None:
                     out = fwd_quant(x)
