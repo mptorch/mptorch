@@ -9,6 +9,7 @@ __all__ = [
     "float_quantize",
     "quantizer",
     "float_gemm",
+    "float_gemm_test",
     "fxp_gemm",
 ]
 
@@ -236,6 +237,112 @@ def float_gemm(
                 saturate,
             )
     return c
+
+
+def float_gemm_test(
+    a,
+    b,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    fma=True,
+    subnormals=True,
+    saturate=True,
+):
+    """
+    Quantize GEMM with customized formats for the multipliers and accumulators
+    Args:
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
+        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
+        - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
+        - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
+        - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
+        - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
+        - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
+        man_add and exp_add parameters for the rounding of the fma results)
+        - :attr: `subnormals` (bool): allow the use of subnormal values
+        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
+        in the format instead of outputting infinities)
+    Returns:
+        - the result of GEMM (torch.Tensor)
+    """
+
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    lda = ((a.shape[1] + 15) // 16) * 16
+    ldb = ((b.shape[1] + 15) // 16) * 16
+
+    with torch.no_grad():
+        pa = torch.nn.functional.pad(a, (0, lda - a.shape[1]), "constant", 0)
+        pb = torch.nn.functional.pad(
+            b, (0, ldb - b.shape[1], 0, lda - a.shape[1]), "constant", 0
+        )
+
+    pc = torch.zeros(pa.shape[0], pb.shape[1], device=a.device)
+    if rounding == "nearest":
+        if not fma:
+            quant_module.float_quantize_nearest_gemm(
+                pa.contiguous(),
+                pb.contiguous(),
+                pc.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                subnormals,
+                saturate,
+            )
+        else:
+            quant_module.float_quantize_nearest_gemm_fma(
+                pa.contiguous(),
+                pb.contiguous(),
+                pc.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                subnormals,
+                saturate,
+            )
+    else:
+        if not fma:
+            quant_module.float_quantize_stochastic_gemm(
+                pa.contiguous(),
+                pb.contiguous(),
+                pc.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                subnormals,
+                saturate,
+            )
+        else:
+            quant_module.float_quantize_stochastic_gemm_fma(
+                pa.contiguous(),
+                pb.contiguous(),
+                pc.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                subnormals,
+                saturate,
+            )
+    return pc[: a.shape[0], : b.shape[1]]
 
 
 def quantizer(

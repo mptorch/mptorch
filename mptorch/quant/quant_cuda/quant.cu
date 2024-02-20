@@ -216,8 +216,8 @@ void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   gemm_fp_nearest<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, man_add,
-      exp_add, man_mul, exp_mul, subnormals, saturate);
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
 
   return;
 }
@@ -229,9 +229,9 @@ void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
 
   dim3 threads(8, 8);
   dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
-  gemm_fp_fma_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                           c.data<float>(), M, K, N, man_fma,
-                                           exp_fma, subnormals, saturate);
+  gemm_fp_fma_nearest<<<blocks, threads>>>(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      man_fma, exp_fma, subnormals, saturate);
 
   return;
 }
@@ -250,7 +250,7 @@ void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
   cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
   gemm_fp_stochastic<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(), c.data<float>(),
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
       state, // rand_ints.data<int>(),
       M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
   cudaFree(state);
@@ -271,8 +271,8 @@ void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
   cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
   gemm_fp_fma_stochastic<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(), c.data<float>(),
-      state, // rand_ints.data<int>(),
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+      state, // rand_ints.data_ptr<int>(),
       M, K, N, man_fma, exp_fma, subnormals, saturate);
   cudaFree(state);
   return;
@@ -290,8 +290,8 @@ void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
   gemm_fxp_nearest<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(), c.data<float>(), M, K, N, sigma_add,
-      t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
   return;
 }
 
@@ -303,9 +303,9 @@ void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  gemm_fxp_fma_nearest<<<blocks, threads>>>(a.data<float>(), b.data<float>(),
-                                            c.data<float>(), M, K, N, sigma_fma,
-                                            t_min_fma, t_max_fma);
+  gemm_fxp_fma_nearest<<<blocks, threads>>>(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      sigma_fma, t_min_fma, t_max_fma);
   return;
 }
 
@@ -328,8 +328,8 @@ void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
   // TODO: change this to a fixed seed?!
   init<<<blocks, 1>>>(time(0), state);
   gemm_fxp_stochastic<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(),
-      c.data<float>(), // rand_probs.data<float>(), M, K, N,
+      a.data_ptr<float>(), b.data_ptr<float>(),
+      c.data_ptr<float>(), // rand_probs.data_ptr<float>(), M, K, N,
       state, M, K, N, sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul,
       t_max_mul);
   cudaFree(state);
@@ -352,8 +352,8 @@ void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
   cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
   init<<<blocks, 1>>>(time(0), state);
   gemm_fxp_fma_stochastic<<<blocks, threads>>>(
-      a.data<float>(), b.data<float>(),
-      c.data<float>(), // rand_probs.data<float>(), M, K, N,
+      a.data_ptr<float>(), b.data_ptr<float>(),
+      c.data_ptr<float>(), // rand_probs.data<float>(), M, K, N,
       state, M, K, N, sigma_fma, t_min_fma, t_max_fma);
   cudaFree(state);
   return;

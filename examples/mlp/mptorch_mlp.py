@@ -127,11 +127,15 @@ class Reshape(torch.nn.Module):
 model = nn.Sequential(
     Reshape(),
     qpt.QLinear(784, 128, formats=layer_formats),
+    # qpt.QLazyLinear(128, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(128, 96, formats=layer_formats),
+    # qpt.QLazyLinear(96, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(96, 10, formats=layer_formats),
+    # qpt.QLazyLinear(10, formats=layer_formats),
 )
+# model(train_dataset[0][0])
 
 """Prepare and launch the training process"""
 model = model.to(device)
@@ -142,7 +146,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
 optimizer = OptimMP(
     optimizer,
     acc_quant=acc_q,

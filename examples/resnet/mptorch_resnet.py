@@ -8,22 +8,98 @@ from mptorch.utils import trainer
 import torchvision
 from torchvision import transforms
 import torch.nn.functional as F
+import random
+import numpy as np
+import argparse
 
-"""Hyperparameters"""
-batch_size = 64  # batch size
-lr_init = 0.01  # initial learning rate
-num_epochs = 250  # epochs
-momentum = 0.9
-weight_decay = 5e-4
-device = "cuda" if torch.cuda.is_available() else "cpu"
+parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=64,
+    metavar="N",
+    help="input batch size for training (default: 64)",
+)
+parser.add_argument(
+    "--seed", type=int, default=123, metavar="S", help="random seed (default: 123)"
+)
+parser.add_argument(
+    "--epochs",
+    type=int,
+    default=10,
+    metavar="N",
+    help="number of epochs to train (default: 10)",
+)
+parser.add_argument(
+    "--exp_mul",
+    type=int,
+    default=5,
+    metavar="N",
+    help="exponent size (default: 5)",
+)
+parser.add_argument(
+    "--man_mul",
+    type=int,
+    default=2,
+    metavar="N",
+    help="mantissa size (default: 2)",
+)
+parser.add_argument(
+    "--exp_acc",
+    type=int,
+    default=8,
+    metavar="N",
+    help="exponent size (default: 8)",
+)
+parser.add_argument(
+    "--man_acc",
+    type=int,
+    default=7,
+    metavar="N",
+    help="mantissa size (default: 7)",
+)
 
-exp1 = 5
-man1 = 2
-exp2 = 5
-man2 = 10
+parser.add_argument(
+    "--lr_init",
+    type=float,
+    default=0.01,
+    metavar="N",
+    help="initial learning rate (default: 0.01)",
+)
+parser.add_argument(
+    "--momentum",
+    type=float,
+    default=0.9,
+    metavar="N",
+    help="momentum value to be used by the optimizer (default: 0.9)",
+)
+parser.add_argument(
+    "--weight_decay",
+    type=float,
+    default=0,
+    metavar="N",
+    help="weight decay value to be used by the optimizer (default: 0.0)",
+)
+parser.add_argument(
+    "--no-cuda", action="store_true", default=False, help="disables CUDA training"
+)
 
-fpe5m2 = FloatingPoint(exp=exp1, man=man1, subnormals=True, saturate=False)
-fpe5m10 = FloatingPoint(exp=exp2, man=man2, subnormals=True, saturate=False)
+args = parser.parse_args()
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = "cuda" if args.cuda else "cpu"
+
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.backends.cudnn.deterministic = True
+
+fpmul = FloatingPoint(
+    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=False
+)
+fpacc = FloatingPoint(
+    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=False
+)
 
 transform_train = transforms.Compose(
     [
@@ -45,53 +121,53 @@ train_set = torchvision.datasets.CIFAR10(
     root="./data", train=True, download=True, transform=transform_train
 )
 train_loader = torch.utils.data.DataLoader(
-    train_set, batch_size=batch_size, shuffle=True
+    train_set, batch_size=args.batch_size, shuffle=True
 )
 
 test_set = torchvision.datasets.CIFAR10(
     root="./data", train=False, download=True, transform=transform_test
 )
 test_loader = torch.utils.data.DataLoader(
-    test_set, batch_size=batch_size, shuffle=False
+    test_set, batch_size=args.batch_size, shuffle=False
 )
 
 # define a lambda function so that the Quantizer module can be duplicated easily
 act_error_quant = lambda: qpt.Quantizer(
-    forward_number=fpe5m2,
-    backward_number=fpe5m2,
+    forward_number=fpmul,
+    backward_number=fpmul,
     forward_rounding="nearest",
     backward_rounding="nearest",
 )
 
 param_q = lambda x: qpt.float_quantize(
     x,
-    exp=exp1,
-    man=man1,
+    exp=args.exp_mul,
+    man=args.man_mul,
     rounding="nearest",
     subnormals=True,
     saturate=False,
 )
 input_q = lambda x: qpt.float_quantize(
     x,
-    exp=exp1,
-    man=man1,
+    exp=args.exp_mul,
+    man=args.man_mul,
     rounding="nearest",
     subnormals=True,
     saturate=False,
 )
 grad_q = lambda x: qpt.float_quantize(
     x,
-    exp=exp1,
-    man=man1,
+    exp=args.exp_mul,
+    man=args.man_mul,
     rounding="nearest",
     subnormals=True,
     saturate=False,
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fpe5m2, fpe5m2),
+    fwd_mac=(fpacc, fpmul),
     fwd_rnd="nearest",
-    bwd_mac=(fpe5m2, fpe5m2),
+    bwd_mac=(fpacc, fpmul),
     bwd_rnd="nearest",
     weight_quant=param_q,
     bias_quant=param_q,
@@ -233,22 +309,25 @@ def resnet1202():
 net = resnet20()
 net = net.to(device)
 optimizer = SGD(
-    net.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
+    net.parameters(),
+    lr=args.lr_init,
+    momentum=args.momentum,
+    weight_decay=args.weight_decay,
 )
 
 acc_q = lambda x: qpt.float_quantize(
     x, exp=8, man=23, rounding="nearest", subnormals=True
 )
 optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 trainer(
     net,
     train_loader,
     test_loader,
-    num_epochs=num_epochs,
-    lr=lr_init,
-    batch_size=batch_size,
+    num_epochs=args.epochs,
+    lr=args.lr_init,
+    batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
     scheduler=scheduler,

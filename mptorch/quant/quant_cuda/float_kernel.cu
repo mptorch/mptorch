@@ -2,6 +2,7 @@
 #include "quant_kernel.h"
 #include "sim_helper.cu"
 #include <cmath>
+#include <cuda_runtime.h>
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                  bool subnormal_support = true,
@@ -136,6 +137,71 @@ __global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
   if (row < M && col < N)
     c[row * N + col] = tmp;
 }
+
+/*template <size_t SHMEM_SIZE>
+__global__ void gemm_fp_test_impl(float const *a, float const *b, float *c,
+                                  int M, int K, int N, int man_add, int exp_add,
+                                  int man_mul, int exp_mul, bool subnormals,
+                                  bool saturate) {
+
+  // declare shared memory matrices for A and B matrices
+  __shared__ float s_a[SHMEM_SIZE];
+  __shared__ float s_b[SHMEM_SIZE];
+
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+  float tmp = 0.0f;
+
+  // sweep tile across matrix
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+    // load in elements for this tile
+    s_a[ty * blockDim.x + tx] =
+        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
+    s_b[ty * blockDim.x + tx] =
+        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
+
+    // wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // do matrix multiplication on the small matrices
+    for (int j = 0; j < blockDim.x; j++) {
+      tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
+                                                      s_b[j * blockDim.x + tx],
+                                                  man_mul, exp_mul, subnormals,
+                                                  saturate),
+                            man_add, exp_add, subnormals, saturate);
+    }
+
+    // wait for all threads to finish using current tiles
+    // before loading in new ones
+    __syncthreads();
+  }
+
+  // write back results
+  if (row < M && col < N)
+    c[row * N + col] = tmp;
+}
+
+void gemm_fp_test(float const *a, float const *b, float *c, int M, int K, int N,
+                  int man_add, int exp_add, int man_mul, int exp_mul,
+                  bool subnormals, bool saturate) {
+
+  // Feel free to play with the block tile sizes.
+  // The algorithm correctness should always be guaranteed.
+  constexpr size_t THREADS_X{8U};
+  constexpr size_t THREADS_Y{8U};
+  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
+  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
+  dim3 const block_dim{
+      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+  gemm_fp_test_impl<SHMEM_SIZE>
+      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
+                                  exp_mul, subnormals, saturate);
+}*/
 
 /* FABsum implementation */
 /*__global__ void gemm_fp_nearest(float *__restrict__ a, float *__restrict__ b,
