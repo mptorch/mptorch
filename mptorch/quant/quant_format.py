@@ -22,6 +22,8 @@ class QAffineFormats:
         grad_quant=id_quant,
     ) -> None:
         if fwd_mac is not None:
+            if not isinstance(fwd_mac, tuple):
+                fwd_mac = (fwd_mac,)
             if len(fwd_mac) > 1:
                 (self.fwd_add, self.fwd_mul) = fwd_mac
                 self.fwd_fma = False
@@ -36,6 +38,8 @@ class QAffineFormats:
             self.use_default_prec = True
 
         if bwd_mac is not None:
+            if not isinstance(bwd_mac, tuple):
+                bwd_mac = (bwd_mac,)
             if len(bwd_mac) > 1:
                 (self.bwd_add, self.bwd_mul) = fwd_mac
                 self.bwd_fma = False

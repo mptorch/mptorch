@@ -3,166 +3,176 @@ import torch.nn as nn
 from .quant_function import *
 from mptorch import FloatingPoint
 
-__all__ = ["qlinear", "qadd", "qmul", "qsqrt", "qdiv", "qpow", "qsum", "qmean"]
+__all__ = [
+    "qlinear",
+    "qmatmul",
+    "qadd",
+    "qmul",
+    "qsqrt",
+    "qdiv",
+    "qpow",
+    "qsum",
+    "qmean",
+]
 
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
 # See: https://github.com/pytorch/pytorch/blob/master/tools/autograd/derivatives.yaml
 
 
-class qlinear(torch.autograd.Function):
+class qlinear_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias, formats):
         ctx.formats = formats
         qinput = formats.input_quant(input)
         qweight = formats.weight_quant(weight)
 
-        if type(formats.fwd_add) == FloatingPoint:
-            output = float_gemm(
-                qinput,
-                qweight.t(),
-                man_add=formats.fwd_add.man,
-                exp_add=formats.fwd_add.exp,
-                man_mul=formats.fwd_mul.man,
-                exp_mul=formats.fwd_mul.exp,
-                rounding=formats.fwd_rnd,
-                fma=formats.fwd_fma,
-                subnormals=formats.fwd_add.subnormals,
-                saturate=formats.fwd_add.saturate,
-            )
-        else:
-            output = fxp_gemm(
-                qinput,
-                qweight.t(),
-                wl_add=formats.fwd_add.wl,
-                fl_add=formats.fwd_add.fl,
-                wl_mul=formats.fwd_mul.wl,
-                fl_mul=formats.fwd_mul.fl,
-                symmetric=False,
-                rounding=formats.fwd_rnd,
-                fma=formats.fwd_fma,
-            )
+        output = float_bgemm(
+            qinput,
+            qweight.t(),
+            man_add=formats.fwd_add.man,
+            exp_add=formats.fwd_add.exp,
+            man_mul=formats.fwd_mul.man,
+            exp_mul=formats.fwd_mul.exp,
+            rounding=formats.fwd_rnd,
+            fma=formats.fwd_fma,
+            subnormals=formats.fwd_add.subnormals,
+            saturate=formats.fwd_add.saturate,
+        )
+
         if bias is not None:
             qbias = formats.bias_quant(bias)
-            output += qbias.unsqueeze(0).expand_as(output)
+            output += qbias.view(
+                -1, qbias.shape[-1]
+            )  # broadcasting should be done automatically
             ctx.save_for_backward(qinput, qweight, qbias)
         else:
             ctx.save_for_backward(qinput, qweight, bias)
-        if type(formats.fwd_add) == FloatingPoint:
-            output = float_quantize(
-                output.contiguous(),
-                exp=formats.fwd_add.exp,
-                man=formats.fwd_add.man,
-                rounding=formats.fwd_rnd,
-                subnormals=formats.fwd_add.subnormals,
-                saturate=formats.fwd_add.saturate,
-            )
-        else:
-            output = fixed_point_quantize(
-                output.contiguous(),
-                wl=formats.fwd_add.wl,
-                fl=formats.fwd_add.fl,
-                symmetric=False,
-                rounding=formats.fwd_rnd,
-            )
+        output = float_quantize(
+            output.contiguous(),
+            exp=formats.fwd_add.exp,
+            man=formats.fwd_add.man,
+            rounding=formats.fwd_rnd,
+            subnormals=formats.fwd_add.subnormals,
+            saturate=formats.fwd_add.saturate,
+        )
         qoutput = formats.output_quant(output)
         return qoutput
 
     @staticmethod
     def backward(ctx, grad_output):
         qinput, qweight, qbias = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
+        qgrad_input, qgrad_weight, qgrad_bias = None, None, None
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            if type(ctx.formats.bwd_add) == FloatingPoint:
-                grad_input = float_gemm(
-                    qgrad_output,
-                    qweight,
-                    man_add=ctx.formats.bwd_add.man,
-                    exp_add=ctx.formats.bwd_add.exp,
-                    man_mul=ctx.formats.bwd_mul.man,
-                    exp_mul=ctx.formats.bwd_mul.exp,
-                    rounding=ctx.formats.bwd_rnd,
-                    fma=ctx.formats.bwd_fma,
-                    subnormals=ctx.formats.bwd_add.subnormals,
-                    saturate=ctx.formats.bwd_add.saturate,
-                )
-            else:
-                grad_input = fxp_gemm(
-                    qgrad_output,
-                    qweight,
-                    wl_add=ctx.formats.bwd_add.wl,
-                    fl_add=ctx.formats.bwd_add.fl,
-                    wl_mul=ctx.formats.bwd_mul.wl,
-                    fl_mul=ctx.formats.bwd_mul.fl,
-                    rounding=ctx.formats.bwd_rnd,
-                    symmetric=False,
-                    fma=ctx.formats.bwd_fma,
-                )
+            qgrad_input = float_bgemm(
+                qgrad_output,
+                qweight,
+                man_add=ctx.formats.bwd_add.man,
+                exp_add=ctx.formats.bwd_add.exp,
+                man_mul=ctx.formats.bwd_mul.man,
+                exp_mul=ctx.formats.bwd_mul.exp,
+                rounding=ctx.formats.bwd_rnd,
+                fma=ctx.formats.bwd_fma,
+                subnormals=ctx.formats.bwd_add.subnormals,
+                saturate=ctx.formats.bwd_add.saturate,
+            )
+            qgrad_input = ctx.formats.grad_quant(qgrad_input)
+
         if ctx.needs_input_grad[1]:
-            if type(ctx.formats.bwd_add) == FloatingPoint:
-                grad_weight = float_gemm(
-                    qgrad_output.t(),
-                    qinput,
-                    man_add=ctx.formats.bwd_add.man,
-                    exp_add=ctx.formats.bwd_add.exp,
-                    man_mul=ctx.formats.bwd_mul.man,
-                    exp_mul=ctx.formats.bwd_mul.exp,
-                    rounding=ctx.formats.bwd_rnd,
-                    fma=ctx.formats.bwd_fma,
-                    subnormals=ctx.formats.bwd_add.subnormals,
-                    saturate=ctx.formats.bwd_add.saturate,
-                )
-            else:
-                grad_weight = fxp_gemm(
-                    qgrad_output.t(),
-                    qinput,
-                    wl_add=ctx.formats.bwd_add.wl,
-                    fl_add=ctx.formats.bwd_add.fl,
-                    wl_mul=ctx.formats.bwd_mul.wl,
-                    fl_mul=ctx.formats.bwd_mul.fl,
-                    rounding=ctx.formats.bwd_rnd,
-                    symmetric=False,
-                    fma=ctx.formats.bwd_fma,
-                )
+            qgrad_weight = float_bgemm(
+                qgrad_output.transpose(-2, -1),
+                qinput,
+                man_add=ctx.formats.bwd_add.man,
+                exp_add=ctx.formats.bwd_add.exp,
+                man_mul=ctx.formats.bwd_mul.man,
+                exp_mul=ctx.formats.bwd_mul.exp,
+                rounding=ctx.formats.bwd_rnd,
+                fma=ctx.formats.bwd_fma,
+                subnormals=ctx.formats.bwd_add.subnormals,
+                saturate=ctx.formats.bwd_add.saturate,
+            )
+            qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
+
         if qbias is not None and ctx.needs_input_grad[2]:
-            ones = torch.ones(1, qgrad_output.shape[0], device=grad_output.device)
-            if type(ctx.formats.bwd_add) == FloatingPoint:
-                grad_bias = float_gemm(
-                    ones,
-                    qgrad_output,
-                    man_add=ctx.formats.bwd_add.man,
-                    exp_add=ctx.formats.bwd_add.exp,
-                    man_mul=ctx.formats.bwd_mul.man,
-                    exp_mul=ctx.formats.bwd_mul.exp,
-                    rounding=ctx.formats.bwd_rnd,
-                    fma=ctx.formats.bwd_fma,
-                    subnormals=ctx.formats.bwd_add.subnormals,
-                    saturate=ctx.formats.bwd_add.saturate,
-                ).reshape(-1)
-            else:
-                grad_bias = fxp_gemm(
-                    ones,
-                    qgrad_output,
-                    wl_add=ctx.formats.bwd_add.wl,
-                    fl_add=ctx.formats.bwd_add.fl,
-                    wl_mul=ctx.formats.bwd_mul.wl,
-                    fl_mul=ctx.formats.bwd_mul.fl,
-                    rounding=ctx.formats.bwd_rnd,
-                    symmetric=False,
-                    fma=ctx.formats.bwd_fma,
-                ).reshape(-1)
+            # TODO: apply quantization on the sum (?!)
+            qgrad_bias = qgrad_output.sum(
+                dim=tuple([i for i in range(len(qgrad_output.shape) - 1)])
+            ).reshape(qbias.shape)
+            qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
+
+        return qgrad_input, qgrad_weight, qgrad_bias, None
+
+
+def qlinear(input, weight, bias, formats):
+    return qlinear_kernel.apply(input, weight, bias, formats)
+
+
+class qmatmul_kernel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, other, formats):
+        ctx.formats = formats
+        qinput = formats.input_quant(input)
+        qother = formats.weight_quant(other)
+
+        output = float_bgemm(
+            qinput,
+            qother,
+            man_add=formats.fwd_add.man,
+            exp_add=formats.fwd_add.exp,
+            man_mul=formats.fwd_mul.man,
+            exp_mul=formats.fwd_mul.exp,
+            rounding=formats.fwd_rnd,
+            fma=formats.fwd_fma,
+            subnormals=formats.fwd_add.subnormals,
+            saturate=formats.fwd_add.saturate,
+        )
+
+        ctx.save_for_backward(qinput, qother)
+        qoutput = formats.output_quant(output)
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        qinput, qother = ctx.saved_tensors
+        qgrad_input, qgrad_other = None, None
+        qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
+            grad_input = float_bgemm(
+                qgrad_output,
+                qother.transpose(-2, -1),
+                man_add=ctx.formats.bwd_add.man,
+                exp_add=ctx.formats.bwd_add.exp,
+                man_mul=ctx.formats.bwd_mul.man,
+                exp_mul=ctx.formats.bwd_mul.exp,
+                rounding=ctx.formats.bwd_rnd,
+                fma=ctx.formats.bwd_fma,
+                subnormals=ctx.formats.bwd_add.subnormals,
+                saturate=ctx.formats.bwd_add.saturate,
+            )
             qgrad_input = ctx.formats.grad_quant(grad_input)
-        else:
-            qgrad_input = None
-        qgrad_weight = ctx.formats.grad_quant(grad_weight)
-        if grad_bias is not None:
-            qgrad_bias = ctx.formats.grad_quant(grad_bias)
-        else:
-            qgrad_bias = None
-        return qgrad_input, qgrad_weight, qgrad_bias, None, None, None
+
+        if ctx.needs_input_grad[1]:
+            grad_other = float_bgemm(
+                qinput.transpose(-2, -1),
+                qgrad_output,
+                man_add=ctx.formats.bwd_add.man,
+                exp_add=ctx.formats.bwd_add.exp,
+                man_mul=ctx.formats.bwd_mul.man,
+                exp_mul=ctx.formats.bwd_mul.exp,
+                rounding=ctx.formats.bwd_rnd,
+                fma=ctx.formats.bwd_fma,
+                subnormals=ctx.formats.bwd_add.subnormals,
+                saturate=ctx.formats.bwd_add.saturate,
+            )
+            qgrad_other = ctx.formats.grad_quant(grad_other)
+
+        return qgrad_input, qgrad_other, None
+
+
+def qmatmul(input, other, formats):
+    return qmatmul_kernel.apply(input, other, formats)
 
 
 class qadd(torch.autograd.Function):

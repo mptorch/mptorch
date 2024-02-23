@@ -370,7 +370,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("block_quantize_stochastic", &block_quantize_stochastic,
         "Block Floating Point Number Stochastic Quantization (CPU)");
   m.def("float_quantize_stochastic", &float_quantize_stochastic,
-        "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
+        "Low-Bitwidth Floating Point Number Stochastic Quantization (CPU)");
   m.def("fixed_point_quantize_nearest_mask", &fixed_point_quantize_nearest_mask,
         "Fixed Point Number Nearest Quantization with Mask (CPU)");
   m.def("fixed_point_quantize_nearest", &fixed_point_quantize_nearest,

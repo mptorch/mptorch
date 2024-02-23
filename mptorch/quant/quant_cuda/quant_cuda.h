@@ -92,20 +92,40 @@ void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                       int man_mul, int exp_mul, bool subnormals,
                                       bool saturate);
 
+void float_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                       int N, int K, int man_add, int exp_add,
+                                       int man_mul, int exp_mul,
+                                       bool subnormals, bool saturate);
+
 void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                           int N, int K, int man_fma,
                                           int exp_fma, bool subnormals,
                                           bool saturate);
+
+void float_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                           int N, int K, int man_fma,
+                                           int exp_fma, bool subnormals,
+                                           bool saturate);
 
 void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                          int N, int K, int man_add, int exp_add,
                                          int man_mul, int exp_mul,
                                          bool subnormals, bool saturate);
 
+void float_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                          int N, int K, int man_add,
+                                          int exp_add, int man_mul, int exp_mul,
+                                          bool subnormals, bool saturate);
+
 void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                              int M, int N, int K, int man_fma,
                                              int exp_fma, bool subnormals,
                                              bool saturate);
+
+void float_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                              int M, int N, int K, int man_fma,
+                                              int exp_fma, bool subnormals,
+                                              bool saturate);
 
 void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                             int N, int K, int wl_add,

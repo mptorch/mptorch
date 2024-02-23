@@ -91,7 +91,7 @@ class QLinear(nn.Linear):
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )
         else:
-            return qlinear.apply(input, self.weight, self.bias, self.formats)
+            return qlinear(input, self.weight, self.bias, self.formats)
 
 
 class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
@@ -138,7 +138,6 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
         super().__init__(0, 0, formats=formats, bias=False)
         self.weight = torch.nn.UninitializedParameter(**factory_kwargs)
         self.out_features = out_features
-        # self.formats = formats
         if bias:
             self.bias = torch.nn.UninitializedParameter(**factory_kwargs)
 

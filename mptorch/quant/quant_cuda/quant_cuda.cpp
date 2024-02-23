@@ -80,6 +80,17 @@ void float_quantize_nearest_gemm(Tensor a, Tensor b, Tensor c, int M, int N,
   return;
 }
 
+void float_quantize_nearest_bgemm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                  int K, int man_mul, int exp_mul, int man_add,
+                                  int exp_add, bool subnormals, bool saturate) {
+  CHECK_INPUT(a);
+  CHECK_INPUT(b);
+  CHECK_INPUT(c);
+  float_quantize_nearest_bgemm_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
+                                    exp_add, subnormals, saturate);
+  return;
+}
+
 void float_quantize_nearest_gemm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
                                      int K, int man_fma, int exp_fma,
                                      bool subnormals, bool saturate) {
@@ -88,6 +99,17 @@ void float_quantize_nearest_gemm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
   CHECK_INPUT(c);
   float_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
                                        subnormals, saturate);
+  return;
+}
+
+void float_quantize_nearest_bgemm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                      int N, int K, int man_fma, int exp_fma,
+                                      bool subnormals, bool saturate) {
+  CHECK_INPUT(a);
+  CHECK_INPUT(b);
+  CHECK_INPUT(c);
+  float_quantize_nearest_bgemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+                                        subnormals, saturate);
   return;
 }
 
@@ -103,6 +125,18 @@ void float_quantize_stochastic_gemm(Tensor a, Tensor b, Tensor c, int M, int N,
   return;
 }
 
+void float_quantize_stochastic_bgemm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                     int K, int man_mul, int exp_mul,
+                                     int man_add, int exp_add, bool subnormals,
+                                     bool saturate) {
+  CHECK_INPUT(a);
+  CHECK_INPUT(b);
+  CHECK_INPUT(c);
+  float_quantize_stochastic_bgemm_cuda(a, b, c, M, N, K, man_mul, exp_mul,
+                                       man_add, exp_add, subnormals, saturate);
+  return;
+}
+
 void float_quantize_stochastic_gemm_fma(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int man_fma, int exp_fma,
                                         bool subnormals, bool saturate) {
@@ -111,6 +145,17 @@ void float_quantize_stochastic_gemm_fma(Tensor a, Tensor b, Tensor c, int M,
   CHECK_INPUT(c);
   float_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
                                           subnormals, saturate);
+  return;
+}
+
+void float_quantize_stochastic_bgemm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                         int N, int K, int man_fma, int exp_fma,
+                                         bool subnormals, bool saturate) {
+  CHECK_INPUT(a);
+  CHECK_INPUT(b);
+  CHECK_INPUT(c);
+  float_quantize_stochastic_bgemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+                                           subnormals, saturate);
   return;
 }
 
@@ -184,15 +229,27 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "(CUDA)");
   m.def("float_quantize_nearest_gemm", &float_quantize_nearest_gemm,
         "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
+  m.def("float_quantize_nearest_bgemm", &float_quantize_nearest_bgemm,
+        "Low-Bitwidth Floating Point Number BGEMM Quantization (CUDA)");
   m.def(
       "float_quantize_nearest_gemm_fma", &float_quantize_nearest_gemm_fma,
       "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CUDA)");
+  m.def(
+      "float_quantize_nearest_bgemm_fma", &float_quantize_nearest_bgemm_fma,
+      "Low-Bitwidth Floating Point Number FMA-based BGEMM Quantization (CUDA)");
   m.def("float_quantize_stochastic_gemm", &float_quantize_stochastic_gemm,
         "Low-Bitwidth Floating Point Number GEMM with Stochastic Quantization "
+        "(CUDA)");
+  m.def("float_quantize_stochastic_bgemm", &float_quantize_stochastic_bgemm,
+        "Low-Bitwidth Floating Point Number BGEMM with Stochastic Quantization "
         "(CUDA)");
   m.def("float_quantize_stochastic_gemm_fma",
         &float_quantize_stochastic_gemm_fma,
         "Low-Bitwidth Floating Point Number FMA-based GEMM with Stochastic "
+        "Quantization (CUDA)");
+  m.def("float_quantize_stochastic_bgemm_fma",
+        &float_quantize_stochastic_bgemm_fma,
+        "Low-Bitwidth Floating Point Number FMA-based BGEMM with Stochastic "
         "Quantization (CUDA)");
   m.def("fixed_point_quantize_nearest_gemm", &fixed_point_quantize_nearest_gemm,
         "Low-Bitwidth Fixed Point Number GEMM Quantization (CUDA)");

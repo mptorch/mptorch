@@ -99,17 +99,18 @@ test_dataset = torchvision.datasets.MNIST(
 )
 test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
+rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=args.exp, man=args.man, rounding="nearest", subnormals=True, saturate=False
+    x, exp=args.exp, man=args.man, rounding=rounding, subnormals=True, saturate=False
 )
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
-    fwd_rnd="nearest",
+    fwd_rnd=rounding,
     bwd_mac=(fp_format, fp_format),
-    bwd_rnd="nearest",
+    bwd_rnd=rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
