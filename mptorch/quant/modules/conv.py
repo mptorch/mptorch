@@ -29,7 +29,7 @@ def tmp_matmul(X: Tensor, W: Tensor, b: Optional[Tensor], formats: QAffineFormat
     X = X.contiguous()
     W = W.contiguous()
     X = X.view(batch * m, k)
-    return qlinear.apply(X, W, b, formats).view(batch, m, n)
+    return qlinear(X, W, b, formats).view(batch, m, n)
 
 
 class QConv1d(nn.Conv1d):
