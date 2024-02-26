@@ -15,8 +15,8 @@ signal_q = lambda x: qt.float_quantize(
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 formats_q = qt.QAffineFormats(
-    fwd_mac=[mac_format],
-    bwd_mac=[mac_format],
+    fwd_mac=mac_format,
+    bwd_mac=mac_format,
     fwd_rnd="nearest",
     bwd_rnd="nearest",
     weight_quant=signal_q,

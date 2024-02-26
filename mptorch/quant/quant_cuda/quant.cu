@@ -439,79 +439,246 @@ void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                             int N, int K, int wl_add,
                                             int fl_add, int wl_mul, int fl_mul,
                                             bool symmetric) {
-  dim3 threads(8, 8);
-  dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_add = -fl_add;
   int sigma_mul = -fl_mul;
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  gemm_fxp_nearest<<<blocks, threads>>>(
-      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-      sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  gemm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                   c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
+                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
   return;
+}
+
+void fixed_point_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+                                             int M, int N, int K, int wl_add,
+                                             int fl_add, int wl_mul, int fl_mul,
+                                             bool symmetric) {
+
+  auto shape_a = a.sizes();
+  auto shape_b = b.sizes();
+  if (shape_a.size() > shape_b.size()) {
+    for (int it{0}; it < shape_a[0]; ++it) {
+      fixed_point_quantize_nearest_bgemm_cuda(
+          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
+          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
+    }
+  } else if (shape_a.size() < shape_b.size()) {
+    for (int it{0}; it < shape_b[0]; ++it) {
+      fixed_point_quantize_nearest_bgemm_cuda(
+          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
+          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
+    }
+  } else if (shape_a.size() > 2) {
+    if (shape_a[0] == shape_b[0]) {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_cuda(
+            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    } else if (shape_a[0] == 1) {
+      for (int it{0}; it < shape_b[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_cuda(
+            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    } else {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_cuda(
+            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    }
+  } else {
+    fixed_point_quantize_nearest_gemm_cuda(a, b, c, M, N, K, wl_add, fl_add,
+                                           wl_mul, fl_mul, symmetric);
+  }
 }
 
 void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                 int M, int N, int K, int wl_fma,
                                                 int fl_fma, bool symmetric) {
-  dim3 threads(8, 8);
-  dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  gemm_fxp_fma_nearest<<<blocks, threads>>>(
-      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-      sigma_fma, t_min_fma, t_max_fma);
+  gemm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
+                       t_max_fma);
   return;
+}
+
+void fixed_point_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                 int M, int N, int K,
+                                                 int wl_fma, int fl_fma,
+                                                 bool symmetric) {
+
+  auto shape_a = a.sizes();
+  auto shape_b = b.sizes();
+  if (shape_a.size() > shape_b.size()) {
+    for (int it{0}; it < shape_a[0]; ++it) {
+      fixed_point_quantize_nearest_bgemm_fma_cuda(
+          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
+          M, N, K, wl_fma, fl_fma, symmetric);
+    }
+  } else if (shape_a.size() < shape_b.size()) {
+    for (int it{0}; it < shape_b[0]; ++it) {
+      fixed_point_quantize_nearest_bgemm_fma_cuda(
+          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
+          M, N, K, wl_fma, fl_fma, symmetric);
+    }
+  } else if (shape_a.size() > 2) {
+    if (shape_a[0] == shape_b[0]) {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_fma_cuda(
+            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    } else if (shape_a[0] == 1) {
+      for (int it{0}; it < shape_b[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_fma_cuda(
+            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    } else {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_nearest_bgemm_fma_cuda(
+            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    }
+  } else {
+    fixed_point_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
+                                               symmetric);
+  }
 }
 
 void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
                                                int M, int N, int K, int wl_add,
                                                int fl_add, int wl_mul,
                                                int fl_mul, bool symmetric) {
-  /*dim3 threads(8, 8);
-  dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_add = -fl_add;
   int sigma_mul = -fl_mul;
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  // auto rand_probs = at::rand({(M + 8 - M % 8), (N + 8 - N % 8), (K + 8 - K %
-  // 8) * 2},
-  //                     device(kCUDA).dtype(kFloat));
-  curandState_t *state;
-  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
-  // TODO: change this to a fixed seed?!
-  init<<<blocks, 1>>>(time(0), state);
-  gemm_fxp_stochastic<<<blocks, threads>>>(
-      a.data_ptr<float>(), b.data_ptr<float>(),
-      c.data_ptr<float>(), // rand_probs.data_ptr<float>(), M, K, N,
-      state, M, K, N, sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul,
-      t_max_mul);
-  cudaFree(state);*/
+  gemm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                      c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
+                      t_max_add, sigma_mul, t_min_mul, t_max_mul);
   return;
+}
+
+void fixed_point_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+                                                int M, int N, int K, int wl_add,
+                                                int fl_add, int wl_mul,
+                                                int fl_mul, bool symmetric) {
+
+  auto shape_a = a.sizes();
+  auto shape_b = b.sizes();
+  if (shape_a.size() > shape_b.size()) {
+    for (int it{0}; it < shape_a[0]; ++it) {
+      fixed_point_quantize_stochastic_bgemm_cuda(
+          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
+          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
+    }
+  } else if (shape_a.size() < shape_b.size()) {
+    for (int it{0}; it < shape_b[0]; ++it) {
+      fixed_point_quantize_stochastic_bgemm_cuda(
+          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
+          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
+    }
+  } else if (shape_a.size() > 2) {
+    if (shape_a[0] == shape_b[0]) {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_cuda(
+            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    } else if (shape_a[0] == 1) {
+      for (int it{0}; it < shape_b[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_cuda(
+            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    } else {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_cuda(
+            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
+            fl_mul, symmetric);
+      }
+    }
+  } else {
+    fixed_point_quantize_stochastic_gemm_cuda(a, b, c, M, N, K, wl_add, fl_add,
+                                              wl_mul, fl_mul, symmetric);
+  }
 }
 
 void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                    int M, int N, int K,
                                                    int wl_fma, int fl_fma,
                                                    bool symmetric) {
-  /*dim3 threads(8, 8);
-  dim3 blocks((N + 8 - N % 8) / 8, (M + 8 - M % 8) / 8);
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  // auto rand_probs = at::rand({(M + 8 - M % 8) * (N + 8 - N % 8) * (K + 8 - K
-  // % 8)},
-  //                     device(kCUDA).dtype(kFloat));
-  curandState_t *state;
-  cudaMalloc((void **)&state, blocks.x * blocks.y * sizeof(curandState_t));
-  init<<<blocks, 1>>>(time(0), state);
-  gemm_fxp_fma_stochastic<<<blocks, threads>>>(
-      a.data_ptr<float>(), b.data_ptr<float>(),
-      c.data_ptr<float>(), // rand_probs.data<float>(), M, K, N,
-      state, M, K, N, sigma_fma, t_min_fma, t_max_fma);
-  cudaFree(state);*/
+  gemm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                          c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
+                          t_max_fma);
   return;
+}
+
+void fixed_point_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b,
+                                                    Tensor c, int M, int N,
+                                                    int K, int wl_fma,
+                                                    int fl_fma,
+                                                    bool symmetric) {
+
+  auto shape_a = a.sizes();
+  auto shape_b = b.sizes();
+  if (shape_a.size() > shape_b.size()) {
+    for (int it{0}; it < shape_a[0]; ++it) {
+      fixed_point_quantize_stochastic_bgemm_fma_cuda(
+          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
+          M, N, K, wl_fma, fl_fma, symmetric);
+    }
+  } else if (shape_a.size() < shape_b.size()) {
+    for (int it{0}; it < shape_b[0]; ++it) {
+      fixed_point_quantize_stochastic_bgemm_fma_cuda(
+          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
+          M, N, K, wl_fma, fl_fma, symmetric);
+    }
+  } else if (shape_a.size() > 2) {
+    if (shape_a[0] == shape_b[0]) {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_fma_cuda(
+            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    } else if (shape_a[0] == 1) {
+      for (int it{0}; it < shape_b[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_fma_cuda(
+            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    } else {
+      for (int it{0}; it < shape_a[0]; ++it) {
+        fixed_point_quantize_stochastic_bgemm_fma_cuda(
+            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
+            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
+            symmetric);
+      }
+    }
+  } else {
+    fixed_point_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, wl_fma,
+                                                  fl_fma, symmetric);
+  }
 }

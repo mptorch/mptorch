@@ -3,15 +3,15 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 
-device = "cpu" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 12, 8
 signal_q = lambda x: qt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 formats_q = qt.QAffineFormats(
-    fwd_mac=[mac_format, mac_format],
-    bwd_mac=[mac_format, mac_format],
+    fwd_mac=(mac_format, mac_format),
+    bwd_mac=(mac_format, mac_format),
     fwd_rnd="nearest",
     bwd_rnd="nearest",
     weight_quant=signal_q,

@@ -132,16 +132,36 @@ void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                             int fl_add, int wl_mul, int fl_mul,
                                             bool symmetric);
 
+void fixed_point_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+                                             int M, int N, int K, int wl_add,
+                                             int fl_add, int wl_mul, int fl_mul,
+                                             bool symmetric);
+
 void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                 int M, int N, int K, int wl_fma,
                                                 int fl_fma, bool symmetric);
+
+void fixed_point_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                 int M, int N, int K,
+                                                 int wl_fma, int fl_fma,
+                                                 bool symmetric);
 
 void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
                                                int M, int N, int K, int wl_add,
                                                int fl_add, int wl_mul,
                                                int fl_mul, bool symmetric);
 
+void fixed_point_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+                                                int M, int N, int K, int wl_add,
+                                                int fl_add, int wl_mul,
+                                                int fl_mul, bool symmetric);
+
 void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                    int M, int N, int K,
                                                    int wl_fma, int fl_fma,
                                                    bool symmetric);
+
+void fixed_point_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b,
+                                                    Tensor c, int M, int N,
+                                                    int K, int wl_fma,
+                                                    int fl_fma, bool symmetric);

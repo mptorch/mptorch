@@ -5,11 +5,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-__global__ void init(unsigned int seed, curandState_t *state) {
-  curand_init(seed, blockIdx.x * blockIdx.y, 0,
-              &state[blockIdx.x * blockIdx.y]);
-}
-
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                  bool subnormal_support = true,
                                  bool saturate = false) {
@@ -72,6 +67,11 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
   }
 
   return quantized;
+}
+
+__global__ void seed_init(unsigned int seed, curandState_t *state) {
+  curand_init(seed, blockIdx.x * blockIdx.y, 0,
+              &state[blockIdx.x * blockIdx.y]);
 }
 
 // quantize a float into a floating point with [exp_bits] exponent and
@@ -341,7 +341,7 @@ void gemm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(time(0), state);
   gemm_fp_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data<int>(),
@@ -362,7 +362,7 @@ void gemm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(time(0), state);
   gemm_fp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data_ptr<int>(),

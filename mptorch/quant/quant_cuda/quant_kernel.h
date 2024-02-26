@@ -2,6 +2,8 @@
 #include <curand_kernel.h>
 #include <stdint.h>
 
+__global__ void seed_init(unsigned int seed, curandState_t *state);
+
 __global__ void fixed_point_quantize_kernel_stochastic(
     float *__restrict__ a, float *__restrict__ r, float *o, int size, int sigma,
     bool clamp, float t_min, float t_max);
@@ -59,25 +61,16 @@ void gemm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
                             int man_fma, int exp_fma, bool subnormals,
                             bool saturate);
 
-__global__ void gemm_fxp_nearest(float *__restrict__ a, float *__restrict__ b,
-                                 float *__restrict__ c, int M, int K, int N,
-                                 int sigma_add, int t_min_add, int t_max_add,
-                                 int sigma_mul, int t_min_mul, int t_max_mul);
+void gemm_fxp_nearest(float *a, float *b, float *c, int M, int K, int N,
+                      int sigma_add, int t_min_add, int t_max_add,
+                      int sigma_mul, int t_min_mul, int t_max_mul);
 
-__global__ void gemm_fxp_fma_nearest(float *__restrict__ a,
-                                     float *__restrict__ b,
-                                     float *__restrict__ c, int M, int K, int N,
-                                     int sigma_fma, int t_min_fma,
-                                     int t_max_fma);
+void gemm_fxp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
+                          int sigma_fma, int t_min_fma, int t_max_fma);
 
-__global__ void
-gemm_fxp_stochastic(float *__restrict__ a, float *__restrict__ b,
-                    float *__restrict__ c,
-                    curandState_t *state, // float *__restrict__ r,
-                    int M, int K, int N, int sigma_add, int t_min_add,
-                    int t_max_add, int sigma_mul, int t_min_mul, int t_max_mul);
+void gemm_fxp_stochastic(float *a, float *b, float *c, int M, int K, int N,
+                         int sigma_add, int t_min_add, int t_max_add,
+                         int sigma_mul, int t_min_mul, int t_max_mul);
 
-__global__ void gemm_fxp_fma_stochastic(
-    float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
-    curandState_t *state, // float *__restrict__ r,
-    int M, int K, int N, int sigma_fma, int t_min_fma, int t_max_fma);
+void gemm_fxp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
+                             int sigma_fma, int t_min_fma, int t_max_fma);
