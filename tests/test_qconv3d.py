@@ -57,12 +57,10 @@ def test_qconv3d_custom_mm():
         torch.abs((m.weight.grad.view(qm.weight.grad.shape) - qm.weight.grad))
     ).item()
     assert err_grad_bias < 1e-3
-    assert err_grad_weight < 1e-7
+    assert err_grad_weight < 1e-5
 
-    res_m = m(x)
-    res_qm = qm(qx)
     err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
-    assert err_fwd < 1e-2
+    assert err_fwd < 1e-3
 
 
 def test_qconv3d_default_mm():

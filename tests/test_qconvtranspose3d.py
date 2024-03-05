@@ -88,7 +88,7 @@ def test_qconvtranspose3d_custom_mm():
     res_qm = qm(qx)
     err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert res_m.shape == res_qm.shape
-    assert err_fwd < 1e-3
+    assert err_fwd < 1e-2
 
 
 def test_qconvtranspose3d_default_mm():

@@ -29,7 +29,6 @@ class qlinear_kernel(torch.autograd.Function):
 
         if bias is not None:
             qbias = formats.bias_quant(bias)
-            # TODO: apply quantization on the sum (?!)
             output += qbias.view(
                 -1, qbias.shape[-1]
             )  # broadcasting should be done automatically
@@ -72,11 +71,16 @@ class qlinear_kernel(torch.autograd.Function):
             qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
 
         if qbias is not None and ctx.needs_input_grad[2]:
-            # TODO: apply quantization on the sum (?!)
-            qgrad_bias = qgrad_output.sum(
-                dim=tuple([i for i in range(len(qgrad_output.shape) - 1)])
-            ).reshape(qbias.shape)
-            qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
+            with torch.no_grad():
+                qgrad_bias = qsum(
+                    qgrad_output,
+                    dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
+                    quant=ctx.formats.grad_quant,
+                ).reshape(qbias.shape)
+            # qgrad_bias = qgrad_output.sum(
+            #     dim=tuple([i for i in range(len(qgrad_output.shape) - 1)])
+            # ).reshape(qbias.shape)
+            # qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
 
         return qgrad_input, qgrad_weight, qgrad_bias, None
 
@@ -280,7 +284,7 @@ class qsqrt(torch.autograd.Function):
         return grad_x, None, None
 
 
-def qsum_kernel(x, dim, quant):
+def qsum_1d(x, dim, quant):
     shape = list(x.shape)
     shape[dim] = 1
     vs = torch.zeros(shape, device=x.device)
@@ -293,7 +297,7 @@ def qsum_kernel(x, dim, quant):
     return vs.transpose(0, 1).reshape(shape).transpose(0, dim)
 
 
-class qsum(torch.autograd.Function):
+class qsum_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, quant, dim=0, keepdim=False):
         ctx.save_for_backward(x)
@@ -306,7 +310,7 @@ class qsum(torch.autograd.Function):
         ctx.dim = dim
         sums = x
         for d in dim:
-            sums = qsum_kernel(sums, d, quant)
+            sums = qsum_1d(sums, d, quant)
         if keepdim is False:
             for _ in dim:
                 idx = 0
@@ -323,6 +327,10 @@ class qsum(torch.autograd.Function):
             grad_output = torch.unsqueeze(grad_output, d)
         grad_x = grad_output * torch.ones_like(x, device=x.device)
         return grad_x, None, None, None
+
+
+def qsum(x, dim, quant=lambda x: x):
+    return qsum_kernel.apply(x, quant, dim)
 
 
 class qmean(torch.autograd.Function):
