@@ -29,7 +29,7 @@ formats_q = qt.QAffineFormats(
 groups = 4
 
 
-def test_qconv1d_custom_gemm():
+def test_qconv1d_custom_mm():
 
     x = torch.randn(1, 4, 240)
     m = nn.Conv1d(4, 4, 12, groups=groups, bias=True)
@@ -66,7 +66,7 @@ def test_qconv1d_custom_gemm():
     assert err_fwd < 1e-2
 
 
-def test_qconv1d_default_gemm():
+def test_qconv1d_default_mm():
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

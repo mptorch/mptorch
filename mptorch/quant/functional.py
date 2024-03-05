@@ -1,11 +1,10 @@
 import torch
-import torch.nn as nn
 from .quant_function import *
-from mptorch import FloatingPoint
 
 __all__ = [
     "qlinear",
     "qmatmul",
+    "qmm",
     "qadd",
     "qmul",
     "qsqrt",
@@ -26,21 +25,11 @@ class qlinear_kernel(torch.autograd.Function):
         qinput = formats.input_quant(input)
         qweight = formats.weight_quant(weight)
 
-        output = float_bgemm(
-            qinput,
-            qweight.t(),
-            man_add=formats.fwd_add.man,
-            exp_add=formats.fwd_add.exp,
-            man_mul=formats.fwd_mul.man,
-            exp_mul=formats.fwd_mul.exp,
-            rounding=formats.fwd_rnd,
-            fma=formats.fwd_fma,
-            subnormals=formats.fwd_add.subnormals,
-            saturate=formats.fwd_add.saturate,
-        )
+        output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
 
         if bias is not None:
             qbias = formats.bias_quant(bias)
+            # TODO: apply quantization on the sum (?!)
             output += qbias.view(
                 -1, qbias.shape[-1]
             )  # broadcasting should be done automatically
@@ -65,32 +54,20 @@ class qlinear_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            qgrad_input = float_bgemm(
+            qgrad_input = mp_bmm(
                 qgrad_output,
                 qweight,
-                man_add=ctx.formats.bwd_add.man,
-                exp_add=ctx.formats.bwd_add.exp,
-                man_mul=ctx.formats.bwd_mul.man,
-                exp_mul=ctx.formats.bwd_mul.exp,
-                rounding=ctx.formats.bwd_rnd,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
+                formats=ctx.formats,
+                use_forward=False,
             )
             qgrad_input = ctx.formats.grad_quant(qgrad_input)
 
         if ctx.needs_input_grad[1]:
-            qgrad_weight = float_bgemm(
+            qgrad_weight = mp_bmm(
                 qgrad_output.transpose(-2, -1),
                 qinput,
-                man_add=ctx.formats.bwd_add.man,
-                exp_add=ctx.formats.bwd_add.exp,
-                man_mul=ctx.formats.bwd_mul.man,
-                exp_mul=ctx.formats.bwd_mul.exp,
-                rounding=ctx.formats.bwd_rnd,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
+                formats=ctx.formats,
+                use_forward=False,
             )
             qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
 
@@ -108,24 +85,18 @@ def qlinear(input, weight, bias, formats):
     return qlinear_kernel.apply(input, weight, bias, formats)
 
 
-class qmatmul_kernel(torch.autograd.Function):
+class qmm_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, other, formats):
         ctx.formats = formats
         qinput = formats.input_quant(input)
         qother = formats.weight_quant(other)
 
-        output = float_bgemm(
+        output = mp_mm(
             qinput,
             qother,
-            man_add=formats.fwd_add.man,
-            exp_add=formats.fwd_add.exp,
-            man_mul=formats.fwd_mul.man,
-            exp_mul=formats.fwd_mul.exp,
-            rounding=formats.fwd_rnd,
-            fma=formats.fwd_fma,
-            subnormals=formats.fwd_add.subnormals,
-            saturate=formats.fwd_add.saturate,
+            formats=formats,
+            use_forward=True,
         )
 
         ctx.save_for_backward(qinput, qother)
@@ -139,32 +110,69 @@ class qmatmul_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            grad_input = float_bgemm(
+            grad_input = mp_mm(
                 qgrad_output,
                 qother.transpose(-2, -1),
-                man_add=ctx.formats.bwd_add.man,
-                exp_add=ctx.formats.bwd_add.exp,
-                man_mul=ctx.formats.bwd_mul.man,
-                exp_mul=ctx.formats.bwd_mul.exp,
-                rounding=ctx.formats.bwd_rnd,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
+                formats=ctx.formats,
+                use_forward=False,
             )
             qgrad_input = ctx.formats.grad_quant(grad_input)
 
         if ctx.needs_input_grad[1]:
-            grad_other = float_bgemm(
+            grad_other = mp_mm(
                 qinput.transpose(-2, -1),
                 qgrad_output,
-                man_add=ctx.formats.bwd_add.man,
-                exp_add=ctx.formats.bwd_add.exp,
-                man_mul=ctx.formats.bwd_mul.man,
-                exp_mul=ctx.formats.bwd_mul.exp,
-                rounding=ctx.formats.bwd_rnd,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
+                formats=ctx.formats,
+                use_forward=False,
+            )
+            qgrad_other = ctx.formats.grad_quant(grad_other)
+
+        return qgrad_input, qgrad_other, None
+
+
+def qmm(input, other, formats):
+    return qmm_kernel.apply(input, other, formats)
+
+
+class qmatmul_kernel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, other, formats):
+        ctx.formats = formats
+        qinput = formats.input_quant(input)
+        qother = formats.weight_quant(other)
+
+        output = mp_bmm(
+            qinput,
+            qother,
+            formats=formats,
+            use_forward=True,
+        )
+
+        ctx.save_for_backward(qinput, qother)
+        qoutput = formats.output_quant(output)
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        qinput, qother = ctx.saved_tensors
+        qgrad_input, qgrad_other = None, None
+        qgrad_output = ctx.formats.grad_quant(grad_output)
+
+        if ctx.needs_input_grad[0]:
+            grad_input = mp_bmm(
+                qgrad_output,
+                qother.transpose(-2, -1),
+                formats=ctx.formats,
+                use_forward=False,
+            )
+            qgrad_input = ctx.formats.grad_quant(grad_input)
+
+        if ctx.needs_input_grad[1]:
+            grad_other = mp_bmm(
+                qinput.transpose(-2, -1),
+                qgrad_output,
+                formats=ctx.formats,
+                use_forward=False,
             )
             qgrad_other = ctx.formats.grad_quant(grad_other)
 

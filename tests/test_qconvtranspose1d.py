@@ -32,7 +32,7 @@ stride = 4
 out_padding = 0
 
 
-def test_qconvtranspose1d_custom_gemm():
+def test_qconvtranspose1d_custom_mm():
 
     x = torch.randn(1, 4, 60)
     m = nn.ConvTranspose1d(
@@ -91,7 +91,7 @@ def test_qconvtranspose1d_custom_gemm():
     assert err_fwd < 5e-3
 
 
-def test_qconvtranspose1d_default_gemm():
+def test_qconvtranspose1d_default_mm():
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

@@ -203,482 +203,230 @@ fixed_point_quantize_nearest_mask_cuda(Tensor a, int wl, int fl,
   return std::make_tuple(o, m);
 }
 
-void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                      int N, int K, int man_add, int exp_add,
-                                      int man_mul, int exp_mul, bool subnormals,
-                                      bool saturate) {
-  gemm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                  M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals,
-                  saturate);
+void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
+                                    int K, int man_add, int exp_add,
+                                    int man_mul, int exp_mul, bool subnormals,
+                                    bool saturate) {
+  mm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals,
+                saturate);
   return;
 }
 
-void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                          int N, int K, int man_fma,
-                                          int exp_fma, bool subnormals,
-                                          bool saturate) {
-  gemm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                      c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
-                      subnormals, saturate);
+void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                        int N, int K, int man_fma, int exp_fma,
+                                        bool subnormals, bool saturate) {
+  mm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                    c.data_ptr<float>(), M, K, N, man_fma, exp_fma, subnormals,
+                    saturate);
   return;
 }
 
-void float_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
+                                     int K, int man_add, int exp_add,
+                                     int man_mul, int exp_mul, bool subnormals,
+                                     bool saturate) {
+  if (a.sizes().size() > 2)
+    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                   c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add, exp_add,
+                   man_mul, man_add, subnormals, saturate);
+  else
+    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                   c.data_ptr<float>(), 1, M, K, N, man_add, exp_add, man_mul,
+                   man_add, subnormals, saturate);
+  return;
+}
+
+void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                         int N, int K, int man_fma, int exp_fma,
+                                         bool subnormals, bool saturate) {
+  if (a.sizes().size() > 2)
+    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
+                       exp_fma, subnormals, saturate);
+  else
+    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
+                       subnormals, saturate);
+  return;
+}
+
+void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                        int N, int K, int man_add, int exp_add,
                                        int man_mul, int exp_mul,
                                        bool subnormals, bool saturate) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      float_quantize_nearest_bgemm_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      float_quantize_nearest_bgemm_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_nearest_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        float_quantize_nearest_bgemm_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_nearest_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    }
-  } else {
-    float_quantize_nearest_gemm_cuda(a, b, c, M, N, K, man_add, exp_add,
-                                     man_mul, exp_mul, subnormals, saturate);
-  }
+  mm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                   c.data_ptr<float>(), M, K, N, man_add, exp_add, man_mul,
+                   exp_mul, subnormals, saturate);
+  return;
 }
 
-void float_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                            int N, int K, int man_fma,
                                            int exp_fma, bool subnormals,
                                            bool saturate) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      float_quantize_nearest_bgemm_fma_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, man_fma, exp_fma, subnormals, saturate);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      float_quantize_nearest_bgemm_fma_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, man_fma, exp_fma, subnormals, saturate);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_nearest_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        float_quantize_nearest_bgemm_fma_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_nearest_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    }
-  } else {
-    float_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
-                                         subnormals, saturate);
-  }
-}
-
-void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                         int N, int K, int man_add, int exp_add,
-                                         int man_mul, int exp_mul,
-                                         bool subnormals, bool saturate) {
-  gemm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                     c.data_ptr<float>(), M, K, N, man_add, exp_add, man_mul,
-                     exp_mul, subnormals, saturate);
+  mm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
+                       subnormals, saturate);
   return;
 }
 
-void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                             int M, int N, int K, int man_fma,
-                                             int exp_fma, bool subnormals,
-                                             bool saturate) {
-  gemm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                         c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
-                         subnormals, saturate);
-  return;
+void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                        int N, int K, int man_add, int exp_add,
+                                        int man_mul, int exp_mul,
+                                        bool subnormals, bool saturate) {
+  if (a.sizes().size() > 2)
+    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                      c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add,
+                      exp_add, man_mul, man_add, subnormals, saturate);
+  else
+    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                      c.data_ptr<float>(), 1, M, K, N, man_add, exp_add,
+                      man_mul, man_add, subnormals, saturate);
 }
 
-void float_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                          int N, int K, int man_add,
-                                          int exp_add, int man_mul, int exp_mul,
-                                          bool subnormals, bool saturate) {
+void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                            int N, int K, int man_fma,
+                                            int exp_fma, bool subnormals,
+                                            bool saturate) {
 
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      float_quantize_stochastic_bgemm_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      float_quantize_stochastic_bgemm_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_stochastic_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        float_quantize_stochastic_bgemm_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_stochastic_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_add, exp_add,
-            man_mul, exp_mul, subnormals, saturate);
-      }
-    }
-  } else {
-    float_quantize_stochastic_gemm_cuda(a, b, c, M, N, K, man_add, exp_add,
-                                        man_mul, exp_mul, subnormals, saturate);
-  }
+  if (a.sizes().size() > 2)
+    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                          c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
+                          exp_fma, subnormals, saturate);
+  else
+    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                          c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
+                          subnormals, saturate);
 }
 
-void float_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                              int M, int N, int K, int man_fma,
-                                              int exp_fma, bool subnormals,
-                                              bool saturate) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      float_quantize_stochastic_bgemm_fma_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, man_fma, exp_fma, subnormals, saturate);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      float_quantize_stochastic_bgemm_fma_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, man_fma, exp_fma, subnormals, saturate);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_stochastic_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        float_quantize_stochastic_bgemm_fma_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        float_quantize_stochastic_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, man_fma, exp_fma,
-            subnormals, saturate);
-      }
-    }
-  } else {
-    float_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
-                                            subnormals, saturate);
-  }
-}
-
-void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                            int N, int K, int wl_add,
-                                            int fl_add, int wl_mul, int fl_mul,
-                                            bool symmetric) {
+void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                          int N, int K, int wl_add, int fl_add,
+                                          int wl_mul, int fl_mul,
+                                          bool symmetric) {
   int sigma_add = -fl_add;
   int sigma_mul = -fl_mul;
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  gemm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                   c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
-                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  mm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                 M, K, N, sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul,
+                 t_max_mul);
   return;
 }
 
-void fixed_point_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+void fixed_point_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                           int N, int K, int wl_add, int fl_add,
+                                           int wl_mul, int fl_mul,
+                                           bool symmetric) {
+
+  int sigma_add = -fl_add;
+  int sigma_mul = -fl_mul;
+  float t_min_add, t_max_add, t_min_mul, t_max_mul;
+  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
+  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
+  if (a.sizes().size() > 2)
+    bmm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                    c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_add,
+                    t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  else
+    bmm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                    c.data_ptr<float>(), 1, M, K, N, sigma_add, t_min_add,
+                    t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  return;
+}
+
+void fixed_point_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                              int M, int N, int K, int wl_fma,
+                                              int fl_fma, bool symmetric) {
+  int sigma_fma = -fl_fma;
+  float t_min_fma, t_max_fma;
+  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
+  mm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                     c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
+                     t_max_fma);
+  return;
+}
+
+void fixed_point_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                               int M, int N, int K, int wl_fma,
+                                               int fl_fma, bool symmetric) {
+  int sigma_fma = -fl_fma;
+  float t_min_fma, t_max_fma;
+  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
+  if (a.sizes().size() > 2)
+    bmm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                        c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_fma,
+                        t_min_fma, t_max_fma);
+  else
+    bmm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
+                        c.data_ptr<float>(), 1, M, K, N, sigma_fma, t_min_fma,
+                        t_max_fma);
+  return;
+}
+
+void fixed_point_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                              int M, int N, int K, int wl_add,
                                              int fl_add, int wl_mul, int fl_mul,
                                              bool symmetric) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      fixed_point_quantize_nearest_bgemm_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      fixed_point_quantize_nearest_bgemm_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    }
-  } else {
-    fixed_point_quantize_nearest_gemm_cuda(a, b, c, M, N, K, wl_add, fl_add,
-                                           wl_mul, fl_mul, symmetric);
-  }
-}
-
-void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                                int M, int N, int K, int wl_fma,
-                                                int fl_fma, bool symmetric) {
-  int sigma_fma = -fl_fma;
-  float t_min_fma, t_max_fma;
-  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  gemm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
-                       t_max_fma);
-  return;
-}
-
-void fixed_point_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                                 int M, int N, int K,
-                                                 int wl_fma, int fl_fma,
-                                                 bool symmetric) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      fixed_point_quantize_nearest_bgemm_fma_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, wl_fma, fl_fma, symmetric);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      fixed_point_quantize_nearest_bgemm_fma_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, wl_fma, fl_fma, symmetric);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_fma_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_nearest_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    }
-  } else {
-    fixed_point_quantize_nearest_gemm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
-                                               symmetric);
-  }
-}
-
-void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
-                                               int M, int N, int K, int wl_add,
-                                               int fl_add, int wl_mul,
-                                               int fl_mul, bool symmetric) {
   int sigma_add = -fl_add;
   int sigma_mul = -fl_mul;
   float t_min_add, t_max_add, t_min_mul, t_max_mul;
   fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
   fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  gemm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                      c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
-                      t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  mm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                    c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
+                    t_max_add, sigma_mul, t_min_mul, t_max_mul);
   return;
 }
 
-void fixed_point_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c,
-                                                int M, int N, int K, int wl_add,
-                                                int fl_add, int wl_mul,
-                                                int fl_mul, bool symmetric) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      fixed_point_quantize_stochastic_bgemm_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      fixed_point_quantize_stochastic_bgemm_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, wl_add, fl_add, wl_mul, fl_mul, symmetric);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_add, fl_add, wl_mul,
-            fl_mul, symmetric);
-      }
-    }
-  } else {
-    fixed_point_quantize_stochastic_gemm_cuda(a, b, c, M, N, K, wl_add, fl_add,
-                                              wl_mul, fl_mul, symmetric);
-  }
+void fixed_point_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
+                                              int M, int N, int K, int wl_add,
+                                              int fl_add, int wl_mul,
+                                              int fl_mul, bool symmetric) {
+  int sigma_add = -fl_add;
+  int sigma_mul = -fl_mul;
+  float t_min_add, t_max_add, t_min_mul, t_max_mul;
+  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
+  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
+  if (a.sizes().size() > 2)
+    bmm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_add,
+                       t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  else
+    bmm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                       c.data_ptr<float>(), 1, M, K, N, sigma_add, t_min_add,
+                       t_max_add, sigma_mul, t_min_mul, t_max_mul);
+  return;
 }
 
-void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                                   int M, int N, int K,
-                                                   int wl_fma, int fl_fma,
-                                                   bool symmetric) {
+void fixed_point_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                 int M, int N, int K,
+                                                 int wl_fma, int fl_fma,
+                                                 bool symmetric) {
   int sigma_fma = -fl_fma;
   float t_min_fma, t_max_fma;
   fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  gemm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                          c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
-                          t_max_fma);
+  mm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                        c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
+                        t_max_fma);
   return;
 }
 
-void fixed_point_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b,
-                                                    Tensor c, int M, int N,
-                                                    int K, int wl_fma,
-                                                    int fl_fma,
-                                                    bool symmetric) {
-
-  auto shape_a = a.sizes();
-  auto shape_b = b.sizes();
-  if (shape_a.size() > shape_b.size()) {
-    for (int it{0}; it < shape_a[0]; ++it) {
-      fixed_point_quantize_stochastic_bgemm_fma_cuda(
-          a.index({it, indexing::Slice()}), b, c.index({it, indexing::Slice()}),
-          M, N, K, wl_fma, fl_fma, symmetric);
-    }
-  } else if (shape_a.size() < shape_b.size()) {
-    for (int it{0}; it < shape_b[0]; ++it) {
-      fixed_point_quantize_stochastic_bgemm_fma_cuda(
-          a, b.index({it, indexing::Slice()}), c.index({it, indexing::Slice()}),
-          M, N, K, wl_fma, fl_fma, symmetric);
-    }
-  } else if (shape_a.size() > 2) {
-    if (shape_a[0] == shape_b[0]) {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    } else if (shape_a[0] == 1) {
-      for (int it{0}; it < shape_b[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_fma_cuda(
-            a.index({0, indexing::Slice()}), b.index({it, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    } else {
-      for (int it{0}; it < shape_a[0]; ++it) {
-        fixed_point_quantize_stochastic_bgemm_fma_cuda(
-            a.index({it, indexing::Slice()}), b.index({0, indexing::Slice()}),
-            c.index({it, indexing::Slice()}), M, N, K, wl_fma, fl_fma,
-            symmetric);
-      }
-    }
-  } else {
-    fixed_point_quantize_stochastic_gemm_fma_cuda(a, b, c, M, N, K, wl_fma,
-                                                  fl_fma, symmetric);
-  }
+void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                  int M, int N, int K,
+                                                  int wl_fma, int fl_fma,
+                                                  bool symmetric) {
+  int sigma_fma = -fl_fma;
+  float t_min_fma, t_max_fma;
+  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
+  if (a.sizes().size() > 2)
+    bmm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                           c.data_ptr<float>(), a.sizes()[0], M, K, N,
+                           sigma_fma, t_min_fma, t_max_fma);
+  else
+    bmm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
+                           c.data_ptr<float>(), 1, M, K, N, sigma_fma,
+                           t_min_fma, t_max_fma);
+  return;
 }

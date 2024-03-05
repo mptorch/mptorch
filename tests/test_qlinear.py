@@ -22,7 +22,7 @@ formats_q = qt.QAffineFormats(
 )
 
 
-def test_qlinear_custom_gemm():
+def test_qlinear_custom_mm():
 
     x = torch.randn(11, 1034)
     m = torch.nn.Linear(1034, 542, bias=True)
@@ -61,7 +61,7 @@ def test_qlinear_custom_gemm():
     assert err_grad_weight < 1e-3
 
 
-def test_qlinear_default_gemm():
+def test_qlinear_default_mm():
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

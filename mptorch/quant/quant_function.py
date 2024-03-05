@@ -8,10 +8,12 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "quantizer",
-    "qgemm",
-    "float_gemm",
-    "float_bgemm",
-    "fxp_gemm",
+    "mp_mm",
+    "mp_bmm",
+    "float_mm",
+    "float_bmm",
+    "fxp_mm",
+    "fxp_bmm",
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -54,7 +56,7 @@ def get_module(x):
     return quant_module
 
 
-def qgemm(a, b, formats, use_forward=True):
+def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
         add_cfg, mul_cfg, fma, rnd = (
             formats.fwd_add,
@@ -70,7 +72,7 @@ def qgemm(a, b, formats, use_forward=True):
             formats.bwd_rnd,
         )
     if type(formats.fwd_add) == FloatingPoint:
-        return float_gemm(
+        return float_mm(
             a,
             b,
             man_add=add_cfg.man,
@@ -83,7 +85,7 @@ def qgemm(a, b, formats, use_forward=True):
             saturate=add_cfg.saturate,
         )
     else:  # fixed-point
-        return fxp_gemm(
+        return fxp_mm(
             a,
             b,
             wl_add=add_cfg.wl,
@@ -96,7 +98,7 @@ def qgemm(a, b, formats, use_forward=True):
         )
 
 
-def fxp_gemm(
+def fxp_mm(
     a,
     b,
     wl_add=16,
@@ -130,7 +132,7 @@ def fxp_gemm(
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
         if not fma:
-            quant_module.fixed_point_quantize_nearest_gemm(
+            quant_module.fixed_point_quantize_nearest_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -144,7 +146,7 @@ def fxp_gemm(
                 symmetric,
             )
         else:
-            quant_module.fixed_point_quantize_nearest_gemm_fma(
+            quant_module.fixed_point_quantize_nearest_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -157,7 +159,7 @@ def fxp_gemm(
             )
     else:
         if not fma:
-            quant_module.fixed_point_quantize_stochastic_gemm(
+            quant_module.fixed_point_quantize_stochastic_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -171,7 +173,7 @@ def fxp_gemm(
                 symmetric,
             )
         else:
-            quant_module.fixed_point_quantize_stochastic_gemm_fma(
+            quant_module.fixed_point_quantize_stochastic_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -185,7 +187,7 @@ def fxp_gemm(
     return c
 
 
-def float_gemm(
+def float_mm(
     a,
     b,
     man_add=23,
@@ -223,7 +225,7 @@ def float_gemm(
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
         if not fma:
-            quant_module.float_quantize_nearest_gemm(
+            quant_module.float_quantize_nearest_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -238,7 +240,7 @@ def float_gemm(
                 saturate,
             )
         else:
-            quant_module.float_quantize_nearest_gemm_fma(
+            quant_module.float_quantize_nearest_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -252,7 +254,7 @@ def float_gemm(
             )
     else:
         if not fma:
-            quant_module.float_quantize_stochastic_gemm(
+            quant_module.float_quantize_stochastic_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -267,7 +269,7 @@ def float_gemm(
                 saturate,
             )
         else:
-            quant_module.float_quantize_stochastic_gemm_fma(
+            quant_module.float_quantize_stochastic_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -282,10 +284,50 @@ def float_gemm(
     return c
 
 
-# TODO: qbgemm, fxp_bgemm
+def mp_bmm(a, b, formats, use_forward=True):
+    if use_forward:  # FWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.fwd_add,
+            formats.fwd_mul,
+            formats.fwd_fma,
+            formats.fwd_rnd,
+        )
+    else:  # BWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.bwd_add,
+            formats.bwd_mul,
+            formats.bwd_fma,
+            formats.bwd_rnd,
+        )
+    if type(formats.fwd_add) == FloatingPoint:
+        return float_bmm(
+            a,
+            b,
+            man_add=add_cfg.man,
+            exp_add=add_cfg.exp,
+            man_mul=mul_cfg.man,
+            exp_mul=mul_cfg.exp,
+            rounding=rnd,
+            fma=fma,
+            subnormals=add_cfg.subnormals,
+            saturate=add_cfg.saturate,
+        )
+    else:  # fixed-point
+        return fxp_bmm(
+            a,
+            b,
+            wl_add=add_cfg.wl,
+            fl_add=add_cfg.fl,
+            wl_mul=mul_cfg.wl,
+            fl_mul=mul_cfg.fl,
+            symmetric=False,
+            rounding=rnd,
+            fma=fma,
+        )
 
 
-def float_bgemm(
+# FIXME: support other sizes?
+def float_bmm(
     a,
     b,
     man_add=23,
@@ -297,23 +339,6 @@ def float_bgemm(
     subnormals=True,
     saturate=True,
 ):
-    """
-    Mixed-precision floating-point BGEMM with customized formats for the multipliers and accumulators
-    Args:
-        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
-        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
-        - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
-        - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
-        - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
-        - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
-        - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
-        man_add and exp_add parameters for the rounding of the fma results)
-        - :attr: `subnormals` (bool): allow the use of subnormal values
-        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
-        in the format instead of outputting infinities)
-    Returns:
-        - the result of GEMM (torch.Tensor)
-    """
 
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
@@ -324,71 +349,367 @@ def float_bgemm(
     assert all(
         [i == j or i == 1 or j == 1 for i, j in zip(a_shape[0:-2], b_shape[0:-2])]
     )
-
-    c = torch.zeros(
-        [max(i, j) for i, j in zip(a_shape[0:-2], b_shape[0:-2])]
-        + [a.shape[-2], b.shape[-1]],
-        device=a.device,
-    )
+    batch_dims = [max(i, j) for i, j in zip(a_shape[0:-2], b_shape[0:-2])]
 
     if rounding == "nearest":
         if not fma:
-            quant_module.float_quantize_nearest_bgemm(
-                a.contiguous(),
-                b.contiguous(),
-                c.contiguous(),
-                a.shape[-2],
-                b.shape[-1],
-                a.shape[-1],
-                man_add,
-                exp_add,
-                man_mul,
-                exp_mul,
-                subnormals,
-                saturate,
-            )
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.float_quantize_nearest_bmm(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_bmm(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
         else:
-            quant_module.float_quantize_nearest_bgemm_fma(
-                a.contiguous(),
-                b.contiguous(),
-                c.contiguous(),
-                a.shape[-2],
-                b.shape[-1],
-                a.shape[-1],
-                man_add,
-                exp_add,
-                subnormals,
-                saturate,
-            )
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.float_quantize_nearest_bmm_fma(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_bmm_fma(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
     else:
         if not fma:
-            quant_module.float_quantize_stochastic_bgemm(
-                a.contiguous(),
-                b.contiguous(),
-                c.contiguous(),
-                a.shape[-2],
-                b.shape[-1],
-                a.shape[-1],
-                man_add,
-                exp_add,
-                man_mul,
-                exp_mul,
-                subnormals,
-                saturate,
-            )
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.float_quantize_stochastic_bmm(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_bmm(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
         else:
-            quant_module.float_quantize_stochastic_bgemm_fma(
-                a.contiguous(),
-                b.contiguous(),
-                c.contiguous(),
-                a.shape[-2],
-                b.shape[-1],
-                a.shape[-1],
-                man_add,
-                exp_add,
-                subnormals,
-                saturate,
-            )
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.float_quantize_stochastic_bmm_fma(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_bmm_fma(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
+
+    return c
+
+
+def fxp_bmm(
+    a,
+    b,
+    wl_add=16,
+    fl_add=8,
+    wl_mul=16,
+    fl_mul=8,
+    symmetric=False,
+    rounding="nearest",
+    fma=True,
+):
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    a_shape = [1 for _ in range(len(b.shape) - len(a.shape))] + list(a.shape)
+    b_shape = [1 for _ in range(len(a.shape) - len(b.shape))] + list(b.shape)
+    # test valid broadcasting scenario for batch dimensions
+    assert all(
+        [i == j or i == 1 or j == 1 for i, j in zip(a_shape[0:-2], b_shape[0:-2])]
+    )
+    batch_dims = [max(i, j) for i, j in zip(a_shape[0:-2], b_shape[0:-2])]
+
+    if rounding == "nearest":
+        if not fma:
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_nearest_bmm(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_bmm(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
+        else:
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_nearest_bmm_fma(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_bmm_fma(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
+    else:
+        if not fma:
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_stochastic_bmm(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_bmm(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
+        else:
+            if len(a.shape) == len(b.shape):
+                a_s = a.view((-1, a_shape[-2], a_shape[-1]))
+                b_s = b.view((-1, b_shape[-2], b_shape[-1]))
+                c_s = torch.zeros(
+                    a_s.shape[0], a_s.shape[1], b_s.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_stochastic_bmm_fma(
+                    a_s.contiguous(),
+                    b_s.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[1],
+                    b_s.shape[2],
+                    a_s.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(
+                    c_s, tuple(batch_dims + [c_s.shape[-2], c_s.shape[-1]])
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_s = a.view(-1, a.shape[2])
+                c_s = torch.zeros(a_s.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_bmm_fma(
+                    a_s.contiguous(),
+                    b.contiguous(),
+                    c_s.contiguous(),
+                    a_s.shape[0],
+                    b.shape[1],
+                    a_s.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_s, (a.shape[0], a.shape[1], b.shape[1]))
+            else:
+                raise Exception("Wrong tensor dimensions for broadcasting")
+
     return c
 
 

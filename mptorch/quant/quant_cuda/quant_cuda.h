@@ -87,81 +87,78 @@ Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
 Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
                                    bool subnormals, bool saturate);
 
-void float_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                      int N, int K, int man_add, int exp_add,
-                                      int man_mul, int exp_mul, bool subnormals,
-                                      bool saturate);
+void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
+                                    int K, int man_add, int exp_add,
+                                    int man_mul, int exp_mul, bool subnormals,
+                                    bool saturate);
 
-void float_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
+void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
+                                     int K, int man_add, int exp_add,
+                                     int man_mul, int exp_mul, bool subnormals,
+                                     bool saturate);
+
+void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                        int N, int K, int man_fma, int exp_fma,
+                                        bool subnormals, bool saturate);
+
+void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                         int N, int K, int man_fma, int exp_fma,
+                                         bool subnormals, bool saturate);
+
+void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                        int N, int K, int man_add, int exp_add,
                                        int man_mul, int exp_mul,
                                        bool subnormals, bool saturate);
 
-void float_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                          int N, int K, int man_fma,
-                                          int exp_fma, bool subnormals,
-                                          bool saturate);
+void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                        int N, int K, int man_add, int exp_add,
+                                        int man_mul, int exp_mul,
+                                        bool subnormals, bool saturate);
 
-void float_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                            int N, int K, int man_fma,
                                            int exp_fma, bool subnormals,
                                            bool saturate);
 
-void float_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                         int N, int K, int man_add, int exp_add,
-                                         int man_mul, int exp_mul,
-                                         bool subnormals, bool saturate);
+void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                            int N, int K, int man_fma,
+                                            int exp_fma, bool subnormals,
+                                            bool saturate);
 
-void float_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                          int N, int K, int man_add,
-                                          int exp_add, int man_mul, int exp_mul,
-                                          bool subnormals, bool saturate);
+void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                          int N, int K, int wl_add, int fl_add,
+                                          int wl_mul, int fl_mul,
+                                          bool symmetric);
 
-void float_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                             int M, int N, int K, int man_fma,
-                                             int exp_fma, bool subnormals,
-                                             bool saturate);
+void fixed_point_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
+                                           int N, int K, int wl_add, int fl_add,
+                                           int wl_mul, int fl_mul,
+                                           bool symmetric);
 
-void float_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                              int M, int N, int K, int man_fma,
-                                              int exp_fma, bool subnormals,
-                                              bool saturate);
+void fixed_point_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                              int M, int N, int K, int wl_fma,
+                                              int fl_fma, bool symmetric);
 
-void fixed_point_quantize_nearest_gemm_cuda(Tensor a, Tensor b, Tensor c, int M,
-                                            int N, int K, int wl_add,
-                                            int fl_add, int wl_mul, int fl_mul,
-                                            bool symmetric);
+void fixed_point_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                               int M, int N, int K, int wl_fma,
+                                               int fl_fma, bool symmetric);
 
-void fixed_point_quantize_nearest_bgemm_cuda(Tensor a, Tensor b, Tensor c,
+void fixed_point_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                              int M, int N, int K, int wl_add,
                                              int fl_add, int wl_mul, int fl_mul,
                                              bool symmetric);
 
-void fixed_point_quantize_nearest_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                                int M, int N, int K, int wl_fma,
-                                                int fl_fma, bool symmetric);
+void fixed_point_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
+                                              int M, int N, int K, int wl_add,
+                                              int fl_add, int wl_mul,
+                                              int fl_mul, bool symmetric);
 
-void fixed_point_quantize_nearest_bgemm_fma_cuda(Tensor a, Tensor b, Tensor c,
+void fixed_point_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                  int M, int N, int K,
                                                  int wl_fma, int fl_fma,
                                                  bool symmetric);
 
-void fixed_point_quantize_stochastic_gemm_cuda(Tensor a, Tensor b, Tensor c,
-                                               int M, int N, int K, int wl_add,
-                                               int fl_add, int wl_mul,
-                                               int fl_mul, bool symmetric);
-
-void fixed_point_quantize_stochastic_bgemm_cuda(Tensor a, Tensor b, Tensor c,
-                                                int M, int N, int K, int wl_add,
-                                                int fl_add, int wl_mul,
-                                                int fl_mul, bool symmetric);
-
-void fixed_point_quantize_stochastic_gemm_fma_cuda(Tensor a, Tensor b, Tensor c,
-                                                   int M, int N, int K,
-                                                   int wl_fma, int fl_fma,
-                                                   bool symmetric);
-
-void fixed_point_quantize_stochastic_bgemm_fma_cuda(Tensor a, Tensor b,
-                                                    Tensor c, int M, int N,
-                                                    int K, int wl_fma,
-                                                    int fl_fma, bool symmetric);
+void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
+                                                  int M, int N, int K,
+                                                  int wl_fma, int fl_fma,
+                                                  bool symmetric);
