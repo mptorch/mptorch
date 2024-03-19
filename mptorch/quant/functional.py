@@ -24,26 +24,33 @@ class qlinear_kernel(torch.autograd.Function):
         ctx.formats = formats
         qinput = formats.input_quant(input)
         qweight = formats.weight_quant(weight)
-
-        output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
-
         if bias is not None:
             qbias = formats.bias_quant(bias)
-            output += qbias.view(
-                -1, qbias.shape[-1]
-            )  # broadcasting should be done automatically
-            ctx.save_for_backward(qinput, qweight, qbias)
         else:
-            ctx.save_for_backward(qinput, qweight, bias)
-        output = float_quantize(
-            output.contiguous(),
-            exp=formats.fwd_add.exp,
-            man=formats.fwd_add.man,
-            rounding=formats.fwd_rnd,
-            subnormals=formats.fwd_add.subnormals,
-            saturate=formats.fwd_add.saturate,
-        )
+            qbias = None
+
+        if formats.fwd_use_default_prec:
+            with torch.no_grad():
+                output = torch.nn.functional.linear(qinput, qweight, qbias)
+        else:
+            output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
+
+            output = float_quantize(
+                output.contiguous(),
+                exp=formats.fwd_add.exp,
+                man=formats.fwd_add.man,
+                rounding=formats.fwd_rnd,
+                subnormals=formats.fwd_add.subnormals,
+                saturate=formats.fwd_add.saturate,
+            )
+            if qbias is not None:
+                output += qbias.view(
+                    -1, qbias.shape[-1]
+                )  # broadcasting should be done automatically
+
+        ctx.save_for_backward(qinput, qweight, qbias)
         qoutput = formats.output_quant(output)
+
         return qoutput
 
     @staticmethod
@@ -53,34 +60,42 @@ class qlinear_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            qgrad_input = mp_bmm(
-                qgrad_output,
-                qweight,
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                qgrad_input = torch.bmm(qgrad_output, qweight)
+            else:
+                qgrad_input = mp_bmm(
+                    qgrad_output,
+                    qweight,
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_input = ctx.formats.grad_quant(qgrad_input)
 
         if ctx.needs_input_grad[1]:
-            qgrad_weight = mp_bmm(
-                qgrad_output.transpose(-2, -1),
-                qinput,
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                qgrad_weight = torch.bmm(qgrad_output.transpose(-2, -1), qinput)
+            else:
+                qgrad_weight = mp_bmm(
+                    qgrad_output.transpose(-2, -1),
+                    qinput,
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
 
         if qbias is not None and ctx.needs_input_grad[2]:
-            with torch.no_grad():
-                qgrad_bias = qsum(
-                    qgrad_output,
-                    dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
-                    quant=ctx.formats.grad_quant,
+            if ctx.formats.bwd_use_default_prec:
+                qgrad_bias = qgrad_output.sum(
+                    dim=tuple([i for i in range(len(qgrad_output.shape) - 1)])
                 ).reshape(qbias.shape)
-            # qgrad_bias = qgrad_output.sum(
-            #     dim=tuple([i for i in range(len(qgrad_output.shape) - 1)])
-            # ).reshape(qbias.shape)
-            # qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
+            else:
+                with torch.no_grad():
+                    qgrad_bias = qsum(
+                        qgrad_output,
+                        dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
+                        quant=ctx.formats.grad_quant,
+                    ).reshape(qbias.shape)
+            qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
 
         return qgrad_input, qgrad_weight, qgrad_bias, None
 
@@ -96,12 +111,15 @@ class qmm_kernel(torch.autograd.Function):
         qinput = formats.input_quant(input)
         qother = formats.weight_quant(other)
 
-        output = mp_mm(
-            qinput,
-            qother,
-            formats=formats,
-            use_forward=True,
-        )
+        if formats.fwd_use_default_prec:
+            output = torch.mm(qinput, qother)
+        else:
+            output = mp_mm(
+                qinput,
+                qother,
+                formats=formats,
+                use_forward=True,
+            )
 
         ctx.save_for_backward(qinput, qother)
         qoutput = formats.output_quant(output)
@@ -114,21 +132,27 @@ class qmm_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            grad_input = mp_mm(
-                qgrad_output,
-                qother.transpose(-2, -1),
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                grad_input = torch.mm(qgrad_output, qother.transpose(-2, -1))
+            else:
+                grad_input = mp_mm(
+                    qgrad_output,
+                    qother.transpose(-2, -1),
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_input = ctx.formats.grad_quant(grad_input)
 
         if ctx.needs_input_grad[1]:
-            grad_other = mp_mm(
-                qinput.transpose(-2, -1),
-                qgrad_output,
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                grad_other = torch.mm(qinput.transpose(-2, -1), qgrad_output)
+            else:
+                grad_other = mp_mm(
+                    qinput.transpose(-2, -1),
+                    qgrad_output,
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_other = ctx.formats.grad_quant(grad_other)
 
         return qgrad_input, qgrad_other, None
@@ -145,12 +169,15 @@ class qmatmul_kernel(torch.autograd.Function):
         qinput = formats.input_quant(input)
         qother = formats.weight_quant(other)
 
-        output = mp_bmm(
-            qinput,
-            qother,
-            formats=formats,
-            use_forward=True,
-        )
+        if formats.fwd_use_default_prec:
+            output = torch.bmm(qinput, qother)
+        else:
+            output = mp_bmm(
+                qinput,
+                qother,
+                formats=formats,
+                use_forward=True,
+            )
 
         ctx.save_for_backward(qinput, qother)
         qoutput = formats.output_quant(output)
@@ -163,21 +190,27 @@ class qmatmul_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
-            grad_input = mp_bmm(
-                qgrad_output,
-                qother.transpose(-2, -1),
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                grad_input = torch.bmm(qgrad_output, qother.transpose(-2, -1))
+            else:
+                grad_input = mp_bmm(
+                    qgrad_output,
+                    qother.transpose(-2, -1),
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_input = ctx.formats.grad_quant(grad_input)
 
         if ctx.needs_input_grad[1]:
-            grad_other = mp_bmm(
-                qinput.transpose(-2, -1),
-                qgrad_output,
-                formats=ctx.formats,
-                use_forward=False,
-            )
+            if ctx.formats.bwd_use_default_prec:
+                grad_other = torch.bmm(qinput.transpose(-2, -1), qgrad_output)
+            else:
+                grad_other = mp_bmm(
+                    qinput.transpose(-2, -1),
+                    qgrad_output,
+                    formats=ctx.formats,
+                    use_forward=False,
+                )
             qgrad_other = ctx.formats.grad_quant(grad_other)
 
         return qgrad_input, qgrad_other, None

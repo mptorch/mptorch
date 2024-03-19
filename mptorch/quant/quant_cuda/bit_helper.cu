@@ -1,10 +1,12 @@
+#include <cmath>
+
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<unsigned int *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
-__device__ unsigned int rn_prob[24] = {
+/* __device__ unsigned int rn_prob[24] = {
     4194304, 2097152, 1048576, 524288, 262144, 131072, 65536, 32768,
     16384,   8192,    4096,    2048,   1024,   512,    256,   128,
-    64,      32,      16,      8,      4,      2,      1,     0};
+    64,      32,      16,      8,      4,      2,      1,     0}; */
 
 __device__ __forceinline__ unsigned int extract_exponent(float *a) {
   unsigned int temp = *(reinterpret_cast<unsigned int *>(a));
@@ -24,8 +26,8 @@ round_bitwise_stochastic(unsigned int target, unsigned int rand_prob,
 __device__ __forceinline__ unsigned int
 round_bitwise_nearest(unsigned int target, int man_bits) {
   unsigned int mask = (1 << (23 - man_bits)) - 1;
-  // unsigned int rand_prob = 1 << (23 - man_bits - 1);
-  unsigned int rand_prob = rn_prob[man_bits];
+  unsigned int rand_prob = 1 << (23 - man_bits - 1);
+  // unsigned int rand_prob = rn_prob[man_bits];
   unsigned int add_r = target + rand_prob;
   unsigned int quantized = add_r & ~mask;
   return quantized;

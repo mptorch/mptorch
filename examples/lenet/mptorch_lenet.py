@@ -77,8 +77,20 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
+parser.add_argument(
+    "--saturate", action="store_true", default=False, help="use saturated formats"
+)
+
+parser.add_argument(
+    "--no-subnormals",
+    action="store_true",
+    default=False,
+    help="enable subnormal encodings",
+)
+
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
+args.subnormals = not args.no_subnormals
 device = "cuda" if args.cuda else "cpu"
 
 torch.manual_seed(args.seed)
@@ -88,9 +100,11 @@ random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
 float_format = FloatingPoint(
-    exp=args.exp, man=args.man, subnormals=True, saturate=False
+    exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
 )
-mac_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
+mac_format = FloatingPoint(
+    exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
+)
 
 transform_train = transforms.Compose(
     [
@@ -124,7 +138,12 @@ act_error_quant = Quantizer(
 )
 
 param_q = lambda x: float_quantize(
-    x, exp=args.exp, man=args.man, rounding="nearest", subnormals=True, saturate=False
+    x,
+    exp=args.exp,
+    man=args.man,
+    rounding="nearest",
+    subnormals=args.subnormals,
+    saturate=args.saturate,
 )
 
 layer_formats = QAffineFormats(
@@ -139,7 +158,7 @@ layer_formats = QAffineFormats(
 )
 
 batchnorm_q = lambda x: float_quantize(
-    x, exp=8, man=23, rounding="nearest", saturate=False
+    x, exp=8, man=23, rounding="nearest", saturate=args.saturate
 )
 
 
@@ -189,5 +208,5 @@ trainer(
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=128.0,
+    init_scale=2.0**10,
 )

@@ -86,7 +86,7 @@ class QLinear(nn.Linear):
         return round.apply
 
     def forward(self, input):
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec and self.formats.bwd_use_default_prec:
             return self.Qo(
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )

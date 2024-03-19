@@ -89,7 +89,7 @@ class QConv1d(nn.Conv1d):
         return round.apply
 
     def forward(self, input: Tensor) -> Tensor:
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
                     F.conv1d(
@@ -232,7 +232,7 @@ class QConv2d(nn.Conv2d):
         return round.apply
 
     def forward(self, input: Tensor) -> Tensor:
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
                     F.conv2d(
@@ -378,7 +378,7 @@ class QConv3d(nn.Conv3d):
         return round.apply
 
     def forward(self, input: Tensor) -> Tensor:
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
                     F.conv3d(
@@ -543,7 +543,7 @@ class QConvTranspose1d(nn.ConvTranspose1d):
             num_spatial_dims,
             self.dilation,
         )
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 raise ValueError(
                     "Only `zeros` padding mode is supported for QConvTranspose2d"
@@ -705,7 +705,7 @@ class QConvTranspose2d(nn.ConvTranspose2d):
             num_spatial_dims,
             self.dilation,
         )
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 raise ValueError(
                     "Only `zeros` padding mode is supported for QConvTranspose2d"
@@ -872,7 +872,7 @@ class QConvTranspose3d(nn.ConvTranspose3d):
             num_spatial_dims,
             self.dilation,
         )
-        if self.formats.use_default_prec:
+        if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 raise ValueError(
                     "Only `zeros` padding mode is supported for QConvTranspose2d"

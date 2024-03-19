@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <iostream>
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                  bool subnormal_support = true,
@@ -95,6 +96,7 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
   if (index < size)
     o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support,
                                saturate);
+  // o[index] = cast_fp_nearest_v2<true, false>(a[index], man_bits, exp_bits);
 }
 
 template <size_t SHMEM_SIZE>

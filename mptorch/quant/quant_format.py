@@ -1,5 +1,4 @@
 from typing import Optional
-from torch.nn.common_types import _size_2_t
 from ..number import Number
 from typing import Union, Optional, Tuple
 
@@ -33,9 +32,9 @@ class QAffineFormats:
             else:
                 self.fwd_add = self.fwd_mul = None
                 self.fwd_fma = False
-            self.use_default_prec = False
+            self.fwd_use_default_prec = False
         else:
-            self.use_default_prec = True
+            self.fwd_use_default_prec = True
 
         if bwd_mac is not None:
             if not isinstance(bwd_mac, tuple):
@@ -49,9 +48,9 @@ class QAffineFormats:
             else:
                 self.bwd_add = self.bwd_mul = None
                 self.bwd_fma = False
-            self.use_default_prec = False
+            self.bwd_use_default_prec = False
         else:
-            self.use_default_prec = True
+            self.bwd_use_default_prec = True
 
         self.fwd_rnd = fwd_rnd
         self.bwd_rnd = bwd_rnd
