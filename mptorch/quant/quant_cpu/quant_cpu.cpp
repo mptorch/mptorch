@@ -311,9 +311,9 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
   return quantized;
 }
 
-void gemm_fp(float *a, float *b, float *c, int M, int K, int N, int man_add,
-             int exp_add, int man_mul, int exp_mul, bool subnormals,
-             bool saturate) {
+void mm_fp(float *a, float *b, float *c, int M, int K, int N, int man_add,
+           int exp_add, int man_mul, int exp_mul, bool subnormals,
+           bool saturate) {
   for (int64_t i = 0; i < M; ++i)
     for (int64_t j = 0; j < N; ++j)
       for (int64_t k = 0; k < K; ++k) {
@@ -325,8 +325,8 @@ void gemm_fp(float *a, float *b, float *c, int M, int K, int N, int man_add,
       }
 }
 
-void gemm_fp_fma(float *a, float *b, float *c, int M, int K, int N, int man_fma,
-                 int exp_fma, bool subnormals, bool saturate) {
+void mm_fp_fma(float *a, float *b, float *c, int M, int K, int N, int man_fma,
+               int exp_fma, bool subnormals, bool saturate) {
   for (int64_t i = 0; i < M; ++i)
     for (int64_t j = 0; j < N; ++j)
       for (int64_t k = 0; k < K; ++k) {
@@ -336,18 +336,18 @@ void gemm_fp_fma(float *a, float *b, float *c, int M, int K, int N, int man_fma,
       }
 }
 
-void float_quantize_nearest_gemm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                 int K, int man_add, int exp_add, int man_mul,
-                                 int exp_mul, bool subnormals, bool saturate) {
-  gemm_fp(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
-          N, man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
+void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
+                               int K, int man_add, int exp_add, int man_mul,
+                               int exp_mul, bool subnormals, bool saturate) {
+  mm_fp(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+        man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
 }
 
-void float_quantize_nearest_gemm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                     int K, int man_fma, int exp_fma,
-                                     bool subnormals, bool saturate) {
-  gemm_fp_fma(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M,
-              K, N, man_fma, exp_fma, subnormals, saturate);
+void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
+                                   int K, int man_fma, int exp_fma,
+                                   bool subnormals, bool saturate) {
+  mm_fp_fma(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
+            N, man_fma, exp_fma, subnormals, saturate);
 }
 
 Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
@@ -370,7 +370,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("block_quantize_stochastic", &block_quantize_stochastic,
         "Block Floating Point Number Stochastic Quantization (CPU)");
   m.def("float_quantize_stochastic", &float_quantize_stochastic,
-        "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
+        "Low-Bitwidth Floating Point Number Stochastic Quantization (CPU)");
   m.def("fixed_point_quantize_nearest_mask", &fixed_point_quantize_nearest_mask,
         "Fixed Point Number Nearest Quantization with Mask (CPU)");
   m.def("fixed_point_quantize_nearest", &fixed_point_quantize_nearest,
@@ -380,8 +380,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def(
       "float_quantize_nearest", &float_quantize_nearest,
       "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CPU)");
-  m.def("float_quantize_nearest_gemm", &float_quantize_nearest_gemm,
+  m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
         "Low-Bitwidth GEMM (CPU)");
-  m.def("float_quantize_nearest_gemm_fma", &float_quantize_nearest_gemm_fma,
+  m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
         "Low-Bitwidth GEMM (CPU)");
 }

@@ -8,23 +8,77 @@ from mptorch import FloatingPoint
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
-
 import random
 import numpy as np
+import argparse
 
-seed = 123
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)
+parser = argparse.ArgumentParser(description="MLP MNIST Example")
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=64,
+    metavar="N",
+    help="input batch size for training (default: 64)",
+)
+parser.add_argument(
+    "--seed", type=int, default=123, metavar="S", help="random seed (default: 123)"
+)
+parser.add_argument(
+    "--epochs",
+    type=int,
+    default=10,
+    metavar="N",
+    help="number of epochs to train (default: 10)",
+)
+parser.add_argument(
+    "--exp",
+    type=int,
+    default=4,
+    metavar="N",
+    help="exponent size (default: 4)",
+)
+parser.add_argument(
+    "--man",
+    type=int,
+    default=2,
+    metavar="N",
+    help="mantissa size (default: 2)",
+)
+parser.add_argument(
+    "--lr_init",
+    type=float,
+    default=0.05,
+    metavar="N",
+    help="initial learning rate (default: 0.05)",
+)
+parser.add_argument(
+    "--momentum",
+    type=float,
+    default=0.9,
+    metavar="N",
+    help="momentum value to be used by the optimizer (default: 0.9)",
+)
+parser.add_argument(
+    "--weight_decay",
+    type=float,
+    default=0,
+    metavar="N",
+    help="weight decay value to be used by the optimizer (default: 0.0)",
+)
+parser.add_argument(
+    "--no-cuda", action="store_true", default=False, help="disables CUDA training"
+)
+
+args = parser.parse_args()
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = "cuda" if args.cuda else "cpu"
+
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+np.random.seed(args.seed)
+random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
-"""Hyperparameters"""
-batch_size = 64  # batch size
-lr_init = 0.05  # initial learning rate
-num_epochs = 10  # epochs
-momentum = 0.9
-weight_decay = 0
 
 """Prepare the transforms on the dataset"""
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -39,24 +93,24 @@ transform = transforms.Compose(
 train_dataset = torchvision.datasets.MNIST(
     "./data", train=True, transform=transform, download=True
 )
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 test_dataset = torchvision.datasets.MNIST(
     "./data", train=False, transform=transform, download=False
 )
-test_loader = DataLoader(test_dataset, batch_size=int(batch_size), shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
+rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
-exp, man = 4, 2
-fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+    x, exp=args.exp, man=args.man, rounding=rounding, subnormals=True, saturate=False
 )
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
-    fwd_rnd="nearest",
+    fwd_rnd=rounding,
     bwd_mac=(fp_format, fp_format),
-    bwd_rnd="nearest",
+    bwd_rnd=rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
@@ -74,19 +128,26 @@ class Reshape(torch.nn.Module):
 model = nn.Sequential(
     Reshape(),
     qpt.QLinear(784, 128, formats=layer_formats),
+    # qpt.QLazyLinear(128, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(128, 96, formats=layer_formats),
+    # qpt.QLazyLinear(96, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(96, 10, formats=layer_formats),
+    # qpt.QLazyLinear(10, formats=layer_formats),
 )
+# model(train_dataset[0][0])
 
 """Prepare and launch the training process"""
 model = model.to(device)
 optimizer = SGD(
-    model.parameters(), lr=lr_init, momentum=momentum, weight_decay=weight_decay
+    model.parameters(),
+    lr=args.lr_init,
+    momentum=args.momentum,
+    weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=15, rounding="nearest")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
 optimizer = OptimMP(
     optimizer,
     acc_quant=acc_q,
@@ -97,9 +158,9 @@ trainer(
     model,
     train_loader,
     test_loader,
-    num_epochs=num_epochs,
-    lr=lr_init,
-    batch_size=batch_size,
+    num_epochs=args.epochs,
+    lr=args.lr_init,
+    batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
     init_scale=256.0,

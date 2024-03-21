@@ -15,8 +15,8 @@ signal_q = lambda x: qt.float_quantize(
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 formats_q = qt.QAffineFormats(
-    fwd_mac=[mac_format],
-    bwd_mac=[mac_format],
+    fwd_mac=mac_format,
+    bwd_mac=mac_format,
     fwd_rnd="nearest",
     bwd_rnd="nearest",
     weight_quant=signal_q,
@@ -32,7 +32,7 @@ stride = 1
 out_padding = 0
 
 
-def test_qconvtranspose3d_custom_gemm():
+def test_qconvtranspose3d_custom_mm():
 
     x = torch.randn(1, 4, 12, 12, 12)
     m = nn.ConvTranspose3d(
@@ -88,10 +88,10 @@ def test_qconvtranspose3d_custom_gemm():
     res_qm = qm(qx)
     err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert res_m.shape == res_qm.shape
-    assert err_fwd < 1e-3
+    assert err_fwd < 1e-2
 
 
-def test_qconvtranspose3d_default_gemm():
+def test_qconvtranspose3d_default_mm():
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

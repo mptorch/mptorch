@@ -8,15 +8,15 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.backends.cudnn.deterministic = True
 
-device = "cpu" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 23, 8
 signal_q = lambda x: qt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 formats_q = qt.QAffineFormats(
-    fwd_mac=[mac_format],
-    bwd_mac=[mac_format],
+    fwd_mac=mac_format,
+    bwd_mac=mac_format,
     fwd_rnd="nearest",
     bwd_rnd="nearest",
     weight_quant=signal_q,
@@ -29,7 +29,7 @@ formats_q = qt.QAffineFormats(
 groups = 4
 
 
-def test_qconv1d_custom_gemm():
+def test_qconv1d_custom_mm():
 
     x = torch.randn(1, 4, 240)
     m = nn.Conv1d(4, 4, 12, groups=groups, bias=True)
@@ -66,7 +66,7 @@ def test_qconv1d_custom_gemm():
     assert err_fwd < 1e-2
 
 
-def test_qconv1d_default_gemm():
+def test_qconv1d_default_mm():
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

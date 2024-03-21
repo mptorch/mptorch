@@ -8,8 +8,12 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "quantizer",
-    "float_gemm",
-    "fxp_gemm",
+    "mp_mm",
+    "mp_bmm",
+    "float_mm",
+    "float_bmm",
+    "fxp_mm",
+    "fxp_bmm",
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -52,7 +56,49 @@ def get_module(x):
     return quant_module
 
 
-def fxp_gemm(
+def mp_mm(a, b, formats, use_forward=True):
+    if use_forward:  # FWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.fwd_add,
+            formats.fwd_mul,
+            formats.fwd_fma,
+            formats.fwd_rnd,
+        )
+    else:  # BWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.bwd_add,
+            formats.bwd_mul,
+            formats.bwd_fma,
+            formats.bwd_rnd,
+        )
+    if type(formats.fwd_add) == FloatingPoint:
+        return float_mm(
+            a,
+            b,
+            man_add=add_cfg.man,
+            exp_add=add_cfg.exp,
+            man_mul=mul_cfg.man,
+            exp_mul=mul_cfg.exp,
+            rounding=rnd,
+            fma=fma,
+            subnormals=add_cfg.subnormals,
+            saturate=add_cfg.saturate,
+        )
+    else:  # fixed-point
+        return fxp_mm(
+            a,
+            b,
+            wl_add=add_cfg.wl,
+            fl_add=add_cfg.fl,
+            wl_mul=mul_cfg.wl,
+            fl_mul=mul_cfg.fl,
+            symmetric=False,
+            rounding=rnd,
+            fma=fma,
+        )
+
+
+def fxp_mm(
     a,
     b,
     wl_add=16,
@@ -64,7 +110,7 @@ def fxp_gemm(
     fma=True,
 ):
     """
-    Quantize GEMM with customized formats for the multipliers and accumulators
+    Mixed-precision fixed-point GEMM with customized formats for the multipliers and accumulators
     Args:
         - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
         - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
@@ -86,7 +132,7 @@ def fxp_gemm(
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
         if not fma:
-            quant_module.fixed_point_quantize_nearest_gemm(
+            quant_module.fixed_point_quantize_nearest_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -100,7 +146,7 @@ def fxp_gemm(
                 symmetric,
             )
         else:
-            quant_module.fixed_point_quantize_nearest_gemm_fma(
+            quant_module.fixed_point_quantize_nearest_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -113,7 +159,7 @@ def fxp_gemm(
             )
     else:
         if not fma:
-            quant_module.fixed_point_quantize_stochastic_gemm(
+            quant_module.fixed_point_quantize_stochastic_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -127,7 +173,7 @@ def fxp_gemm(
                 symmetric,
             )
         else:
-            quant_module.fixed_point_quantize_stochastic_gemm_fma(
+            quant_module.fixed_point_quantize_stochastic_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -141,7 +187,7 @@ def fxp_gemm(
     return c
 
 
-def float_gemm(
+def float_mm(
     a,
     b,
     man_add=23,
@@ -154,7 +200,7 @@ def float_gemm(
     saturate=True,
 ):
     """
-    Quantize GEMM with customized formats for the multipliers and accumulators
+    Mixed-precision floating-point GEMM with customized formats for the multipliers and accumulators
     Args:
         - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
         - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
@@ -179,7 +225,7 @@ def float_gemm(
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
         if not fma:
-            quant_module.float_quantize_nearest_gemm(
+            quant_module.float_quantize_nearest_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -194,7 +240,7 @@ def float_gemm(
                 saturate,
             )
         else:
-            quant_module.float_quantize_nearest_gemm_fma(
+            quant_module.float_quantize_nearest_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -208,7 +254,7 @@ def float_gemm(
             )
     else:
         if not fma:
-            quant_module.float_quantize_stochastic_gemm(
+            quant_module.float_quantize_stochastic_mm(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -223,7 +269,7 @@ def float_gemm(
                 saturate,
             )
         else:
-            quant_module.float_quantize_stochastic_gemm_fma(
+            quant_module.float_quantize_stochastic_mm_fma(
                 a.contiguous(),
                 b.contiguous(),
                 c.contiguous(),
@@ -235,6 +281,661 @@ def float_gemm(
                 subnormals,
                 saturate,
             )
+    return c
+
+
+def mp_bmm(a, b, formats, use_forward=True):
+    if use_forward:  # FWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.fwd_add,
+            formats.fwd_mul,
+            formats.fwd_fma,
+            formats.fwd_rnd,
+        )
+    else:  # BWD format configuration
+        add_cfg, mul_cfg, fma, rnd = (
+            formats.bwd_add,
+            formats.bwd_mul,
+            formats.bwd_fma,
+            formats.bwd_rnd,
+        )
+    if type(formats.fwd_add) == FloatingPoint:
+        return float_bmm(
+            a,
+            b,
+            man_add=add_cfg.man,
+            exp_add=add_cfg.exp,
+            man_mul=mul_cfg.man,
+            exp_mul=mul_cfg.exp,
+            rounding=rnd,
+            fma=fma,
+            subnormals=add_cfg.subnormals,
+            saturate=add_cfg.saturate,
+        )
+    else:  # fixed-point
+        return fxp_bmm(
+            a,
+            b,
+            wl_add=add_cfg.wl,
+            fl_add=add_cfg.fl,
+            wl_mul=mul_cfg.wl,
+            fl_mul=mul_cfg.fl,
+            symmetric=False,
+            rounding=rnd,
+            fma=fma,
+        )
+
+
+def float_bmm(
+    a,
+    b,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    fma=True,
+    subnormals=True,
+    saturate=True,
+):
+
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    if rounding == "nearest":
+        if not fma:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.float_quantize_nearest_bmm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_mm(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.float_quantize_nearest_bmm(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_mm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+        else:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.float_quantize_nearest_bmm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_mm_fma(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.float_quantize_nearest_bmm_fma(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_nearest_mm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+    else:
+        if not fma:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.float_quantize_stochastic_bmm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_mm(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.float_quantize_stochastic_bmm(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_mm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+        else:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.float_quantize_stochastic_bmm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_mm_fma(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.float_quantize_stochastic_bmm_fma(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    subnormals,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.float_quantize_stochastic_mm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    subnormals,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+    return c
+
+
+def fxp_bmm(
+    a,
+    b,
+    wl_add=16,
+    fl_add=8,
+    wl_mul=16,
+    fl_mul=8,
+    symmetric=False,
+    rounding="nearest",
+    fma=True,
+):
+
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    if rounding == "nearest":
+        if not fma:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.fixed_point_quantize_nearest_bmm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_mm(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_nearest_bmm(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_mm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    wl_add,
+                    fl_add,
+                    wl_mul,
+                    fl_mul,
+                    symmetric,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+        else:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.fixed_point_quantize_nearest_bmm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_mm_fma(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_nearest_bmm_fma(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_nearest_mm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+    else:
+        if not fma:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_bmm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_mm(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_stochastic_bmm(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_mm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+        else:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_bmm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_mm_fma(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.fixed_point_quantize_stochastic_bmm_fma(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.fixed_point_quantize_stochastic_mm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    wl_add,
+                    fl_add,
+                    symmetric,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
     return c
 
 
@@ -464,12 +1165,12 @@ def quantizer(
 
 def fixed_point_quantize(x, wl, fl, clamp=True, symmetric=False, rounding="stochastic"):
     """
-    Quantize a single precision Floating Point into low-precision Fixed Point
+    Quantize a single precision floating-point tensor into a low-precision fixed-point tensor
 
     Args:
-        - :param: `x` (torch.Tensor) :  the single precision number to be quantized
-        - :param: `wl` (int) : word length of the fixed point number being simulated
-        - :param: `fl` (int) : fractional length of the fixed point number being simulated
+        - :param: `x` (torch.Tensor) :  the single precision tensor to be quantized
+        - :param: `wl` (int) : word length of the fixed-point format being simulated
+        - :param: `fl` (int) : fractional length of the fixed-point format being simulated
         - :param: `clamp` (bool, optional) : clamp input numbers into representable range. if false,
                   the quantization will only simulate the effect on precision
         - :param: `symmetric` (bool, optional) : discard the minimum representable number to make the representable
@@ -477,7 +1178,7 @@ def fixed_point_quantize(x, wl, fl, clamp=True, symmetric=False, rounding="stoch
         - :param: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\" (default: \"stochastic\")
 
     Returns:
-        - a quantized low-precision block floating point number (torch.Tensor)
+        - a quantized fixed-point representable floating-point tensor (torch.Tensor)
     """
     assert isinstance(x, torch.Tensor)
     assert rounding in ["stochastic", "nearest"]
@@ -496,15 +1197,15 @@ def fixed_point_quantize(x, wl, fl, clamp=True, symmetric=False, rounding="stoch
 
 def block_quantize(x, wl, dim=-1, rounding="stochastic"):
     """
-    Quantize a single precision Floating Point into low-precision Block Floating Point
+    Quantize a single precision floating-point tensor into a low-precision block floating-point representation
 
     Args:
-        - :param: `x` (torch.Tensor) :  the single precision number to be quantized
-        - :param: `wl` (int) : word length of the block floating point number being simulated
+        - :param: `x` (torch.Tensor) :  the single precision tensor to be quantized
+        - :param: `wl` (int) : word length of the block floating-point format being simulated
         - :param: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
 
     Returns:
-        - a quantized low-precision block floating point number (torch.Tensor)
+        - a quantized low-precision block floating-point tensor (torch.Tensor)
     """
     assert isinstance(
         x, torch.Tensor

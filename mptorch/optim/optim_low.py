@@ -21,7 +21,7 @@ class OptimMP(Optimizer):
     Example:
         >>> weight_q = quantizer(...) # define weight quantization
         >>> optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9)
-        >>> optimizer = OptimLP(optiimizer, weight_quant=weight_q)
+        >>> optimizer = OptimLP(optimizer, weight_quant=weight_q)
     """
 
     def __init__(
