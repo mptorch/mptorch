@@ -70,6 +70,55 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
   return quantized;
 }
 
+template <bool subnormals>
+__device__ float cast_p3109_signed_nearest(float origin_float, int P) {
+  // TODO
+  return 0.0f;
+}
+
+template <>
+__device__ float cast_p3109_signed_nearest<false>(float origin_float, int P) {
+  // TODO:
+  return 0.0f;
+}
+
+template <bool subnormals>
+__device__ float cast_p3109_signed_stochastic(float origin_float, int P, int prng_bits) {
+  // TODO:
+  return 0.0f;
+}
+
+template <>
+__device__ float cast_p3109_signed_stochastic<false>(float origin_float, int P, int prng_bits) {
+  // TODO:
+  return 0.0f;
+}
+
+template <bool subnormals>
+__device__ float cast_p3109_unsigned_nearest(float origin_float, int P) {
+  // TODO:
+  return 0.0f;
+}
+
+template <>
+__device__ float cast_p3109_unsigned_nearest<false>(float origin_float, int P) {
+  // TODO:
+  return 0.0f;
+}
+
+template <bool subnormals>
+__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, int prng_bits) {
+  // TODO:
+  return 0.0f;
+}
+
+template <>
+__device__ float cast_p3109_unsigned_stochastic<false>(float origin_float, int P, int prng_bits) {
+  // TODO:
+  return 0.0f;
+}
+
+
 __global__ void seed_init(unsigned int seed, curandState_t *state) {
   curand_init(seed, blockIdx.x * blockIdx.y, 0,
               &state[blockIdx.x * blockIdx.y]);
@@ -96,7 +145,26 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
   if (index < size)
     o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support,
                                saturate);
-  // o[index] = cast_fp_nearest_v2<true, false>(a[index], man_bits, exp_bits);
+}
+
+__global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
+                                      int P, bool subnormals) {
+  // TODO
+}
+
+__global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
+                                      int P, bool subnormals) {
+  // TODO
+}
+
+__global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, float *o, int size,
+                                      int P, int prng_bits, bool subnormals) {
+  // TODO
+}
+
+__global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, float *o, int size,
+                                      int P, int prng_bits, bool subnormals) {
+  // TODO
 }
 
 template <size_t SHMEM_SIZE>
