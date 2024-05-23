@@ -70,6 +70,14 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
   return quantized;
 }
 
+__device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob, int rand_bits,
+                                    int man_bits, int exp_bits,
+                                    bool subnormal_support = true,
+                                    bool saturate = false) 
+{
+  // TODO
+}
+
 template <bool subnormals>
 __device__ float cast_p3109_signed_nearest(float origin_float, int P) {
   // TODO
