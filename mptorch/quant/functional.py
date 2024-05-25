@@ -12,6 +12,8 @@ __all__ = [
     "qpow",
     "qsum",
     "qmean",
+    "qlayernorm",
+    "qsoftmax",
 ]
 
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
@@ -316,7 +318,8 @@ class qsqrt(torch.autograd.Function):
         grad_x = ctx.bwd_quant(grad_y / grad_x)
         return grad_x, None, None
 
-
+# TODO: need CUDA-accelerated version of this routine
+# and also of sums across multiple dimensions
 def qsum_1d(x, dim, quant):
     shape = list(x.shape)
     shape[dim] = 1
@@ -365,7 +368,7 @@ class qsum_kernel(torch.autograd.Function):
 def qsum(x, dim, quant=lambda x: x):
     return qsum_kernel.apply(x, quant, dim)
 
-
+# TODO: similar to sum, look into a CUDA-accelerated version of this routine
 class qmean(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, dim=3, keepdim=False):
@@ -403,3 +406,18 @@ class qmean(torch.autograd.Function):
             grad_output * torch.ones_like(x, device=x.device) / ctx.numel
         )
         return grad_x, None, None, None, None
+
+class qlayernorm_kernel(torch.autograd.Function):
+    # TODO: implement GPU-accelerated version of functional layernorm
+    pass
+
+def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
+    pass
+
+
+class qsoftmax_kernel(torch.autograd.Function):
+    # TODO: implement GPU-accelerated version of functional softmax
+    pass
+
+def qsoftmax(x, dim, dtype, quant):
+    pass

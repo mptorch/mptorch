@@ -9,6 +9,8 @@ from .conv import (
 )
 from .quantizer import Quantizer
 from .batchnorm import QBatchNorm, QBatchNorm1d, QBatchNorm2d
+from .layernorm import QLayerNorm
+from .softmax import QSoftmax
 
 __all__ = [
     "Quantizer",
@@ -23,4 +25,6 @@ __all__ = [
     "QBatchNorm",
     "QBatchNorm1d",
     "QBatchNorm2d",
+    "QLayerNorm",
+    "QSoftmax",
 ]
