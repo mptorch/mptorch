@@ -72,7 +72,6 @@ Tensor block_quantize_sim_nearest_cuda(Tensor a, int wl);
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Does not handle NaN, Inf, and denormal.
  * Stochastic Rounding.
  **/
 Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
@@ -81,11 +80,26 @@ Tensor float_quantize_stochastic_cuda(Tensor a, int man_bits, int exp_bits,
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Does not handle NaN, Inf, and denormal.
  * Nearest Rounding.
  **/
 Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
                                    bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a P3109-compliant floating point
+ * Tensor (signed or unsigned version, with or without subnormal support)
+ * with [P] precision bits.
+ * Nearest Rounding.
+ */
+Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnormals);
+
+/**
+ * quantize a FloatTensor into a P3109-compliant floating point
+ * Tensor (signed or unsigned version, with or without subnormal support)
+ * with [P] precision bits.
+ * Stochastic Rounding (with user-given PRNG resulution [prng_bits]).
+ */
+Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
