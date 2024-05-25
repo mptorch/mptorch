@@ -24,7 +24,7 @@ Tensor fixed_point_quantize_nearest_cuda(Tensor a, int wl, int fl,
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
  * and fractional bits [fl], clamp the over/underflow number and recording the
- *clamping into a mask, with the option of having a symmetric number range
+ * clamping into a mask, with the option of having a symmetric number range
  * Stochastic Rounding.
  **/
 std::tuple<Tensor, Tensor>
@@ -34,7 +34,7 @@ fixed_point_quantize_stochastic_mask_cuda(Tensor a, int wl, int fl,
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
  * and fractional bits [fl], clamp the over/underflow number and recording the
- *clamping into a mask, with the option of having a symmetric number range
+ * clamping into a mask, with the option of having a symmetric number range
  * Nearest Rounding.
  **/
 std::tuple<Tensor, Tensor>
@@ -89,8 +89,8 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision compute; input tensors a 
- * (size M x K) and b (size K x N) are multiplied with the result stored 
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
  * in the output tensor c (size M x N).
  * Nearest Rounding.
  **/
@@ -101,8 +101,8 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision compute; input tensors a 
- * (size B x M x K) and b (size B x K x N) are multiplied with the result stored 
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
  * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
  * of the a and b tensors.
  * Nearest Rounding.
@@ -113,9 +113,10 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                      bool saturate);
 
 /**
- * perform matrix multiplication with quantized FMA operations that simulate 
- * low-precision compute; input tensors a (size M x K) and b (size K x N) are 
- * multiplied with the result stored in the output tensor c (size M x N).
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
  * Nearest Rounding.
  **/
 void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
@@ -123,10 +124,10 @@ void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         bool subnormals, bool saturate);
 
 /**
- * perform batch matrix multiplication with quantized FMA operations that simulate 
- * low-precision compute; input tensors a (size B x M x K) and b (size B x K x N) are 
- * multiplied with the result stored in the output tensor c (size B x M x N); B is 
- * inferred from the first dimension(s) of the a and b tensors.
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
  * Nearest Rounding.
  **/
 void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
@@ -135,8 +136,8 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision compute; input tensors a 
- * (size M x K) and b (size K x N) are multiplied with the result stored 
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
  * in the output tensor c (size M x N).
  * Stochastic Rounding.
  **/
@@ -147,8 +148,8 @@ void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision compute; input tensors a 
- * (size B x M x K) and b (size B x K x N) are multiplied with the result stored 
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
  * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
  * of the a and b tensors.
  * Stochastic Rounding.
@@ -159,9 +160,10 @@ void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         bool subnormals, bool saturate);
 
 /**
- * perform matrix multiplication with quantized FMA operations that simulate 
- * low-precision compute; input tensors a (size M x K) and b (size K x N) are 
- * multiplied with the result stored in the output tensor c (size M x N).
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
  * Stochastic Rounding.
  **/
 void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
@@ -170,10 +172,10 @@ void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                            bool saturate);
 
 /**
- * perform batch matrix multiplication with quantized FMA operations that simulate 
- * low-precision compute; input tensors a (size B x M x K) and b (size B x K x N) are 
- * multiplied with the result stored in the output tensor c (size B x M x N); B is 
- * inferred from the first dimension(s) of the a and b tensors.
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
  * Stochastic Rounding.
  **/
 void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
@@ -181,39 +183,97 @@ void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                             int exp_fma, bool subnormals,
                                             bool saturate);
 
+/**
+ * perform matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
+ * in the output tensor c (size M x N).
+ * Nearest Rounding.
+ **/
 void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                           int N, int K, int wl_add, int fl_add,
                                           int wl_mul, int fl_mul,
                                           bool symmetric);
 
+/**
+ * perform batch matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
+ * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
+ * of the a and b tensors.
+ * Nearest Rounding.
+ **/
 void fixed_point_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M,
                                            int N, int K, int wl_add, int fl_add,
                                            int wl_mul, int fl_mul,
                                            bool symmetric);
 
+/**
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
+ * Nearest Rounding.
+ **/
 void fixed_point_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                               int M, int N, int K, int wl_fma,
                                               int fl_fma, bool symmetric);
 
+/**
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
+ * Nearest Rounding.
+ **/
 void fixed_point_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                int M, int N, int K, int wl_fma,
                                                int fl_fma, bool symmetric);
 
+/**
+ * perform matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
+ * in the output tensor c (size M x N).
+ * Stochastic Rounding.
+ **/
 void fixed_point_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                              int M, int N, int K, int wl_add,
                                              int fl_add, int wl_mul, int fl_mul,
                                              bool symmetric);
 
+/**
+ * perform batch matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
+ * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
+ * of the a and b tensors.
+ * Stochastic Rounding.
+ **/
 void fixed_point_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                               int M, int N, int K, int wl_add,
                                               int fl_add, int wl_mul,
                                               int fl_mul, bool symmetric);
 
+/**
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
+ * Stochastic Rounding.
+ **/
 void fixed_point_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                  int M, int N, int K,
                                                  int wl_fma, int fl_fma,
                                                  bool symmetric);
 
+/**
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
+ * Stochastic Rounding.
+ **/
 void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                   int M, int N, int K,
                                                   int wl_fma, int fl_fma,
