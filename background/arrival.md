@@ -1,3 +1,18 @@
+# BEFORE YOU ARRIVE!
+Be sure to get adaquete practice with PyTorch and read up on some tutorials. Ideally, train a simple MLP with MNIST for practice. There are tutorials online.
+Also, read Mariko's paper(s) before and after performing this practice, and look into the P3109 interim report. Both provide important background to the project and each file can be found in Boris/background/ (this directory).
+
+You can also look into MPTorch as well to get an idea of how it will work.
+
+## Upon Arrival
+You will need to gain access to the lab and building. **This can only be done after getting your UBC student card, so do this ASAP.** Until you have access, someone at the lab can let you in, however this is less than ideal. <br>
+
+To get access, go to the Fred Kaiser Building and go to the fifth floor. Inform them that you are a VIRS student (if applicable) and let them know that you have arrived. You are requesting access for **Room 4025** as well as 24/7 access to both it and the building entrances. It is good practice to do this, however they will most likely hand you a card that simply states how to gain access. If you want to skip all of this, that card and applicable information can be seen below:
+
+image
+
+
+
 ## Gaining Access & Connecting
 
 Your CWL will allow you to VPN into UBC while off-campus. 
