@@ -52,3 +52,20 @@ There are also three other computers not considered ECE computers found inside t
 -**gomeisa** is the dell machine, currently with a Titan V.<br>
 -**mxp** and **rvv** are two machines each with a RTX 4090 and 192 GB Ram.
 
+One possibly important thing to note is that the 4090s and Titan Vs are running different drivers. Titan V machines are on Nvidia version 535 and cuda 12.2. 4090s are on 555 and 12.5, respectively.
+This can further be verified by running nvidia-smi in the terminal.
+
+### Important Notes on Some Errors<br>
+Upon running MPTorch or PyTorch on our lab machines, you might run into several cuda errors or errors about an incompatible architecture. You will have to ensure the cuda directory is appended to $PATH and that CUDA_HOME is set properly. Furthermore, this must be added to ~/.bashrc.
+
+For the **Titan V** machines:<br>
+`echo "export PATH=$PATH:/usr/local/cuda-12.2" >> ~/.bashrc`<br>
+`echo "export CUDA_HOME=/usr/local/cuda-12.2" >> ~/.bashrc`
+
+For the **4090** machines:<br>
+`echo "export PATH=$PATH:/usr/local/cuda-12.5" >> ~/.bashrc`<br>
+`echo "export CUDA_HOME=/usr/local/cuda-12.5" >> ~/.bashrc`
+
+You can verify this worked by checking ~/.bashrc or by using the `echo` command followed by `$PATH` or `$CUDA_HOME`, depending on what you check.
+  
+
