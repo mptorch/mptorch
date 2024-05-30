@@ -4,4 +4,4 @@
 - [Numerical Computing with IEEE Floating Point Arithmetic](https://cosweb1.fau.edu/~jmirelesjames/ODE_course/Numerical_Computing_with_IEEE_Floating_Point_Arithmetic.pdf) by Michael Overton, first six chapters are a good tutorial-style introduction to floating-point numbers
 
 ## PyTorch and LLMs
-- [Andrej Karpathy](https://github.com/karpathy/nn-zero-to-hero): a nice and pedagogical introduction to PyTorch, DNN training and LLMs (you should definitely watch these and play with the code!)
+- [Andrej Karpathy's lectures: NN from zero to hero](https://github.com/karpathy/nn-zero-to-hero): a nice and pedagogical introduction to PyTorch, DNN training and LLMs (you should definitely watch these and play with the code!)
