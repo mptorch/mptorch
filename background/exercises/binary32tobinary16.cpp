@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cmath>
 
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
