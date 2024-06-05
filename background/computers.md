@@ -13,5 +13,7 @@
 |                    |           |         |                   |           |                |       |              |           |                  |
 | *sve*              | E5-1225v2 | 4       | 3.2/3.6           |    4      | 1,932  (4,748) | 32GB  | ssd:120GB(/) | hdd:400GB | none             |
 | *fiz0*             | W5590     | 4       | 3.33              |    4      | 1,564  (3,342) | 48GB  | ssd:120GB(/) | hdd:400GB | Titan V 24GB     |
+|                    |           |         |                   |           |                |       |              |           |                  |
+| *vax*              | i3-xxxx   | 2       | 3.xx              |    2      | x,xxx  (x,xxx) | 20GB  | ssd:120GB(/) | raid:14TB | fileserver, do not use |
 
 
