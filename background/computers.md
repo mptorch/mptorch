@@ -18,6 +18,6 @@
 |                    |           |         |                   |           |                |       |              |           |                  |
 | *hydra2*           | E5-2699   | 22      | 2.2/3.6           |    44     | 1,896 (20,308) |1024GB | none         | none      | GTX 1080 Ti 11GB  (qty: 4) |
 
-**Note:** hydra2 is a shared compute server with the entire SoC lab. It presently does not mount filesystems exported by vax (and it is difficult to have this done). Use sparingly.
+**Note:** hydra2 is a shared compute server with the entire SoC lab. It presently does not mount filesystems exported by vax (and it is difficult to have this done). The GPUs typically go unused, but check for other CPU loads.
 
 **Note:** commands to inspect current workload: ``htop`` (cpu load), ``iotop`` and ``bwm-ng -i disk`` (disk load), ``nload`` and ``bwm-ng`` (network load)
