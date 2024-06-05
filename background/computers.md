@@ -14,6 +14,10 @@
 | *sve*              | E5-1225v2 | 4       | 3.2/3.6           |    4      | 1,932  (4,748) | 32GB  | ssd:120GB(/) | hdd:400GB | none             |
 | *fiz0*             | W5590     | 4       | 3.33              |    4      | 1,564  (3,342) | 48GB  | ssd:120GB(/) | hdd:400GB | Titan V 24GB     |
 |                    |           |         |                   |           |                |       |              |           |                  |
-| *vax*              | i3-3220   | 2       | 3.30              |    4      | 1,728  (2,262) | 20GB  | ssd:60GB(/)  | raid10:14TB | fileserver, do not use |
+| *vax*              | i3-3220   | 2       | 3.3               |    4      | 1,728  (2,262) | 20GB  | ssd:60GB(/)  | raid10:14TB | fileserver, do not use |
+|                    |           |         |                   |           |                |       |              |           |                  |
+| *hydra2*           | E5-2699   | 22      | 2.2/3.6           |    44     | 1,896 (20,308) |1024GB | none         | none      | GTX 1080 Ti 11GB  (qty: 4) |
 
+**Note:** hydra2 is a shared compute server with the entire SoC lab. It presently does not mount filesystems exported by vax (and it is difficult to have this done). Use sparingly.
 
+**Note:** commands to inspect current workload: ``htop`` (cpu load), ``iotop`` and ``bwm-ng -i disk`` (disk load), ``nload`` and ``bwm-ng`` (network load)
