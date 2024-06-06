@@ -65,8 +65,8 @@ float binary32_mul(float a, float b) {
     exp_a = extract_exp(a);
     exp_b = extract_exp(b);
 
-    uint32_t sgn_a = FLOAT_TO_BITS(&a) >> 31;
-    uint32_t sgn_b = FLOAT_TO_BITS(&b) >> 31;
+    sgn_a = FLOAT_TO_BITS(&a) >> 31;
+    sgn_b = FLOAT_TO_BITS(&b) >> 31;
     // compute result exponent value before normalization
     int exp_c = exp_a + exp_b;
 
@@ -97,15 +97,26 @@ float binary32_mul(float a, float b) {
     // add the exponent value in the bits just after the trailing significand
     uint64_t uuc = ((uint64_t)(exp_c + 127) << (manbits+1)) | lman_c;
 
-    // round correction value
+    // round correction value (first bit to the right of the LSB of the trailing
+    // significand of the final result)
     uint64_t rnd_corr = (1ul << (manbits - 23));
+    // in case the round down value in a tie scenario has a zero trailing 
+    // significand LSB, we need to round to down (i.e., increase the size
+    // of the multiplication mask by 1 bit)
     uint64_t down = uuc << (62 - (manbits - 23)) >> (62 - (manbits - 23));
     int offset = (down == (1ul << (manbits - 23)));
+    // apply the round correction
     uuc += rnd_corr;
+    // compute the multiplication mask taking into account if we need to increase
+    // to handle tie scenario
     uint64_t mul_mask = ~((1ul << (manbits - 22 + offset)) - 1);
+    // apply the multiplication mask
     uuc &= mul_mask;
+    // shift out trailing signifcand LSBs that are not needed in the final result
     uuc >>= (manbits - 22);
+    // cast the result from 64 to 32 bits
     uint32_t uc = (uint32_t)uuc;
+    // apply the sign information
     uc |= sgn_c;
 
     return BITS_TO_FLOAT(&uc);
@@ -140,4 +151,6 @@ int main() {
             }
         }
     }
+    cout << "SUCCESS: all tests passed" << endl;
+    return 0;
 }
