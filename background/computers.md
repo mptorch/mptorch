@@ -14,10 +14,23 @@
 | *sve*              | E5-1225v2 | 4       | 3.2/3.6           |    4      | 1,932  (4,748) | 32GB  | ssd:120GB(/) | hdd:400GB | none             |
 | *fiz0*             | W5590     | 4       | 3.33              |    4      | 1,564  (3,342) | 48GB  | ssd:120GB(/) | hdd:400GB | Titan V 24GB     |
 |                    |           |         |                   |           |                |       |              |           |                  |
-| *vax*              | i3-3220   | 2       | 3.3               |    4      | 1,728  (2,262) | 20GB  | ssd:60GB(/)  | raid10:14TB | fileserver, do not use |
+| *vax*              | i3-3220   | 2       | 3.3               |    4      | 1,728  (2,262) | 24GB  | ssd:60GB(/)  | raid10:14TB | fileserver, do not use |
 |                    |           |         |                   |           |                |       |              |           |                  |
 | *hydra2*           | E5-2699   | 22      | 2.2/3.6           |    44     | 1,896 (20,308) |1024GB | none         | none      | GTX 1080 Ti 11GB  (qty: 4) |
 
 **Note:** hydra2 is a shared compute server with the entire SoC lab. It presently does not mount filesystems exported by vax (and it is difficult to have this done). The GPUs typically go unused, but check for other CPU loads.
 
 **Note:** commands to inspect current workload: ``htop`` (cpu load), ``iotop`` and ``bwm-ng -i disk`` (disk load), ``nload`` and ``bwm-ng`` (network load)
+
+
+
+| * Filesystem*      | *Preferred Name (Alias)*    | *Purpose*    |
+|--------------------|-----------------------------|--------------|
+| /nfs/p3109         | -          | shared 14TB RAID array   |
+| /nfs/p3109/home    | /home      | shared home directories  |
+| /nfs/p3109/boris   | /nfs/boris | shared project files (eg, training data)  |
+| /nfs/p3109/opt     | /nfs/opt   | shared executable programs (eg, Vivado), no host-specific configuration files  |
+| /opt               | /opt       | local executable programs (eg, Vivado), no host-specific configuration files  |
+| /local/disk1       | -          | fastest local disk (usually the SSD holding root, usually limited size)  |
+| /local/disk2       | -          | second local disk (SSD or HDD) |
+
