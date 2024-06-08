@@ -1,4 +1,4 @@
-__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint"]
+__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat"]
 
 
 class Number:
@@ -116,6 +116,33 @@ class FloatingPoint(Number):
     @property
     def is_bfloat16(self) -> bool:
         return self.man == 7 and self.exp == 8
+
+class SuperNormalFloat(Number):
+    """
+    Low-Precision SuperNormal Floating Point Format.
+
+    We set the exponent bias to be :math:`2^{exp-1}-1`. For rounding
+    mode, we apply *round to nearest even*.
+
+    Args:
+        - :attr: `exp`: number of bits allocated for exponent
+        - :attr: `man`: number of bits allocated for mantissa, referring to number of bits that are
+                        supposed to be stored on hardware (not counting the virtual bits)
+        - :attr: `saturate`: clamp values instead of using infinities in case of overflow
+    """
+
+    def __init__(self, exp, man, saturate=False):
+        assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
+        assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
+        self.exp = exp
+        self.man = man
+        self.saturate = saturate
+
+    def __str__(self):
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
+
+    def __repr__(self):
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
 
 
 class BlockFloatingPoint(Number):
