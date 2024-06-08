@@ -1555,7 +1555,7 @@ def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.float_quantize_nearest(
+        out = quant_module.superfp_quantize_nearest(
             x.contiguous(), man, exp, saturate
         )
     elif rounding == "stochastic":

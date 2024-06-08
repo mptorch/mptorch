@@ -167,6 +167,17 @@ uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding) {
   return quantized;
 }
 
+uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    int offset = (down == (1u << (22u - man_bits)));
+    uint32_t mask = (1 << (23 - man_bits + offset)) - 1;
+    uint32_t rand_prob = 1 << (23 - man_bits - 1);
+    // unsigned int rand_prob = rn_prob[man_bits];
+    uint32_t add_r = target + rand_prob;
+    uint32_t quantized = add_r & ~mask;
+    return quantized;
+}
+
 void block_quantize_helper(float *input, float *output, float *max_elem, int wl,
                            int size, Mode rounding) {
   for (int64_t i = 0; i < size; i++) {
@@ -311,6 +322,61 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
   return quantized;
 }
 
+// TODO: support saturate logic
+// Remark: bias = 2^{e-1}-1
+float superfp_quantize(float origin, int man_bits, int exp_bits,
+                     bool saturate = false) {
+    uint32_t target;
+    target = RFLOAT_TO_BITS(&origin);
+    float ftarget{0u};
+
+    int32_t target_exp = (target << 1 >> 24) - 127;
+    int32_t min_exp = 1 - ((1 << (exp_bits - 1)) - 1);
+    int32_t max_exp = ((1 << (exp_bits - 1)) - 1);
+    bool subnormal = (target_exp < min_exp);
+    bool supnormal = (target_exp > max_exp);
+    if(subnormal) {
+        if (target_exp < min_exp - (1 << man_bits) + 1) // underflow
+            return 0.0f;
+        uint32_t mask = (1 << 23) - 1;
+        uint32_t rand_prob = 1 << 22;
+        uint32_t add_r = target + rand_prob;
+        uint32_t qtarget = add_r & ~mask;
+        ftarget = RBITS_TO_FLOAT(&qtarget);
+    } else if (supnormal) {
+        if (target_exp == 128) { // NaN/inf
+            return origin;
+        } else if (target_exp > max_exp + (1 << man_bits) - 1) { // overflow
+            float infty = INFINITY;
+            uint32_t qtarget = (target >> 31 << 31) | RFLOAT_TO_BITS(&infty);
+            return RBITS_TO_FLOAT(&qtarget);
+        }
+        uint32_t mask = (1 << 23) - 1;
+        uint32_t rand_prob = 1 << 22;
+        uint32_t add_r = target + rand_prob;
+        uint32_t qtarget = add_r & ~mask;
+        ftarget = RBITS_TO_FLOAT(&qtarget);
+    } else {
+        uint32_t qtarget = round_bitwise_nearest(target, man_bits);
+        ftarget = RBITS_TO_FLOAT(&qtarget);
+    }
+
+    return ftarget;
+}
+
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, bool saturate = false) 
+{
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++) {
+    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, saturate);
+  }
+  return o;
+}
+
 void mm_fp(float *a, float *b, float *c, int M, int K, int N, int man_add,
            int exp_add, int man_mul, int exp_mul, bool subnormals,
            bool saturate) {
@@ -361,6 +427,11 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 }
 
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+                              bool saturate) {
+  return superfp_quantize(a, man_bits, exp_bits, saturate);
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("fixed_point_quantize_stochastic_mask",
         &fixed_point_quantize_stochastic_mask,
@@ -380,6 +451,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def(
       "float_quantize_nearest", &float_quantize_nearest,
       "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CPU)");
+  m.def(
+      "superfp_quantize_nearest", &superfp_quantize_nearest,
+      "Low-Bitwidth SuperNormal Floating Point Number Nearest Neighbor Quantization (CPU)");
   m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
