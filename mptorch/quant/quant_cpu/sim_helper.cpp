@@ -1,6 +1,6 @@
 #include "quant_cpu.h"
-#include <math.h>
-#include <stdint.h>
+#include <cmath>
+#include <cstdint>
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {

@@ -15,7 +15,7 @@ enum Mode { rNearest, rStochastic };
   CHECK_CPU(x);                                                                \
   CHECK_CONTIGUOUS(x);
 
-#define RFLOAT_TO_BITS(x) (*reinterpret_cast<unsigned int *>(x))
+#define RFLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define RBITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 #define FLOAT_TO_BITS(f, i)                                                    \
   assert(sizeof f == sizeof i);                                                \
@@ -28,7 +28,7 @@ std::random_device rd;
 std::mt19937 gen(rd());
 std::uniform_int_distribution<> dis(0);
 
-static unsigned int rn_prob[24] = {
+static uint32_t rn_prob[24] = {
     4194304, 2097152, 1048576, 524288, 262144, 131072, 65536, 32768,
     16384,   8192,    4096,    2048,   1024,   512,    256,   128,
     64,      32,      16,      8,      4,      2,      1,     0};
@@ -151,18 +151,18 @@ Tensor fixed_point_quantize_nearest(Tensor a, int wl, int fl, bool clamp,
   return o;
 }
 
-unsigned int round_bitwise(unsigned int target, int man_bits, Mode rounding) {
-  unsigned int mask = (1 << (23 - man_bits)) - 1;
+uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding) {
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
 
-  unsigned int rand_prob;
+  uint32_t rand_prob;
   if (rounding == rStochastic) {
     rand_prob = (dis(gen)) & mask;
   } else {
     rand_prob = rn_prob[man_bits];
   }
-  unsigned int add_r = target + rand_prob;
+  uint32_t add_r = target + rand_prob;
 
-  unsigned int quantized = add_r & ~mask;
+  uint32_t quantized = add_r & ~mask;
 
   return quantized;
 }
@@ -171,25 +171,25 @@ void block_quantize_helper(float *input, float *output, float *max_elem, int wl,
                            int size, Mode rounding) {
   for (int64_t i = 0; i < size; i++) {
 
-    unsigned int max_num;
+    uint32_t max_num;
     FLOAT_TO_BITS(max_elem[i], max_num);
-    unsigned int max_exp = max_num << 1 >> 24 << 23;
+    uint32_t max_exp = max_num << 1 >> 24 << 23;
     float base_float;
     BITS_TO_FLOAT(max_exp, base_float);
     base_float *= 6;
 
     float target_rebase = input[i] + base_float;
-    unsigned int target_bits;
+    uint32_t target_bits;
     FLOAT_TO_BITS(target_rebase, target_bits);
-    unsigned int quantized_bits = round_bitwise(
+    uint32_t quantized_bits = round_bitwise(
         target_bits, wl, rounding); // -1 sign, -1 virtual, +2 base
     float quantized_rebase;
     BITS_TO_FLOAT(quantized_bits, quantized_rebase);
     float quantized = quantized_rebase - base_float;
 
-    unsigned int quantize_bits;
+    uint32_t quantize_bits;
     FLOAT_TO_BITS(quantized, quantize_bits);
-    unsigned int clip_quantize =
+    uint32_t clip_quantize =
         clip_max_exponent(wl - 2, max_exp, quantize_bits);
     BITS_TO_FLOAT(clip_quantize, quantized);
 
@@ -256,7 +256,7 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
   int size = a.numel();
 
   for (int64_t i = 0; i < size; i++) {
-    unsigned int target, quantize_bits;
+    uint32_t target, quantize_bits;
     FLOAT_TO_BITS(a_array[i], target);
     float quantized;
 
@@ -286,7 +286,7 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
 float float_quantize(float origin_float, int man_bits, int exp_bits,
                      Mode rounding, bool subnormal_support,
                      bool saturate = false) {
-  unsigned int target, quantize_bits;
+  uint32_t target, quantize_bits;
   FLOAT_TO_BITS(origin_float, target);
   float quantized;
 

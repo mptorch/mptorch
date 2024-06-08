@@ -1,4 +1,4 @@
-#include "quant_cuda.h"
+#include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
 
@@ -43,6 +43,13 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
       CHECK_INPUT(a);
       return float_quantize_nearest_cuda(a, man_bits, exp_bits, subnormals,
                                          saturate);
+}
+
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, 
+                              bool saturate)
+{
+      CHECK_INPUT(a);
+      return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, saturate);
 }
 
 Tensor p3109_quantize_nearest(Tensor a, int P, bool is_signed, bool subnormals)
@@ -136,6 +143,51 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
       CHECK_INPUT(c);
       float_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
                                           subnormals, saturate);
+      return;
+}
+
+void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
+                               int K, int man_mul, int exp_mul, int man_add,
+                               int exp_add, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      superfp_quantize_nearest_mm_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
+                                     exp_add, saturate);
+      return;
+}
+
+void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                int K, int man_mul, int exp_mul, int man_add,
+                                int exp_add, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      superfp_quantize_nearest_bmm_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
+                                      exp_add, saturate);
+      return;
+}
+
+void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
+                                   int K, int man_fma, int exp_fma, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      superfp_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, saturate);
+      return;
+}
+
+void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
+                                    int K, int man_fma, int exp_fma, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      superfp_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K, 
+                                    man_fma, exp_fma, saturate);
       return;
 }
 
@@ -263,6 +315,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("float_quantize_nearest", &float_quantize_nearest,
             "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization "
             "(CUDA)");
+      m.def("superfp_quantize_nearest", &superfp_quantize_nearest,
+            "Low-Bitwidth Super Normal Floating Point Number Nearest Neighbor Quantization "
+            "(CUDA)");
       m.def("p3109_quantize_nearest", &p3109_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
@@ -275,6 +330,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def(
           "float_quantize_nearest_bmm_fma", &float_quantize_nearest_bmm_fma,
           "Low-Bitwidth Floating Point Number FMA-based BGEMM Quantization (CUDA)");
+      m.def("superfp_quantize_nearest_mm", &superfp_quantize_nearest_mm,
+            "Low-Bitwidth SuperNormal Floating Point Number GEMM Quantization (CUDA)");
+      m.def("superfp_quantize_nearest_bmm", &superfp_quantize_nearest_bmm,
+            "Low-Bitwidth SuperNormal Floating Point Number BGEMM Quantization (CUDA)");
+      m.def(
+          "superfp_quantize_nearest_mm_fma", &superfp_quantize_nearest_mm_fma,
+          "Low-Bitwidth SuperNormal Floating Point Number FMA-based GEMM Quantization (CUDA)");
+      m.def(
+          "superfp_quantize_nearest_bmm_fma", &superfp_quantize_nearest_bmm_fma,
+          "Low-Bitwidth SuperNormal Floating Point Number FMA-based BGEMM Quantization (CUDA)");
       m.def("float_quantize_stochastic_mm", &float_quantize_stochastic_mm,
             "Low-Bitwidth Floating Point Number GEMM with Stochastic Quantization "
             "(CUDA)");

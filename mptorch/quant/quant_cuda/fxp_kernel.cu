@@ -516,8 +516,8 @@ void mm_fxp_nearest(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   mm_fxp_nearest_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, M, K, N, sigma_add, t_min_add,
                                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
@@ -532,9 +532,9 @@ void bmm_fxp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   bmm_fxp_nearest_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, M, K, N, sigma_add, t_min_add,
                                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
@@ -548,8 +548,8 @@ void mm_fxp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   mm_fxp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, M, K, N, sigma_fma, t_min_fma, t_max_fma);
 }
@@ -562,9 +562,9 @@ void bmm_fxp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   bmm_fxp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, M, K, N, sigma_fma, t_min_fma, t_max_fma);
 }
@@ -577,8 +577,8 @@ void mm_fxp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -598,9 +598,9 @@ void bmm_fxp_stochastic(float *a, float *b, float *c, int B, int M, int K,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -619,8 +619,8 @@ void mm_fxp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -639,9 +639,9 @@ void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));

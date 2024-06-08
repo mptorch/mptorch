@@ -30,12 +30,13 @@ if torch.cuda.is_available():
     quant_cuda = load(
         name="quant_cuda",
         sources=[
-            os.path.join(current_path, "quant_cuda/quant_cuda.cpp"),
+            os.path.join(current_path, "quant_cuda/pybind_cuda.cpp"),
             os.path.join(current_path, "quant_cuda/bit_helper.cu"),
             os.path.join(current_path, "quant_cuda/sim_helper.cu"),
             os.path.join(current_path, "quant_cuda/block_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/float_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/fixed_point_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/fp_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
         ],
     )

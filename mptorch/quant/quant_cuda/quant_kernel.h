@@ -1,8 +1,8 @@
 #include <curand.h>
 #include <curand_kernel.h>
-#include <stdint.h>
+#include <cstdint>
 
-__global__ void seed_init(unsigned int seed, curandState_t *state);
+__global__ void seed_init(uint32_t seed, curandState_t *state);
 
 __global__ void fixed_point_quantize_kernel_stochastic(
     float *__restrict__ a, float *__restrict__ r, float *o, int size, int sigma,
@@ -30,6 +30,10 @@ __global__ void float_kernel_stochastic(float *__restrict__ a,
 __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      int man_bits, int exp_bits,
                                      bool subnormals, bool saturate);
+
+__global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size, 
+                                        int man_bits, int exp_bits,
+                                        bool saturate);
 
 __global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
                                             int P, bool subnormals);
@@ -90,6 +94,22 @@ void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
 void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                            int N, int man_fma, int exp_fma, bool subnormals,
                            bool saturate);
+
+void mm_superfp_nearest(float *a, float *b, float *c, int M, int K, int N,
+                   int man_add, int exp_add, int man_mul, int exp_mul,
+                   bool saturate);
+
+void bmm_superfp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
+                    int man_add, int exp_add, int man_mul, int exp_mul,
+                    bool saturate);
+
+void mm_superfp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
+                       int man_fma, int exp_fma,
+                       bool saturate);
+
+void bmm_superfp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
+                        int N, int man_fma, int exp_fma,
+                        bool saturate);
 
 void mm_fxp_nearest(float *a, float *b, float *c, int M, int K, int N,
                     int sigma_add, int t_min_add, int t_max_add, int sigma_mul,
