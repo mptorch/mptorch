@@ -8,6 +8,7 @@
 // TODO: support saturate logic
 // Remark: bias = 2^{e-1}-1
 __device__ float cast_superfp_nearest(float origin, int man_bits, int exp_bits, bool saturate) {
+    int32_t sat = saturate;
     uint32_t target;
     target = FLOAT_TO_BITS(&origin);
     float ftarget{0u};
@@ -28,10 +29,19 @@ __device__ float cast_superfp_nearest(float origin, int man_bits, int exp_bits, 
     } else if (supnormal) {
         if (target_exp == 128) { // NaN/inf
             return origin;
-        } else if (target_exp > max_exp + (1 << man_bits) - 1) { // overflow
-            float infty = INFINITY;
-            uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
-            return BITS_TO_FLOAT(&qtarget);
+        } else if (target_exp >= max_exp + (1 << man_bits) - 1 + sat) { // overflow
+            if (saturate) {
+                uint32_t qtarget = (target >> 31 << 31) | ((max_exp + (1 << man_bits) + 127u) << 23);
+                return BITS_TO_FLOAT(&qtarget);
+            } else {
+                if (((target << 9) == 0u) && (target_exp == max_exp + (1 << man_bits) - 1))
+                    return origin;
+                else {
+                    float infty = INFINITY;
+                    uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
+                    return BITS_TO_FLOAT(&qtarget);
+                }
+            }
         }
         uint32_t mask = (1 << 23) - 1;
         uint32_t rand_prob = 1 << 22;
