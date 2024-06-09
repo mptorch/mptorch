@@ -103,7 +103,7 @@ float_format = FloatingPoint(
     exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
 )
 mac_format = FloatingPoint(
-    exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
+    exp=8, man=7, subnormals=args.subnormals, saturate=args.saturate
 )
 
 transform_train = transforms.Compose(
@@ -147,8 +147,8 @@ param_q = lambda x: float_quantize(
 )
 
 layer_formats = QAffineFormats(
-    fwd_mac=(mac_format, mac_format),
-    bwd_mac=(mac_format, mac_format),
+    fwd_mac=(mac_format,),
+    bwd_mac=(mac_format,),
     fwd_rnd="nearest",
     bwd_rnd="nearest",
     weight_quant=param_q,
@@ -208,5 +208,5 @@ trainer(
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=2.0**4,
+    init_scale=2.0**10,
 )
