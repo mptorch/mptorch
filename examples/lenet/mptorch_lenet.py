@@ -208,5 +208,5 @@ trainer(
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=2.0**10,
+    init_scale=2.0**4,
 )
