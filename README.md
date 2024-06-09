@@ -139,12 +139,12 @@ Requirements:
 
 Install other requirements by:
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 Install MPTorch through pip (from the base directory):
 ```
-pip install -e .
+pip3 install -e .
 ```
 
 ## Acknowledgements
