@@ -2,6 +2,66 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
+from mptorch import FloatingPoint
+import mptorch.quant as qpt
+from mptorch.optim import OptimMP
+from mptorch.utils import trainer
+import random
+import numpy as np
+import argparse
+import wandb
+
+parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
+parser.add_argument(
+    "--expMac",
+    type=int,
+    default=8,
+    metavar="N",
+    help="MAC exponent size (default: 8)",
+)
+parser.add_argument(
+    "--manMac",
+    type=int,
+    default=7,
+    metavar="N",
+    help="MAC mantissa size (default: 7)",
+)
+parser.add_argument(
+    "--expWeight",
+    type=int,
+    default=5,
+    metavar="N",
+    help="Weights exponent size (default: 5)",
+)
+parser.add_argument(
+    "--manWeight",
+    type=int,
+    default=2,
+    metavar="N",
+    help="Weights mantissa size (default: 2)",
+)
+
+args = parser.parse_args()
+
+rounding = "nearest"
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fp_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, saturate=False)
+quant_fp = lambda x: qpt.float_quantize(
+    x, exp=args.expWeight, man=args.manWeight, rounding=rounding, subnormals=True, saturate=False
+)
+
+layer_formats = qpt.QAffineFormats(
+    fwd_mac=(fp_format),
+    fwd_rnd=rounding,
+    bwd_mac=(fp_format),
+    bwd_rnd=rounding,
+    weight_quant=quant_fp,
+    input_quant=quant_fp,
+    grad_quant=quant_fp,
+    bias_quant=quant_fp,
+)
+
+
 
 # hyperparameters
 batch_size = 64  # how many independent sequences will we process in parallel?
@@ -16,6 +76,25 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 # ------------
+
+run = wandb.init(
+    # Set the project where this run will be logged
+    project="shakespeare-gpt mptorch",
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": learning_rate,
+        "iterations": max_iters,
+        "batch_size": batch_size,
+        "n_embd": n_embd,
+        "n_head": n_head,
+        "n_layer": n_layer,
+        "dropout": dropout,
+        "fp_format_exp": args.expMac,
+        "fp_format_man": args.manMac,
+        "quant_fp_exp": args.expWeight,
+        "quant_fp_man": args.manWeight,
+    },
+)
 
 torch.manual_seed(1337)
 
@@ -74,9 +153,9 @@ class Head(nn.Module):
 
     def __init__(self, head_size):
         super().__init__()
-        self.key = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.key = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
+        self.query = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
+        self.value = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(dropout)
@@ -89,14 +168,16 @@ class Head(nn.Module):
         q = self.query(x)  # (B,T,hs)
         # compute attention scores ("affinities")
         wei = (
-            q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
+            #q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
+            qpt.qmatmul(q, k.transpose(-2, -1), formats=layer_formats) * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)
-        out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        #out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        out = qpt.qmatmul(wei, v, formats=layer_formats)
         return out
 
 
@@ -106,7 +187,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(head_size * num_heads, n_embd)
+        self.proj = qpt.QLinear(head_size * num_heads, n_embd, formats=layer_formats)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -121,9 +202,9 @@ class FeedFoward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+            qpt.QLinear(n_embd, 4 * n_embd, formats=layer_formats),
             nn.ReLU(),
-            nn.Linear(4 * n_embd, n_embd),
+            qpt.QLinear(4 * n_embd, n_embd, formats=layer_formats),
             nn.Dropout(dropout),
         )
 
@@ -160,7 +241,7 @@ class GPTLanguageModel(nn.Module):
             *[Block(n_embd, n_head=n_head) for _ in range(n_layer)]
         )
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.lm_head = qpt.QLinear(n_embd, vocab_size, formats=layer_formats)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -217,6 +298,13 @@ m = model.to(device)
 # print the number of parameters in the model
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
+# set up loss scaling
+init_scale=256.0
+if device == "cpu" or init_scale is None:
+        scaler = None
+else:
+    scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
+
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 tq = tqdm(total=batch_size * max_iters)
@@ -229,12 +317,15 @@ for iter in range(max_iters):
         train_loss="{:.5f}".format(losses["train"]),
         val_loss="{:.5f}".format(losses["val"]),
         epoch="{:d}".format(int(iter * batch_size / n)),
+        scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
+
     )
+    wandb.log({"train_loss": losses["train"], "val_loss": losses["val"], "epoch": int(iter * batch_size / n), "iter": iter, "scale": scaler.get_scale() if scaler is not None else 0.0})
     if (iter > 0 and iter % eval_interval == 0) or iter == max_iters - 1:
         losses = estimate_loss()
         # print(
         #     f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}"
-        # )
+        # )update
 
     # sample a batch of data
     xb, yb = get_batch("train")
@@ -242,8 +333,20 @@ for iter in range(max_iters):
     # evaluate the loss
     logits, loss = model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+    if scaler is None:
+        loss.backward()
+    else:
+        scaler.scale(loss).backward()
+
+    if scaler is None:
+        optimizer.step()
+    else:
+        scaler.step(optimizer)
+        scaler.update()
+
+    # loss.backward()     # add loss scaling here, don't need to call trainer but you can see what is done in trainer.py
+    # optimizer.step()    # add loss scaling here
+    
 
 tq.close()
 # generate from the model
