@@ -9,7 +9,7 @@
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                  bool subnormal_support = true,
                                  bool saturate = false) {
-  unsigned int target, quantize_bits;
+  uint32_t target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
 
@@ -40,11 +40,11 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
   return quantized;
 }
 
-__device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
+__device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
                                     int man_bits, int exp_bits,
                                     bool subnormal_support = true,
                                     bool saturate = false) {
-  unsigned int target, quantize_bits;
+  uint32_t target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
 
@@ -70,7 +70,7 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob,
   return quantized;
 }
 
-__device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob, int rand_bits,
+__device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob, int rand_bits,
                                     int man_bits, int exp_bits,
                                     bool subnormal_support = true,
                                     bool saturate = false) 
@@ -78,56 +78,8 @@ __device__ float cast_fp_stochastic(float origin_float, unsigned int rand_prob, 
   // TODO
 }
 
-template <bool subnormals>
-__device__ float cast_p3109_signed_nearest(float origin_float, int P) {
-  // TODO
-  return 0.0f;
-}
 
-template <>
-__device__ float cast_p3109_signed_nearest<false>(float origin_float, int P) {
-  // TODO:
-  return 0.0f;
-}
-
-template <bool subnormals>
-__device__ float cast_p3109_signed_stochastic(float origin_float, int P, int prng_bits) {
-  // TODO:
-  return 0.0f;
-}
-
-template <>
-__device__ float cast_p3109_signed_stochastic<false>(float origin_float, int P, int prng_bits) {
-  // TODO:
-  return 0.0f;
-}
-
-template <bool subnormals>
-__device__ float cast_p3109_unsigned_nearest(float origin_float, int P) {
-  // TODO:
-  return 0.0f;
-}
-
-template <>
-__device__ float cast_p3109_unsigned_nearest<false>(float origin_float, int P) {
-  // TODO:
-  return 0.0f;
-}
-
-template <bool subnormals>
-__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, int prng_bits) {
-  // TODO:
-  return 0.0f;
-}
-
-template <>
-__device__ float cast_p3109_unsigned_stochastic<false>(float origin_float, int P, int prng_bits) {
-  // TODO:
-  return 0.0f;
-}
-
-
-__global__ void seed_init(unsigned int seed, curandState_t *state) {
+__global__ void seed_init(uint32_t seed, curandState_t *state) {
   curand_init(seed, blockIdx.x * blockIdx.y, 0,
               &state[blockIdx.x * blockIdx.y]);
 }
@@ -140,7 +92,7 @@ __global__ void float_kernel_stochastic(float *__restrict__ a,
                                         bool subnormal_support, bool saturate) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
-    o[index] = cast_fp_stochastic(a[index], (unsigned int)r[index], man_bits,
+    o[index] = cast_fp_stochastic(a[index], (uint32_t)r[index], man_bits,
                                   exp_bits, subnormal_support, saturate);
 }
 
@@ -153,26 +105,6 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
   if (index < size)
     o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support,
                                saturate);
-}
-
-__global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                      int P, bool subnormals) {
-  // TODO
-}
-
-__global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                      int P, bool subnormals) {
-  // TODO
-}
-
-__global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, float *o, int size,
-                                      int P, int prng_bits, bool subnormals) {
-  // TODO
-}
-
-__global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, float *o, int size,
-                                      int P, int prng_bits, bool subnormals) {
-  // TODO
 }
 
 template <size_t SHMEM_SIZE>
@@ -391,7 +323,7 @@ __global__ void mm_fp_stochastic_impl(
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  unsigned int radd, rmul;
+  uint32_t radd, rmul;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
@@ -408,8 +340,8 @@ __global__ void mm_fp_stochastic_impl(
     for (int j = 0; j < blockDim.x; j++) {
       radd = curand(&state[sidx]);
       rmul = curand(&state[sidx]);
-      // radd = (unsigned int)r[bidx + 2 * (i + j)];
-      // rmul = (unsigned int)r[bidx + 2 * (i + j) + 1];
+      // radd = (uint32_t)r[bidx + 2 * (i + j)];
+      // rmul = (uint32_t)r[bidx + 2 * (i + j) + 1];
       tmp = cast_fp_stochastic(
           tmp + cast_fp_stochastic(
                     s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul,
@@ -447,7 +379,7 @@ __global__ void bmm_fp_stochastic_impl(
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  unsigned int radd, rmul;
+  uint32_t radd, rmul;
   // Determine the start index of the current batch in the 1D linearized
   // arrays
   int batch_a = batch_idx * M * K;
@@ -469,8 +401,8 @@ __global__ void bmm_fp_stochastic_impl(
     for (int j = 0; j < blockDim.x; j++) {
       radd = curand(&state[sidx]);
       rmul = curand(&state[sidx]);
-      // radd = (unsigned int)r[bidx + 2 * (i + j)];
-      // rmul = (unsigned int)r[bidx + 2 * (i + j) + 1];
+      // radd = (uint32_t)r[bidx + 2 * (i + j)];
+      // rmul = (uint32_t)r[bidx + 2 * (i + j) + 1];
       tmp = cast_fp_stochastic(
           tmp + cast_fp_stochastic(
                     s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul,
@@ -508,7 +440,7 @@ mm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  unsigned int rfma;
+  uint32_t rfma;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
@@ -523,7 +455,7 @@ mm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      // rfma = (unsigned int)r[bidx + i + j];
+      // rfma = (uint32_t)r[bidx + i + j];
       rfma = curand(&state[sidx]);
       tmp = cast_fp_stochastic(
           fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma,
@@ -561,7 +493,7 @@ bmm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  unsigned int rfma;
+  uint32_t rfma;
 
   // Determine the start index of the current batch in the 1D linearized
   // arrays
@@ -582,7 +514,7 @@ bmm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      // rfma = (unsigned int)r[bidx + i + j];
+      // rfma = (uint32_t)r[bidx + i + j];
       rfma = curand(&state[sidx]);
       tmp = cast_fp_stochastic(
           fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma,
@@ -608,8 +540,8 @@ void mm_fp_nearest(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   mm_fp_nearest_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
                                   exp_mul, subnormals, saturate);
@@ -624,9 +556,9 @@ void bmm_fp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   bmm_fp_nearest_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
                                   exp_mul, subnormals, saturate);
@@ -641,8 +573,8 @@ void mm_fp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   mm_fp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, M, K, N, man_fma, exp_fma, subnormals, saturate);
 }
@@ -656,9 +588,9 @@ void bmm_fp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   bmm_fp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, M, K, N, man_fma, exp_fma, subnormals, saturate);
 }
@@ -671,8 +603,8 @@ void mm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -692,9 +624,9 @@ void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -714,8 +646,8 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 const block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
@@ -735,9 +667,9 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
   dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
   dim3 block_dim{
-      (static_cast<unsigned int>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<unsigned int>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<unsigned int>(B)};
+      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
+      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
+      static_cast<uint32_t>(B)};
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));

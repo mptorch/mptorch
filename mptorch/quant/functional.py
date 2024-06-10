@@ -37,14 +37,14 @@ class qlinear_kernel(torch.autograd.Function):
         else:
             output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
 
-            output = float_quantize(
-                output.contiguous(),
-                exp=formats.fwd_add.exp,
-                man=formats.fwd_add.man,
-                rounding=formats.fwd_rnd,
-                subnormals=formats.fwd_add.subnormals,
-                saturate=formats.fwd_add.saturate,
-            )
+            # output = float_quantize(
+            #    output.contiguous(),
+            #    exp=formats.fwd_add.exp,
+            #    man=formats.fwd_add.man,
+            #    rounding=formats.fwd_rnd,
+            #    subnormals=formats.fwd_add.subnormals,
+            #    saturate=formats.fwd_add.saturate,
+            #)
             if qbias is not None:
                 output += qbias.view(
                     -1, qbias.shape[-1]

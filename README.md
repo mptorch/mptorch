@@ -58,11 +58,10 @@ test_loader = DataLoader(
 Specify the formats and quantization functions 
 for the layer operations and signals
 """
-exp, man = 4, 2
+exp, man = 5, 2
 fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
-)
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
@@ -107,7 +106,6 @@ acc_q = lambda x: qpt.float_quantize(
 )
 optimizer = OptimMP(
     optimizer,
-    weight_quant=weight_q,
     acc_quant=acc_q,
     momentum_quant=acc_q,
 )
@@ -141,12 +139,12 @@ Requirements:
 
 Install other requirements by:
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 Install MPTorch through pip (from the base directory):
 ```
-pip install -e .
+pip3 install -e .
 ```
 
 ## Acknowledgements
@@ -155,4 +153,3 @@ in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/
 
 ## Team
 - [Silviu Filip](https://people.irisa.fr/Silviu-Ioan.Filip/)
-- [Wassim Seifeddine](https://wassimseifeddine.com/)

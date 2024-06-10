@@ -1,5 +1,5 @@
 import torch
-from mptorch import Number, FixedPoint, FloatingPoint, BlockFloatingPoint
+from mptorch import Number, FixedPoint, FloatingPoint, SuperNormalFloat, BlockFloatingPoint
 from torch.utils.cpp_extension import load
 import os
 
@@ -7,6 +7,7 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
+    "superfp_quantize",
     "quantizer",
     "mp_mm",
     "mp_bmm",
@@ -14,6 +15,8 @@ __all__ = [
     "float_bmm",
     "fxp_mm",
     "fxp_bmm",
+    "superfp_mm",
+    "superfp_bmm",
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -30,12 +33,13 @@ if torch.cuda.is_available():
     quant_cuda = load(
         name="quant_cuda",
         sources=[
-            os.path.join(current_path, "quant_cuda/quant_cuda.cpp"),
+            os.path.join(current_path, "quant_cuda/pybind_cuda.cpp"),
             os.path.join(current_path, "quant_cuda/bit_helper.cu"),
             os.path.join(current_path, "quant_cuda/sim_helper.cu"),
             os.path.join(current_path, "quant_cuda/block_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/float_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/fixed_point_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/fp_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
         ],
     )
@@ -82,6 +86,18 @@ def mp_mm(a, b, formats, use_forward=True):
             rounding=rnd,
             fma=fma,
             subnormals=add_cfg.subnormals,
+            saturate=add_cfg.saturate,
+        )
+    elif type(formats.fwd_add) == SuperNormalFloat:
+        return superfp_mm(
+            a,
+            b,
+            man_add=add_cfg.man,
+            exp_add=add_cfg.exp,
+            man_mul=mul_cfg.man,
+            exp_mul=mul_cfg.exp,
+            rounding=rnd,
+            fma=fma,
             saturate=add_cfg.saturate,
         )
     else:  # fixed-point
@@ -283,6 +299,72 @@ def float_mm(
             )
     return c
 
+def superfp_mm(
+    a,
+    b,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    fma=True,
+    saturate=False,
+):
+    """
+    Mixed-precision super normal floating-point GEMM with customized formats for the multipliers and accumulators
+    Args:
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
+        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
+        - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
+        - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
+        - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
+        - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
+        - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
+        man_add and exp_add parameters for the rounding of the fma results)
+        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
+        in the format instead of outputting infinities)
+    Returns:
+        - the result of GEMM (torch.Tensor)
+    """
+
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+    if rounding == "nearest":
+        if not fma:
+            quant_module.superfp_quantize_nearest_mm(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                saturate,
+            )
+        else:
+            quant_module.superfp_quantize_nearest_mm_fma(
+                a.contiguous(),
+                b.contiguous(),
+                c.contiguous(),
+                a.shape[0],
+                b.shape[1],
+                a.shape[1],
+                man_add,
+                exp_add,
+                saturate,
+            )
+    else:
+        # TODO: stochastic rounding is not implemented yet
+        raise NotImplementedError("SR SuperNormalFloat MM is not yet implemented")
+    return c
+
 
 def mp_bmm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
@@ -311,6 +393,18 @@ def mp_bmm(a, b, formats, use_forward=True):
             fma=fma,
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
+        )
+    elif type(formats.fwd_add) == SuperNormalFloat:
+        return superfp_bmm(
+            a,
+            b,
+            man_add=add_cfg.man,
+            exp_add=add_cfg.exp,
+            man_mul=mul_cfg.man,
+            exp_mul=mul_cfg.exp,
+            rounding=rnd,
+            fma=fma,
+            saturate=add_cfg.saturate,            
         )
     else:  # fixed-point
         return fxp_bmm(
@@ -646,6 +740,169 @@ def float_bmm(
                 raise Exception("Wrong tensor sizes")
     return c
 
+
+def superfp_bmm(
+    a,
+    b,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    fma=True,
+    saturate=True,
+):
+
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    if rounding == "nearest":
+        if not fma:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.superfp_quantize_nearest_bmm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.superfp_quantize_nearest_mm(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.superfp_quantize_nearest_bmm(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.superfp_quantize_nearest_mm(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+        else:
+            if len(a.shape) == 3 and len(b.shape) == 3:
+                c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
+                quant_module.superfp_quantize_nearest_bmm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[1],
+                    b.shape[2],
+                    a.shape[2],
+                    man_add,
+                    exp_add,
+                    saturate,
+                )
+            elif len(a.shape) == 3 and len(b.shape) == 2:
+                a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+                c_r = torch.zeros(a_r.shape[0], b.shape[1], device=a.device)
+                quant_module.superfp_quantize_nearest_mm_fma(
+                    a_r.contiguous(),
+                    b.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[0],
+                    b.shape[1],
+                    a_r.shape[1],
+                    man_add,
+                    exp_add,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+            elif len(a.shape) == 4 and len(b.shape) == 4:
+                a_r = torch.reshape(
+                    a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+                )
+                b_r = torch.reshape(
+                    b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+                )
+                c_r = torch.zeros(
+                    a_r.shape[0], a_r.shape[1], b_r.shape[2], device=a.device
+                )
+                quant_module.superfp_quantize_nearest_bmm_fma(
+                    a_r.contiguous(),
+                    b_r.contiguous(),
+                    c_r.contiguous(),
+                    a_r.shape[1],
+                    b_r.shape[2],
+                    a_r.shape[2],
+                    man_add,
+                    exp_add,
+                    man_mul,
+                    exp_mul,
+                    saturate,
+                )
+                c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+            elif len(a.shape) == 2 and len(b.shape) == 2:
+                c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+                quant_module.superfp_quantize_nearest_mm_fma(
+                    a.contiguous(),
+                    b.contiguous(),
+                    c.contiguous(),
+                    a.shape[0],
+                    b.shape[1],
+                    a.shape[1],
+                    man_add,
+                    exp_add,
+                    saturate,
+                )
+            else:
+                raise Exception("Wrong tensor sizes")
+    else:
+        # TODO: stochastic rounding is not implemented yet
+        raise NotImplementedError("SR SuperNormalFloat BMM is not yet implemented")
+    return c
 
 def fxp_bmm(
     a,
@@ -1003,6 +1260,15 @@ def quantizer(
                         forward_number.saturate,
                     )
                 )
+            elif type(forward_number) == SuperNormalFloat:
+                forward_quant = (
+                    lambda x, quant_module: quant_module.superfp_quantize_nearest(
+                        x,
+                        forward_number.man,
+                        forward_number.exp,
+                        forward_number.saturate,
+                    )
+                )
         elif forward_rounding == "stochastic":
             if type(forward_number) == BlockFloatingPoint:
                 forward_quant = (
@@ -1028,6 +1294,9 @@ def quantizer(
                         forward_number.saturate,
                     )
                 )
+            elif type(forward_number) == SuperNormalFloat:
+                # TODO:
+                raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     else:
         if type(forward_number) == FixedPoint or forward_number == None:
             assert (
@@ -1071,6 +1340,15 @@ def quantizer(
                     backward_number.saturate,
                 )
             )
+        elif type(backward_number) == SuperNormalFloat:
+            backward_quant = (
+                lambda a, quant_module: quant_module.superfp_quantize_nearest(
+                    a,
+                    backward_number.man,
+                    backward_number.exp,
+                    backward_number.saturate,
+                )
+            )
     elif backward_rounding == "stochastic":
         if type(backward_number) == BlockFloatingPoint:
             backward_quant = (
@@ -1098,7 +1376,9 @@ def quantizer(
                     backward_number.saturate,
                 )
             )
-
+        elif type(backward_number) == SuperNormalFloat:
+            # TODO:
+            raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     if clamping_grad_zero == False:
 
         class Rounding(torch.autograd.Function):
@@ -1251,4 +1531,34 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         out = quant_module.float_quantize_stochastic(
             x.contiguous(), man, exp, subnormals, saturate
         )
+    return out
+
+def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
+    """
+    Quantize a single precision Floating Point into low-precision Super Normal Floating Point
+
+    Args:
+        - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
+        - :attr: `exp` (int) : number of bits allocated for exponent
+        - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
+        - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
+        - :attr: `saturate` (bool): saturate on overflow or use infinities
+
+    Returns:
+        - a quantized low-precision floating point number (torch.Tensor)
+    """
+    assert isinstance(
+        x, torch.Tensor
+    ), "x is not a single precision Floating Point Tensor"
+    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
+        rounding
+    )
+    quant_module = get_module(x)
+    if rounding == "nearest":
+        out = quant_module.superfp_quantize_nearest(
+            x.contiguous(), man, exp, saturate
+        )
+    elif rounding == "stochastic":
+        # TODO
+        raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     return out

@@ -1,8 +1,9 @@
 import torch
 from torch.optim import SGD
-from mptorch import FloatingPoint
+from mptorch import FloatingPoint, SuperNormalFloat
 from mptorch.quant import (
     float_quantize,
+    superfp_quantize,
     QLinear,
     QConv2d,
     Quantizer,
@@ -99,8 +100,8 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
-float_format = FloatingPoint(
-    exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
+float_format = SuperNormalFloat(
+    exp=args.exp, man=args.man, saturate=args.saturate
 )
 mac_format = FloatingPoint(
     exp=8, man=7, subnormals=args.subnormals, saturate=args.saturate
@@ -137,12 +138,11 @@ act_error_quant = Quantizer(
     backward_rounding="nearest",
 )
 
-param_q = lambda x: float_quantize(
+param_q = lambda x: superfp_quantize(
     x,
     exp=args.exp,
     man=args.man,
     rounding="nearest",
-    subnormals=args.subnormals,
     saturate=args.saturate,
 )
 
