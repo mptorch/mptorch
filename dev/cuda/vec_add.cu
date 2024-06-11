@@ -62,6 +62,7 @@ void vec_add2(float *z, const float *x, const float *y, int N, const int block_s
     cudaCheck(cudaGetLastError());
 }
 
+// kernel version dispatch
 void vec_add(int kernel_num,
             float *z,
             const float *x, 
@@ -131,7 +132,7 @@ int main(int argc, const char **argv) {
         float elapsed_time = benchmark_kernel(repeat_times, vec_add, kernel_num, d_z, d_x, d_y, N, block_size);
 
         // estimate memory bandwidth achieved
-        // for each output element, we do 2 reads and 1 writes, 4 bytes each
+        // for each output element, we do 2 reads and 1 write, 4 bytes each
         long memory_ops = N * 3 * (int)sizeof(float);
         float memory_bandwidth = memory_ops / elapsed_time / 1e6;
 
