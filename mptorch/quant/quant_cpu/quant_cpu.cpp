@@ -432,6 +432,22 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
+Tensor QSoftMax(Tensor a){
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  double sum = 1.0;
+  for(int64_t i; i < size; i++){
+    sum += (a_array[i] * a_array[i]);
+  }
+  for(int64_t j; j < size; j++){
+    o_array[j] = 5.0;
+  }
+  return o;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("fixed_point_quantize_stochastic_mask",
         &fixed_point_quantize_stochastic_mask,
@@ -458,4 +474,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
         "Low-Bitwidth GEMM (CPU)");
+  m.def("QSoftMax", &QSoftMax);
 }

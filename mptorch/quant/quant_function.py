@@ -17,6 +17,7 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
+    "QSoftMax"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -46,6 +47,8 @@ if torch.cuda.is_available():
 else:
     quant_cuda = quant_cpu
 
+def QSoftMax(a):
+    return quant_cpu.QSoftMax(a)
 
 def assert_wl_fl(wl, fl, stage=""):
     if wl == -1 and fl != -1:
