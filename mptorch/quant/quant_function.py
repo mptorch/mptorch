@@ -47,8 +47,8 @@ if torch.cuda.is_available():
 else:
     quant_cuda = quant_cpu
 
-def QSoftMax(a):
-    return quant_cpu.QSoftMax(a)
+def QSoftMax(a, man, exp, quant):
+    return quant_cpu.QSoftMax(a, man, exp, quant)
 
 def assert_wl_fl(wl, fl, stage=""):
     if wl == -1 and fl != -1:

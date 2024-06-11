@@ -3,6 +3,7 @@
 #include <random>
 #include <torch/torch.h>
 #include <tuple>
+#include <cmath>
 
 using namespace at;
 
@@ -432,28 +433,32 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
-Tensor QSoftMax(Tensor a){
-  auto a_array = a.data_ptr<float>();
-  auto o = zeros_like(a);
-  auto o_array = o.data_ptr<float>();
-  int size = a.numel();
+Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, bool quant){
+  auto q = a;
 
+  if(quant){
+    q = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
+  }
+
+  auto q_array = q.data_ptr<float>();
+  auto o = zeros_like(q);
+  auto o_array = o.data_ptr<float>();
+  int size = q.numel();
   float sum = 0;
   double numer = 0;
 
   for (int64_t i = 0; i < size; i++){
-    sum += a_array[i] * a_array[i];
+    sum += exp(q_array[i]);
   }
 
-  std::cout << sum << std::endl;
-
   for (int64_t j = 0; j < size; j++){
-    numer = a_array[j] * a_array[j];
+    numer = exp(q_array[j]);
     o_array[j] = numer/sum;
   }
 
   return o;
 }
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("fixed_point_quantize_stochastic_mask",
