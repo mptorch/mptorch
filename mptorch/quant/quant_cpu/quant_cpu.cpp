@@ -438,13 +438,20 @@ Tensor QSoftMax(Tensor a){
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
 
-  double sum = 1.0;
-  for(int64_t i; i < size; i++){
-    sum += (a_array[i] * a_array[i]);
+  float sum = 0;
+  double numer = 0;
+
+  for (int64_t i = 0; i < size; i++){
+    sum += a_array[i] * a_array[i];
   }
-  for(int64_t j; j < size; j++){
-    o_array[j] = 5.0;
+
+  std::cout << sum << std::endl;
+
+  for (int64_t j = 0; j < size; j++){
+    numer = a_array[j] * a_array[j];
+    o_array[j] = numer/sum;
   }
+
   return o;
 }
 
