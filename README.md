@@ -153,3 +153,4 @@ in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/
 
 ## Team
 - [Silviu Filip](https://people.irisa.fr/Silviu-Ioan.Filip/)
+- @bob-0727
