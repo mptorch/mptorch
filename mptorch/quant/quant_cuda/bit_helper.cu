@@ -4,11 +4,6 @@
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
-/* __device__ uint32_t rn_prob[24] = {
-    4194304, 2097152, 1048576, 524288, 262144, 131072, 65536, 32768,
-    16384,   8192,    4096,    2048,   1024,   512,    256,   128,
-    64,      32,      16,      8,      4,      2,      1,     0}; */
-
 __device__ __forceinline__ uint32_t extract_exponent(float *a) {
   uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
   temp = (temp << 1 >> 24); // single precision, 1 sign bit, 23 mantissa bits
@@ -26,14 +21,16 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob,
 
 __device__ __forceinline__ uint32_t
 round_bitwise_nearest(uint32_t target, int man_bits) {
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  int offset = (down == (1u << (22u - man_bits)));
-  uint32_t mask = (1 << (23 - man_bits + offset)) - 1;
-  uint32_t rand_prob = 1 << (23 - man_bits - 1);
-  // uint32_t rand_prob = rn_prob[man_bits];
-  uint32_t add_r = target + rand_prob;
-  uint32_t quantized = add_r & ~mask;
-  return quantized;
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    uint32_t half_eps = 1 << (22 - man_bits);
+    // tie breaking rule offset
+    int offset = (down == half_eps);
+    uint32_t add_r = target + half_eps;
+    // apply the mask
+    // this is the analogue of how you would do round 
+    // tp nearest integer using the floor function: 
+    // round(x) = floor(x + 0.5)
+    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
 __device__ __forceinline__ uint32_t round_bitwise_up(uint32_t target,

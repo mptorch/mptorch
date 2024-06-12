@@ -154,7 +154,7 @@ int main(int argc, const char **argv) {
 
     setup_main();
 
-    int N = 1 << 20;
+    int N = 1 << 24;
     int man_bits = 4;
 
     // read the kernel number from the command line
