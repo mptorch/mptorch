@@ -28,7 +28,7 @@ round_bitwise_nearest(uint32_t target, int man_bits) {
     uint32_t add_r = target + half_eps;
     // apply the mask
     // this is the analogue of how you would do round 
-    // tp nearest integer using the floor function: 
+    // to nearest integer using the floor function: 
     // round(x) = floor(x + 0.5)
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
