@@ -12,74 +12,79 @@ import argparse
 import wandb
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
+# how many independent sequences will we process in parallel?
 parser.add_argument(
-    "--expMac",
+    "--batch_size",
     type=int,
-    default=8,
+    default=64,
     metavar="N",
-    help="MAC exponent size (default: 8)",
+    help="input batch size for training (default: 64)",
+)
+# what is the maximum context length for predictions?
+parser.add_argument(
+    "--block_size",
+    type=int,
+    default=256,
+    metavar="N",
+    help="context length block size (default: 256)",
 )
 parser.add_argument(
-    "--manMac",
-    type=int,
-    default=7,
-    metavar="N",
-    help="MAC mantissa size (default: 7)",
+    "--seed", type=int, default=123, metavar="S", help="random seed (default: 123)"
 )
 parser.add_argument(
-    "--expWeight",
+    "--max_iters",
     type=int,
-    default=5,
+    default=5000,
     metavar="N",
-    help="Weights exponent size (default: 5)",
+    help="number of iterations to train (default: 5000)",
+)
+
+parser.add_argument(
+    "--eval_interval",
+    type=int,
+    default=200,
+    metavar="N",
+    help="evaluation interval (i.e. how often do we compute evaluation loss) (default: 200)",
 )
 parser.add_argument(
-    "--manWeight",
+    "--n_embd",
     type=int,
-    default=2,
+    default=96,
     metavar="N",
-    help="Weights mantissa size (default: 2)",
+    help="embedding dimension (default: 96)",
+)
+parser.add_argument(
+    "--n_head",
+    type=int,
+    default=6,
+    metavar="N",
+    help="number of attention heads (default: 6)",
+)
+parser.add_argument(
+    "--n_layer",
+    type=int,
+    default=6,
+    metavar="N",
+    help="number of Transformer layers (default: 6)",
+)
+parser.add_argument(
+    "--learning_rate",
+    type=float,
+    default=3e-4,
+    metavar="N",
+    help="learning rate (default: 3e-4)",
+)
+parser.add_argument(
+    "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
 args = parser.parse_args()
 
-rounding = "nearest"
-"""Specify the formats and quantization functions for the layer operations and signals"""
-fp_format = FloatingPoint(
-    exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
-)
-quant_fp = lambda x: qpt.float_quantize(
-    x,
-    exp=args.expWeight,
-    man=args.manWeight,
-    rounding=rounding,
-    subnormals=True,
-    saturate=False,
-)
-
-layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format),
-    fwd_rnd=rounding,
-    bwd_mac=(fp_format),
-    bwd_rnd=rounding,
-    weight_quant=quant_fp,
-    input_quant=quant_fp,
-    grad_quant=quant_fp,
-    bias_quant=quant_fp,
-)
-
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = "cuda" if args.cuda else "cpu"
 
 # hyperparameters
-batch_size = 64  # how many independent sequences will we process in parallel?
-block_size = 256  # what is the maximum context length for predictions?
-max_iters = 5000
-eval_interval = 200  # 500
-learning_rate = 3e-4
-device = "cuda" if torch.cuda.is_available() else "cpu"
 eval_iters = 10  # 200
-n_embd = 96
-n_head = 6
-n_layer = 6
 dropout = 0.2
 # ------------
 
@@ -88,17 +93,13 @@ run = wandb.init(
     project="shakespeare-gpt mptorch",
     # Track hyperparameters and run metadata
     config={
-        "learning_rate": learning_rate,
-        "iterations": max_iters,
-        "batch_size": batch_size,
-        "n_embd": n_embd,
-        "n_head": n_head,
-        "n_layer": n_layer,
+        "learning_rate": args.learning_rate,
+        "iterations": args.max_iters,
+        "batch_size": args.batch_size,
+        "n_embd": args.n_embd,
+        "n_head": args.n_head,
+        "n_layer": args.n_layer,
         "dropout": dropout,
-        "fp_format_exp": args.expMac,
-        "fp_format_man": args.manMac,
-        "quant_fp_exp": args.expWeight,
-        "quant_fp_man": args.manWeight,
     },
 )
 
@@ -132,9 +133,9 @@ val_data = data[n:]
 def get_batch(split):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == "train" else val_data
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([data[i : i + block_size] for i in ix])
-    y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix])
+    ix = torch.randint(len(data) - args.block_size, (args.batch_size,))
+    x = torch.stack([data[i : i + args.block_size] for i in ix])
+    y = torch.stack([data[i + 1 : i + args.block_size + 1] for i in ix])
     x, y = x.to(device), y.to(device)
     return x, y
 
@@ -159,10 +160,12 @@ class Head(nn.Module):
 
     def __init__(self, head_size):
         super().__init__()
-        self.key = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
-        self.query = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
-        self.value = qpt.QLinear(n_embd, head_size, bias=False, formats=layer_formats)
-        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.key = nn.Linear(args.n_embd, head_size, bias=False)
+        self.query = nn.Linear(args.n_embd, head_size, bias=False)
+        self.value = nn.Linear(args.n_embd, head_size, bias=False)
+        self.register_buffer(
+            "tril", torch.tril(torch.ones(args.block_size, args.block_size))
+        )
 
         self.dropout = nn.Dropout(dropout)
 
@@ -174,17 +177,14 @@ class Head(nn.Module):
         q = self.query(x)  # (B,T,hs)
         # compute attention scores ("affinities")
         wei = (
-            # q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
-            qpt.qmatmul(q, k.transpose(-2, -1), formats=layer_formats)
-            * k.shape[-1] ** -0.5
+            q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)
-        # out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
-        out = qpt.qmatmul(wei, v, formats=layer_formats)
+        out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         return out
 
 
@@ -194,7 +194,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = qpt.QLinear(head_size * num_heads, n_embd, formats=layer_formats)
+        self.proj = nn.Linear(head_size * num_heads, args.n_embd)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -209,9 +209,9 @@ class FeedFoward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            qpt.QLinear(n_embd, 4 * n_embd, formats=layer_formats),
+            nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
-            qpt.QLinear(4 * n_embd, n_embd, formats=layer_formats),
+            nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout),
         )
 
@@ -242,13 +242,13 @@ class GPTLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.token_embedding_table = nn.Embedding(vocab_size, args.n_embd)
+        self.position_embedding_table = nn.Embedding(args.block_size, args.n_embd)
         self.blocks = nn.Sequential(
-            *[Block(n_embd, n_head=n_head) for _ in range(n_layer)]
+            *[Block(args.n_embd, n_head=args.n_head) for _ in range(args.n_layer)]
         )
-        self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
-        self.lm_head = qpt.QLinear(n_embd, vocab_size, formats=layer_formats)
+        self.ln_f = nn.LayerNorm(args.n_embd)  # final layer norm
+        self.lm_head = nn.Linear(args.n_embd, vocab_size)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -286,7 +286,7 @@ class GPTLanguageModel(nn.Module):
         # idx is (B, T) array of indices in the current context
         for _ in range(max_new_tokens):
             # crop idx to the last block_size tokens
-            idx_cond = idx[:, -block_size:]
+            idx_cond = idx[:, -args.block_size :]
             # get the predictions
             logits, loss = self(idx_cond)
             # focus only on the last time step
@@ -313,29 +313,29 @@ else:
     scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
 
 # create a PyTorch optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-tq = tqdm(total=batch_size * max_iters)
+optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
-for iter in range(max_iters):
+for iter in range(args.max_iters):
     # every once in a while evaluate the loss on train and val sets
-    tq.update(batch_size)
+    tq.update(args.batch_size)
     tq.set_postfix(
         train_loss="{:.5f}".format(losses["train"]),
         val_loss="{:.5f}".format(losses["val"]),
-        epoch="{:d}".format(int(iter * batch_size / n)),
+        epoch="{:d}".format(int(iter * args.batch_size / n)),
         scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
     )
     wandb.log(
         {
             "train_loss": losses["train"],
             "val_loss": losses["val"],
-            "epoch": int(iter * batch_size / n),
+            "epoch": int(iter * args.batch_size / n),
             "iter": iter,
             "scale": scaler.get_scale() if scaler is not None else 0.0,
         }
     )
-    if (iter > 0 and iter % eval_interval == 0) or iter == max_iters - 1:
+    if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
         losses = estimate_loss()
 
     # sample a batch of data
