@@ -22,10 +22,10 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob,
 __device__ __forceinline__ uint32_t
 round_bitwise_nearest(uint32_t target, int man_bits) {
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t half_eps = 1 << (22 - man_bits);
+    uint32_t machine_eps = 1 << (22 - man_bits);
     // tie breaking rule offset
-    int offset = (down == half_eps);
-    uint32_t add_r = target + half_eps;
+    int offset = (down == machine_eps);
+    uint32_t add_r = target + machine_eps;
     // apply the mask
     // this is the analogue of how you would do round 
     // to nearest integer using the floor function: 
