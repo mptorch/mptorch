@@ -23,20 +23,16 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P) {
     int max_exp = (1 << (exp_bits -1)) - 1;
     int min_exp = spec_exp - max_exp;
 
-    //cout << "min_exp = " << min_exp << endl;
-    //cout << "exp_val = " << exp_val << endl;
-    //cout << "max_exp = " << max_exp << endl;
-
     if (exp_val == 128) {             // inf/Nan case
         return origin_float;
     }
-
+    
     int subnormal_shift = 0;
-    if((min_exp - exp_val) <= man_bits && exp_val < min_exp){ 
+    if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
       subnormal_shift = min_exp - exp_val;
     }
 
-    uval8 = round_bitwise_nearest(uval32,man_bits, subnormal_shift);
+    uval8 = round_bitwise_nearest(uval32, man_bits, subnormal_shift);
     uval8 = clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
     fval8 = BITS_TO_FLOAT(&uval8);
 
@@ -60,10 +56,6 @@ __device__ float cast_p3109_signed_nearest<false>(float origin_float, int P) {
     // minimal and maximal exponent value in binary8
     int max_exp = (1 << (exp_bits -1)) - 1;
     int min_exp = spec_exp - max_exp;
-
-    cout << "min_exp = " << min_exp << endl;
-    cout << "exp_val = " << exp_val << endl;
-    cout << "max_exp = " << max_exp << endl;
 
     if (exp_val == 128) {             // inf/Nan case
         return origin_float;

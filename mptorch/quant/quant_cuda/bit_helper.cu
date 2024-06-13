@@ -75,10 +75,12 @@ clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_n
   if (quantized_num == 0){
     return quantized_num;
   }
+  
+  int spec_exp = (man_bits == 0) ? 1 : 0; // for P=1
 
   int quantized_exponent_store = quantized_num << 1 >> 24;
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
-  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127;
+  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
   
   uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   uint32_t man_val = quantized_num & 0x7FFFFF;
