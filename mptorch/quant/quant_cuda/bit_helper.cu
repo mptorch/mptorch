@@ -70,59 +70,49 @@ __device__ __forceinline__ uint32_t round_bitwise_down(uint32_t target, int man_
 }
 
 __device__ __forceinline__ uint32_t
-clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {
-
-  if (quantized_num == 0){
+uint32_t clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {
+  if (quantized_num == 0) {
     return quantized_num;
   }
-  
-  int spec_exp = (man_bits == 0) ? 1 : 0; // for P=1
 
-  int quantized_exponent_store = quantized_num << 1 >> 24;
+  int spec_exp = (man_bits == 0) ? 1 : 0;
+  int quantized_exponent_store = (quantized_num >> 23) & 0xFF;
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
   int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
-  
   uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   uint32_t man_val = quantized_num & 0x7FFFFF;
+  uint32_t old_sign = old_num & 0x80000000;
 
-  uint32_t old_sign = old_num >> 31 << 31;
-  // saturate or overflow
-  if ((quantized_exponent_store > max_exponent_store) || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) {
+  if (quantized_exponent_store > max_exponent_store || (quantized_exponent_store == max_exponent_store && man_val > max_man)) {
     if (saturate) {
-      uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
-      //uint32_t max_man = (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
-      uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
-      quantized_num = old_sign | max_num;
+      quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
     } else {
-      quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-      quantized_num = quantized_num | old_sign;
+      quantized_num = old_sign | 0x7F800000; // INF
     }
-  } else if (quantized_exponent_store < min_exponent_store && subnormal) {
-    int subnormal_shift = min_exponent_store - quantized_exponent_store;
-    int min_subnormals_exp = min_exponent_store - man_bits;
-    uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
-    uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
-    uint32_t unsigned_quantized_num = old_num << 1 >> 1;
-    if (subnormal_shift <= man_bits) {
-      quantized_num = quantized_num;
-    } 
-    else if (unsigned_quantized_num > middle_num) {
-      uint32_t old_sign = old_num >> 31 << 31;
-      quantized_num = old_sign | min_num;
-    }else {
-      quantized_num = 0;
-    }
-  } else if (quantized_exponent_store < min_exponent_store && !subnormal) {
-    uint32_t min_num = ((uint32_t)min_exponent_store << 23);
-    uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
-    uint32_t unsigned_quantized_num = quantized_num << 1 >> 1;
-    if (unsigned_quantized_num > middle_num) {
-      uint32_t old_sign = old_num >> 31 << 31;
-      quantized_num = old_sign | min_num;
+  } else if (quantized_exponent_store < min_exponent_store) {
+    if (subnormal) {
+        int subnormal_shift = min_exponent_store - quantized_exponent_store;
+        int min_subnormals_exp = min_exponent_store - man_bits;
+        uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
+        uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
+      if (subnormal_shift <= man_bits) {
+        // quantized_num stays the same in this case
+      } else if ((old_num & 0x7FFFFFFF) > middle_num) {
+        quantized_num = old_sign | min_num;
+      } else {
+        quantized_num = 0;
+      }
     } else {
-      quantized_num = 0;
+      uint32_t min_num = (uint32_t)min_exponent_store << 23;
+      uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
+      if ((quantized_num & 0x7FFFFFFF) > middle_num) {
+        quantized_num = old_sign | min_num;
+      } else {
+        quantized_num = 0;
+      }
     }
   }
+
   return quantized_num;
 }
 
