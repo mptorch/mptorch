@@ -433,29 +433,27 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
-Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, bool quant){
-  auto q = a;
-
+Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int m, int n, int dim, bool quant){
   if(quant){
-    q = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
+    a = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
   }
 
-  auto q_array = q.data_ptr<float>();
-  auto o = zeros_like(q);
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
-  int size = q.numel();
-  float sum = 0;
-  double numer = 0;
+  int size = a.numel();
 
-  for (int64_t i = 0; i < size; i++){
-    sum += exp(q_array[i]);
+  for(int i = 0; i < m; i++){
+    float sum = 0;
+
+    for(int j = 0; j < n; j++){
+      sum += expf(a[i][j].item<float>());
+    }
+
+    for(int k = 0; k < n; k++){
+      o[i][k] = expf(a[i][k].item<float>())/sum;
+    }
   }
-
-  for (int64_t j = 0; j < size; j++){
-    numer = exp(q_array[j]);
-    o_array[j] = numer/sum;
-  }
-
   return o;
 }
 
