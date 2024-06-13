@@ -70,7 +70,7 @@ __device__ __forceinline__ uint32_t round_bitwise_down(uint32_t target, int man_
 }
 
 __device__ __forceinline__ uint32_t
-clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate) {
+clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {
 
   if (quantized_num == 0){
     return quantized_num;
@@ -95,25 +95,30 @@ clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_n
       quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
       quantized_num = quantized_num | old_sign;
     }
-  } else if (quantized_exponent_store < min_exponent_store) {
+  } else if (quantized_exponent_store < min_exponent_store && subnormal) {
     int subnormal_shift = min_exponent_store - quantized_exponent_store;
     int min_subnormals_exp = min_exponent_store - man_bits;
     uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
     uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
     uint32_t unsigned_quantized_num = old_num << 1 >> 1;
-    //print_uint(unsigned_quantized_num);
-    //print_uint(middle_num);
-    if (subnormal_shift <= man_bits)  {
+    if (subnormal_shift <= man_bits) {
       quantized_num = quantized_num;
-      //cout << "1" << endl;
     } 
     else if (unsigned_quantized_num > middle_num) {
       uint32_t old_sign = old_num >> 31 << 31;
       quantized_num = old_sign | min_num;
-      //cout << "2" << endl;
     }else {
       quantized_num = 0;
-      //cout << "3 " << endl;
+    }
+  } else if (quantized_exponent_store < min_exponent_store && !subnormal) {
+    uint32_t min_num = ((uint32_t)min_exponent_store << 23);
+    uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
+    uint32_t unsigned_quantized_num = quantized_num << 1 >> 1;
+    if (unsigned_quantized_num > middle_num) {
+      uint32_t old_sign = old_num >> 31 << 31;
+      quantized_num = old_sign | min_num;
+    } else {
+      quantized_num = 0;
     }
   }
   return quantized_num;

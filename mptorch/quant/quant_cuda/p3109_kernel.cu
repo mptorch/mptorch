@@ -37,7 +37,7 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P) {
     }
 
     uval8 = round_bitwise_nearest(uval32,man_bits, subnormal_shift);
-    uval8 = clip_exponent(exp_bits, man_bits, uval32, uval8, true);
+    uval8 = clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
     fval8 = BITS_TO_FLOAT(&uval8);
 
     return fval8;
@@ -45,8 +45,35 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P) {
 
 template <>
 __device__ float cast_p3109_signed_nearest<false>(float origin_float, int P) {
-  // TODO:
-  return 0.0f;
+    // P range from 1 to 7 in signed
+    int exp_bits = 8-P;
+    int man_bits = P-1; //P in unsigned
+    
+    int spec_exp = (P == 1) ? 1 : 0;
+
+    uint32_t uval32, uval8;
+    float fval8;
+    uval32 = FLOAT_TO_BITS(&origin_float);
+
+    int exp_val = (uval32 << 1 >> 24) - 127;
+
+    // minimal and maximal exponent value in binary8
+    int max_exp = (1 << (exp_bits -1)) - 1;
+    int min_exp = spec_exp - max_exp;
+
+    cout << "min_exp = " << min_exp << endl;
+    cout << "exp_val = " << exp_val << endl;
+    cout << "max_exp = " << max_exp << endl;
+
+    if (exp_val == 128) {             // inf/Nan case
+        return origin_float;
+    }
+
+    uval8 = round_bitwise_nearest(uval32,man_bits, 0);
+    uval8 = clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
+    fval8 = BITS_TO_FLOAT(&uval8);
+
+    return fval8;
 }
 
 template <bool subnormals>
