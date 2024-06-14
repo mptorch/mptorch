@@ -80,14 +80,8 @@ int main(int argc, char **argv) {
     /* Performs operation using cublasLt */
     cublasLtMatmulDesc_t operationDesc = NULL;
     cublasLtMatrixLayout_t Adesc = NULL, Bdesc = NULL, Cdesc = NULL;
-    // cublasLtMatmulPreference_t preference = NULL;
-
-    // int returnedResults = 0;
-    // cublasLtMatmulHeuristicResult_t heuristicResult = {};
-
     cublasOperation_t transa = CUBLAS_OP_N;
     cublasOperation_t transb = CUBLAS_OP_N;
-
     int lda = M;
     int ldb = K;
     int ldc = M;
@@ -106,26 +100,31 @@ int main(int argc, char **argv) {
     // create preference handle; here we could use extra attributes to disable tensor ops or to make sure algo selected
     // will work with badly aligned A, B, C; here for simplicity we just assume A,B,C are always well aligned (e.g.
     // directly come from cudaMalloc)
-    // cublasCheck(cublasLtMatmulPreferenceCreate(&preference));
-    // cublasCheck(cublasLtMatmulPreferenceSetAttribute(preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSize, sizeof(workspaceSize)));
+    cublasLtMatmulPreference_t preference = NULL;
+    cublasCheck(cublasLtMatmulPreferenceCreate(&preference));
 
     // we just need the best available heuristic to try and run matmul. There is no guarantee this will work, e.g. if A
     // is badly aligned, you can request more (e.g. 32) algos and try to run them one by one until something works
-    // cublasCheck(cublasLtMatmulAlgoGetHeuristic(handle, operationDesc, Adesc, Bdesc, Cdesc, Cdesc, NULL, 1, &heuristicResult, &returnedResults));
+    int returnedResults = 0;
+    cublasLtMatmulHeuristicResult_t heuristicResult = {};
+    cublasCheck(cublasLtMatmulAlgoGetHeuristic(
+        handle, operationDesc, Adesc, Bdesc, Cdesc, Cdesc, preference, 1, &heuristicResult, &returnedResults
+    ));
 
-    // if (returnedResults == 0) {
-    //     cublasCheck(CUBLAS_STATUS_NOT_SUPPORTED);
-    // }
+    if (returnedResults == 0) {
+        cublasCheck(CUBLAS_STATUS_NOT_SUPPORTED);
+    }
 
     cublasCheck(cublasLtMatmul(handle, operationDesc, &alpha,
                                d_A, Adesc,
                                d_B, Bdesc, &beta,
                                d_C, Cdesc,
                                d_C, Cdesc,
-                               NULL, NULL, 0, 0));
+                               &heuristicResult.algo,
+                               NULL, 0, 0));
 
     // descriptors are no longer needed as all GPU work was already enqueued
-    // if (preference) cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
+    if (preference) cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
     if (Cdesc) cublasCheck(cublasLtMatrixLayoutDestroy(Cdesc));
     if (Bdesc) cublasCheck(cublasLtMatrixLayoutDestroy(Bdesc));
     if (Adesc) cublasCheck(cublasLtMatrixLayoutDestroy(Adesc));

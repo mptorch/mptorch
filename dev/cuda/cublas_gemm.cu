@@ -31,7 +31,7 @@ static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const
 
 void check_cublas(cublasStatus_t status, const char* file, int line) {
     if (status != CUBLAS_STATUS_SUCCESS) {
-        fprintf(stderr, "CUBLASLt error: %s:%d\n%s\n", file, line,
+        fprintf(stderr, "CUBLAS error: %s:%d\n%s\n", file, line,
             cublasGetStatusString(status));
         exit(EXIT_FAILURE);
     }
