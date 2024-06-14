@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
         cublasCheck(CUBLAS_STATUS_NOT_SUPPORTED);
     }
 
+    auto cublasLt_matmul = [&]() {
     cublasCheck(cublasLtMatmul(handle, operationDesc, &alpha,
                                d_A, Adesc,
                                d_B, Bdesc, &beta,
@@ -122,6 +123,18 @@ int main(int argc, char **argv) {
                                d_C, Cdesc,
                                &heuristicResult.algo,
                                NULL, 0, 0));
+    };
+    cublasLt_matmul();
+
+    /* Check result against reference */
+    validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
+
+
+    /* Benchmark */
+    int repeat_times = 1000;
+    float elapsed_time = benchmark_kernel(repeat_times, cublasLt_matmul);
+    printf("time %.4f ms\n", elapsed_time);
+
 
     // descriptors are no longer needed as all GPU work was already enqueued
     if (preference) cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
@@ -129,9 +142,6 @@ int main(int argc, char **argv) {
     if (Bdesc) cublasCheck(cublasLtMatrixLayoutDestroy(Bdesc));
     if (Adesc) cublasCheck(cublasLtMatrixLayoutDestroy(Adesc));
     if (operationDesc) cublasCheck(cublasLtMatmulDescDestroy(operationDesc));
-
-    /* Check result against reference */
-    validate_result(d_C, h_C, "C", M*N);
 
     /* Memory clean up */
     free(h_A);

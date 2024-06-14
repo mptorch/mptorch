@@ -71,22 +71,33 @@ int main(int argc, char **argv) {
     cublasCheck(cublasSetVector(K*N, sizeof(h_B[0]), h_B, 1, d_B, 1));
     cublasCheck(cublasSetVector(M*N, sizeof(h_C[0]), h_C, 1, d_C, 1));
 
+    int lda = M;
+    int ldb = K;
+    int ldc = M;
+
     /* Performs operation using plain C code */
     simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Performs operation using cublas */
-    int lda = M;
-    int ldb = K;
-    int ldc = M;
+    auto cublas_gemm = [&]() {
     cublasCheck(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha, 
                         d_A, CUDA_R_32F, lda,           /* 32-bit float A */
                         d_B, CUDA_R_32F, ldb, &beta,    /* 32-bit float B */
                         d_C, CUDA_R_32F, ldc,           /* 32-bit float C */
                         CUBLAS_COMPUTE_32F,             /* 32-bit computation */
                         CUBLAS_GEMM_DEFAULT));
+    };
+    cublas_gemm();
 
     /* Check result against reference */
-    validate_result(d_C, h_C, "C", M*N);
+    validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
+
+
+    /* Benchmark */
+    int repeat_times = 1000;
+    float elapsed_time = benchmark_kernel(repeat_times, cublas_gemm);
+    printf("time %.4f ms\n", elapsed_time);
+
 
     /* Memory clean up */
     free(h_A);
