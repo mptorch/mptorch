@@ -75,9 +75,9 @@ int main(int argc, char **argv) {
     simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Performs operation using cublas */
-    int64_t lda = M;
-    int64_t ldb = K;
-    int64_t ldc = M;
+    int lda = M;
+    int ldb = K;
+    int ldc = M;
     cublasCheck(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha, 
                         d_A, CUDA_R_32F, lda,           /* 32-bit float A */
                         d_B, CUDA_R_32F, ldb, &beta,    /* 32-bit float B */

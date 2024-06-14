@@ -88,9 +88,9 @@ int main(int argc, char **argv) {
     cublasOperation_t transa = CUBLAS_OP_N;
     cublasOperation_t transb = CUBLAS_OP_N;
 
-    int64_t lda = M;
-    int64_t ldb = K;
-    int64_t ldc = M;
+    int lda = M;
+    int ldb = K;
+    int ldc = M;
 
     // create operation desciriptor; see cublasLtMatmulDescAttributes_t for details about defaults; here we just need to
     // set the transforms for A and B
