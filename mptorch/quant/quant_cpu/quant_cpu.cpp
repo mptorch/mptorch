@@ -433,26 +433,66 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
-Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int m, int n, int dim, bool quant){
+Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int dim, bool quant){
   if(quant){
     a = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
   }
 
-  auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
-  auto o_array = o.data_ptr<float>();
-  int size = a.numel();
+  auto a_array = a.data_ptr<float>();
+  auto shape = a.sizes();
+
+  float shift = a_array[0];
+
+  int m = shape[0];
+  int n = shape[1];
+
+  for(int h = 1; h < sizeof(a_array); h++){
+    if (a_array[h] > shift){
+      shift = a_array[h];
+    }
+  }
 
   for(int i = 0; i < m; i++){
     float sum = 0;
 
     for(int j = 0; j < n; j++){
-      sum += expf(a[i][j].item<float>());
+      sum += expf((a[i][j].item<float>()) - shift);
+      if(quant){
+        sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
+      }
     }
-
     for(int k = 0; k < n; k++){
-      o[i][k] = expf(a[i][k].item<float>())/sum;
+      float out = expf((a[i][k].item<float>()) - shift)/sum;
+      if(quant){
+        o[i][k] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
+      } else {
+        o[i][k] = out;
+      }
     }
+  /*  
+    switch(dim){
+      case 0:
+        //std::cout << "case 0" << std::endl;
+        for(int j = 0; j < n; j++){
+
+          sum += expf((a[j][i].item<float>()) - shift);
+        }
+        for(int k = 0; k < n; k++){
+          o[k][i] = expf((a[k][i].item<float>()) - shift)/sum;
+        }
+        break;
+      case 1:
+        //std::cout << "case 1" << std::endl;
+        for(int j = 0; j < n; j++){
+          sum += expf((a[i][j].item<float>()) - shift);
+        }
+        for(int k = 0; k < n; k++){
+          o[i][k] = expf((a[i][k].item<float>()) - shift)/sum;
+        }
+        break;
+    }
+  */
   }
   return o;
 }
