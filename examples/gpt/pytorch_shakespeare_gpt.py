@@ -78,6 +78,10 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
+parser.add_argument(
+    "--wandb", action="store_true", default=False, help="wandb logging"
+)
+
 args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -88,20 +92,21 @@ eval_iters = 10  # 200
 dropout = 0.2
 # ------------
 
-run = wandb.init(
-    # Set the project where this run will be logged
-    project="shakespeare-gpt mptorch",
-    # Track hyperparameters and run metadata
-    config={
-        "learning_rate": args.learning_rate,
-        "iterations": args.max_iters,
-        "batch_size": args.batch_size,
-        "n_embd": args.n_embd,
-        "n_head": args.n_head,
-        "n_layer": args.n_layer,
-        "dropout": dropout,
-    },
-)
+if args.wandb:
+    run = wandb.init(
+        # Set the project where this run will be logged
+        project="shakespeare-gpt mptorch",
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": args.learning_rate,
+            "iterations": args.max_iters,
+            "batch_size": args.batch_size,
+            "n_embd": args.n_embd,
+            "n_head": args.n_head,
+            "n_layer": args.n_layer,
+            "dropout": dropout,
+        },
+    )
 
 torch.manual_seed(1337)
 
@@ -306,7 +311,7 @@ m = model.to(device)
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
 # set up loss scaling
-init_scale = 256.0
+init_scale = None
 if device == "cpu" or init_scale is None:
     scaler = None
 else:
@@ -317,6 +322,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
+train_loss, val_loss = [], []
 for iter in range(args.max_iters):
     # every once in a while evaluate the loss on train and val sets
     tq.update(args.batch_size)
@@ -326,15 +332,16 @@ for iter in range(args.max_iters):
         epoch="{:d}".format(int(iter * args.batch_size / n)),
         scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
     )
-    wandb.log(
-        {
-            "train_loss": losses["train"],
-            "val_loss": losses["val"],
-            "epoch": int(iter * args.batch_size / n),
-            "iter": iter,
-            "scale": scaler.get_scale() if scaler is not None else 0.0,
-        }
-    )
+    if args.wandb:
+        wandb.log(
+            {
+                "train_loss": losses["train"],
+                "val_loss": losses["val"],
+                "epoch": int(iter * args.batch_size / n),
+                "iter": iter,
+                "scale": scaler.get_scale() if scaler is not None else 0.0,
+            }
+        )
     if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
         losses = estimate_loss()
 
