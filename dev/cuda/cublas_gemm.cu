@@ -75,9 +75,6 @@ int main(int argc, char **argv) {
     int ldb = K;
     int ldc = M;
 
-    /* Performs operation using plain C code */
-    simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
-
     /* Performs operation using cublas */
     auto cublas_gemm = [&]() {
     cublasCheck(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha, 
@@ -88,6 +85,9 @@ int main(int argc, char **argv) {
                         CUBLAS_GEMM_DEFAULT));
     };
     cublas_gemm();
+
+    /* Performs operation using plain C code */
+    simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Check result against reference */
     validate_result(d_C, h_C, "C", M*N, 1.0e-2f);

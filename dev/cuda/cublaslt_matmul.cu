@@ -74,9 +74,6 @@ int main(int argc, char **argv) {
     cublasCheck(cublasSetVector(K*N, sizeof(h_B[0]), h_B, 1, d_B, 1));
     cublasCheck(cublasSetVector(M*N, sizeof(h_C[0]), h_C, 1, d_C, 1));
 
-    /* Performs operation using plain C code */
-    simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
-
     /* Performs operation using cublasLt */
     cublasLtMatmulDesc_t operationDesc = NULL;
     cublasLtMatrixLayout_t Adesc = NULL, Bdesc = NULL, Cdesc = NULL;
@@ -125,6 +122,9 @@ int main(int argc, char **argv) {
                                NULL, 0, 0));
     };
     cublasLt_matmul();
+
+    /* Performs operation using plain C code */
+    simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Check result against reference */
     validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
