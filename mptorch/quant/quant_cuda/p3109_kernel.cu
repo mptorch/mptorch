@@ -61,8 +61,8 @@ __device__ float cast_p3109_signed_nearest<false>(float origin_float, int P) {
         return origin_float;
     }
 
-    uval8 = round_bitwise_nearest(uval32,man_bits - subnormal_shift);
-    uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
+    uval8 = round_bitwise_nearest(uval32, man_bits);
+    uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, true, false);
     fval8 = BITS_TO_FLOAT(&uval8);
 
     return fval8;
@@ -82,6 +82,10 @@ __device__ float cast_p3109_signed_stochastic<false>(float origin_float, int P, 
 
 template <bool subnormals>
 __device__ float cast_p3109_unsigned_nearest(float origin_float, int P) {
+
+    if (origin_float < 0){
+      return NAN;
+    }
     // P range from 1 to 7 in signed
     int exp_bits = 8 - P + 1;
     int man_bits = P - 1; 
@@ -102,9 +106,6 @@ __device__ float cast_p3109_unsigned_nearest(float origin_float, int P) {
     int max_exp = (1 << (exp_bits -1)) - 1;
     int min_exp = spec_exp - max_exp;
     
-    if(sign == 1){
-        return NAN;
-    }
 
     if (exp_val == 128) {             // inf/Nan case
         return origin_float;
@@ -125,6 +126,11 @@ __device__ float cast_p3109_unsigned_nearest(float origin_float, int P) {
 template <>
 __device__ float cast_p3109_unsigned_nearest<false>(float origin_float, int P) {
     // P range from 1 to 7 in signed
+
+    if (origin_float < 0){
+      return NAN;
+    }
+    
     int exp_bits = 8 - P + 1;
     int man_bits = P - 1; 
     
@@ -143,10 +149,7 @@ __device__ float cast_p3109_unsigned_nearest<false>(float origin_float, int P) {
     // minimal and maximal exponent value in binary8
     int max_exp = (1 << (exp_bits -1)) - 1;
     int min_exp = spec_exp - max_exp;
-    
-    if(sign == 1){
-        return NAN;
-    }
+
 
     if (exp_val == 128) {             // inf/Nan case
         return origin_float;
@@ -165,7 +168,7 @@ __device__ float cast_p3109_unsigned_nearest<false>(float origin_float, int P) {
 }
 
 template <bool subnormals>
-__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, int prng_bits) {
+__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, int prng_bits) { // what is prng_bits? number of random bits?
   // TODO:
   return 0.0f;
 }

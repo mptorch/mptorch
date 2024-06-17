@@ -16,10 +16,10 @@ __device__ __forceinline__ uint32_t extract_exponent(float *a) {
 }
 
 __device__ __forceinline__ uint32_t
-round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) {
-  uint32_t mask = (1 << (23 - man_bits)) - 1;
-  uint32_t add_r = target + (rand_prob & mask);
-  uint32_t quantized = add_r & ~mask;
+round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) { // passing number of random bits as second parameter (all the bits after the least significant bit which is based on prng); target is the original number
+  uint32_t mask = (1 << (23 - man_bits)) - 1; 
+  uint32_t add_r = target + (rand_prob & mask); // adding random bits to target (which is not masked)
+  uint32_t quantized = add_r & ~mask; // masking out bits on the right hand side of the significant bits (truncating)
   return quantized;
 }
 
@@ -69,7 +69,7 @@ __device__ __forceinline__ uint32_t round_bitwise_down(uint32_t target, int man_
 
 __device__ __forceinline__ uint32_t
 clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
-              uint32_t quantized_num, bool saturate = false) {
+              uint32_t quantized_num, bool saturate) {
   if (quantized_num == 0)
     return quantized_num;
 
@@ -118,9 +118,9 @@ clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quantized_num) 
 
 __device__ __forceinline__ uint32_t
 p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {
-  if (quantized_num == 0) {
+  if (quantized_num == 0) 
     return quantized_num;
-  }
+  
 
   int spec_exp = (man_bits == 0) ? 1 : 0;
   int quantized_exponent_store = (quantized_num >> 23) & 0xFF;
