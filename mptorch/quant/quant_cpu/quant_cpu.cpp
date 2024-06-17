@@ -438,62 +438,63 @@ Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int dim, bool quant){
     a = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
   }
 
-  auto o = zeros_like(a);
   auto a_array = a.data_ptr<float>();
-  auto shape = a.sizes();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  int outer_size = 1;
+  int inner_size = 1;
+  int dim_size = a.size(dim);
 
   float shift = a_array[0];
 
-  int m = shape[0];
-  int n = shape[1];
+  for(int i = 0; i < dim; ++i){
+    outer_size *= a.size(i);
+  }
 
-  for(int h = 1; h < sizeof(a_array); h++){
-    if (a_array[h] > shift){
-      shift = a_array[h];
+  //std::cout << "outer_size " << outer_size << std::endl;
+
+  for(int i = dim + 1; i < a.dim(); ++i){
+    inner_size *= a.size(i);
+  }
+
+  //std::cout << "inner_size " << inner_size << std::endl;
+
+  for(int i = 1; i < size; i++){
+    if (a_array[i] > shift){
+      shift = a_array[i];
+    }
+  }
+  //std::cout << shift << std::endl;
+
+  int dim_stride = inner_size;
+  int outer_stride = dim_size * dim_stride;
+
+  //std::cout << "dim_stride "<< dim_stride << std::endl;
+  //std::cout << "outer_stride " <<outer_stride << std::endl;
+
+  for(int i = 0; i < outer_size; ++i){
+    for(int j = 0; j < inner_size; ++j){
+      float sum = 0.0;
+      //std::cout << "idx "<< idx << std::endl;
+      for(int k = 0; k < dim_size ; ++k){
+        int idx = i*dim_size*inner_size + j*inner_size +k;
+        sum += expf(a_array[idx] - shift);
+        //std::cout << "sum1 "<< sum << std::endl;
+        //std::cout << "inidx "<< inidx << std::endl;
+      }
+      //std::cout << "sum2 " <<sum << std::endl;
+      for (int k = 0; k < dim_size; ++k) {
+        int idx = i*dim_size*inner_size + j*inner_size +k;
+        o_array[idx] = expf(a_array[idx] - shift) / sum;
+        //std::cout<< "inidx " << inidx<< std::endl;
+        //std::cout<< "outidx " << outidx << std::endl;
+        //std::cout<< "out " << o_array[outidx] << std::endl;
+      }
     }
   }
 
-  for(int i = 0; i < m; i++){
-    float sum = 0;
-
-    for(int j = 0; j < n; j++){
-      sum += expf((a[i][j].item<float>()) - shift);
-      if(quant){
-        sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
-      }
-    }
-    for(int k = 0; k < n; k++){
-      float out = expf((a[i][k].item<float>()) - shift)/sum;
-      if(quant){
-        o[i][k] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
-      } else {
-        o[i][k] = out;
-      }
-    }
-  /*  
-    switch(dim){
-      case 0:
-        //std::cout << "case 0" << std::endl;
-        for(int j = 0; j < n; j++){
-
-          sum += expf((a[j][i].item<float>()) - shift);
-        }
-        for(int k = 0; k < n; k++){
-          o[k][i] = expf((a[k][i].item<float>()) - shift)/sum;
-        }
-        break;
-      case 1:
-        //std::cout << "case 1" << std::endl;
-        for(int j = 0; j < n; j++){
-          sum += expf((a[i][j].item<float>()) - shift);
-        }
-        for(int k = 0; k < n; k++){
-          o[i][k] = expf((a[i][k].item<float>()) - shift)/sum;
-        }
-        break;
-    }
-  */
-  }
   return o;
 }
 
