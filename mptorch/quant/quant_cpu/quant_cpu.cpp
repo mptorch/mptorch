@@ -453,44 +453,29 @@ Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int dim, bool quant){
     outer_size *= a.size(i);
   }
 
-  //std::cout << "outer_size " << outer_size << std::endl;
-
   for(int i = dim + 1; i < a.dim(); ++i){
     inner_size *= a.size(i);
   }
-
-  //std::cout << "inner_size " << inner_size << std::endl;
 
   for(int i = 1; i < size; i++){
     if (a_array[i] > shift){
       shift = a_array[i];
     }
   }
-  //std::cout << shift << std::endl;
 
   int dim_stride = inner_size;
   int outer_stride = dim_size * dim_stride;
 
-  //std::cout << "dim_stride "<< dim_stride << std::endl;
-  //std::cout << "outer_stride " <<outer_stride << std::endl;
-
   for(int i = 0; i < outer_size; ++i){
     for(int j = 0; j < inner_size; ++j){
       float sum = 0.0;
-      //std::cout << "idx "<< idx << std::endl;
-      for(int k = 0; k < dim_size ; ++k){
-        int idx = i*dim_size*inner_size + j*inner_size +k;
+      for(int k = 0; k < dim_size; ++k){
+        int idx = (i*outer_stride)+(k*dim_stride)+(j);
         sum += expf(a_array[idx] - shift);
-        //std::cout << "sum1 "<< sum << std::endl;
-        //std::cout << "inidx "<< inidx << std::endl;
       }
-      //std::cout << "sum2 " <<sum << std::endl;
       for (int k = 0; k < dim_size; ++k) {
-        int idx = i*dim_size*inner_size + j*inner_size +k;
+        int idx = (i*outer_stride)+(k*dim_stride)+(j);
         o_array[idx] = expf(a_array[idx] - shift) / sum;
-        //std::cout<< "inidx " << inidx<< std::endl;
-        //std::cout<< "outidx " << outidx << std::endl;
-        //std::cout<< "out " << o_array[outidx] << std::endl;
       }
     }
   }
