@@ -126,7 +126,7 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
   uint32_t man_val = quantized_num & 0x7FFFFF;  // max mantissa val is all 1s
   uint32_t old_sign = old_num & 0x80000000;
 
-  if (quantized_exponent_store > max_exponent_store) {
+  if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent store) && max_man < man_val)) {
     if (saturate) { 
       quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
     } else {
