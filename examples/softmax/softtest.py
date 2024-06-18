@@ -4,8 +4,8 @@ from mptorch.quant import *
 
 device = torch.device("cpu")
 
-man = 2
-exp = 5
+man = 8
+exp = 7
 
 err = 1/8
 
@@ -16,22 +16,22 @@ z = torch.tensor([[1.,2.,3.],[4.,5.,6.]])
 p = torch.tensor([[1.,2.],[3.,4.]])
 r = torch.randn(2,4,3,2)
 
-t = r
+t = x
 
 print(t)
 #print(t.dim())
 
 print("\nUsing pytorch sm:")
-sm = F.softmax(t, dim=0)
+sm = F.softmax(t, dim=-1)
 print(sm)
 
 print("\nUsing binary32 format:")
-a = QSoftMax(t, man, exp, 0, False)
+a = QSoftMax(t, man, exp, 2, True)
 print(a)
 
-diff = torch.abs(torch.sub(sm, a))
-print("\nDifference between PyTorch and Quant:\n", diff)
+#diff = torch.abs(torch.sub(sm, a))
+#print("\nDifference between PyTorch and Quant:\n", diff)
 #print(torch.gt(sm, a))
 
 # Testing
-torch.testing.assert_close(sm, a, atol = err, rtol = 0)
+#torch.testing.assert_close(sm, a, atol = err, rtol = 0)

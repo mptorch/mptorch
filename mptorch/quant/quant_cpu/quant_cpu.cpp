@@ -472,10 +472,18 @@ Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int dim, bool quant){
       for(int k = 0; k < dim_size; ++k){
         int idx = (i*outer_stride)+(k*dim_stride)+(j);
         sum += expf(a_array[idx] - shift);
+        if(quant){
+          sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
+        }
       }
       for (int k = 0; k < dim_size; ++k) {
         int idx = (i*outer_stride)+(k*dim_stride)+(j);
-        o_array[idx] = expf(a_array[idx] - shift) / sum;
+        float out = expf(a_array[idx] - shift) / sum;
+        if(quant){
+          o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
+        } else {
+          o_array[idx] = out;
+        }
       }
     }
   }

@@ -51,9 +51,9 @@ layer_formats = qpt.QAffineFormats(
     bias_quant = quant_fp
 )
 
-"""
+
 run = wandb.init(
-    project = "gpt-mptorch-RS",
+    project = "QSoftMax Testing RS",
 
     config={
     "batch_size": batch_size,
@@ -68,7 +68,7 @@ run = wandb.init(
     "quant_fp_man": artM,
     }
 )
-"""
+
 
 print("init_scale: ", init_scale, "; macE: ", macE, "; macM: ", macM, "; artE: ", artE, "; artM: ", artM, "; learning_rate: ", learning_rate)
 
@@ -145,10 +145,7 @@ class Head(nn.Module):
             q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
-        print(wei)
-        print(wei.size())
-        print(wei.dim())
-        wei = qpt.QSoftMax(wei, artM, artE, -1, True)  # (B, T, T)
+        wei = qpt.QSoftMax(wei, macM, macE, 2, True)  # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)
@@ -260,7 +257,7 @@ class GPTLanguageModel(nn.Module):
             # focus only on the last time step
             logits = logits[:, -1, :]  # becomes (B, C)
             # apply softmax to get probabilities
-            probs = qpt.QSoftMax(logits, artM, artE, -1, True)  # (B, C)
+            probs = qpt.QSoftMax(logits, macM, macE, 2, True)  # (B, C)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
             # append sampled index to the running sequence
