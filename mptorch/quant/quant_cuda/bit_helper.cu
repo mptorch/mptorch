@@ -4,11 +4,6 @@
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
-/* __device__ uint32_t rn_prob[24] = {
-    4194304, 2097152, 1048576, 524288, 262144, 131072, 65536, 32768,
-    16384,   8192,    4096,    2048,   1024,   512,    256,   128,
-    64,      32,      16,      8,      4,      2,      1,     0}; */
-
 __device__ __forceinline__ uint32_t extract_exponent(float *a) {
   uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
   temp = (temp << 1 >> 24); // single precision, 1 sign bit, 23 mantissa bits
@@ -117,21 +112,22 @@ clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quantized_num) 
 }
 
 __device__ __forceinline__ uint32_t
-p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {
+p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {  // currently sets max to FE; talks of possibly setting max to FD were mentioned for unsigned P = 1
   if (quantized_num == 0) 
     return quantized_num;
   
-
-  int spec_exp = (man_bits == 0) ? 1 : 0;
+  int spec_exp = (man_bits == 0) ? 1 : 0; // special exponent case at P = 1
   int quantized_exponent_store = (quantized_num >> 23) & 0xFF;
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
-  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
+  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp; // adding special exponent (1 for P = 1 and 0 for all other precision)
+
+  // the following values were calculated prior to entering the conditionals (which defers from clip_exponent) 
   uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
-  uint32_t man_val = quantized_num & 0x7FFFFF;
+  uint32_t man_val = quantized_num & 0x7FFFFF;  // max mantissa val is all 1s
   uint32_t old_sign = old_num & 0x80000000;
 
-  if (quantized_exponent_store > max_exponent_store || (quantized_exponent_store == max_exponent_store && man_val > max_man)) {
-    if (saturate) {
+  if (quantized_exponent_store > max_exponent_store) {
+    if (saturate) { 
       quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
     } else {
       quantized_num = old_sign | 0x7F800000; // INF

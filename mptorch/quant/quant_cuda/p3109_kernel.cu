@@ -363,15 +363,37 @@ __global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int
 
 __global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
                                       int P, bool subnormals) {
-  // TODO
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+      if (subnormals) {
+          o[idx] = cast_p3109_unsigned_nearest<true>(a[idx], P);
+      } else {
+          o[idx] = cast_p3109_unsigned_nearest<false>(a[idx], P);
+      }
+  }
+
 }
 
 __global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, float *o, int size,
                                       int P, int prng_bits, bool subnormals) {
-  // TODO
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+      if (subnormals) {
+          o[idx] = cast_p3109_signed_stochastic<true>(a[idx], P, prng_bits);
+      } else {
+          o[idx] = cast_p3109_signed_stochastic<false>(a[idx], P, prng_bits);
+      }
+  }
 }
 
 __global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, float *o, int size,
                                       int P, int prng_bits, bool subnormals) {
-  // TODO
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+      if (subnormals) {
+          o[idx] = cast_p3109_unsigned_stochastic<true>(a[idx], P, prng_bits);
+      } else {
+          o[idx] = cast_p3109_unsigned_stochastic<false>(a[idx], P, prng_bits);
+      }
+  }
 }
