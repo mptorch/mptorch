@@ -17,7 +17,7 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
-    "QSoftMax"
+    "quant_softmax"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -47,8 +47,6 @@ if torch.cuda.is_available():
 else:
     quant_cuda = quant_cpu
 
-def QSoftMax(a, man, exp, dim, quant):
-    return quant_cpu.QSoftMax(a, man, exp, dim, quant)
 
 def assert_wl_fl(wl, fl, stage=""):
     if wl == -1 and fl != -1:
@@ -61,6 +59,14 @@ def get_module(x):
     else:
         quant_module = quant_cpu
     return quant_module
+
+
+
+
+def quant_softmax(a, man, exp, dim):
+    assert not a.is_cuda
+    return quant_cpu.float_quantized_softmax_nearest(a, man, exp, dim)
+
 
 
 def mp_mm(a, b, formats, use_forward=True):

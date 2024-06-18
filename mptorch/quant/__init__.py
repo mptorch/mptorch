@@ -13,5 +13,4 @@ __all__ = [
     "QAvgPool2d",
     "QAffineFormats",
     "qmatmul",
-    "QSoftMax"
 ]
