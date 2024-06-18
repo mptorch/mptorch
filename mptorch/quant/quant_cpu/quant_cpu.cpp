@@ -466,28 +466,28 @@ Tensor QSoftMax(Tensor a, int man_bits, int exp_bits, int dim, bool quant){
   int dim_stride = inner_size;
   int outer_stride = dim_size * dim_stride;
 
-  for(int i = 0; i < outer_size; ++i){
-    for(int j = 0; j < inner_size; ++j){
-      float sum = 0.0;
-      for(int k = 0; k < dim_size; ++k){
-        int idx = (i*outer_stride)+(k*dim_stride)+(j);
-        sum += expf(a_array[idx] - shift);
-        if(quant){
-          sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
-        }
+  for(int L = 0; L < outer_size * inner_size; ++L){
+    int i = L / inner_size;
+    int j = L % inner_size;
+    
+    float sum = 0.0;
+    for(int k = 0; k < dim_size; ++k){
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      sum += expf(a_array[idx] - shift);
+      if(quant){
+        sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
       }
-      for (int k = 0; k < dim_size; ++k) {
-        int idx = (i*outer_stride)+(k*dim_stride)+(j);
-        float out = expf(a_array[idx] - shift) / sum;
-        if(quant){
-          o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
-        } else {
-          o_array[idx] = out;
-        }
+    }
+    for (int k = 0; k < dim_size; ++k) {
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      float out = expf(a_array[idx] - shift) / sum;
+      if(quant){
+        o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
+      } else {
+        o_array[idx] = out;
       }
     }
   }
-
   return o;
 }
 
