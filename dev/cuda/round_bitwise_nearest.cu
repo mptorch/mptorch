@@ -4,7 +4,7 @@ It assumes data is stored using a binary32 payload.
 
 
 Compile example:
-nvcc -O3 round_bitwise_nearest.cu -o round_bitwise_nearest
+nvcc -O3 round_bitwise_nearest.cu -o round_bitwise_nearest -std=c++17
 
 version 1 uses more temporary variables and an explicit if for testing
 how masking should be done in the tie breaking rule
@@ -23,13 +23,13 @@ and the explicit if
 // --------------------------------------------------------------------------------------
 // I/O pairs to sanity check the CPU reference code
 uint32_t test_inputs[] = {
-    0b00010110101010110001101001010011,   // round down - positive
-    0b10010110101011010001101001010011,   // round down - negative
-    0b00010110101011010001101001010011,   // round up   - positive
-    0b10100110101010010001101001010011,   // round up   - negative
-    0b00100110101011000000000000000000,   // round tie  - up
-    0b10100110111111000000000000000000,   // round tie  - up + update
-    0b00100110110101000000000000000000    // round tie  - down
+    0b00010110101010110001101001010011, // round down - positive
+    0b10010110101011010001101001010011, // round down - negative
+    0b00010110101011010001101001010011, // round up   - positive
+    0b10100110101010010001101001010011, // round up   - negative
+    0b00100110101011000000000000000000, // round tie  - up
+    0b10100110111111000000000000000000, // round tie  - up + update
+    0b00100110110101000000000000000000  // round tie  - down
 };
 uint32_t test_outputs[] = {
     0b00010110101010000000000000000000,
@@ -38,12 +38,12 @@ uint32_t test_outputs[] = {
     0b10100110101010000000000000000000,
     0b00100110101100000000000000000000,
     0b10100111000000000000000000000000,
-    0b00100110110100000000000000000000
-};
+    0b00100110110100000000000000000000};
 
 // ---------------------------------------------------------------------------------------
 // CPU reference code
-uint32_t round_bitwise_nearest_cpu_impl(uint32_t target, int man_bits) {
+uint32_t round_bitwise_nearest_cpu_impl(uint32_t target, int man_bits)
+{
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
     uint32_t half_eps = 1 << (22 - man_bits);
     // tie breaking rule offset
@@ -52,8 +52,10 @@ uint32_t round_bitwise_nearest_cpu_impl(uint32_t target, int man_bits) {
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-void round_bitwise_nearest_cpu(float *o, float *i, int N, int man_bits) {
-    for (int j = 0; j < N; ++j) {
+void round_bitwise_nearest_cpu(float *o, float *i, int N, int man_bits)
+{
+    for (int j = 0; j < N; ++j)
+    {
         uint32_t ival, oval;
         ival = FLOAT_TO_BITS(i + j);
         oval = round_bitwise_nearest_cpu_impl(ival, man_bits);
@@ -64,35 +66,43 @@ void round_bitwise_nearest_cpu(float *o, float *i, int N, int man_bits) {
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
-__device__ __forceinline__ 
-uint32_t round_bitwise_nearest_impl1(uint32_t target, int man_bits) {
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  // tie breaking rule offset
-  uint32_t mask;
-  if (down == (1 << (22 - man_bits))) {
-    mask = (1 << (24 - man_bits)) - 1;
-  } else {
-    mask = (1 << (23 - man_bits)) - 1;
-  }
-  uint32_t half_eps = 1 << (23 - man_bits - 1);
-  uint32_t add_r = target + half_eps;
-  uint32_t quantized = add_r & ~mask;
-  return quantized;
+__device__ __forceinline__ uint32_t round_bitwise_nearest_impl1(uint32_t target, int man_bits)
+{
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    // tie breaking rule offset
+    uint32_t mask;
+    if (down == (1 << (22 - man_bits)))
+    {
+        mask = (1 << (24 - man_bits)) - 1;
+    }
+    else
+    {
+        mask = (1 << (23 - man_bits)) - 1;
+    }
+    uint32_t half_eps = 1 << (23 - man_bits - 1);
+    uint32_t add_r = target + half_eps;
+    uint32_t quantized = add_r & ~mask;
+    return quantized;
 }
 
-__device__ __forceinline__
-uint32_t round_bitwise_nearest_impl2(uint32_t target, int man_bits) {
+__device__ __forceinline__ uint32_t round_bitwise_nearest_impl2(uint32_t target, int man_bits)
+{
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
     uint32_t half_eps = 1 << (22 - man_bits);
     // tie breaking rule offset
+    // this is the analogue of how you would do round
+    // to nearest integer using the floor function:
+    // round(x) = floor(x + 0.5)
     int offset = (down == half_eps);
     uint32_t add_r = target + half_eps;
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-__global__ void round_bitwise_nearest_kernel1(float *o, float *__restrict__ i, int N, int man_bits) {
+__global__ void round_bitwise_nearest_kernel1(float *o, float *__restrict__ i, int N, int man_bits)
+{
     int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N) {
+    if (index < N)
+    {
         uint32_t ival, oval;
         ival = FLOAT_TO_BITS(i + index);
         oval = round_bitwise_nearest_impl1(ival, man_bits);
@@ -100,9 +110,11 @@ __global__ void round_bitwise_nearest_kernel1(float *o, float *__restrict__ i, i
     }
 }
 
-__global__ void round_bitwise_nearest_kernel2(float *o, float *__restrict__ i, int N, int man_bits) {
+__global__ void round_bitwise_nearest_kernel2(float *o, float *__restrict__ i, int N, int man_bits)
+{
     int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N) {
+    if (index < N)
+    {
         uint32_t ival, oval;
         ival = FLOAT_TO_BITS(i + index);
         oval = round_bitwise_nearest_impl2(ival, man_bits);
@@ -128,29 +140,31 @@ void round_bitwise_nearest2(float *o, float *i, int N, int man_bits, const int b
 }
 
 // kernel version dispatch
-void round_bitwise_nearest(int kernel_num, 
-    float *o, 
-    float *i, 
-    int N, 
-    int man_bits, 
-    const int block_size) {
+void round_bitwise_nearest(int kernel_num,
+                           float *o,
+                           float *i,
+                           int N,
+                           int man_bits,
+                           const int block_size)
+{
 
-        switch (kernel_num) {
-            case 1:
-                round_bitwise_nearest1(o, i, N, man_bits, block_size);
-                break;
-            case 2:
-                round_bitwise_nearest2(o, i, N, man_bits, block_size);
-                break;
-            default:
-                printf("Invalid kernel number\n");
-                exit(1);
-        }
-
+    switch (kernel_num)
+    {
+    case 1:
+        round_bitwise_nearest1(o, i, N, man_bits, block_size);
+        break;
+    case 2:
+        round_bitwise_nearest2(o, i, N, man_bits, block_size);
+        break;
+    default:
+        printf("Invalid kernel number\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 // ---------------------------------------------------------------------------------------
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
 
     setup_main();
 
@@ -159,23 +173,28 @@ int main(int argc, const char **argv) {
 
     // read the kernel number from the command line
     int kernel_num = 1;
-    if (argc > 1) {
+    if (argc > 1)
+    {
         kernel_num = atoi(argv[1]);
     }
 
     // sanity check the CPU reference code
-    for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j) {
+    for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
+    {
         uint32_t res = round_bitwise_nearest_cpu_impl(test_inputs[j], man_bits);
-        if (res != test_outputs[j]) {
+        if (res != test_outputs[j])
+        {
             printf("index = %d\n", j);
-            print_uint32(res); printf("\nvs\n");
-            print_uint32(test_outputs[j]); printf("\n");
+            print_uint32(res);
+            printf("\nvs\n");
+            print_uint32(test_outputs[j]);
+            printf("\n");
             exit(EXIT_FAILURE);
         }
     }
 
-    float* x = make_random_float(N);
-    float* y = (float*)malloc(N * sizeof(float));
+    float *x = make_random_float(N);
+    float *y = (float *)malloc(N * sizeof(float));
 
     printf("Using kernel %d\n", kernel_num);
 
@@ -191,7 +210,8 @@ int main(int argc, const char **argv) {
 
     // time the kernel at different block sizes
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
         round_bitwise_nearest(kernel_num, d_y, d_x, N, man_bits, block_size);
@@ -202,7 +222,8 @@ int main(int argc, const char **argv) {
 
     printf("All results match. Starting benchmarks.\n\n");
 
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
 
         int repeat_times = 1000;
@@ -224,5 +245,4 @@ int main(int argc, const char **argv) {
     cudaCheck(cudaFree(d_x));
     cudaCheck(cudaFree(d_y));
     return 0;
-
 }
