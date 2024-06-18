@@ -44,3 +44,15 @@ def test_mm_if16_of16_cf16vsf32_p():
     err_f16 = torch.max(torch.abs(res_f16 - ref) / torch.abs(ref)).item()
     err_f32 = torch.max(torch.abs(res_f32 - ref) / torch.abs(ref)).item()
     assert err_f32 < err_f16
+
+def test_mm_if16_of16_ctf32():
+    if no_cuda():
+        return
+    
+    a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
+    b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
+    ref = torch.mm(a, b)
+    res = cublas_mm(a, b, mt.F32, mt.F32, ct.FAST_TF32, False)
+    assert res.dtype == torch.float32
+    err = torch.max(torch.abs(res - ref) / torch.abs(ref)).item()
+    assert err < 1e-3
