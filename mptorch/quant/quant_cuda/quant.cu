@@ -547,7 +547,7 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
 
 void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                              cublas_compute_t compute_type, bool pedantic)
+                              cublas_compute_dt compute_type, bool pedantic)
 {
   cublas_config config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);

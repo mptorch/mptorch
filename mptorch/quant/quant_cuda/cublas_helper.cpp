@@ -60,7 +60,7 @@ static const char* computetype_string(cublasComputeType_t t) {
 void get_cublas_configuration(
     cublas_matrix_dt inp_matrix_type,
     cublas_matrix_dt out_matrix_type,
-    cublas_compute_t compute_type,
+    cublas_compute_dt compute_type,
     bool pedantic,
     cublas_config& config
 ) {
@@ -98,9 +98,9 @@ void get_cublas_configuration(
     };
 
     // compatibility table from: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
-    auto to_computetype = [&](cublas_compute_t t) {
+    auto to_computetype = [&](cublas_compute_dt t) {
         switch (t) {
-        case cublas_compute_t::kF32:
+        case cublas_compute_dt::kF32:
             assert_types(
                types_match(CUDA_R_32F,  CUDA_R_32F)
             || types_match(CUDA_R_16F,  CUDA_R_32F)
@@ -113,28 +113,28 @@ void get_cublas_configuration(
             }
             return CUBLAS_COMPUTE_32F;
         
-        case cublas_compute_t::kF16:
+        case cublas_compute_dt::kF16:
             assert_types(types_match(CUDA_R_16F, CUDA_R_16F));
             if (pedantic) {
                 return CUBLAS_COMPUTE_16F_PEDANTIC;
             }
             return CUBLAS_COMPUTE_16F;
         
-        case cublas_compute_t::kFastF16:
+        case cublas_compute_dt::kFastF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_F16 cannot be pedantic");
             }
             return CUBLAS_COMPUTE_32F_FAST_16F;
         
-        case cublas_compute_t::kFastBF16:
+        case cublas_compute_dt::kFastBF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_BF16 cannot be pedantic");
             }
             return CUBLAS_COMPUTE_32F_FAST_16BF;
         
-        case cublas_compute_t::kFastTF32:
+        case cublas_compute_dt::kFastTF32:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_TF32 cannot be pedantic");

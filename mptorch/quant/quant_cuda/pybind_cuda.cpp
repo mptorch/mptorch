@@ -368,17 +368,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Quantization (CUDA)");
 
 
-      py::enum_<cublas_matrix_dt>(m, "cublas_matrix_dtype", py::arithmetic())
+      py::enum_<cublas_matrix_dt>(m, "CUBLASMatrixType", py::arithmetic())
             .value("F32", cublas_matrix_dt::kF32)
             .value("F16", cublas_matrix_dt::kF16)
             .value("BF16", cublas_matrix_dt::kBF16);
 
-      py::enum_<cublas_compute_t>(m, "cublas_compute_dtype", py::arithmetic())
-            .value("F32", cublas_compute_t::kF32)
-            .value("F16", cublas_compute_t::kF16)
-            .value("FAST_F16", cublas_compute_t::kFastF16)
-            .value("FAST_BF16", cublas_compute_t::kFastBF16)
-            .value("FAST_TF32", cublas_compute_t::kFastTF32);
+      py::enum_<cublas_compute_dt>(m, "CUBLASComputeType", py::arithmetic())
+            .value("F32", cublas_compute_dt::kF32)
+            .value("F16", cublas_compute_dt::kF16)
+            .value("FAST_F16", cublas_compute_dt::kFastF16)
+            .value("FAST_BF16", cublas_compute_dt::kFastBF16)
+            .value("FAST_TF32", cublas_compute_dt::kFastTF32);
 
       m.def("create_cublas_handle", &create_cublas_handle, "Creates a new cuBLAS handle");
       m.def("delete_cublas_handle", &delete_cublas_handle, "Deletes the current cuBLAS handle");

@@ -19,8 +19,8 @@ __all__ = [
     "superfp_mm",
     "superfp_bmm",
     "cublas_mm",
-    "cublas_compute_dt",
-    "cublas_matrix_dt"
+    "CUBLASMatrixType",
+    "CUBLASComputeType"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -65,41 +65,47 @@ def get_module(x):
     return quant_module
 
 
-cublas_compute_dt = quant_cuda.cublas_compute_dtype
-cublas_matrix_dt = quant_cuda.cublas_matrix_dtype
 
-def cublas_mm(a, b, inp_dtype, out_dtype, compute_dtype, pedantic):
-    assert len(a.shape) == 2
-    assert len(b.shape) == 2
-    assert a.shape[1] == b.shape[0]
-    assert a.device == b.device
-    quant_module = get_module(a)
-    quant_module.create_cublas_handle()
-    dtype = {
-        cublas_matrix_dt.F32: torch.float32,
-        cublas_matrix_dt.F16: torch.float16,
-        cublas_matrix_dt.BF16: torch.bfloat16,
-    }
-    a = a.to(dtype[inp_dtype])
-    b = b.to(dtype[inp_dtype])
-    c = torch.zeros(
-        b.shape[1], a.shape[0], # transposed
-        device=a.device,
-        dtype=dtype[out_dtype]
-    )
-    quant_module.floating_point_mm_cublas(
-        a.t().contiguous(),
-        b.t().contiguous(),
-        c.contiguous(),
-        a.shape[0],
-        b.shape[1],
-        a.shape[1],
-        inp_dtype,
-        out_dtype,
-        compute_dtype,
-        pedantic
-    )
-    return c.t().to(torch.float32)
+if torch.cuda.is_available():
+    CUBLASComputeType = quant_cuda.CUBLASComputeType
+    CUBLASMatrixType  = quant_cuda.CUBLASMatrixType
+else:
+    CUBLASComputeType, CUBLASMatrixType = None, None
+
+
+def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
+        if not torch.cuda.is_available():
+            raise NotImplementedError("CUDA required.")
+        assert len(a.shape) == 2
+        assert len(b.shape) == 2
+        assert a.shape[1] == b.shape[0]
+        assert a.device == b.device
+        quant_cuda.create_cublas_handle()
+        dtype = {
+            CUBLASMatrixType.F32: torch.float32,
+            CUBLASMatrixType.F16: torch.float16,
+            CUBLASMatrixType.BF16: torch.bfloat16,
+        }
+        a = a.to(dtype[inp_type])
+        b = b.to(dtype[inp_type])
+        c = torch.zeros(
+            b.shape[1], a.shape[0], # transposed
+            device=a.device,
+            dtype=dtype[out_type]
+        )
+        quant_cuda.floating_point_mm_cublas(
+            a.t().contiguous(),
+            b.t().contiguous(),
+            c.contiguous(),
+            a.shape[0],
+            b.shape[1],
+            a.shape[1],
+            inp_type,
+            inp_type,
+            compute_type,
+            pedantic
+        )
+        return c.t().to(torch.float32)
 
 
 def mp_mm(a, b, formats, use_forward=True):
