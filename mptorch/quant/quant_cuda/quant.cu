@@ -149,14 +149,36 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnormals)
 {
   auto o = zeros_like(a);
-  // TODO
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  if (is_signed == True){ // signed
+      p3109_signed_kernel_nearest<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, subnormals);
+  } else {  // unsigned
+      p3109_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, subnormals);
+  }
+
   return o;
 }
 
 Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals)
 {
   auto o = zeros_like(a);
-  // TODO
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  if (is_signed == True){ // signed
+      p3109_signed_kernel_stochastic<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
+  } else {  // unsigned
+      p3109_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
+  }
+
   return o;
 }
 
