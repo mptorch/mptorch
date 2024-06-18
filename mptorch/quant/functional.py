@@ -44,7 +44,7 @@ class qlinear_kernel(torch.autograd.Function):
             #    rounding=formats.fwd_rnd,
             #    subnormals=formats.fwd_add.subnormals,
             #    saturate=formats.fwd_add.saturate,
-            #)
+            # )
             if qbias is not None:
                 output += qbias.view(
                     -1, qbias.shape[-1]
@@ -183,7 +183,7 @@ class qmatmul_kernel(torch.autograd.Function):
 
         ctx.save_for_backward(qinput, qother)
         qoutput = formats.output_quant(output)
-        return qoutput
+        return qoutput.clone()
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -318,6 +318,7 @@ class qsqrt(torch.autograd.Function):
         grad_x = ctx.bwd_quant(grad_y / grad_x)
         return grad_x, None, None
 
+
 # TODO: need CUDA-accelerated version of this routine
 # and also of sums across multiple dimensions
 def qsum_1d(x, dim, quant):
@@ -368,6 +369,7 @@ class qsum_kernel(torch.autograd.Function):
 def qsum(x, dim, quant=lambda x: x):
     return qsum_kernel.apply(x, quant, dim)
 
+
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
 class qmean(torch.autograd.Function):
     @staticmethod
@@ -407,9 +409,11 @@ class qmean(torch.autograd.Function):
         )
         return grad_x, None, None, None, None
 
+
 class qlayernorm_kernel(torch.autograd.Function):
     # TODO: implement GPU-accelerated version of functional layernorm
     pass
+
 
 def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
     pass
@@ -418,6 +422,7 @@ def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
 class qsoftmax_kernel(torch.autograd.Function):
     # TODO: implement GPU-accelerated version of functional softmax
     pass
+
 
 def qsoftmax(x, dim, dtype, quant):
     pass

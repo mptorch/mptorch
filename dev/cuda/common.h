@@ -1,7 +1,42 @@
-#include <stdlib.h>
-#include <stdio.h>
+#include <cstdlib>
+#include <cstdio>
+#include <cstdint>
 #include <cuda_runtime.h>
-#include <float.h>
+#include <cfloat>
+#include <iostream>
+
+// --------------------------------------------------------------------------------
+// helper functions and formatted printing
+
+#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
+#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
+
+#define NC "\e[0m"
+#define RED "\e[0;31m"
+#define GRN "\e[0;32m"
+#define CYN "\e[0;36m"
+#define REDB "\e[41m"
+
+auto print_float = [](float x) {
+    uint32_t u = FLOAT_TO_BITS(&x);
+    std::cout << CYN << (u >> 31) << " ";
+    for (int i{1}; i < 9; ++i)
+        std::cout << GRN << ((u << i) >> 31);
+    std::cout << " ";
+    for (int i{9}; i < 32; ++i) 
+        std::cout << RED << ((u << i) >> 31);
+    std::cout << NC;
+};
+
+auto print_uint32 = [](uint32_t u) {
+    std::cout << CYN << (u >> 31) << " ";
+    for (int i{1}; i < 9; ++i)
+        std::cout << GRN << ((u << i) >> 31);
+    std::cout << " ";
+    for (int i{9}; i < 32; ++i) 
+        std::cout << RED << ((u << i) >> 31);
+    std::cout << NC;
+};
 
 template<class T>
 __host__ __device__ T ceil_div(T dividend, T divisor) {

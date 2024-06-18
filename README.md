@@ -152,4 +152,10 @@ This project is based on the same logic that is used
 in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/drcut/CPD).
 
 ## Team
-- [Silviu Filip](https://people.irisa.fr/Silviu-Ioan.Filip/)
+- [@sfilip](https://github.com/sfilip)
+- [@ubc-guy](https://github.com/ubc-guy)
+- [@bob-0727](https://github.com/bob-0727)
+- [@carasol0217](https://github.com/carasol0217)
+- [@shingwaipun](https://github.com/shingwaipun)
+- [@Krafpy](https://github.com/Krafpy)
+- [@BobbbbbZ](https://github.com/BobbbbbZ)

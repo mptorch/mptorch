@@ -1,5 +1,11 @@
 import torch
-from mptorch import Number, FixedPoint, FloatingPoint, SuperNormalFloat, BlockFloatingPoint
+from mptorch import (
+    Number,
+    FixedPoint,
+    FloatingPoint,
+    SuperNormalFloat,
+    BlockFloatingPoint,
+)
 from torch.utils.cpp_extension import load
 import os
 
@@ -308,6 +314,7 @@ def float_mm(
             )
     return c
 
+
 def superfp_mm(
     a,
     b,
@@ -413,7 +420,7 @@ def mp_bmm(a, b, formats, use_forward=True):
             exp_mul=mul_cfg.exp,
             rounding=rnd,
             fma=fma,
-            saturate=add_cfg.saturate,            
+            saturate=add_cfg.saturate,
         )
     else:  # fixed-point
         return fxp_bmm(
@@ -574,8 +581,6 @@ def float_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
-                    man_mul,
-                    exp_mul,
                     subnormals,
                     saturate,
                 )
@@ -912,6 +917,7 @@ def superfp_bmm(
         # TODO: stochastic rounding is not implemented yet
         raise NotImplementedError("SR SuperNormalFloat BMM is not yet implemented")
     return c
+
 
 def fxp_bmm(
     a,
@@ -1542,6 +1548,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
+
 def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
     """
     Quantize a single precision Floating Point into low-precision Super Normal Floating Point
@@ -1564,9 +1571,7 @@ def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.superfp_quantize_nearest(
-            x.contiguous(), man, exp, saturate
-        )
+        out = quant_module.superfp_quantize_nearest(x.contiguous(), man, exp, saturate)
     elif rounding == "stochastic":
         # TODO
         raise NotImplementedError("SR SuperNormalFloat not yet implemented")
