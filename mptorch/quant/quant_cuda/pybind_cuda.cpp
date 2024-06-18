@@ -1,4 +1,5 @@
 #include "quant.h"
+#include "cublas_helper.h"
 #include <torch/torch.h>
 #include <tuple>
 
@@ -365,4 +366,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &fixed_point_quantize_stochastic_mm_fma,
             "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic "
             "Quantization (CUDA)");
+
+
+      py::enum_<cublas_matrix_dt>(m, "cublas_matrix_dtype", py::arithmetic())
+            .value("F32", cublas_matrix_dt::kF32)
+            .value("F16", cublas_matrix_dt::kF16)
+            .value("BF16", cublas_matrix_dt::kBF16);
+
+      py::enum_<cublas_compute_t>(m, "cublas_compute_dtype", py::arithmetic())
+            .value("F32", cublas_compute_t::kF32)
+            .value("F16", cublas_compute_t::kF16)
+            .value("FAST_F16", cublas_compute_t::kFastF16)
+            .value("FAST_BF16", cublas_compute_t::kFastBF16)
+            .value("FAST_TF32", cublas_compute_t::kFastTF32);
+
+      m.def("create_cublas_handle", &create_cublas_handle, "Creates a new cuBLAS handle");
+      m.def("delete_cublas_handle", &delete_cublas_handle, "Deletes the current cuBLAS handle");
+      m.def("floating_point_mm_cublas",
+            &floating_point_mm_cublas,
+            "cuBLAS accelerated matrix multiply, using the specified precision and math mode (CUDA)");
 }

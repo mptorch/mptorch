@@ -2,6 +2,7 @@ import torch
 from mptorch import Number, FixedPoint, FloatingPoint, SuperNormalFloat, BlockFloatingPoint
 from torch.utils.cpp_extension import load
 import os
+from enum import Enum
 
 __all__ = [
     "fixed_point_quantize",
@@ -17,6 +18,9 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
+    "cublas_mm",
+    "cublas_compute_dt",
+    "cublas_matrix_dt"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -41,6 +45,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
+            os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
     )
 else:
@@ -58,6 +63,43 @@ def get_module(x):
     else:
         quant_module = quant_cpu
     return quant_module
+
+
+cublas_compute_dt = quant_cuda.cublas_compute_dtype
+cublas_matrix_dt = quant_cuda.cublas_matrix_dtype
+
+def cublas_mm(a, b, inp_dtype, out_dtype, compute_dtype, pedantic):
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    quant_module = get_module(a)
+    quant_module.create_cublas_handle()
+    dtype = {
+        cublas_matrix_dt.F32: torch.float32,
+        cublas_matrix_dt.F16: torch.float16,
+        cublas_matrix_dt.BF16: torch.bfloat16,
+    }
+    a = a.to(dtype[inp_dtype])
+    b = b.to(dtype[inp_dtype])
+    c = torch.zeros(
+        b.shape[1], a.shape[0], # transposed
+        device=a.device,
+        dtype=dtype[out_dtype]
+    )
+    quant_module.floating_point_mm_cublas(
+        a.t().contiguous(),
+        b.t().contiguous(),
+        c.contiguous(),
+        a.shape[0],
+        b.shape[1],
+        a.shape[1],
+        inp_dtype,
+        out_dtype,
+        compute_dtype,
+        pedantic
+    )
+    return c.t().to(torch.float32)
 
 
 def mp_mm(a, b, formats, use_forward=True):

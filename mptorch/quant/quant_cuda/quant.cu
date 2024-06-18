@@ -1,13 +1,18 @@
 #include "quant.h"
 #include "quant_kernel.h"
+#include "cublas_helper.h"
 #include <ATen/ATen.h>
 #include <climits>
 #include <cstdlib>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <cmath>
 #include <cstdint>
 #include <tuple>
+#include <stdexcept>
 
 using namespace at;
 
@@ -536,4 +541,49 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                            c.data_ptr<float>(), 1, M, K, N, sigma_fma,
                            t_min_fma, t_max_fma);
   return;
+}
+
+
+
+void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                              cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                              cublas_compute_t compute_type, bool pedantic)
+{
+  cublas_config config;
+  get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
+
+  cublasMath_t math = pedantic ? CUBLAS_PEDANTIC_MATH : CUBLAS_DEFAULT_MATH;
+  math = (cublasMath_t)(math | CUBLAS_MATH_DISALLOW_REDUCED_PRECISION_REDUCTION);
+  cublasSetMathMode(get_cublas_handle(), math);
+
+  // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
+  switch (config.compute) {
+  case CUBLAS_COMPUTE_16F:
+  case CUBLAS_COMPUTE_16F_PEDANTIC:
+    {
+    half alpha = __float2half(1.f);
+    half beta = __float2half(0.f);
+    cublasGemmEx(get_cublas_handle(),
+                  CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
+                  a.data_ptr(), config.matrix_a, M,
+                  b.data_ptr(), config.matrix_b, K, &beta,
+                  c.data_ptr(), config.matrix_c, M,
+                  config.compute,
+                  config.algo);
+    }
+    break;
+  default:
+    {
+    float alpha = 1.f;
+    float beta = 0.f;
+    cublasGemmEx(get_cublas_handle(),
+                  CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
+                  a.data_ptr(), config.matrix_a, M,
+                  b.data_ptr(), config.matrix_b, K, &beta,
+                  c.data_ptr(), config.matrix_c, M,
+                  config.compute,
+                  config.algo);
+    }
+    break;
+  }
 }
