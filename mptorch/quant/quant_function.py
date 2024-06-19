@@ -74,38 +74,38 @@ else:
 
 
 def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
-        if not torch.cuda.is_available():
-            raise NotImplementedError("CUDA required.")
-        assert len(a.shape) == 2
-        assert len(b.shape) == 2
-        assert a.shape[1] == b.shape[0]
-        assert a.device == b.device
-        quant_cuda.create_cublas_handle()
-        dtype = {
-            CUBLASMatrixType.F32: torch.float32,
-            CUBLASMatrixType.F16: torch.float16,
-            CUBLASMatrixType.BF16: torch.bfloat16,
-        }
-        a = a.to(dtype[inp_type])
-        b = b.to(dtype[inp_type])
-        c = torch.zeros(
-            b.shape[1], a.shape[0], # transposed
-            device=a.device,
-            dtype=dtype[out_type]
-        )
-        quant_cuda.floating_point_mm_cublas(
-            a.t().contiguous(),
-            b.t().contiguous(),
-            c.contiguous(),
-            a.shape[0],
-            b.shape[1],
-            a.shape[1],
-            inp_type,
-            out_type,
-            compute_type,
-            pedantic
-        )
-        return c.t().to(torch.float32)
+    if not torch.cuda.is_available():
+        raise NotImplementedError("CUDA required.")
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    quant_cuda.create_cublas_handle()
+    dtype = {
+        CUBLASMatrixType.F32: torch.float32,
+        CUBLASMatrixType.F16: torch.float16,
+        CUBLASMatrixType.BF16: torch.bfloat16,
+    }
+    a = a.to(dtype[inp_type])
+    b = b.to(dtype[inp_type])
+    c = torch.zeros(
+        b.shape[1], a.shape[0], # transposed
+        device=a.device,
+        dtype=dtype[out_type]
+    )
+    quant_cuda.floating_point_mm_cublas(
+        a.t().contiguous(),
+        b.t().contiguous(),
+        c.contiguous(),
+        a.shape[0],
+        b.shape[1],
+        a.shape[1],
+        inp_type,
+        out_type,
+        compute_type,
+        pedantic
+    )
+    return c.t().to(torch.float32)
 
 
 def mp_mm(a, b, formats, use_forward=True):
