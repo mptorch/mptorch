@@ -62,14 +62,14 @@ int main(int argc, char **argv) {
     h_C = make_zeros_float(M*N);
 
     /* Allocate device memory for the matrices */
-    cudaCheck(cudaMalloc(&d_A, M*K * sizeof(d_A[0])));
-    cudaCheck(cudaMalloc(&d_B, K*N * sizeof(d_B[0])));
-    cudaCheck(cudaMalloc(&d_C, M*N * sizeof(d_C[0])));
+    cudaCheck(cudaMalloc(&d_A, M*K * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_B, K*N * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_C, M*N * sizeof(float)));
 
     /* Initialize the device matrices with the host matrices */
-    cublasCheck(cublasSetVector(M*K, sizeof(h_A[0]), h_A, 1, d_A, 1));
-    cublasCheck(cublasSetVector(K*N, sizeof(h_B[0]), h_B, 1, d_B, 1));
-    cublasCheck(cublasSetVector(M*N, sizeof(h_C[0]), h_C, 1, d_C, 1));
+    cudaCheck(cudaMemcpy(d_A, h_A, M*K * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_B, h_B, K*N * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_C, h_C, M*N * sizeof(float), cudaMemcpyHostToDevice));
 
     int lda = M;
     int ldb = K;
