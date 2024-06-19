@@ -80,7 +80,7 @@ class FloatingPoint(Number):
     """
     Low-Precision Floating Point Format.
 
-    We set the exponent bias to be :math:`2^{exp-1}`. For rounding
+    We set the exponent bias to be :math:`2^{exp-1} - 1`. For rounding
     mode, we apply *round to nearest even*.
 
     Args:
@@ -98,6 +98,10 @@ class FloatingPoint(Number):
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
+        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man)
+        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man))
+        self.normal_max    = 2.0**(2**(self.exp-1)-1) * (2.0 - 2.0**(-self.man))
+        self.normal_min    = 2.0**(2 - 2**(self.exp-1))
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)

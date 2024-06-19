@@ -19,6 +19,9 @@ class QAffineFormats:
         input_quant=id_quant,
         output_quant=id_quant,
         grad_quant=id_quant,
+        weight_format=None,
+        input_format=None,
+        grad_format=None,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -59,3 +62,6 @@ class QAffineFormats:
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
+        self.weight_format = weight_format
+        self.input_format = input_format
+        self.grad_format = grad_format

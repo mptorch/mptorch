@@ -1,5 +1,7 @@
 import torch
+import math
 from .quant_function import *
+from ..number import FloatingPoint
 
 __all__ = [
     "qlinear",
@@ -16,15 +18,36 @@ __all__ = [
     "qsoftmax",
 ]
 
+# Utility functions to perform tensor scaling operations in low precison (8-bit and
+# below) DNN training
+# See: https://arxiv.org/pdf/2309.17224
+
+# TODO: investigate how to do these next routines at the batch level
+def compute_bias(x, cast_to: FloatingPoint, margin=3):
+    amax = torch.max(torch.abs(x)).item()
+    return math.floor(math.log2(cast_to.normal_max / amax)) - margin
+
+def scale(x, x_scale):
+    return x * 2**x_scale
+
+def unscale(x, x_scale):
+    return x * 2**(-x_scale)
+
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
 # See: https://github.com/pytorch/pytorch/blob/master/tools/autograd/derivatives.yaml
 
-
 class qlinear_kernel(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weight, bias, formats):
+    def forward(ctx, input, weight, bias, formats, weight_scale=0):
         ctx.formats = formats
-        qinput = formats.input_quant(input)
+        # TODO: need to see how we do things for each matrix in 
+        # the batched operation
+        ctx.weight_scale = weight_scale
+        if weight_scale != 0:
+            ctx.input_scale = compute_bias(input, formats.input_format)
+        else:
+            ctx.input_scale = 0
+        qinput = formats.input_quant(scale(input, ctx.input_scale))
         qweight = formats.weight_quant(weight)
         if bias is not None:
             qbias = formats.bias_quant(bias)
@@ -37,18 +60,12 @@ class qlinear_kernel(torch.autograd.Function):
         else:
             output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
 
-            # output = float_quantize(
-            #    output.contiguous(),
-            #    exp=formats.fwd_add.exp,
-            #    man=formats.fwd_add.man,
-            #    rounding=formats.fwd_rnd,
-            #    subnormals=formats.fwd_add.subnormals,
-            #    saturate=formats.fwd_add.saturate,
-            # )
             if qbias is not None:
                 output += qbias.view(
                     -1, qbias.shape[-1]
                 )  # broadcasting should be done automatically
+
+        output = unscale(output, ctx.input_scale + ctx.weight_scale)
 
         ctx.save_for_backward(qinput, qweight, qbias)
         qoutput = formats.output_quant(output)
@@ -59,6 +76,12 @@ class qlinear_kernel(torch.autograd.Function):
     def backward(ctx, grad_output):
         qinput, qweight, qbias = ctx.saved_tensors
         qgrad_input, qgrad_weight, qgrad_bias = None, None, None
+
+        if ctx.formats.grad_format is not None:
+            grad_scale = compute_bias(grad_output, ctx.formats.grad_format)
+        else:
+            grad_scale = 0
+        grad_output = scale(grad_output, grad_scale)
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.needs_input_grad[0]:
@@ -71,7 +94,9 @@ class qlinear_kernel(torch.autograd.Function):
                     formats=ctx.formats,
                     use_forward=False,
                 )
-            qgrad_input = ctx.formats.grad_quant(qgrad_input)
+            qgrad_input = unscale(qgrad_input, grad_scale + ctx.weight_scale)
+            # TODO: look if this needs to be redesigned (separate grad_quants ?!)
+            # qgrad_input = ctx.formats.grad_quant(qgrad_input)
 
         if ctx.needs_input_grad[1]:
             if ctx.formats.bwd_use_default_prec:
@@ -83,7 +108,9 @@ class qlinear_kernel(torch.autograd.Function):
                     formats=ctx.formats,
                     use_forward=False,
                 )
-            qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
+            qgrad_weight = unscale(qgrad_weight, grad_scale + ctx.input_scale)
+            # TODO: look if this needs to be redesigned (separate grad_quants ?!)
+            # qgrad_weight = ctx.formats.grad_quant(qgrad_weight)
 
         if qbias is not None and ctx.needs_input_grad[2]:
             if ctx.formats.bwd_use_default_prec:
@@ -92,14 +119,17 @@ class qlinear_kernel(torch.autograd.Function):
                 ).reshape(qbias.shape)
             else:
                 with torch.no_grad():
+                    # TODO: this needs to use the sum format in the BWD mac config
                     qgrad_bias = qsum(
                         qgrad_output,
                         dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
                         quant=ctx.formats.grad_quant,
                     ).reshape(qbias.shape)
-            qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
+            qgrad_bias = unscale(qgrad_bias, grad_scale)
+            # TODO: look if this needs to be redesigned (separate grad_quants ?!)
+            # qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
 
-        return qgrad_input, qgrad_weight, qgrad_bias, None
+        return qgrad_input, qgrad_weight, qgrad_bias, None, None
 
 
 def qlinear(input, weight, bias, formats):
