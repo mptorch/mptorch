@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
     for(int i = 0; i < P; i++) {
         h_A[i] = make_random_float(M*K);
         h_B[i] = make_random_float(K*N);
-        h_C[i] = (float*)(malloc(M*N * sizeof(float)));
+        h_C[i] = make_zeros_float(M*N);
     }
 
     /* Allocate device memory for the matrices */

@@ -66,6 +66,14 @@ float* make_random_float(size_t N) {
     return arr;
 }
 
+float* make_zeros_float(size_t N) {
+    float* arr = (float*)malloc(N * sizeof(float));
+    for (size_t i = 0; i < N; i++) {
+        arr[i] = 0.f;
+    }
+    return arr;
+}
+
 int cuda_arch_major = 0;
 int cuda_arch_minor = 0;
 int cuda_num_SMs = 0; // for persistent threads where we want 1 threadblock per SM

@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
 
     h_A = make_random_float(M*K);
     h_B = make_random_float(K*N);
-    h_C = (float*)(malloc(M*N * sizeof(h_C[0])));
+    h_C = make_zeros_float(M*N);
 
     /* Allocate device memory for the matrices */
     cudaCheck(cudaMalloc(&d_A, M*K * sizeof(d_A[0])));
