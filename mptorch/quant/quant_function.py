@@ -101,7 +101,7 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
             b.shape[1],
             a.shape[1],
             inp_type,
-            inp_type,
+            out_type,
             compute_type,
             pedantic
         )
