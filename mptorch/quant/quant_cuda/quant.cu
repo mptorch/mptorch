@@ -549,6 +549,7 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
                               cublas_compute_dt compute_type, bool pedantic)
 {
+  // Tensors a, b, and c are assumed to have the right datatype and transposed.
   cublas_config config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
 
