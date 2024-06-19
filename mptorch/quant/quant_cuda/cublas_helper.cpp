@@ -57,6 +57,15 @@ static const char* computetype_string(cublasComputeType_t t) {
     }
 }
 
+
+void cublas_config::summary() const {
+    printf("matrix A: %s\n", datatype_string(matrix_a));
+    printf("matrix B: %s\n", datatype_string(matrix_b));
+    printf("matrix C: %s\n", datatype_string(matrix_c));
+    printf("compute type: %s\n", computetype_string(compute));
+}
+
+
 void get_cublas_configuration(
     cublas_matrix_dt inp_matrix_type,
     cublas_matrix_dt out_matrix_type,
