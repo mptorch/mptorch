@@ -1,4 +1,4 @@
-/* Matrix-matrix multiply using cublasGemmEx function.
+/* Batched matrix-matrix multiply using cublasGemmBatchedEx function.
 
 Compile example:
 nvcc -O3 cublas_bgemm.cu -o cublas_bgemm -lcublas
