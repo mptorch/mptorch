@@ -4,6 +4,7 @@ from mptorch.quant import float_mm
 import argparse
 
 
+# Select matrices sizes and float format (command line arguments)
 parser = argparse.ArgumentParser()
 parser.add_argument("-m", type=int, default=1000)
 parser.add_argument("-k", type=int, default=500)
@@ -21,8 +22,16 @@ m, k, n = args.m, args.k, args.n
 a = torch.rand(m, k).cuda()
 b = torch.rand(k, n).cuda()
 
+# Example adapted from: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+# Setup a profiler recording the following activites:
+# - ProfilerActivity.CPU: PyTorch operators and user-defined labels
+# - ProfilerActivity.CUDA: CUDA kernels
+# - record_shapes: keep track of the shape of operator inputs tensors
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    with record_function("float_mm"):
+    # Record a specific block (in addition to pytorch's functions), it will appear
+    # with the "float_matrix_multiply" label in the summary
+    with record_function("float_matrix_multiply"):
+        # call the function(s) to profile under that label
         float_mm(
             a,
             b,
@@ -36,4 +45,6 @@ with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_sh
             saturate=True
         )
 
+# Print a summary table, showing average times ordered by GPU execution time
+# Limit the result to the 10 most expensive subfunctions.
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
