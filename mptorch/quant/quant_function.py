@@ -29,7 +29,8 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 quant_cpu = load(
     name="quant_cpu",
     sources=[
-        os.path.join(current_path, "quant_cpu/quant_cpu.cpp"),
+        os.path.join(current_path, "quant_cpu/pybind_cpu.cpp"),
+        os.path.join(current_path, "quant_cpu/quant.cpp"),
         os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
         os.path.join(current_path, "quant_cpu/sim_helper.cpp"),
     ],
