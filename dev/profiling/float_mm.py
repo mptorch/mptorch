@@ -6,8 +6,8 @@ import argparse
 
 # Select matrix sizes and float format (command line arguments)
 parser = argparse.ArgumentParser()
-parser.add_argument("-m", type=int, default=1000)
-parser.add_argument("-k", type=int, default=500)
+parser.add_argument("-m", type=int, default=10000)
+parser.add_argument("-k", type=int, default=5000)
 parser.add_argument("-n", type=int, default=2500)
 parser.add_argument("--man-add", type=int, default=23)
 parser.add_argument("--exp-add", type=int, default=8)
