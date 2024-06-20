@@ -1,11 +1,10 @@
 # PyTorch profiling
 
-Use this folder to write profiling scripts for various functions. This is useful for
-measuring the cost of each subfunction of a large function call, to better target
-what are the most relevant performance bottlenecks.
+Use this folder to write profiling scripts for various `mptorch` functions. This is useful for
+measuring the cost of each component of a large function call, to better assess and target the most relevant performance bottlenecks.
 
-The example script `float_mm.py` is mostly an adapation of
-[PyTorch tutorial on profling](https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html).
+The example script `float_mm.py` is mostly an adapation of the 
+[PyTorch tutorial on profling](https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html), serving as a template for writing new scripts.
 
 `float_mm.py` profiles the `mptorch.quant.float_mm` function, giving insight on the
 relative duration of each of its component. Running it outputs:

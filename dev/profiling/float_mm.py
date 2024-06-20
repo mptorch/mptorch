@@ -4,7 +4,7 @@ from mptorch.quant import float_mm
 import argparse
 
 
-# Select matrices sizes and float format (command line arguments)
+# Select matrix sizes and float format (command line arguments)
 parser = argparse.ArgumentParser()
 parser.add_argument("-m", type=int, default=1000)
 parser.add_argument("-k", type=int, default=500)
@@ -26,10 +26,11 @@ b = torch.rand(k, n).cuda()
 # Setup a profiler recording the following activites:
 # - ProfilerActivity.CPU: PyTorch operators and user-defined labels
 # - ProfilerActivity.CUDA: CUDA kernels
-# - record_shapes: keep track of the shape of operator inputs tensors
+# - record_shapes: keep track of the shape of operator input tensors
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    # Record a specific block (in addition to pytorch's functions), it will appear
-    # with the "float_matrix_multiply" label in the summary
+    # Record a specific block (in addition to PyTorch functions)
+    # it will appear with the "float_matrix_multiply" label 
+    # in the summary
     with record_function("float_matrix_multiply"):
         # call the function(s) to profile under that label
         float_mm(
