@@ -33,9 +33,9 @@ parser.add_argument(
 parser.add_argument(
     "--exp",
     type=int,
-    default=4,
+    default=5,
     metavar="N",
-    help="exponent size (default: 4)",
+    help="exponent size (default: 5)",
 )
 parser.add_argument(
     "--man",
