@@ -1,5 +1,5 @@
 import torch
-from mptorch.quant import cublas_mm
+from mptorch.quant import cublas_mm, cublas_bmm
 from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 
 def no_cuda():
@@ -56,3 +56,28 @@ def test_mm_if16_of16_ctf32():
     assert res.dtype == torch.float32
     err = torch.max(torch.abs(res - ref) / torch.abs(ref)).item()
     assert err < 1e-3
+
+def test_bmm_if16_of16_ctf32_2_2():
+    if no_cuda():
+        return
+    
+    a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
+    b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
+    ref = torch.mm(a, b)
+    res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, False)
+    assert res.dtype == torch.float32
+    assert res.shape == ref.shape
+    torch.testing.assert_close(res, ref, atol=0.0, rtol=1e-5)
+
+def test_bmm_if16_of16_ctf32_3_3():
+    # TODO: FIX, it crashes the GPU...
+    if no_cuda():
+        return
+    
+    # a = torch.rand(133, 277, 1501, dtype=torch.float32, device="cuda")
+    # b = torch.rand(133, 1501, 984, dtype=torch.float32, device="cuda")
+    # ref = torch.bmm(a, b)
+    # res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, False)
+    # assert res.dtype == torch.float32
+    # assert res.shape == ref.shape
+    # torch.testing.assert_close(res, ref, atol=0.0, rtol=1e-5)
