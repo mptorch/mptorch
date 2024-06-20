@@ -433,8 +433,8 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
-Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, int dim){
-  a = float_quantize(a, man_bits, exp_bits, rNearest, true, false);
+Tensor float_quantized_softmax_nearest(Tensor a, int man_size, int exp_size, int dim){
+  a = float_quantize(a, man_size, exp_size, rNearest, true, false);
 
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
@@ -469,14 +469,14 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, int
     float sum = 0.0f;
     for(int k = 0; k < dim_size; ++k){
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
-      o_array[idx] = float_quantize(expf(a_array[idx] - shift), man_bits, exp_bits, rNearest, true, false);
+      o_array[idx] = float_quantize(expf(a_array[idx] - shift), man_size, exp_size, rNearest, true, false);
       sum += o_array[idx];
-      sum = float_quantize(sum, man_bits, exp_bits, rNearest, true, false);
+      sum = float_quantize(sum, man_size, exp_size, rNearest, true, false);
     }
     for (int k = 0; k < dim_size; ++k) {
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
       float out = o_array[idx]/sum;
-      o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, true, false);
+      o_array[idx] = float_quantize(out, man_size, exp_size, rNearest, true, false);
     }
   }
   return o;
