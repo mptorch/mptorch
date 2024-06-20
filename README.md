@@ -159,3 +159,4 @@ in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/
 - [@shingwaipun](https://github.com/shingwaipun)
 - [@Krafpy](https://github.com/Krafpy)
 - [@BobbbbbZ](https://github.com/BobbbbbZ)
+- [@nirvik-pande](https://github.com/nirvik-pande)

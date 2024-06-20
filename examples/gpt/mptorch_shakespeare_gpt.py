@@ -77,15 +77,68 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-
 parser.add_argument(
     "--wandb", action="store_true", default=False, help="wandb logging"
+)
+parser.add_argument(
+    "--expMac",
+    type=int,
+    default=8,
+    metavar="N",
+    help="MAC exponent size (default: 8)",
+)
+parser.add_argument(
+    "--manMac",
+    type=int,
+    default=7,
+    metavar="N",
+    help="MAC mantissa size (default: 7)",
+)
+parser.add_argument(
+    "--expWeight",
+    type=int,
+    default=5,
+    metavar="N",
+    help="Weights exponent size (default: 5)",
+)
+parser.add_argument(
+    "--manWeight",
+    type=int,
+    default=2,
+    metavar="N",
+    help="Weights mantissa size (default: 2)",
 )
 
 args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
+
+rounding = "nearest"
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fp_format = FloatingPoint(
+    exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
+)
+quant_fp = lambda x: qpt.float_quantize(
+    x,
+    exp=args.expWeight,
+    man=args.manWeight,
+    rounding=rounding,
+    subnormals=True,
+    saturate=False,
+)
+
+layer_formats = qpt.QAffineFormats(
+    fwd_mac=(fp_format),
+    fwd_rnd=rounding,
+    bwd_mac=(fp_format),
+    bwd_rnd=rounding,
+    weight_quant=quant_fp,
+    input_quant=quant_fp,
+    grad_quant=quant_fp,
+    bias_quant=quant_fp,
+)
+
 
 # hyperparameters
 eval_iters = 10  # 200
@@ -105,6 +158,10 @@ if args.wandb:
             "n_head": args.n_head,
             "n_layer": args.n_layer,
             "dropout": dropout,
+            "fp_format_exp": args.expMac,
+            "fp_format_man": args.manMac,
+            "quant_fp_exp": args.expWeight,
+            "quant_fp_man": args.manWeight,
         },
     )
 
@@ -165,9 +222,15 @@ class Head(nn.Module):
 
     def __init__(self, head_size):
         super().__init__()
-        self.key = nn.Linear(args.n_embd, head_size, bias=False)
-        self.query = nn.Linear(args.n_embd, head_size, bias=False)
-        self.value = nn.Linear(args.n_embd, head_size, bias=False)
+        self.key = qpt.QLinear(
+            args.n_embd, head_size, bias=False, formats=layer_formats
+        )
+        self.query = qpt.QLinear(
+            args.n_embd, head_size, bias=False, formats=layer_formats
+        )
+        self.value = qpt.QLinear(
+            args.n_embd, head_size, bias=False, formats=layer_formats
+        )
         self.register_buffer(
             "tril", torch.tril(torch.ones(args.block_size, args.block_size))
         )
@@ -182,14 +245,17 @@ class Head(nn.Module):
         q = self.query(x)  # (B,T,hs)
         # compute attention scores ("affinities")
         wei = (
-            q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
+            # q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
+            qpt.qmatmul(q, k.transpose(-2, -1), formats=layer_formats)
+            * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)
-        out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        # out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        out = qpt.qmatmul(wei, v, formats=layer_formats)
         return out
 
 
@@ -199,7 +265,9 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(head_size * num_heads, args.n_embd)
+        self.proj = qpt.QLinear(
+            head_size * num_heads, args.n_embd, formats=layer_formats
+        )
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -214,9 +282,9 @@ class FeedFoward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+            qpt.QLinear(n_embd, 4 * n_embd, formats=layer_formats),
             nn.ReLU(),
-            nn.Linear(4 * n_embd, n_embd),
+            qpt.QLinear(4 * n_embd, n_embd, formats=layer_formats),
             nn.Dropout(dropout),
         )
 
@@ -253,7 +321,7 @@ class GPTLanguageModel(nn.Module):
             *[Block(args.n_embd, n_head=args.n_head) for _ in range(args.n_layer)]
         )
         self.ln_f = nn.LayerNorm(args.n_embd)  # final layer norm
-        self.lm_head = nn.Linear(args.n_embd, vocab_size)
+        self.lm_head = qpt.QLinear(args.n_embd, vocab_size, formats=layer_formats)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -311,7 +379,7 @@ m = model.to(device)
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
 # set up loss scaling
-init_scale = None
+init_scale = 256.0
 if device == "cpu" or init_scale is None:
     scaler = None
 else:
@@ -322,7 +390,6 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
-train_loss, val_loss = [], []
 for iter in range(args.max_iters):
     # every once in a while evaluate the loss on train and val sets
     tq.update(args.batch_size)

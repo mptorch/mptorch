@@ -1,4 +1,4 @@
-#include "quant_cpu.h"
+#include "quant.h"
 #include <cmath>
 #include <cstdint>
 
