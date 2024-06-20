@@ -384,5 +384,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("delete_cublas_handle", &delete_cublas_handle, "Deletes the current cuBLAS handle");
       m.def("floating_point_mm_cublas",
             &floating_point_mm_cublas,
-            "cuBLAS accelerated matrix multiply, using the specified precision and math mode (CUDA)");
+            "cuBLAS accelerated matrix multiply, using the specified precision and "
+            "math mode (CUDA)");
+      m.def("floating_point_bmm_cublas",
+            &floating_point_bmm_cublas,
+            "cuBLAS accelerated batched matrix multiply, using the specified precision "
+            "and math mode (CUDA)");
 }

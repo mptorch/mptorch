@@ -357,3 +357,12 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
 void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
                               cublas_compute_dt compute_type, bool pedantic);
+
+
+/**
+ * Performs a batched matrix multiplication using cuBLAS API with the precision
+ * configuration defined by the user.
+*/
+void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                               cublas_compute_dt compute_type, bool pedantic);

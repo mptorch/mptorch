@@ -19,6 +19,7 @@ __all__ = [
     "superfp_mm",
     "superfp_bmm",
     "cublas_mm",
+    "cublas_bmm",
     "CUBLASMatrixType",
     "CUBLASComputeType"
 ]
@@ -106,6 +107,103 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
         pedantic
     )
     return c.t().to(torch.float32)
+
+
+def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
+    if not torch.cuda.is_available():
+        raise NotImplementedError("CUDA required.")
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    quant_cuda.create_cublas_handle()
+    dtype = {
+        CUBLASMatrixType.F32: torch.float32,
+        CUBLASMatrixType.F16: torch.float16,
+        CUBLASMatrixType.BF16: torch.bfloat16,
+    }
+    a = a.to(dtype[inp_type])
+    b = b.to(dtype[inp_type])
+    if len(a.shape) == 3 and len(b.shape) == 3:
+        c = torch.zeros(a.shape[0], a.shape[2], b.shape[1],
+                        device=a.device,
+                        dtype=dtype[out_type])
+        quant_cuda.floating_point_bmm_cublas(
+            a.transpose(-2, -1).contiguous(),
+            b.transpose(-2, -1).contiguous(),
+            c.contiguous(),
+            a.shape[1],
+            b.shape[2],
+            a.shape[2],
+            inp_type,
+            out_type,
+            compute_type,
+            pedantic
+        )
+        c = c.transpose(-2, -1)
+    elif len(a.shape) == 3 and len(b.shape) == 2:
+        a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+        c_r = torch.zeros(b.shape[1], a_r.shape[0],
+                          device=a.device,
+                          dtype=dtype[out_type])
+        quant_cuda.floating_point_mm_cublas(
+            a_r.t().contiguous(),
+            b.t().contiguous(),
+            c_r.contiguous(),
+            a_r.shape[0],
+            b.shape[1],
+            a_r.shape[1],
+            inp_type,
+            out_type,
+            compute_type,
+            pedantic
+        )
+        c = c.transpose(-2, -1)
+        c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+    elif len(a.shape) == 4 and len(b.shape) == 4:
+        a_r = torch.reshape(
+            a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+        )
+        b_r = torch.reshape(
+            b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+        )
+        c_r = torch.zeros(
+            a_r.shape[0], b_r.shape[2], a_r.shape[1],
+            device=a.device,
+            dtype=dtype[out_type]
+        )
+        quant_cuda.floating_point_bmm_cublas(
+            a_r.transpose(-2, -1).contiguous(),
+            b_r.transpose(-2, -1).contiguous(),
+            c_r.contiguous(),
+            a_r.shape[1],
+            b_r.shape[2],
+            a_r.shape[2],
+            inp_type,
+            out_type,
+            compute_type,
+            pedantic
+        )
+        c = c.tranpose(-2, -1)
+        c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+    elif len(a.shape) == 2 and len(b.shape) == 2:
+        c = torch.zeros(b.shape[1], a.shape[0],
+                        device=a.device,
+                        dtype=dtype[out_type])
+        quant_cuda.floating_point_mm_cublas(
+            a.t().contiguous(),
+            b.t().contiguous(),
+            c.contiguous(),
+            a.shape[0],
+            b.shape[1],
+            a.shape[1],
+            inp_type,
+            out_type,
+            compute_type,
+            pedantic
+        )
+        c = c.t()
+    else:
+        raise Exception("Wrong tensor sizes")
+    return c.to(torch.float32)
 
 
 def mp_mm(a, b, formats, use_forward=True):
