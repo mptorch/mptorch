@@ -64,7 +64,7 @@ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_
         }
     }
 
-    rand_prob = rand_prob << 9 >> 9 >> 23 - prng_bits <<23 - prng_bits;
+    rand_prob = rand_prob << 9 >> 9 >> 23 - prng_bits << 23 - prng_bits;
 
     uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
@@ -73,7 +73,7 @@ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_
     return fval8;
 }
 
-__device__ float cast_p3109_unsigned_nearest(float origin_float, int P, bool subnormals) {
+__device__ float cast_p3109_unsigned_nearest(float origin_float, int P, bool subnormals) {  // avoid magic number: make max FD for unsighed (attach symbol for max float incase it changes in the future)
     // we had talks abt the following for unsigned, P = 1:
     // 0: 0000 0000
     // NaN: FE or FF (currently. it is 1000 0000 in this revision)
