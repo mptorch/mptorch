@@ -3,8 +3,12 @@
 Compile example:
 nvcc -O3 cublas_bgemm.cu -o cublas_bgemm -lcublas
 
-Run with:
-./cublas_bgemm
+Version 1 uses separate memory allocation for each matrices A[i], B[i] and C[i]
+./cublas_bgemm 1
+
+Version 2 stores batch matrcies A, B and C in a single array and passes the pointer
+to the beginning of each matrix A[i], B[i] and C[i] to cublasGemmBatchedEx
+./cublas_bgemm 2
 */
 
 
@@ -42,23 +46,16 @@ void check_cublas(cublasStatus_t status, const char* file, int line) {
 #define cublasCheck(status) check_cublas(status, __FILE__, __LINE__)
 
 
-int main(int argc, char **argv) {
-    setup_main();
+/**
+ * This funcion allocates distinct memory locations for each matrices A[i], B[i] and C[i]
+*/
+void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
+    printf("CUBLAS GEMM %dx%dx%d (MxNxK) using separate arrays...\n", M, N, K);
 
-    const int M = 512;
-    const int N = 512;
-    const int K = 1024;
-    const int P = 3; // batch count
     float *h_A[P], *h_B[P], *h_C[P];
     float *d_A[P], *d_B[P], *d_C[P];
     float alpha = 1.0f;
     float beta = 0.0f;
-    cublasHandle_t handle;
-
-    printf("CUBLAS GEMM %dx%dx%d (MxNxK)...\n", M, N, K);
-
-    /* Initialize CUBLAS */
-    cublasCheck(cublasCreate(&handle));
 
     for(int i = 0; i < P; i++) {
         h_A[i] = make_random_float(M*K);
@@ -117,5 +114,117 @@ int main(int argc, char **argv) {
         cudaCheck(cudaFree(d_A[i]));
         cudaCheck(cudaFree(d_B[i]));
         cudaCheck(cudaFree(d_C[i]));
+    }
+}
+
+
+/**
+ * This version uses a single contigous array to store the batches of matrices A, B and C,
+ * and the beginning address of each matrix is computed and passed to cublasGemmBatchedEx.
+*/
+void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
+    printf("CUBLAS GEMM %dx%dx%d (MxNxK) using shared arrays...\n", M, N, K);
+
+    float *h_A[P], *h_B[P], *h_C[P];
+    float *d_A, *d_B, *d_C;
+    float *h_dA[P], *h_dB[P], *h_dC[P];
+    float alpha = 1.0f;
+    float beta = 0.0f;
+
+    for(int i = 0; i < P; i++) {
+        h_A[i] = make_random_float(M*K);
+        h_B[i] = make_random_float(K*N);
+        h_C[i] = make_zeros_float(M*N);
+    }
+
+    /* Allocate device memory for the matrices */
+    cudaCheck(cudaMalloc(&d_A, P*M*K * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_B, P*K*N * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_C, P*M*N * sizeof(float)));
+
+    for(int i = 0; i < P; i++) {
+        cudaCheck(cudaMemcpy(d_A + i * M*K, h_A[i], M*K * sizeof(float), cudaMemcpyHostToDevice));
+        cudaCheck(cudaMemcpy(d_B + i * K*N, h_B[i], K*N * sizeof(float), cudaMemcpyHostToDevice));
+        cudaCheck(cudaMemcpy(d_C + i * M*N, h_C[i], M*N * sizeof(float), cudaMemcpyHostToDevice));
+    }
+
+    // Retrieve each pointers to each matrices
+    for(int i = 0; i < P; i++) {
+        h_dA[i] = d_A + i * M*K;
+        h_dB[i] = d_B + i * K*N;
+        h_dC[i] = d_C + i * M*N;
+    }
+
+    int lda = M;
+    int ldb = K;
+    int ldc = M;
+
+    /* Performs operation using cublas */
+    auto cublas_bgemm = [&]() {
+    cublasCheck(cublasGemmBatchedEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
+                                (void**)h_dA, CUDA_R_32F, lda,
+                                (void**)h_dB, CUDA_R_32F, ldb, &beta,
+                                (void**)h_dC, CUDA_R_32F, ldc, P,
+                                CUBLAS_COMPUTE_32F,
+                                CUBLAS_GEMM_DEFAULT));
+    };
+    cublas_bgemm();
+
+    // /* Performs operation using plain C code */
+    simple_bsgemm(P, M, N, K, alpha, (const float**)h_A, (const float**)h_B, beta, h_C);
+
+    /* Check result against reference */
+    for(int i = 0; i < P; i++) {
+        validate_result(d_C + i * M*N, h_C[i], "C", M*N, 1.0e-3f);
+        printf("\n");
+    }
+
+
+    // /* Benchmark */
+    int repeat_times = 1000;
+    float elapsed_time = benchmark_kernel(repeat_times, cublas_bgemm);
+    printf("time %.4f ms\n", elapsed_time);
+
+
+    /* Memory clean up */
+    for(int i = 0; i < P; i++) {
+        free(h_A[i]);
+        free(h_B[i]);
+        free(h_C[i]);
+    }
+
+    cudaCheck(cudaFree(d_A));
+    cudaCheck(cudaFree(d_B));
+    cudaCheck(cudaFree(d_C));
+}
+
+
+int main(int argc, char **argv) {
+    setup_main();
+
+    const int M = 512;
+    const int N = 512;
+    const int K = 1024;
+    const int P = 3; // batch count
+    cublasHandle_t handle;
+
+    /* Initialize CUBLAS */
+    cublasCheck(cublasCreate(&handle));
+
+    int version = 1;
+    if (argc > 1) {
+        version = atoi(argv[1]);
+    }
+
+    switch (version) {
+        case 1:
+            main_separate_arrays(handle, P, M, N, K);
+            break;
+        case 2:
+            main_shared_arrays(handle, P, M, N, K);
+            break;
+        default:
+            printf("Invalid version number\n");
+            exit(1);
     }
 }
