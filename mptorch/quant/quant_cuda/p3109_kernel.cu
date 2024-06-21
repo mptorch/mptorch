@@ -8,11 +8,7 @@
 // template <bool subnormals>
 __device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subnormals) {
 
-    int exp_val = (uval32 << 1 >> 24) - 127;
-
-    if (exp_val == 128) {             // inf/Nan case
-        return origin_float;
-    }
+   
 
     int exp_bits = 8-P;
     int man_bits = P-1;    
@@ -22,9 +18,15 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subno
 
     uval32 = FLOAT_TO_BITS(&origin_float);
 
+    int exp_val = (uval32 << 1 >> 24) - 127;
+
+    if (exp_val == 128) {             // inf/Nan case
+        return origin_float;
+    }
+
     if (subnormals){
         int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
+        int max_exp = (1 << (exp_bits -1)) - 1;    // minimal and maximal exponent value in binary8
         int min_exp = spec_exp - max_exp;
         if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
         subnormal_shift = min_exp - exp_val;
@@ -64,35 +66,38 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subno
 //     return fval8;
 // }
 
-template <bool subnormals>
-__device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits) {
-
-    int exp_bits = 8-P;
-    int man_bits = P-1;  
-    
-    int spec_exp = (P == 1) ? 1 : 0;
-    
-    bool subnormals = true;
-
-    uint32_t uval32, uval8;
-    float fval8;
-    uval32 = FLOAT_TO_BITS(&origin_float);
+// template <bool subnormals>
+__device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, bool subnormals) {
 
     int exp_val = (uval32 << 1 >> 24) - 127;
-
-    // minimal and maximal exponent value in binary8
-    int max_exp = (1 << (exp_bits -1)) - 1;
-    int min_exp = spec_exp - max_exp;
-    
-        
-    int subnormal_shift = 0;
-    if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
-      subnormal_shift = min_exp - exp_val;
-    }
 
     if (exp_val == 128) {             // inf/Nan case
         return origin_float;
     }
+
+    int exp_bits = 8-P;
+    int man_bits = P-1;  
+    int subnormal_shift = 0;
+    uint32_t uval32, uval8;
+    float fval8;
+    uval32 = FLOAT_TO_BITS(&origin_float);
+
+
+
+    if (subnormals){
+
+
+
+    }
+        int spec_exp = (P == 1) ? 1 : 0;
+        int max_exp = (1 << (exp_bits -1)) - 1;
+        int min_exp = spec_exp - max_exp;
+            
+        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+            subnormal_shift = min_exp - exp_val;
+        }
+
+
 
     uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, true, subnormals);
