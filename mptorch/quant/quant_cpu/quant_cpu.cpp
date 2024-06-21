@@ -451,11 +451,56 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_size, int exp_size, int
     inner_size *= a.size(i);
   }
 
-  float shift = a_array[0];
-  for(int i = 1; i < size; i++){
-    if (a_array[i] > shift){
-      shift = a_array[i];
+  int dim_size = a.size(dim);
+  int dim_stride = inner_size;
+  int outer_stride = dim_size * dim_stride;
+
+  for(int L = 0; L < outer_size * inner_size; ++L){
+    int i = L / inner_size;
+    int j = L % inner_size;
+
+    int idx_max = (i*outer_stride)+j;
+    float max = a_array[idx_max];
+    for(int k = 0; k < dim_size; ++k){
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      if(a_array[idx] > max){
+        max = a_array[idx];
+        idx_max = idx;
+      }
     }
+
+    float sum = 0.0f;
+    for(int k = 0; k < dim_size; ++k){
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      o_array[idx] = float_quantize(expf(a_array[idx] - max), man_size, exp_size, rNearest, true, false);
+      sum += o_array[idx];
+      sum = float_quantize(sum, man_size, exp_size, rNearest, true, false);
+    }
+    for (int k = 0; k < dim_size; ++k) {
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      float out = o_array[idx]/sum;
+      o_array[idx] = float_quantize(out, man_size, exp_size, rNearest, true, false);
+    }
+  }
+  return o;
+}
+
+Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_size, int exp_size, int dim){
+  a = float_quantize(a, man_size, exp_size, rNearest, true, false);
+
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+  
+  int outer_size = 1;
+  for(int i = 0; i < dim; ++i){
+    outer_size *= a.size(i);
+  }
+
+  int inner_size = 1;
+  for(int i = dim + 1; i < a.dim(); ++i){
+    inner_size *= a.size(i);
   }
 
   int dim_size = a.size(dim);
@@ -466,17 +511,27 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_size, int exp_size, int
     int i = L / inner_size;
     int j = L % inner_size;
 
-    float sum = 0.0f;
+    int idx_max = (i*outer_stride)+j;
+    float max = a_array[idx_max];
     for(int k = 0; k < dim_size; ++k){
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
-      o_array[idx] = float_quantize(expf(a_array[idx] - shift), man_size, exp_size, rNearest, true, false);
-      sum += o_array[idx];
-      sum = float_quantize(sum, man_size, exp_size, rNearest, true, false);
+      if(a_array[idx] > max){
+        max = a_array[idx];
+        idx_max = idx;
+      }
+    }
+
+    float lgs = 0.0f;
+    for(int k = 0; k < dim_size; ++k){
+      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+      if(idx == idx_max){
+        continue;
+      }
+      lgs = log(expf(lgs) + expf(a_array[idx] - max));
     }
     for (int k = 0; k < dim_size; ++k) {
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
-      float out = o_array[idx]/sum;
-      o_array[idx] = float_quantize(out, man_size, exp_size, rNearest, true, false);
+      o_array[idx] = expf(a_array[idx] - max - lgs);
     }
   }
   return o;
@@ -510,4 +565,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantized_softmax_nearest", &float_quantized_softmax_nearest);
+  m.def("float_quantized_softmax_lse_nearest", &float_quantized_softmax_lse_nearest);
 }
