@@ -7,6 +7,7 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
+    "p3109_quantize",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -41,6 +42,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
+            os.path.join(current_path, "quant_cuda/p3109_kernel.cu"),
         ],
     )
 else:
@@ -1530,6 +1532,37 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
     elif rounding == "stochastic":
         out = quant_module.float_quantize_stochastic(
             x.contiguous(), man, exp, subnormals, saturate
+        )
+    return out
+
+def p3109_quantize(x, P, rounding="nearest", is_signed=True, subnormals=True, prng_bits=0):
+    """
+    Quantize a single precision Floating Point into low-precision Floating Point
+
+    Args:
+        - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
+        - :attr: `P` (int) : number of bits allocated for precision
+        - :attr: `is_signed` (bool): if subnormals are supported or not
+        - :attr: `subnormals` (bool): saturate on overflow or use infinities
+        - :attr: `prng_bits` (int): number of bits for the random generator
+
+    Returns:
+        - a quantized low-precision floating point number (torch.Tensor)
+    """
+    assert isinstance(
+        x, torch.Tensor
+    ), "x is not a single precision Floating Point Tensor"
+    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
+        rounding
+    )
+    quant_module = get_module(x)
+    if rounding == "nearest":
+        out = quant_module.p3109_quantize_nearest(
+            x.contiguous(), P, is_signed ,subnormals
+        )
+    elif rounding == "stochastic":
+        out = quant_module.p3109_quantize_stochastic(
+            x.contiguous(), P, prng_bits, is_signed, subnormals
         )
     return out
 

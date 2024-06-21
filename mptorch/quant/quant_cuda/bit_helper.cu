@@ -148,7 +148,7 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
     } else {
       uint32_t min_num = (uint32_t)min_exponent_store << 23;
       uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
-      if ((quantized_num & 0x7FFFFFFF) > middle_num) {
+      if ((old_num & 0x7FFFFFFF) > middle_num) {
         quantized_num = old_sign | min_num;
       } else {
         quantized_num = 0;

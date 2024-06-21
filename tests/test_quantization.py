@@ -7,6 +7,3 @@ def test_32_to_32_quantization():
         a = torch.tensor(3.0)
         out = float_quantize(a, 8, 23, mode)
         assert out == a
-
-
-
