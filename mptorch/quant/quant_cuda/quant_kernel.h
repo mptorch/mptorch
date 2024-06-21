@@ -41,10 +41,10 @@ __global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int
 __global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
                                               int P, bool subnormals);
 
-__global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, float *o, int size,
+__global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
                                                int P, int prng_bits, bool subnormals);
 
-__global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, float *o, int size,
+__global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
                                                  int P, int prng_bits, bool subnormals);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
