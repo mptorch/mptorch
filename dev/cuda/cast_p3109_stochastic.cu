@@ -386,16 +386,22 @@ int main(int argc, const char **argv)
     int prng_bits = 4;
     bool subnormals = true;
 
-    float *x = (float*)malloc(sizeof(float));
+    float *x = (float*)malloc(1000 * sizeof(float));
     int *r = (int *)malloc(1000 * sizeof(int)); // numbers added to round
     float *y = (float*)malloc(sizeof(float));
     int rnd_up = 0, rnd_down = 0;
 
-    *x = 2.0;
+    for (int i = 0; i < N; i++){
+        x[i] = 2.25f;
+    }
 
     std::random_device rd;  // Seed generator
     std::mt19937 gen(rd()); // Mersenne Twister engine
-    std::uniform_real_distribution<float> dis(0.0f, 1.0f); // Uniform distribution in [0, 1)
+    std::uniform_real_distribution<float> distrib(0, std::pow(2, 23)-1); // Uniform distribution in [0, 1)
+
+     for (int i = 0; i < N; ++i) {
+        r[i] = distrib(gen);
+    }
 
     printf("Using kernel %d\n", kernel_num);
 
@@ -407,18 +413,18 @@ int main(int argc, const char **argv)
     }
 
     for (int i = 0; i < 1000; ++i){
-        printf("%lf", y[i]);
+        printf("%lf\n", y[i]);
         if (y[i] == 2.0){
             rnd_down++;
-        } else {
+        } else if (y[i] == 2.5){
             rnd_up++;
         }
     }
 
-    rnd_up /= 1000.0;
-    rnd_down /= 1000.0;
+    double prob_up = rnd_up / 1000.0;
+    double prob_down = rnd_down / 1000.0;
 
-    printf("Experimental probabilities: Round up - %lf, Round down - %lf\n", rnd_up, rnd_down);
+    printf("Experimental probabilities: Round up - %lf, Round down - %lf\n", prob_up, prob_down);
     
     // // move data to the GPU
     // float *d_x, *d_y;
