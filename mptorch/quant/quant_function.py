@@ -88,6 +88,7 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
     assert a.device == b.device
+    assert a.is_cuda
     quant_cuda.create_cublas_handle()
     dtype = {
         CUBLASMatrixType.F32: torch.float32,
@@ -121,6 +122,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
         raise NotImplementedError("CUDA required.")
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
+    assert a.is_cuda
     quant_cuda.create_cublas_handle()
     dtype = {
         CUBLASMatrixType.F32: torch.float32,
@@ -130,7 +132,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
     a = a.to(dtype[inp_type])
     b = b.to(dtype[inp_type])
     if len(a.shape) == 3 and len(b.shape) == 3:
-        c = torch.zeros(a.shape[0], a.shape[2], b.shape[1],
+        c = torch.zeros(a.shape[0], b.shape[2], a.shape[1], # transposed
                         device=a.device,
                         dtype=dtype[out_type])
         quant_cuda.floating_point_bmm_cublas(

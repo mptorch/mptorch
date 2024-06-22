@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <tuple>
 #include <stdexcept>
+#include <cassert>
 
 using namespace at;
 
@@ -611,7 +612,7 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       {
       float *p = a.data_ptr<float>();
       for (int i = 0; i < B; i++) {
-        arr[i] = &p[i * stride];
+        arr[i] = p + i * stride;
       }
       }
       break;
@@ -620,7 +621,7 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       {
       at::Half *p = a.data_ptr<at::Half>();
       for (int i = 0; i < B; i++) {
-        arr[i] = &p[i * stride];
+        arr[i] = p + i * stride;
       }
       }
       break;
@@ -628,14 +629,15 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       throw std::invalid_argument("Invalid datatype.");
     }
   };
-  void** a_array = new void*[B];
-  void** b_array = new void*[B];
-  void** c_array = new void*[B];
+  void *a_array[B];
+  void *b_array[B];
+  void *c_array[B];
   copy_ptrs(a_array, a, config.matrix_a, M*K);
   copy_ptrs(b_array, b, config.matrix_b, K*N);
   copy_ptrs(c_array, c, config.matrix_c, M*N);
 
-  // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
+  // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmbatchedex
+  // TODO: Fix, it crashes, memory alignement issues apparently
   switch (config.compute) {
   case CUBLAS_COMPUTE_16F:
   case CUBLAS_COMPUTE_16F_PEDANTIC:
@@ -657,16 +659,12 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
     // float beta = 0.f;
     // cublasGemmBatchedEx(get_cublas_handle(),
     //               CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
-    //               a_array, config.matrix_a, M,
-    //               b_array, config.matrix_b, K, &beta,
-    //               c_array, config.matrix_c, M, B,
+    //               (void**)a_array, config.matrix_a, M,
+    //               (void**)b_array, config.matrix_b, K, &beta,
+    //               (void**)c_array, config.matrix_c, M, B,
     //               config.compute,
     //               config.algo);
     // }
     break;
   }
-
-  delete[] a_array;
-  delete[] b_array;
-  delete[] c_array;
 }
