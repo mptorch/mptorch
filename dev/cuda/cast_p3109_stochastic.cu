@@ -364,36 +364,15 @@ int main(int argc, const char **argv)
         is_signed = true;
     }
 
-    // sanity check the CPU reference code (no subnormals)
-    // for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
-    // {
-    //     float fres = cast_fp_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 2, 5, false);
-    //     uint32_t res = FLOAT_TO_BITS(&fres);
-        
-    //     if (res != test_outputs[j])
-    //     {
-    //         printf("index = %d\n", j);
-    //         print_float(res);
-    //         printf("\nvs\n");
-    //         print_uint32(test_outputs[j]);
-    //         printf("\n");
-    //         exit(EXIT_FAILURE);
-    //     }
-    // }
-
     int N = 1000;
     int P = 3;
-    int prng_bits = 4;
+    int prng_bits = 20;
     bool subnormals = true;
 
     float *x = (float*)malloc(1000 * sizeof(float));
     int *r = (int *)malloc(1000 * sizeof(int)); // numbers added to round
-    float *y = (float*)malloc(sizeof(float));
+    float *y = (float*)malloc(1000 * sizeof(float));
     int rnd_up = 0, rnd_down = 0;
-
-    for (int i = 0; i < N; i++){
-        x[i] = 2.25f;
-    }
 
     std::random_device rd;  // Seed generator
     std::mt19937 gen(rd()); // Mersenne Twister engine
@@ -401,6 +380,7 @@ int main(int argc, const char **argv)
 
      for (int i = 0; i < N; ++i) {
         r[i] = distrib(gen);
+        x[i] = 2.1f;
     }
 
     printf("Using kernel %d\n", kernel_num);
@@ -412,8 +392,8 @@ int main(int argc, const char **argv)
         p3109_unsigned_kernel_stochastic_cpu(x, r, y, N, P, prng_bits, subnormals);
     }
 
-    for (int i = 0; i < 1000; ++i){
-        printf("%lf\n", y[i]);
+    for (int i = 0; i < N; ++i){
+        //printf("%lf\n", y[i]);
         if (y[i] == 2.0){
             rnd_down++;
         } else if (y[i] == 2.5){
@@ -425,56 +405,58 @@ int main(int argc, const char **argv)
     double prob_down = rnd_down / 1000.0;
 
     printf("Experimental probabilities: Round up - %lf, Round down - %lf\n", prob_up, prob_down);
-    
-    // // move data to the GPU
-    // float *d_x, *d_y;
-    // int *d_r;
-    // cudaCheck(cudaMalloc(&d_r, sizeof(int)));
-    // cudaCheck(cudaMalloc(&d_x, N * sizeof(float)));
-    // cudaCheck(cudaMalloc(&d_y, N * sizeof(float)));
 
-    // cudaCheck(cudaMemcpy(d_x, x, N * sizeof(float), cudaMemcpyHostToDevice));
+    // move data to the GPU
+    float *d_x, *d_y;
+    int *d_r;
+    cudaCheck(cudaMalloc(&d_r, N * sizeof(int)));
+    cudaCheck(cudaMalloc(&d_x, N * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_y, N * sizeof(float)));
 
-    // //time the kernel at different block sizes
-    // int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    // for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
-    // {
-    //     int block_size = block_sizes[j];
-    //     printf("Checking block size %d.\n", block_size);
-    //     p3109_stochastic(kernel_num, d_x, d_r, d_y, N, P, prng_bits, subnormals, block_size);
+    cudaCheck(cudaMemcpy(d_x, x, N * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_r, r, N * sizeof(float), cudaMemcpyHostToDevice));
 
-    //     float tol = 0.0f;
-    //     validate_result(d_y, y, "y", N, tol); // checks if d_y and y are the same
-    // }
+    //time the kernel at different block sizes
+    int block_sizes[] = {32, 64, 128, 256, 512, 1024};
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
+        int block_size = block_sizes[j];
+        printf("Checking block size %d.\n", block_size);
+        p3109_stochastic(kernel_num, d_x, d_r, d_y, N, P, prng_bits, subnormals, block_size);
 
-    // printf("All results match. Starting benchmarks.\n\n");
+        float tol = 0.0f;
 
-//     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
-//     {
-//         int block_size = block_sizes[j];
+        validate_result(d_y, y, "y", N, tol); // checks if d_y and y are the same
+    }
 
-//         int repeat_times = 1000;
+    printf("All results match. Starting benchmarks.\n\n");
 
-//         float elapsed_time = benchmark_kernel(repeat_times, p3109_stochastic, 
-//                 kernel_num, d_y, d_r, d_x, N, P, prng_bits, 
-//                 subnormals, block_size);
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
+        int block_size = block_sizes[j];
 
-//         // estimate memory bandwidth achieved
-//         // for each output element, we do 1 read and 1 write, 4 bytes each
-//         long memory_ops = N * 2 * (int)sizeof(float);
-//         float memory_bandwidth = memory_ops / elapsed_time / 1e6;
+        int repeat_times = 1000;
 
-//         printf("block_size %4d | time %.4f ms | bandwidth %.2f GB/s\n", block_size, elapsed_time, memory_bandwidth);
-//     }
+        float elapsed_time = benchmark_kernel(repeat_times, p3109_stochastic, 
+                kernel_num, d_y, d_r, d_x, N, P, prng_bits, 
+                subnormals, block_size);
 
-//     // free memory
-//     free(x);
-//     free(y);
-//     free(r);
+        // estimate memory bandwidth achieved
+        // for each output element, we do 1 read and 1 write, 4 bytes each
+        long memory_ops = N * 2 * (int)sizeof(float);
+        float memory_bandwidth = memory_ops / elapsed_time / 1e6;
 
-//     cudaCheck(cudaFree(d_x));
-//     cudaCheck(cudaFree(d_y));
-//     cudaCheck(cudaFree(d_r));
+        printf("block_size %4d | time %.4f ms | bandwidth %.2f GB/s\n", block_size, elapsed_time, memory_bandwidth);
+    }
 
-//     return 0;
+    // free memory
+    free(x);
+    free(y);
+    free(r);
+
+    cudaCheck(cudaFree(d_x));
+    cudaCheck(cudaFree(d_y));
+    cudaCheck(cudaFree(d_r));
+
+    return 0;
 }
