@@ -1,4 +1,5 @@
 import torch
+from torch.testing import assert_close
 from mptorch.quant import cublas_mm, cublas_bmm
 from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 
@@ -17,8 +18,7 @@ def test_mm_if32_of32_cf32_p():
     ref = torch.mm(a, b)
     res = cublas_mm(a, b, mt.F32, mt.F32, ct.F32, True)
     assert res.dtype == torch.float32
-    err = torch.max(torch.abs(res - ref) / torch.abs(ref)).item()
-    assert err < 1e-7
+    assert_close(res, ref, atol=0.0, rtol=1e-7)
 
 def test_mm_if16_of16_cf16_p():
     if no_cuda():
@@ -29,8 +29,7 @@ def test_mm_if16_of16_cf16_p():
     ref = torch.mm(a, b)
     res = cublas_mm(a, b, mt.F16, mt.F16, ct.F16, True)
     assert res.dtype == torch.float32
-    err = torch.max(torch.abs(res - ref) / torch.abs(ref)).item()
-    assert err < 1e-2
+    assert_close(res, ref, atol=0.0, rtol=1e-2)
 
 def test_mm_if16_of16_cf16vsf32_p():
     if no_cuda():
@@ -45,7 +44,7 @@ def test_mm_if16_of16_cf16vsf32_p():
     err_f32 = torch.max(torch.abs(res_f32 - ref) / torch.abs(ref)).item()
     assert err_f32 < err_f16
 
-def test_mm_if16_of16_ctf32():
+def test_mm_if32_of32_ctf32():
     if no_cuda():
         return
     
@@ -54,8 +53,7 @@ def test_mm_if16_of16_ctf32():
     ref = torch.mm(a, b)
     res = cublas_mm(a, b, mt.F32, mt.F32, ct.FAST_TF32, False)
     assert res.dtype == torch.float32
-    err = torch.max(torch.abs(res - ref) / torch.abs(ref)).item()
-    assert err < 1e-3
+    assert_close(res, ref, atol=0.0, rtol=1e-3)
 
 def test_bmm_if32_of32_ctf32_2_2():
     if no_cuda():
@@ -67,7 +65,7 @@ def test_bmm_if32_of32_ctf32_2_2():
     res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, False)
     assert res.dtype == torch.float32
     assert res.shape == ref.shape
-    torch.testing.assert_close(res, ref, atol=0.0, rtol=1e-5)
+    assert_close(res, ref, atol=0.0, rtol=1e-5)
 
 def test_bmm_if32_of32_ctf32_3_3():
     # TODO: FIX, it crashes
@@ -80,4 +78,4 @@ def test_bmm_if32_of32_ctf32_3_3():
     res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, False)
     assert res.dtype == torch.float32
     assert res.shape == ref.shape
-    torch.testing.assert_close(res, ref, atol=0.0, rtol=1e-5)
+    assert_close(res, ref, atol=0.0, rtol=1e-5)
