@@ -5,7 +5,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-__device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subnormals) {
+__host__ __device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subnormals) {
 
     int exp_bits = 8-P;
     int man_bits = P-1;    
@@ -38,7 +38,7 @@ __device__ float cast_p3109_signed_nearest(float origin_float, int P, bool subno
     return fval8;
 }
 
-__device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, bool subnormals) {
+__host__ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, bool subnormals) {
 
     int exp_bits = 8-P;
     int man_bits = P-1;  
@@ -73,7 +73,7 @@ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_
     return fval8;
 }
 
-__device__ float cast_p3109_unsigned_nearest(float origin_float, int P, bool subnormals) {
+__host__ __device__ float cast_p3109_unsigned_nearest(float origin_float, int P, bool subnormals) {
     // we had talks abt the following for unsigned, P = 1:
     // 0: 0000 0000
     // NaN: FE or FF (currently. it is 1000 0000 in this revision)
@@ -116,7 +116,7 @@ __device__ float cast_p3109_unsigned_nearest(float origin_float, int P, bool sub
     return fval8;
 }
 
-__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, bool subnormals) { 
+__host__ __device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, bool subnormals) { 
     
     if(origin_float < 0){
         return NAN;

@@ -350,11 +350,6 @@ void p3109_stochastic(int kernel_num, // 1 for signed and 2 for unsighed
 // ---------------------------------------------------------------------------------------
 int main(int argc, const char **argv)
 {
-
-    // no PYTORCH, only use arrays/pointers 
-    // run 1000 times, 
-    
-    // read the kernel number from the command line
     bool is_signed = true;
     int kernel_num = 1;
 
