@@ -45,7 +45,7 @@ def test_mm_if16_of16_cf16vsf32_p():
     err_f32 = torch.max(torch.abs(res_f32 - ref) / torch.abs(ref)).item()
     assert err_f32 < err_f16
 
-def test_mm_if16_of16_ctf32():
+def test_mm_if32_of32_ctf32():
     if no_cuda():
         return
     
