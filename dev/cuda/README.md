@@ -1,6 +1,6 @@
 # Introduction to CUDA Programming
 
-Here is an [Introduction to CUDA Programming](cuda_tutorial_nazar.pdf) by Nazar Misyats as well as a [recorded video](https://ubc.zoom.us/rec/share/oEx7T5BmisKQw9jc0VcLMg3fc2bJwhTilOmsekOBoSyuzxSIYLoldj02Y0KLwThE.cE48-5o8GBny4Yn_) (video requires the passcode "c@gKy1B=" without the quotes).
+Here is an [Introduction to CUDA Programming](../../background/cuda_tutorial_nazar.pdf) by Nazar Misyats as well as a [recorded video](https://ubc.zoom.us/rec/share/oEx7T5BmisKQw9jc0VcLMg3fc2bJwhTilOmsekOBoSyuzxSIYLoldj02Y0KLwThE.cE48-5o8GBny4Yn_) (video requires the passcode "c@gKy1B=" without the quotes).
 
 This introduction includes how to call a C++ CUDA function from Python.
 
