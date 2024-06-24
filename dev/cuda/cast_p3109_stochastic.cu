@@ -404,7 +404,7 @@ int main(int argc, const char **argv)
     double prob_up = rnd_up / 1000.0;
     double prob_down = rnd_down / 1000.0;
 
-    printf("Experimental probabilities: Round up - %lf, Round down - %lf\n", prob_up, prob_down);
+    printf("Round up: %.2lf% | Round down: %.2lf%\n", (100 * prob_up), (100 * prob_down));
 
     // move data to the GPU
     float *d_x, *d_y;

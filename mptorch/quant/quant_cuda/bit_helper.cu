@@ -112,7 +112,7 @@ clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quantized_num) 
 }
 
 __device__ __forceinline__ uint32_t
-p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {  // currently sets max to FE; talks of possibly setting max to FD were mentioned for unsigned P = 1
+p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormals) {  // currently sets max to FE; talks of possibly setting max to FD were mentioned for unsigned P = 1
   if (quantized_num == 0) 
     return quantized_num;
   
@@ -133,7 +133,7 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
       quantized_num = old_sign | 0x7F800000; // INF
     }
   } else if (quantized_exponent_store < min_exponent_store) {
-    if (subnormal) {
+    if (subnormals) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
         int min_subnormals_exp = min_exponent_store - man_bits;
         uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
