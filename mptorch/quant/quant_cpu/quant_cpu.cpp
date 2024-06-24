@@ -440,18 +440,20 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_size, int exp_size, int
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
+
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
   
   int outer_size = 1;
-  for(int i = 0; i < dim; ++i){
+  for(int i = 0; i < real_dim; ++i){
     outer_size *= a.size(i);
   }
 
   int inner_size = 1;
-  for(int i = dim + 1; i < a.dim(); ++i){
+  for(int i = real_dim + 1; i < a.dim(); ++i){
     inner_size *= a.size(i);
   }
 
-  int dim_size = a.size(dim);
+  int dim_size = a.size(real_dim);
   int dim_stride = inner_size;
   int outer_stride = dim_size * dim_stride;
 
@@ -492,18 +494,20 @@ Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_size, int exp_size,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
+
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
   
   int outer_size = 1;
-  for(int i = 0; i < dim; ++i){
+  for(int i = 0; i < real_dim; ++i){
     outer_size *= a.size(i);
   }
 
   int inner_size = 1;
-  for(int i = dim + 1; i < a.dim(); ++i){
+  for(int i = real_dim + 1; i < a.dim(); ++i){
     inner_size *= a.size(i);
   }
 
-  int dim_size = a.size(dim);
+  int dim_size = a.size(real_dim);
   int dim_stride = inner_size;
   int outer_stride = dim_size * dim_stride;
 
