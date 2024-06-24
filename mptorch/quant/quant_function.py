@@ -67,13 +67,29 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
-def quant_softmax(a, man, exp, dim):
+def quant_softmax(a, formats, dim):
     assert not a.is_cuda
-    return quant_cpu.float_quantized_softmax_nearest(a, man, exp, dim)
+    return quant_cpu.float_quantized_softmax_nearest(
+        a,
+        formats.man,
+        formats.exp,
+        formats.subnormals,
+        formats.saturate,
+        dim
+    )
+    #return quant_cpu.float_quantized_softmax_nearest(a, man, exp, subnormals, saturate, dim)
 
-def quant_softmax_lse(a, man, exp, dim):
+def quant_softmax_lse(a, formats, dim):
     assert not a.is_cuda
-    return quant_cpu.float_quantized_softmax_lse_nearest(a, man, exp, dim)
+    return quant_cpu.float_quantized_softmax_lse_nearest(
+        a,
+        formats.man,
+        formats.exp,
+        formats.subnormals,
+        formats.saturate,
+        dim
+    )
+    #return quant_cpu.float_quantized_softmax_lse_nearest(a, man, exp, subnormals, saturate, dim)
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
