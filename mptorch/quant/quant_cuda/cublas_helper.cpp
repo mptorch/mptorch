@@ -73,8 +73,6 @@ void get_cublas_configuration(
     bool pedantic,
     cublas_config& config
 ) {
-    config.algo = CUBLAS_GEMM_DEFAULT; // uses heuristic for the best algorithm
-
     auto to_datatype = [](cublas_matrix_dt t) {
         switch (t) {
         case cublas_matrix_dt::kF32:
@@ -92,6 +90,16 @@ void get_cublas_configuration(
     config.matrix_a = inp_type;
     config.matrix_b = inp_type;
     config.matrix_c = out_type;
+
+    auto to_scalartype = [&](cublas_compute_dt t) {
+        switch (t) {
+        case cublas_compute_dt::kF16:
+            return CUDA_R_16F;
+        default:
+            return CUDA_R_32F;
+        }
+    };
+    config.scalar = to_scalartype(compute_type);
 
     auto types_match = [&](cudaDataType t_in, cudaDataType t_out) {
         return t_in == inp_type && t_out == out_type;

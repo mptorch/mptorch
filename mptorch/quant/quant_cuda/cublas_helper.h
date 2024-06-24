@@ -8,8 +8,8 @@ struct cublas_config
     cudaDataType matrix_a;
     cudaDataType matrix_b;
     cudaDataType matrix_c;
+    cudaDataType scalar;
     cublasComputeType_t compute;
-    cublasGemmAlgo_t algo;
 
     void summary() const;
 };
