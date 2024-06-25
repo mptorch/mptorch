@@ -165,7 +165,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             compute_type,
             pedantic
         )
-        c = c.transpose(-2, -1)
+        c_r = c_r.transpose(-2, -1)
         c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
     elif len(a.shape) == 4 and len(b.shape) == 4:
         a_r = torch.reshape(
@@ -191,7 +191,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             compute_type,
             pedantic
         )
-        c = c.tranpose(-2, -1)
+        c_r = c_r.transpose(-2, -1)
         c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
     elif len(a.shape) == 2 and len(b.shape) == 2:
         c = torch.zeros(b.shape[1], a.shape[0],
