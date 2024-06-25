@@ -67,29 +67,53 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
-def quant_softmax(a, formats, dim):
+def quant_softmax(a, formats, dim, use_forward=True):
     assert not a.is_cuda
-    return quant_cpu.float_quantized_softmax_nearest(
-        a,
-        formats.man,
-        formats.exp,
-        formats.subnormals,
-        formats.saturate,
-        dim
-    )
-    #return quant_cpu.float_quantized_softmax_nearest(a, man, exp, subnormals, saturate, dim)
+    if use_forward:  # FWD format configuration
+        add_cfg, fma, rnd = (
+            formats.fwd_add,
+            formats.fwd_fma,
+            formats.fwd_rnd,
+        )
+    else:  # BWD format configuration
+        add_cfg, fma, rnd = (
+            formats.bwd_add,
+            formats.bwd_fma,
+            formats.bwd_rnd,
+        )
 
-def quant_softmax_lse(a, formats, dim):
-    assert not a.is_cuda
-    return quant_cpu.float_quantized_softmax_lse_nearest(
-        a,
-        formats.man,
-        formats.exp,
-        formats.subnormals,
-        formats.saturate,
-        dim
+    man = add_cfg.man
+    exp = add_cfg.exp
+    subnormals = add_cfg.subnormals
+    saturate = add_cfg.saturate
+
+    return quant_cpu.float_quantized_softmax_nearest(
+        a, man, exp, subnormals, saturate, dim
     )
-    #return quant_cpu.float_quantized_softmax_lse_nearest(a, man, exp, subnormals, saturate, dim)
+
+def quant_softmax_lse(a, formats, dim, use_forward=True):
+    assert not a.is_cuda
+    if use_forward:  # FWD format configuration
+        add_cfg, fma, rnd = (
+            formats.fwd_add,
+            formats.fwd_fma,
+            formats.fwd_rnd,
+        )
+    else:  # BWD format configuration
+        add_cfg, fma, rnd = (
+            formats.bwd_add,
+            formats.bwd_fma,
+            formats.bwd_rnd,
+        )
+
+    man = add_cfg.man
+    exp = add_cfg.exp
+    subnormals = add_cfg.subnormals
+    saturate = add_cfg.saturate
+
+    return quant_cpu.float_quantized_softmax_lse_nearest(
+        a, man, exp, subnormals, saturate, dim
+    )
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration

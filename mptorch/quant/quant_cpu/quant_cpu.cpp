@@ -434,7 +434,7 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
 }
 
 Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate, int dim){
-  a = float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
+  //a = float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
@@ -488,7 +488,7 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, boo
 }
 
 Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate, int dim){
-  a = float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
+  //a = float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
