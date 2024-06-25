@@ -637,9 +637,8 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
 
   // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmbatchedex
   // TODO: Fix, it crashes, memory alignement issues apparently
-  switch (config.compute) {
-  case CUBLAS_COMPUTE_16F:
-  case CUBLAS_COMPUTE_16F_PEDANTIC:
+  switch (config.scalar) {
+  case CUDA_R_16F:
     // {
     // half alpha = __float2half(1.f);
     // half beta = __float2half(0.f);
