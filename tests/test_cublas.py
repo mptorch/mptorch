@@ -2,7 +2,7 @@ import torch
 from torch.testing import assert_close
 from mptorch.quant import cublas_mm, cublas_bmm
 from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
-from mptorch.quant import float_mm
+from mptorch.quant import float_mm, float_bmm
 
 def no_cuda():
     return not torch.cuda.is_available()
@@ -69,10 +69,12 @@ def test_bmm_if32_of32_cf32_p_2_2():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
-    res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-5)
+    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
 def test_bmm_if32_of32_cf32_p_3_2():
     if no_cuda():
@@ -81,10 +83,12 @@ def test_bmm_if32_of32_cf32_p_3_2():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b.repeat(169, 1, 1))
-    res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-5)
+    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
 def test_bmm_if32_of32_cf32_p_3_3():
     if no_cuda():
@@ -93,10 +97,12 @@ def test_bmm_if32_of32_cf32_p_3_3():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
-    res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-5)
+    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
 def test_bmm_if16_of16_cf16_p_3_3():
     if no_cuda():
@@ -105,22 +111,26 @@ def test_bmm_if16_of16_cf16_p_3_3():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
-    res = cublas_bmm(a, b, mt.F16, mt.F16, ct.F16, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-1)
+    res_cublas = cublas_bmm(a, b, mt.F16, mt.F16, ct.F16, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
-def test_bmm_ibf16_ofb16_cf32_p_3_3():
+def test_bmm_ibf16_obf16_cf32_p_3_3():
     if no_cuda():
         return
     
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
-    res = cublas_bmm(a, b, mt.BF16, mt.BF16, ct.F32, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-1)
+    res_cublas = cublas_bmm(a, b, mt.BF16, mt.BF16, ct.F32, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
 def test_bmm_if32_of32_cf32_p_4_4():
     if no_cuda():
@@ -129,7 +139,9 @@ def test_bmm_if32_of32_cf32_p_4_4():
     a = torch.rand(9, 5, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(9, 5, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a.reshape(9*5, 277, 1501), b.reshape(9*5, 1501, 984)).reshape(9, 5, 277, 984)
-    res = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    assert res.dtype == torch.float32
-    assert res.shape == ref.shape
-    assert_close(res, ref, atol=0.0, rtol=1e-5)
+    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
+    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    assert res_cublas.dtype == torch.float32
+    assert res_cublas.shape == ref.shape
+    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
