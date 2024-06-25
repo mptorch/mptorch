@@ -53,7 +53,8 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     printf("CUBLAS GEMM %dx%dx%d (MxNxK) using separate arrays...\n", M, N, K);
 
     float *h_A[P], *h_B[P], *h_C[P];
-    float *d_A[P], *d_B[P], *d_C[P];
+    float *h_dA[P], *h_dB[P], *h_dC[P];
+    float **d_dA, **d_dB, **d_dC;
     float alpha = 1.0f;
     float beta = 0.0f;
 
@@ -65,14 +66,22 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
 
     /* Allocate device memory for the matrices */
     for(int i = 0; i < P; i++) {
-        cudaCheck(cudaMalloc(&d_A[i], M*K * sizeof(float)));
-        cudaCheck(cudaMalloc(&d_B[i], K*N * sizeof(float)));
-        cudaCheck(cudaMalloc(&d_C[i], M*N * sizeof(float)));
+        cudaCheck(cudaMalloc(&h_dA[i], M*K * sizeof(float)));
+        cudaCheck(cudaMalloc(&h_dB[i], K*N * sizeof(float)));
+        cudaCheck(cudaMalloc(&h_dC[i], M*N * sizeof(float)));
 
-        cudaCheck(cudaMemcpy(d_A[i], h_A[i], M*K * sizeof(float), cudaMemcpyHostToDevice));
-        cudaCheck(cudaMemcpy(d_B[i], h_B[i], K*N * sizeof(float), cudaMemcpyHostToDevice));
-        cudaCheck(cudaMemcpy(d_C[i], h_C[i], M*N * sizeof(float), cudaMemcpyHostToDevice));
+        cudaCheck(cudaMemcpy(h_dA[i], h_A[i], M*K * sizeof(float), cudaMemcpyHostToDevice));
+        cudaCheck(cudaMemcpy(h_dB[i], h_B[i], K*N * sizeof(float), cudaMemcpyHostToDevice));
+        cudaCheck(cudaMemcpy(h_dC[i], h_C[i], M*N * sizeof(float), cudaMemcpyHostToDevice));
     }
+
+    cudaCheck(cudaMalloc(&d_dA, P*sizeof(float*)));
+    cudaCheck(cudaMalloc(&d_dB, P*sizeof(float*)));
+    cudaCheck(cudaMalloc(&d_dC, P*sizeof(float*)));
+
+    cudaCheck(cudaMemcpy(d_dA, h_dA, P*sizeof(float*), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_dB, h_dB, P*sizeof(float*), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_dC, h_dC, P*sizeof(float*), cudaMemcpyHostToDevice));
 
     int lda = M;
     int ldb = K;
@@ -81,9 +90,9 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     /* Performs operation using cublas */
     auto cublas_bgemm = [&]() {
     cublasCheck(cublasGemmBatchedEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
-                                (void**)d_A, CUDA_R_32F, lda,
-                                (void**)d_B, CUDA_R_32F, ldb, &beta,
-                                (void**)d_C, CUDA_R_32F, ldc, P,
+                                (void**)d_dA, CUDA_R_32F, lda,
+                                (void**)d_dB, CUDA_R_32F, ldb, &beta,
+                                (void**)d_dC, CUDA_R_32F, ldc, P,
                                 CUBLAS_COMPUTE_32F,
                                 CUBLAS_GEMM_DEFAULT));
     };
@@ -94,7 +103,7 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
 
     /* Check result against reference */
     for(int i = 0; i < P; i++) {
-        validate_result(d_C[i], h_C[i], "C", M*N, 1.0e-3f);
+        validate_result(h_dC[i], h_C[i], "C", M*N, 1.0e-3f);
         printf("\n");
     }
 
@@ -111,10 +120,14 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
         free(h_B[i]);
         free(h_C[i]);
 
-        cudaCheck(cudaFree(d_A[i]));
-        cudaCheck(cudaFree(d_B[i]));
-        cudaCheck(cudaFree(d_C[i]));
+        cudaCheck(cudaFree(h_dA[i]));
+        cudaCheck(cudaFree(h_dB[i]));
+        cudaCheck(cudaFree(h_dC[i]));
     }
+
+    cudaCheck(cudaFree(d_dA));
+    cudaCheck(cudaFree(d_dB));
+    cudaCheck(cudaFree(d_dC));
 }
 
 
@@ -128,6 +141,7 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     float *h_A[P], *h_B[P], *h_C[P];
     float *d_A, *d_B, *d_C;
     float *h_dA[P], *h_dB[P], *h_dC[P];
+    float **d_dA, **d_dB, **d_dC;
     float alpha = 1.0f;
     float beta = 0.0f;
 
@@ -155,6 +169,14 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
         h_dC[i] = d_C + i * M*N;
     }
 
+    cudaCheck(cudaMalloc(&d_dA, P*sizeof(float*)));
+    cudaCheck(cudaMalloc(&d_dB, P*sizeof(float*)));
+    cudaCheck(cudaMalloc(&d_dC, P*sizeof(float*)));
+    
+    cudaCheck(cudaMemcpy(d_dA, h_dA, P*sizeof(float*), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_dB, h_dB, P*sizeof(float*), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_dC, h_dC, P*sizeof(float*), cudaMemcpyHostToDevice));
+
     int lda = M;
     int ldb = K;
     int ldc = M;
@@ -162,9 +184,9 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     /* Performs operation using cublas */
     auto cublas_bgemm = [&]() {
     cublasCheck(cublasGemmBatchedEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha,
-                                (void**)h_dA, CUDA_R_32F, lda,
-                                (void**)h_dB, CUDA_R_32F, ldb, &beta,
-                                (void**)h_dC, CUDA_R_32F, ldc, P,
+                                (void**)d_dA, CUDA_R_32F, lda,
+                                (void**)d_dB, CUDA_R_32F, ldb, &beta,
+                                (void**)d_dC, CUDA_R_32F, ldc, P,
                                 CUBLAS_COMPUTE_32F,
                                 CUBLAS_GEMM_DEFAULT));
     };
@@ -196,6 +218,10 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     cudaCheck(cudaFree(d_A));
     cudaCheck(cudaFree(d_B));
     cudaCheck(cudaFree(d_C));
+
+    cudaCheck(cudaFree(d_dA));
+    cudaCheck(cudaFree(d_dB));
+    cudaCheck(cudaFree(d_dC));
 }
 
 
