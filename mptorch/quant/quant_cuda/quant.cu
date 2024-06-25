@@ -559,9 +559,8 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
   cublasSetMathMode(get_cublas_handle(), math);
 
   // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
-  switch (config.compute) {
-  case CUBLAS_COMPUTE_16F:
-  case CUBLAS_COMPUTE_16F_PEDANTIC:
+  switch (config.scalar) {
+  case CUDA_R_16F:
     {
     half alpha = __float2half(1.f);
     half beta = __float2half(0.f);
@@ -571,7 +570,7 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                   b.data_ptr(), config.matrix_b, K, &beta,
                   c.data_ptr(), config.matrix_c, M,
                   config.compute,
-                  config.algo);
+                  CUBLAS_GEMM_DEFAULT);
     }
     break;
   default:
@@ -584,7 +583,7 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                   b.data_ptr(), config.matrix_b, K, &beta,
                   c.data_ptr(), config.matrix_c, M,
                   config.compute,
-                  config.algo);
+                  CUBLAS_GEMM_DEFAULT);
     }
     break;
   }
