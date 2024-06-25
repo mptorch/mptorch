@@ -112,7 +112,7 @@ def test_bmm_if16_of16_cf16_p_3_3():
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
     res_cublas = cublas_bmm(a, b, mt.F16, mt.F16, ct.F16, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_mp = float_bmm(a, b, 10, 5, 10, 5)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
@@ -126,7 +126,7 @@ def test_bmm_ibf16_obf16_cf32_p_3_3():
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
     res_cublas = cublas_bmm(a, b, mt.BF16, mt.BF16, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_mp = float_bmm(a, b, 23, 8, 7, 8)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
