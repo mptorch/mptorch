@@ -1,6 +1,7 @@
 #include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
+#include "p3109_kernel.h"
 
 using namespace at;
 
@@ -52,10 +53,10 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, saturate);
 }
 
-Tensor p3109_quantize_nearest(Tensor a, int P, bool is_signed, bool subnormals)
+Tensor p3109_quantize_nearest(Tensor a, int P, bool is_signed, SaturateState saturation_mode, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_nearest_cuda(a, P, is_signed, subnormals);
+      return p3109_quantize_nearest_cuda(a, P, is_signed, saturation_mode, subnormals);
 }
 
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
@@ -92,10 +93,10 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                             saturate);
 }
 
-Tensor p3109_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals)
+Tensor p3109_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, SaturateState saturation_mode, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_stochastic_cuda(a, P, prng_bits, is_signed, subnormals);
+      return p3109_quantize_stochastic_cuda(a, P, prng_bits, is_signed, saturation_mode, subnormals);
 }
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
@@ -320,6 +321,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "(CUDA)");
       m.def("p3109_quantize_nearest", &p3109_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
+
+      py::enum_<SaturateState>(m, "SaturateState", py::arithmetic())
+            .value("SATURATE", SaturateState::SATURATE)
+            .value("NO_OVERFLOW", SaturateState::NO_OVERFLOW)
+            .value("OVERFLOWS", SaturateState::OVERFLOWS);
+            
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
       m.def("float_quantize_nearest_bmm", &float_quantize_nearest_bmm,

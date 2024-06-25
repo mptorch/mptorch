@@ -1,3 +1,4 @@
+#include "p3109_kernel.h"
 #include <cmath>
 #include <cstdint>
 
@@ -111,32 +112,48 @@ clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quantized_num) 
   return quantized_num;
 }
 
+__host__ __device__ __forceinline__ uint32_t 
+p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateState saturation_mode, bool subnormal) {
 
-
-
-__host__ __device__ __forceinline__ uint32_t
-p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormals) {  // currently sets max to FE; talks of possibly setting max to FD were mentioned for unsigned P = 1
-  if (quantized_num == 0) 
+  if (quantized_num == 0){
     return quantized_num;
+  }
   
-  int spec_exp = (man_bits == 0) ? 1 : 0; // special exponent case at P = 1
-  int quantized_exponent_store = (quantized_num >> 23) & 0xFF;
-  int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
-  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp; // adding special exponent (1 for P = 1 and 0 for all other precision)
-
-  // the following values were calculated prior to entering the conditionals (which defers from clip_exponent) 
+  uint32_t man_val = quantized_num & 0x7FFFFF;
+  uint32_t old_sign = old_num >> 31 << 31;
   uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
-  uint32_t man_val = quantized_num & 0x7FFFFF;  // max mantissa val is all 1s
-  uint32_t old_sign = old_num & 0x80000000;
+  
+  int spec_exp = (man_bits == 0) ? 1 : 0; // if P = 1
+  int special_p1 = 0;
+  
+  if(exp_bits == 8 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=1
+      special_p1 = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
+  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=2 
+      special_p1 = 1;
+      //print_uint(max_man);
+      //max_man = 1 << 22; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
+  }else if(exp_bits + man_bits == 8){ // unsigned
+      max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value 0xfd = mACax_exp | max_mantissa - 1 
+  }
 
-  if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && max_man < man_val)) {
-    if (saturate) { 
-      quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
-    } else {
-      quantized_num = old_sign | 0x7F800000; // INF
-    }
-  } else if (quantized_exponent_store < min_exponent_store) {
-    if (subnormals) {
+  // Special because in unsigned we want our min to be 1 less because the space is taken by the Nan
+  int quantized_exponent_store = (quantized_num << 1 >> 24);
+  int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_p1; 
+  int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
+
+  if (saturation_mode == SaturateState::NO_OVERFLOW) { // Saturate to max without infinity
+    max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
+  }
+
+  if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) 
+  {
+    if (saturation_mode == SaturateState::OVERFLOWS){ // Overflow to infinity
+        return quantized_num = old_sign | 0x7F800000; // INF
+    } 
+    return quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
+  }
+  if (quantized_exponent_store < min_exponent_store) {
+    if (subnormal) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
         int min_subnormals_exp = min_exponent_store - man_bits;
         uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
@@ -148,7 +165,8 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
       } else {
         quantized_num = 0;
       }
-    } else {
+    } 
+    if(!subnormal) {
       uint32_t min_num = (uint32_t)min_exponent_store << 23;
       uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
       if ((old_num & 0x7FFFFFFF) > middle_num) {
@@ -158,6 +176,5 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
       }
     }
   }
-
   return quantized_num;
 }

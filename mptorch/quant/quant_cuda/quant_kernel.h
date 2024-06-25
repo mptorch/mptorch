@@ -1,6 +1,7 @@
 #include <curand.h>
 #include <curand_kernel.h>
 #include <cstdint>
+#include "p3109_kernel.h"
 
 __global__ void seed_init(uint32_t seed, curandState_t *state);
 
@@ -36,16 +37,16 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
                                         bool saturate);
 
 __global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                            int P, bool subnormals);
+                                            int P, SaturateState saturation_mode, bool subnormals);
 
 __global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                              int P, bool subnormals);
+                                              int P, SaturateState saturation_mode, bool subnormals);
 
 __global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                               int P, int prng_bits, bool subnormals);
+                                               int P, int prng_bits, SaturateState saturation_mode, bool subnormals);
 
 __global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                                 int P, int prng_bits, bool subnormals);
+                                                 int P, int prng_bits, SaturateState saturation_mode, bool subnormals);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,

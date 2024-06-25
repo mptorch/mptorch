@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <tuple>
+#include "p3109_kernel.h"
 
 using namespace at;
 
@@ -146,7 +147,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 
 }
 
-Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnormals)
+Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateState saturation_mode, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a
@@ -155,16 +156,16 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnorm
 
   if (is_signed == true){ // signed
       p3109_signed_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
   } else {  // unsigned
       p3109_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
   }
 
   return o;
 }
 
-Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals)
+Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturateState saturation_mode, bool subnormals)
 {
   auto o = zeros_like(a);
   // generate random number on the GPU for the SR operation
@@ -175,10 +176,10 @@ Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_si
 
   if (is_signed == true){ // signed
       p3109_signed_kernel_stochastic<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, saturation_mode, subnormals);
   } else {  // unsigned
       p3109_unsigned_kernel_stochastic<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, saturation_mode, subnormals);
   }
 
   return o;

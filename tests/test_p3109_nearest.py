@@ -1,7 +1,6 @@
 import torch
 from mptorch.quant import p3109_quantize
 import struct
-import math
 import numpy as np
 
 from gfloat import RoundMode, round_float
@@ -32,9 +31,9 @@ def test_p3109_to_gfloat():
         while i_uival <= max_val_uival:
             i_fval = bits_to_float(i_uival)
 
-            result1 = p3109_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", True, True)
+            result1 = p3109_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
-            result1 = result1.cpu()
+            result1 = result1.cpu() 
 
             assert result1 == result2 or np.isnan(result1)
             i_uival += 16383 #8192
@@ -55,7 +54,7 @@ def test_p3109p1():
     ]
 
     for test in tests:
-        result_t = p3109_quantize(test["value"], 1, "nearest", True, True)
+        result_t = p3109_quantize(test["value"], 1, "nearest", "saturate", True, True)
         print(result_t)
         print(test["expected"])
         assert result_t.equal(test["expected"])
@@ -77,7 +76,7 @@ def test_p3109p2():
     ]
 
     for test in tests:
-        result_t = p3109_quantize(test["value"], 2, "nearest", True, True)  
+        result_t = p3109_quantize(test["value"], 2, "nearest", "saturate", True, True)  
         print(result_t) 
         print(test["expected"])
         assert result_t.equal(test["expected"])

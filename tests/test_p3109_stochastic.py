@@ -12,7 +12,7 @@ def test_p3109_signed_stochastic():
     print(num)
 
     num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
-    result = p3109_quantize(num_tensor, P, "stochastic", False, True, prng_bits)
+    result = p3109_quantize(num_tensor, P, "stochastic", "saturate", False, True, prng_bits)
 
     for x in range(result.numel()):
         if result[x].item() == 2.5:
@@ -33,11 +33,11 @@ def test_p3109_signed_stochastic_subnormal():
     P = 4
     prng_bits = 23
     iterations = 1000
-    num = 0.00634765625;
+    num = 0.00634765625
     print(num)
 
     num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
-    result = p3109_quantize(num_tensor, P, "stochastic", True, True, prng_bits)
+    result = p3109_quantize(num_tensor, P, "stochastic", "saturate", True, True, prng_bits)
 
     for x in range(result.numel()):
         print(result[x].item())

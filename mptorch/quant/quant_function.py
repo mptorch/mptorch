@@ -2,12 +2,14 @@ import torch
 from mptorch import Number, FixedPoint, FloatingPoint, SuperNormalFloat, BlockFloatingPoint
 from torch.utils.cpp_extension import load
 import os
+from enum import Enum
 
 __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
     "p3109_quantize",
+    "SaturateState",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -61,6 +63,10 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
+if torch.cuda.is_available():
+    SaturateState  = quant_cuda.SaturateState
+else:
+    SaturateState = None
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
@@ -1535,7 +1541,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def p3109_quantize(x, P, rounding="nearest", is_signed=True, subnormals=True, prng_bits=0):
+def p3109_quantize(x, P, rounding="nearest", SaturationMode="saturate", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1543,6 +1549,7 @@ def p3109_quantize(x, P, rounding="nearest", is_signed=True, subnormals=True, pr
         - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
         - :attr: `P` (int) : number of bits allocated for precision
         - :attr: `is_signed` (bool): if subnormals are supported or not
+        - :attr: `SaturationMode` (string): change the mode of saturation
         - :attr: `subnormals` (bool): saturate on overflow or use infinities
         - :attr: `prng_bits` (int): number of bits for the random generator
 
@@ -1555,14 +1562,23 @@ def p3109_quantize(x, P, rounding="nearest", is_signed=True, subnormals=True, pr
     assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
         rounding
     )
+    assert SaturationMode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
+        SaturationMode
+    )
+    saturation_enum = {
+        "saturate": SaturateState.SATURATE,
+        "no_overflow": SaturateState.NO_OVERFLOW,
+        "overflow": SaturateState.OVERFLOWS,
+    }[SaturationMode]
+
     quant_module = get_module(x)
     if rounding == "nearest":
         out = quant_module.p3109_quantize_nearest(
-            x.contiguous(), P, is_signed ,subnormals
+            x.contiguous(), P, is_signed , saturation_enum, subnormals
         )
     elif rounding == "stochastic":
         out = quant_module.p3109_quantize_stochastic(
-            x.contiguous(), P, prng_bits, is_signed, subnormals
+            x.contiguous(), P, prng_bits, is_signed, saturation_enum, subnormals
         )
     return out
 
