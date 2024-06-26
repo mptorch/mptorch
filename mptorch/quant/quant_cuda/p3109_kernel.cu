@@ -67,7 +67,8 @@ __host__ __device__ float cast_p3109_signed_stochastic(float origin_float, int P
         }
     }
 
-    rand_prob = rand_prob << 9 >> 9 >> 23 - prng_bits <<23 - prng_bits;
+    rand_prob = rand_prob << 9 >> 9;
+    rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
 
     uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
@@ -151,7 +152,8 @@ __host__ __device__ float cast_p3109_unsigned_stochastic(float origin_float, int
         }
     }
 
-    rand_prob = rand_prob << 9 >> 9 >> (23 - prng_bits) << (23 - prng_bits);
+    rand_prob = rand_prob << 9 >> 9;
+    rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
 
     uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
