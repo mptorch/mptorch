@@ -290,6 +290,29 @@ void fixed_point_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
       return;
 }
 
+void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                              cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                              cublas_compute_dt compute_type, bool pedantic)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      mm_fp_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      return;
+}
+
+void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                               cublas_compute_dt compute_type, bool pedantic)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      bmm_fp_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      return;
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
       m.def("fixed_point_quantize_stochastic", &fixed_point_quantize_stochastic,
