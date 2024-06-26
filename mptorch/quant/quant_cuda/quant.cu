@@ -546,9 +546,9 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
 
 
 
-void mm_fp_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                  cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                  cublas_compute_dt compute_type, bool pedantic)
+void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                     cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                     cublas_compute_dt compute_type, bool pedantic)
 {
   // Tensors a, b, and c are assumed to have the right datatype and transposed.
   cublas_config config;
@@ -590,9 +590,9 @@ void mm_fp_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 }
 
 
-void bmm_fp_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                   cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                   cublas_compute_dt compute_type, bool pedantic)
+void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                      cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
+                      cublas_compute_dt compute_type, bool pedantic)
 {
   // Tensors a, b, and c are assumed to have the right datatype and transposed.
   cublas_config config;

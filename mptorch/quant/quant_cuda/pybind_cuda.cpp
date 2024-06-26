@@ -297,7 +297,7 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      mm_fp_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      float_mm_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
       return;
 }
 
@@ -308,7 +308,7 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      bmm_fp_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      float_bmm_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
       return;
 }
 
