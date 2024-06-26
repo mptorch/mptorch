@@ -21,7 +21,7 @@ args = parser.parse_args()
 
 b, m, k, n = args.b, args.m, args.k, args.n
 a = torch.rand(b, m, k).cuda()
-b = torch.rand(k, n).cuda()
+b = torch.rand(b, k, n).cuda()
 
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     with record_function("float_batched_matrix_multiply"):
