@@ -43,25 +43,25 @@ void delete_cublas_handle() {
 
 static const char* datatype_string(cudaDataType t) {
     switch (t) {
-        case CUDA_R_32F:  return "CUDA_R_32F";
-        case CUDA_R_16F:  return "CUDA_R_16F";
-        case CUDA_R_16BF: return "CUDA_R_16BF";
-        default:
-            throw std::runtime_error("Not implemented.");
+    case CUDA_R_32F:  return "CUDA_R_32F";
+    case CUDA_R_16F:  return "CUDA_R_16F";
+    case CUDA_R_16BF: return "CUDA_R_16BF";
+    default:
+        throw std::runtime_error("Not implemented.");
     }
 }
 
 static const char* computetype_string(cublasComputeType_t t) {
     switch (t) {
-        case CUBLAS_COMPUTE_32F:            return "CUBLAS_COMPUTE_32F";
-        case CUBLAS_COMPUTE_32F_PEDANTIC:   return "CUBLAS_COMPUTE_32F_PEDANTIC";
-        case CUBLAS_COMPUTE_16F:            return "CUBLAS_COMPUTE_16F";
-        case CUBLAS_COMPUTE_16F_PEDANTIC:   return "CUBLAS_COMPUTE_16F_PEDANTIC";
-        case CUBLAS_COMPUTE_32F_FAST_16F:   return "CUBLAS_COMPUTE_32F_FAST_16F";
-        case CUBLAS_COMPUTE_32F_FAST_16BF:  return "CUBLAS_COMPUTE_32F_FAST_16BF";
-        case CUBLAS_COMPUTE_32F_FAST_TF32:  return "CUBLAS_COMPUTE_32F_FAST_TF32";
-        default:
-            throw std::runtime_error("Not implemented.");
+    case CUBLAS_COMPUTE_32F:           return "CUBLAS_COMPUTE_32F";
+    case CUBLAS_COMPUTE_32F_PEDANTIC:  return "CUBLAS_COMPUTE_32F_PEDANTIC";
+    case CUBLAS_COMPUTE_16F:           return "CUBLAS_COMPUTE_16F";
+    case CUBLAS_COMPUTE_16F_PEDANTIC:  return "CUBLAS_COMPUTE_16F_PEDANTIC";
+    case CUBLAS_COMPUTE_32F_FAST_16F:  return "CUBLAS_COMPUTE_32F_FAST_16F";
+    case CUBLAS_COMPUTE_32F_FAST_16BF: return "CUBLAS_COMPUTE_32F_FAST_16BF";
+    case CUBLAS_COMPUTE_32F_FAST_TF32: return "CUBLAS_COMPUTE_32F_FAST_TF32";
+    default:
+        throw std::runtime_error("Not implemented.");
     }
 }
 
@@ -117,7 +117,7 @@ void get_cublas_configuration(
         if (!valid_type) {
             throw std::invalid_argument(
                 "Invalid input/output combination for the "
-                "given accumulator type."
+                "given accumulator/compute type."
             );
         }
     };
@@ -235,26 +235,23 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
   // Allocate the array of pointers to each matrices  
   auto get_ptrs = [B](void** arr, Tensor a, cudaDataType t, int stride) {
     switch (t) {
-    case CUDA_R_32F:
-      {
-      float *p = a.data_ptr<float>();
-      for (int i = 0; i < B; i++) arr[i] = p + i * stride;
+    case CUDA_R_32F: {
+        float *p = a.data_ptr<float>();
+        for (int i = 0; i < B; i++) arr[i] = p + i * stride;
       }
       break;
-    case CUDA_R_16F:
-      {
-      at::Half *p = a.data_ptr<at::Half>();
-      for (int i = 0; i < B; i++) arr[i] = p + i * stride;
+    case CUDA_R_16F: {
+        at::Half *p = a.data_ptr<at::Half>();
+        for (int i = 0; i < B; i++) arr[i] = p + i * stride;
       }
       break;
-    case CUDA_R_16BF:
-      {
-      at::BFloat16 *p = a.data_ptr<at::BFloat16>();
-      for (int i = 0; i < B; i++) arr[i] = p + i * stride;
+    case CUDA_R_16BF: {
+        at::BFloat16 *p = a.data_ptr<at::BFloat16>();
+        for (int i = 0; i < B; i++) arr[i] = p + i * stride;
       }
       break;
     default:
-      throw std::invalid_argument("Invalid datatype.");
+      throw std::invalid_argument("Invalid matrix datatype.");
     }
   };
 
