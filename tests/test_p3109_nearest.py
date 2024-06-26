@@ -36,7 +36,7 @@ def test_p3109_to_gfloat():
             result1 = result1.cpu() 
 
             assert result1 == result2 or np.isnan(result1)
-            i_uival += 16383 #8192
+            i_uival += 8192 #8192
 
 def test_p3109p1():
     # Test cases
