@@ -1,7 +1,8 @@
 import torch
 import torch.nn
 from mptorch import FloatingPoint
-from mptorch.quant import (quant_softmax, quant_softmax_lse, QAffineFormats)
+from mptorch.quant import (quant_softmax, quant_softmax_lse, QAffineFormats, float_quantize)
+from mptorch.quant import functional as Q
 
 device = torch.device("cpu")
 
@@ -104,3 +105,64 @@ def test_softmax_dim3():
 	ref = torch.softmax(a, dim=3)
 	res = quant_softmax(a, layer_formats, 3)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
+
+# Testing mptorch quant_softmax backward against pytorch
+def test_softmax_backward_dim0():
+	a = torch.randn(10, 30, 40, 20, device=device)
+
+	ref1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+	res1 = ref1.clone().detach()
+	res1.requires_grad_(True)
+
+	ref2 = torch.softmax(ref1, dim=0)
+	res2 = Q.qsoftmax(res1, layer_formats, 0)
+
+	ref2.backward(a)
+	res2.backward(a)
+
+	torch.testing.assert_close(ref1.grad, res1.grad, atol=1e-5, rtol=0)
+
+def test_softmax_backward_dim1():
+	a = torch.randn(10, 30, 40, 20, device=device)
+
+	ref1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+	res1 = ref1.clone().detach()
+	res1.requires_grad_(True)
+
+	ref2 = torch.softmax(ref1, dim=1)
+	res2 = Q.qsoftmax(res1, layer_formats, 1)
+
+	ref2.backward(a)
+	res2.backward(a)
+
+	torch.testing.assert_close(ref1.grad, res1.grad, atol=1e-5, rtol=0)
+
+def test_softmax_backward_dim2():
+	a = torch.randn(10, 30, 40, 20, device=device)
+
+	ref1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+	res1 = ref1.clone().detach()
+	res1.requires_grad_(True)
+
+	ref2 = torch.softmax(ref1, dim=2)
+	res2 = Q.qsoftmax(res1, layer_formats, 2)
+
+	ref2.backward(a)
+	res2.backward(a)
+
+	torch.testing.assert_close(ref1.grad, res1.grad, atol=1e-5, rtol=0)
+
+def test_softmax_backward_dim3():
+	a = torch.randn(10, 30, 40, 20, device=device)
+
+	ref1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+	res1 = ref1.clone().detach()
+	res1.requires_grad_(True)
+
+	ref2 = torch.softmax(ref1, dim=3)
+	res2 = Q.qsoftmax(res1, layer_formats, 3)
+
+	ref2.backward(a)
+	res2.backward(a)
+
+	torch.testing.assert_close(ref1.grad, res1.grad, atol=1e-5, rtol=0)
