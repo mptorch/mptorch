@@ -1,4 +1,3 @@
-#include "cublas_helper.h"
 #include <ATen/ATen.h>
 #include <tuple>
 
@@ -348,21 +347,3 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                   int M, int N, int K,
                                                   int wl_fma, int fl_fma,
                                                   bool symmetric);
-
-
-/**
- * Performs a matrix multiplication using cuBLAS API with the precision
- * configuration defined by the user.
-*/
-void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                     cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                     cublas_compute_dt compute_type, bool pedantic);
-
-
-/**
- * Performs a batched matrix multiplication using cuBLAS API with the precision
- * configuration defined by the user.
-*/
-void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                      cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                      cublas_compute_dt compute_type, bool pedantic);
