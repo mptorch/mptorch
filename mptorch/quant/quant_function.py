@@ -8,7 +8,7 @@ from mptorch import (
 )
 from torch.utils.cpp_extension import load
 import os
-from enum import Enum
+
 
 __all__ = [
     "fixed_point_quantize",
