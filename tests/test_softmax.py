@@ -1,5 +1,5 @@
 import torch
-from torch.nn import functional as F
+import torch.nn
 from mptorch import FloatingPoint
 from mptorch.quant import (quant_softmax, quant_softmax_lse, QAffineFormats)
 

@@ -481,7 +481,8 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, boo
     for (int k = 0; k < dim_size; ++k) {
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
       float out = o_array[idx]/sum;
-      o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, subnormals, saturate);
+      //o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, subnormals, saturate);
+      o_array[idx] = out;
     }
   }
   return o;
@@ -537,7 +538,8 @@ Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits,
     for (int k = 0; k < dim_size; ++k) {
       int idx = (i*outer_stride)+(k*dim_stride)+(j);
       float out = expf(a_array[idx] - max - lgs);
-      o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, subnormals, saturate);
+      //o_array[idx] = float_quantize(out, man_bits, exp_bits, rNearest, subnormals, saturate);
+      o_array[idx] = out;
     }
   }
   return o;
