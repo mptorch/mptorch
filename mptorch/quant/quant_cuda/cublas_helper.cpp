@@ -99,7 +99,7 @@ void get_cublas_configuration(
     config.matrix_b = inp_type;
     config.matrix_c = out_type;
 
-    auto to_scalartype = [&](cublas_compute_dt t) {
+    auto to_scalartype = [](cublas_compute_dt t) {
         switch (t) {
         case cublas_compute_dt::kF16:
             return CUDA_R_16F;
@@ -123,7 +123,7 @@ void get_cublas_configuration(
     };
 
     // compatibility table from: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
-    auto to_computetype = [&](cublas_compute_dt t) {
+    auto to_computetype = [](cublas_compute_dt t) {
         switch (t) {
         case cublas_compute_dt::kF32:
             assert_types(
@@ -178,7 +178,7 @@ void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                      cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
                      cublas_compute_dt compute_type, bool pedantic)
 {
-  // Tensors a, b, and c are assumed to have the right datatype and transposed.
+  // Tensors a, b, and c are assumed to have the right datatype and be properly transposed.
   cublas_config config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
 
@@ -222,7 +222,7 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                       cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
                       cublas_compute_dt compute_type, bool pedantic)
 {
-  // Tensors a, b, and c are assumed to have the right datatype and transposed.
+  // Tensors a, b, and c are assumed to have the right datatype and be properly transposed.
   cublas_config config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
 
@@ -232,7 +232,7 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 
   int B = a.sizes().size() > 2 ? a.size(0) : 1; // batch count
 
-  // Allocate the array of pointers to each matrices  
+  // Allocate the array of pointers for each matrix  
   auto get_ptrs = [B](void** arr, Tensor a, cudaDataType t, int stride) {
     switch (t) {
     case CUDA_R_32F: {
