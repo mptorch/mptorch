@@ -17,10 +17,12 @@ parser.add_argument("--rounding", type=str, default="nearest")
 parser.add_argument("--fma", action="store_true")
 args = parser.parse_args()
 
-
+# generate matrices with random data and offload 
+# them to GPU (if available)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 m, k, n = args.m, args.k, args.n
-a = torch.rand(m, k).cuda()
-b = torch.rand(k, n).cuda()
+a = torch.rand(m, k).to(device)
+b = torch.rand(k, n).to(device)
 
 # Example adapted from: https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
 # Setup a profiler recording the following activites:

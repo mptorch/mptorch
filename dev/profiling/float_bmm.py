@@ -18,10 +18,12 @@ parser.add_argument("--rounding", type=str, default="nearest")
 parser.add_argument("--fma", action="store_true")
 args = parser.parse_args()
 
-
+# generate matrices with random data and offload 
+# them to GPU (if available)
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 b, m, k, n = args.b, args.m, args.k, args.n
-a = torch.rand(b, m, k).cuda()
-b = torch.rand(b, k, n).cuda()
+a = torch.rand(b, m, k).to(device)
+b = torch.rand(b, k, n).to(device)
 
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     with record_function("float_batched_matrix_multiply"):
