@@ -83,7 +83,7 @@ else:
 
 def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
     if not torch.cuda.is_available():
-        raise NotImplementedError("CUDA required.")
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert len(a.shape) == 2
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
@@ -119,7 +119,7 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
 
 def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
     if not torch.cuda.is_available():
-        raise NotImplementedError("CUDA required.")
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     assert a.is_cuda
