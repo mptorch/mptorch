@@ -32,8 +32,8 @@ with profile(activities=[ProfilerActivity.CUDA]) as prof:
             exp_mul=args.exp_mul,
             saturate=False
         )
-print("Self CPU time total:", prof.key_averages().total_average().cpu_time_total_str)
-print("Self CUDA time total:", prof.key_averages().total_average().cuda_time_total_str)
+print("Self CPU time total:", prof.key_averages().total_average().self_cpu_time_total_str)
+print("Self CUDA time total:", prof.key_averages().total_average().self_cuda_time_total_str)
 
 print("Benchmarking float_mm with cublas acceleration on.")
 with profile(activities=[ProfilerActivity.CUDA]) as prof:
@@ -49,5 +49,5 @@ with profile(activities=[ProfilerActivity.CUDA]) as prof:
                 exp_mul=args.exp_mul,
                 saturate=False
             )
-print("Self CPU time total:", prof.key_averages().total_average().cpu_time_total_str)
-print("Self CUDA time total:", prof.key_averages().total_average().cuda_time_total_str)
+print("Self CPU time total:", prof.key_averages().total_average().self_cpu_time_total_str)
+print("Self CUDA time total:", prof.key_averages().total_average().self_cuda_time_total_str)
