@@ -422,13 +422,17 @@ def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
 class qsoftmax_kernel(torch.autograd.Function):
     # TODO: implement GPU-accelerated version of functional softmax
     @staticmethod
-    def forward(ctx, a, dim, formats):
+    def forward(ctx, a, dim, formats, useLSE=False):
         ctx.formats = formats
         ctx.dim = dim
 
         qinput = formats.input_quant(a)
 
-        x = quant_softmax(qinput, dim, formats)
+        if useLSE:
+            x = quant_softmax_lse(qinput, dim, formats)
+        else:
+            x = quant_softmax(qinput, dim, formats)
+
         ctx.save_for_backward(x)
         qoutput = formats.output_quant(x)
         return qoutput
@@ -444,8 +448,8 @@ class qsoftmax_kernel(torch.autograd.Function):
         weighted_grad_sum = qsum((x * qgrad_output), dim=dim, quant=ctx.formats.input_quant, keepdim=True)
         grad_x = x * ((qgrad_output - weighted_grad_sum) / input_sum)
 
-        return grad_x, None, None
+        return grad_x, None, None, None
 
 # add param for lse or norm
-def qsoftmax(x, dim, formats):
-    return qsoftmax_kernel.apply(x, dim, formats)
+def qsoftmax(x, dim, formats, useLSE=False):
+    return qsoftmax_kernel.apply(x, dim, formats, useLSE)
