@@ -1,4 +1,5 @@
-/* Batched matrix-matrix multiply using cublasGemmBatchedEx function.
+/* 
+Batched matrix-matrix multiply using cublasGemmBatchedEx function.
 
 Compile example:
 nvcc -O3 cublas_bgemm.cu -o cublas_bgemm -lcublas
@@ -18,8 +19,8 @@ to the beginning of each matrix A[i], B[i] and C[i] to cublasGemmBatchedEx
 #include <stdio.h>
 #include "common.h"
 
-
-/* Host implementation of a simple version of sgemm */
+// ---------------------------------------------------------------------------------------
+/* Host (CPU) implementation of a simple version of sgemm */
 static void simple_bsgemm(int P, int M, int N, int K, float alpha, const float **A, const float **B,
                          float beta, float **C) {
     for(int p = 0; p < P; p++) {
@@ -35,20 +36,8 @@ static void simple_bsgemm(int P, int M, int N, int K, float alpha, const float *
     }
 }
 
-void check_cublas(cublasStatus_t status, const char* file, int line) {
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        fprintf(stderr, "CUBLAS error: %s:%d\n%s\n", file, line,
-            cublasGetStatusString(status));
-        exit(EXIT_FAILURE);
-    }
-}
-
-#define cublasCheck(status) check_cublas(status, __FILE__, __LINE__)
-
-
-/**
- * This funcion allocates distinct memory locations for each matrices A[i], B[i] and C[i]
-*/
+// ---------------------------------------------------------------------------------------
+/*This function allocates distinct memory locations for each matrices A[i], B[i] and C[i] */
 void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     printf("CUBLAS GEMM %dx%dx%d (MxNxK) using separate arrays...\n", M, N, K);
 
@@ -98,17 +87,17 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     };
     cublas_bgemm();
 
-    /* Performs operation using plain C code */
+    /* Performs operation using reference CPU C code */
     simple_bsgemm(P, M, N, K, alpha, (const float**)h_A, (const float**)h_B, beta, h_C);
 
-    /* Check result against reference */
+    /* Check CUBLAS batched GEMM result against reference */
     for(int i = 0; i < P; i++) {
         validate_result(h_dC[i], h_C[i], "C", M*N, 1.0e-3f);
         printf("\n");
     }
+    printf("All results match. Starting benchmarks.\n\n");
 
-
-    // /* Benchmark */
+    /* Benchmark */
     int repeat_times = 1000;
     float elapsed_time = benchmark_kernel(repeat_times, cublas_bgemm);
     printf("time %.4f ms\n", elapsed_time);
@@ -131,8 +120,8 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
 }
 
 
-/**
- * This version uses a single contigous array to store the batches of matrices A, B and C,
+/*
+ * This version uses a single contiguous array to store the batches of matrices A, B and C,
  * and the beginning address of each matrix is computed and passed to cublasGemmBatchedEx.
 */
 void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
@@ -192,7 +181,7 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     };
     cublas_bgemm();
 
-    // /* Performs operation using plain C code */
+    // /* Performs operation using reference CPU C code */
     simple_bsgemm(P, M, N, K, alpha, (const float**)h_A, (const float**)h_B, beta, h_C);
 
     /* Check result against reference */
@@ -200,9 +189,9 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
         validate_result(d_C + i * M*N, h_C[i], "C", M*N, 1.0e-3f);
         printf("\n");
     }
+    printf("All results match. Starting benchmarks.\n\n");
 
-
-    // /* Benchmark */
+    /* Benchmark */
     int repeat_times = 1000;
     float elapsed_time = benchmark_kernel(repeat_times, cublas_bgemm);
     printf("time %.4f ms\n", elapsed_time);
@@ -224,8 +213,8 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     cudaCheck(cudaFree(d_dC));
 }
 
-
-int main(int argc, char **argv) {
+// ---------------------------------------------------------------------------------------
+int main(int argc, const char **argv) {
     setup_main();
 
     const int M = 512;
@@ -253,4 +242,6 @@ int main(int argc, char **argv) {
             printf("Invalid version number\n");
             exit(1);
     }
+
+    return 0;
 }

@@ -1,4 +1,5 @@
-/* Matrix-matrix multiply using cublasLtMatmul function.
+/* 
+Matrix-matrix multiply using cublasLtMatmul function.
 Adapted from:
 https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuBLASLt/LtSgemm/sample_cublasLt_LtSgemm.cu
 
@@ -17,8 +18,8 @@ Run with:
 #include <stdio.h>
 #include "common.h"
 
-
-/* Host implementation of a simple version of sgemm */
+// ---------------------------------------------------------------------------------------
+/* Host (CPU) implementation of a simple version of sgemm */
 static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const float *B,
                          float beta, float *C) {
     for (int i = 0; i < M; ++i) {
@@ -32,18 +33,8 @@ static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const
     }
 }
 
-void check_cublas(cublasStatus_t status, const char* file, int line) {
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        fprintf(stderr, "CUBLASLt error: %s:%d\n%s\n", file, line,
-            cublasGetStatusString(status));
-        exit(EXIT_FAILURE);
-    }
-}
-
-#define cublasCheck(status) check_cublas(status, __FILE__, __LINE__)
-
-
-int main(int argc, char **argv) {
+// ---------------------------------------------------------------------------------------
+int main(int argc, const char **argv) {
     setup_main();
 
     const int M = 1024;
@@ -69,12 +60,12 @@ int main(int argc, char **argv) {
     cudaCheck(cudaMalloc(&d_B, K*N * sizeof(d_B[0])));
     cudaCheck(cudaMalloc(&d_C, M*N * sizeof(d_C[0])));
 
-    /* Initialize the device matrices with the host matrices */
+    /* Copy host matrices content into the device matrices */
     cublasCheck(cublasSetVector(M*K, sizeof(h_A[0]), h_A, 1, d_A, 1));
     cublasCheck(cublasSetVector(K*N, sizeof(h_B[0]), h_B, 1, d_B, 1));
     cublasCheck(cublasSetVector(M*N, sizeof(h_C[0]), h_C, 1, d_C, 1));
 
-    /* Performs operation using cublasLt */
+    /* Perform matrix multiply operation using cublasLt */
     cublasLtMatmulDesc_t operationDesc = NULL;
     cublasLtMatrixLayout_t Adesc = NULL, Bdesc = NULL, Cdesc = NULL;
     cublasOperation_t transa = CUBLAS_OP_N;
@@ -123,11 +114,12 @@ int main(int argc, char **argv) {
     };
     cublasLt_matmul();
 
-    /* Performs operation using plain C code */
+    /* Performs operation using reference CPU C code */
     simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Check result against reference */
     validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
+    printf("All results match. Starting benchmarks.\n\n");
 
 
     /* Benchmark */
@@ -151,4 +143,6 @@ int main(int argc, char **argv) {
     cudaCheck(cudaFree(d_A));
     cudaCheck(cudaFree(d_B));
     cudaCheck(cudaFree(d_C));
+
+    return 0;
 }

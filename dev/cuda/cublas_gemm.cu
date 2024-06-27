@@ -1,4 +1,5 @@
-/* Matrix-matrix multiply using cublasGemmEx function.
+/* 
+Matrix-matrix multiply using cublasGemmEx function.
 
 Compile example:
 nvcc -O3 cublas_gemm.cu -o cublas_gemm -lcublas
@@ -14,8 +15,8 @@ Run with:
 #include <stdio.h>
 #include "common.h"
 
-
-/* Host implementation of a simple version of sgemm */
+// ---------------------------------------------------------------------------------------
+/* Host (CPU) implementation of a simple version of sgemm */
 static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const float *B,
                          float beta, float *C) {
     for (int i = 0; i < M; ++i) {
@@ -29,18 +30,8 @@ static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const
     }
 }
 
-void check_cublas(cublasStatus_t status, const char* file, int line) {
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        fprintf(stderr, "CUBLAS error: %s:%d\n%s\n", file, line,
-            cublasGetStatusString(status));
-        exit(EXIT_FAILURE);
-    }
-}
-
-#define cublasCheck(status) check_cublas(status, __FILE__, __LINE__)
-
-
-int main(int argc, char **argv) {
+// ---------------------------------------------------------------------------------------
+int main(int argc, const char **argv) {
     setup_main();
 
     const int M = 1024;
@@ -66,7 +57,7 @@ int main(int argc, char **argv) {
     cudaCheck(cudaMalloc(&d_B, K*N * sizeof(float)));
     cudaCheck(cudaMalloc(&d_C, M*N * sizeof(float)));
 
-    /* Initialize the device matrices with the host matrices */
+    /* Copy host matrices content into the device matrices */
     cudaCheck(cudaMemcpy(d_A, h_A, M*K * sizeof(float), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(d_B, h_B, K*N * sizeof(float), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(d_C, h_C, M*N * sizeof(float), cudaMemcpyHostToDevice));
@@ -75,7 +66,7 @@ int main(int argc, char **argv) {
     int ldb = K;
     int ldc = M;
 
-    /* Performs operation using cublas */
+    /* Perform matrix multiply operation using cublas */
     auto cublas_gemm = [&]() {
     cublasCheck(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, M, N, K, &alpha, 
                         d_A, CUDA_R_32F, lda,           /* 32-bit float A */
@@ -86,12 +77,12 @@ int main(int argc, char **argv) {
     };
     cublas_gemm();
 
-    /* Performs operation using plain C code */
+    /* Perform matrix multipy using reference CPU C code */
     simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
-    /* Check result against reference */
+    /* Check CUBLAS GEMM result against reference */
     validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
-
+    printf("All results match. Starting benchmarks.\n\n");
 
     /* Benchmark */
     int repeat_times = 1000;
@@ -107,4 +98,6 @@ int main(int argc, char **argv) {
     cudaCheck(cudaFree(d_A));
     cudaCheck(cudaFree(d_B));
     cudaCheck(cudaFree(d_C));
+
+    return 0;
 }
