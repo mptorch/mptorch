@@ -55,7 +55,8 @@ class QLinear(nn.Linear):
     ) -> None:
         super(QLinear, self).__init__(in_features, out_features, bias)
         self.formats = formats
-        self.quant_parameters()
+        # self.quant_parameters()
+        self.params_are_quantized = False
         self.reset_quant_function()
 
     def reset_quant_function(self):
@@ -86,6 +87,9 @@ class QLinear(nn.Linear):
         return round.apply
 
     def forward(self, input):
+        if not self.params_are_quantized: # nazar
+            self.quant_parameters()
+            self.params_are_quantized = True
         if self.formats.fwd_use_default_prec and self.formats.bwd_use_default_prec:
             return self.Qo(
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
