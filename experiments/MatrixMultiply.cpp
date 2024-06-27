@@ -12,7 +12,7 @@
 int main(int argc, char **argv) {
 
     // number of formats to test
-    unsigned numformats = 15;
+    unsigned numformats = 16;
 
     // Initialize output flag as false
     bool outputFlag = false;
@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
             # get overflows when you are doing additions;
             # you can tweak this value to be something smaller to make overflows less likely to manifest
             */
-            float scale = 200.0;
+            float scale = 20.0;
             
             for (unsigned iter = 0; iter < iterations; iter++) {
                 //print iteration number
@@ -200,6 +200,8 @@ int main(int argc, char **argv) {
                                 product = cast_p3109_signed_stochastic(A[i][k], 6, random, 23, true) * cast_p3109_signed_stochastic(B[k][j], 6, random, 23, true);
                             } else if (multiply_format == 13) {
                                 product = cast_p3109_signed_stochastic(A[i][k], 7, random, 23, true) * cast_p3109_signed_stochastic(B[k][j], 7, random, 23, true);
+                            } else if (multiply_format == 14) {
+                                product = cast_bfloat16_nearest(A[i][k]) * cast_bfloat16_nearest(B[k][j]);
                             } else {
                                 product = A[i][k] * B[k][j];
                             }
@@ -234,6 +236,8 @@ int main(int argc, char **argv) {
                                 C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 6, random, 23, true);
                             } else if (add_format == 13) {
                                 C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 7, random, 23, true);
+                            } else if (add_format == 14) {
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_bfloat16_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product));
                             } else {
                                 C[(iter * width * width) + (i * width) + j][add_format + 1] = C[(iter * width * width) + (i * width) + j][add_format + 1] + product;
                             }
