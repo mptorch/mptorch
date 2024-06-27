@@ -32,78 +32,54 @@ layer_formats = QAffineFormats(
 )
 
 # Testing mptorch quant_lse_softmax against pytorch softmax
-def test_softmax_lse_dimneg2():
-	a = torch.randn(10, 30, 40, 20, device=device)
-	ref = torch.softmax(a, dim=-2)
-	res = quant_softmax_lse(a, layer_formats, -2)
-	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
-
-def test_softmax_lse_dimneg1():
-	a = torch.randn(10, 30, 40, 20, device=device)
-	ref = torch.softmax(a, dim=-1)
-	res = quant_softmax_lse(a, layer_formats, -1)
-	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
-
 def test_softmax_lse_dim0():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=0)
-	res = quant_softmax_lse(a, layer_formats, 0)
+	res = quant_softmax_lse(a, 0, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim1():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=1)
-	res = quant_softmax_lse(a, layer_formats, 1)
+	res = quant_softmax_lse(a, 1, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim2():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=2)
-	res = quant_softmax_lse(a, layer_formats, 2)
+	res = quant_softmax_lse(a, 2, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim2():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=3)
-	res = quant_softmax_lse(a, layer_formats, 3)
+	res = quant_softmax_lse(a, 3, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 
 # Testing mptorch quant_softmax against pytorch softmax
-def test_softmax_dimneg2():
-	a = torch.randn(10, 30, 40, 20, device=device)
-	ref = torch.softmax(a, dim=-2)
-	res = quant_softmax(a, layer_formats, -2)
-	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
-
-def test_softmax_dimneg1():
-	a = torch.randn(10, 30, 40, 20, device=device)
-	ref = torch.softmax(a, dim=-1)
-	res = quant_softmax(a, layer_formats,-1)
-	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
-
 def test_softmax_dim0():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=0)
-	res = quant_softmax(a, layer_formats, 0)
+	res = quant_softmax(a, 0, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim1():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=1)
-	res = quant_softmax(a, layer_formats, 1)
+	res = quant_softmax(a, 1, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim2():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=2)
-	res = quant_softmax(a, layer_formats, 2)
+	res = quant_softmax(a, 2, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim3():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=3)
-	res = quant_softmax(a, layer_formats, 3)
+	res = quant_softmax(a, 3, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 # Testing mptorch quant_softmax backward against pytorch
@@ -115,7 +91,7 @@ def test_softmax_backward_dim0():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=0)
-	res2 = Q.qsoftmax(res1, layer_formats, 0)
+	res2 = Q.qsoftmax(res1, 0, layer_formats)
 
 	ref2.backward(a)
 	res2.backward(a)
@@ -130,7 +106,7 @@ def test_softmax_backward_dim1():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=1)
-	res2 = Q.qsoftmax(res1, layer_formats, 1)
+	res2 = Q.qsoftmax(res1, 1, layer_formats)
 
 	ref2.backward(a)
 	res2.backward(a)
@@ -145,7 +121,7 @@ def test_softmax_backward_dim2():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=2)
-	res2 = Q.qsoftmax(res1, layer_formats, 2)
+	res2 = Q.qsoftmax(res1, 2, layer_formats)
 
 	ref2.backward(a)
 	res2.backward(a)
@@ -160,7 +136,7 @@ def test_softmax_backward_dim3():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=3)
-	res2 = Q.qsoftmax(res1, layer_formats, 3)
+	res2 = Q.qsoftmax(res1, 3, layer_formats)
 
 	ref2.backward(a)
 	res2.backward(a)

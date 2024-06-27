@@ -366,8 +366,8 @@ class qsum_kernel(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-def qsum(x, dim, quant=lambda x: x):
-    return qsum_kernel.apply(x, quant, dim)
+def qsum(x, dim, quant=lambda x: x, keepdim=False):
+    return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
@@ -422,13 +422,13 @@ def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
 class qsoftmax_kernel(torch.autograd.Function):
     # TODO: implement GPU-accelerated version of functional softmax
     @staticmethod
-    def forward(ctx, a, formats, dim):
+    def forward(ctx, a, dim, formats):
         ctx.formats = formats
         ctx.dim = dim
 
         qinput = formats.input_quant(a)
 
-        x = quant_softmax(qinput, formats, dim)
+        x = quant_softmax(qinput, dim, formats)
         ctx.save_for_backward(x)
         qoutput = formats.output_quant(x)
         return qoutput
@@ -436,20 +436,16 @@ class qsoftmax_kernel(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         (x,) = ctx.saved_tensors
-        #qgrad_output = ctx.formats.grad_quant(grad_output)
+        qgrad_output = ctx.formats.grad_quant(grad_output)
         formats = ctx.formats
         dim = ctx.dim
 
-        input_sum = qsum(x, dim=dim, quant=ctx.formats.input_quant).unsqueeze(dim)
-        weighted_grad_sum = qsum((x * grad_output), dim=dim, quant=ctx.formats.input_quant).unsqueeze(dim)
-        grad_x = x * ((grad_output - weighted_grad_sum) / input_sum)
+        input_sum = qsum(x, dim=dim, quant=ctx.formats.input_quant, keepdim=True)
+        weighted_grad_sum = qsum((x * qgrad_output), dim=dim, quant=ctx.formats.input_quant, keepdim=True)
+        grad_x = x * ((qgrad_output - weighted_grad_sum) / input_sum)
 
         return grad_x, None, None
 
-"""
-def qsoftmax(x, dim, dtype, quant):
-    return qsoftmax_kernel.apply(x, dim, float, quant = lambda x: x)
-"""
-
-def qsoftmax(x, formats, dim):
-    return qsoftmax_kernel.apply(x, formats, dim)
+# add param for lse or norm
+def qsoftmax(x, dim, formats):
+    return qsoftmax_kernel.apply(x, dim, formats)

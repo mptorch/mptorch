@@ -67,7 +67,7 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
-def quant_softmax(a, formats, dim, use_forward=True):
+def quant_softmax(a, dim, formats, use_forward=True):
     assert not a.is_cuda
     if use_forward:  # FWD format configuration
         add_cfg, fma, rnd = (
@@ -91,7 +91,7 @@ def quant_softmax(a, formats, dim, use_forward=True):
         a, man, exp, subnormals, saturate, dim
     )
 
-def quant_softmax_lse(a, formats, dim, use_forward=True):
+def quant_softmax_lse(a, dim, formats, use_forward=True):
     assert not a.is_cuda
     if use_forward:  # FWD format configuration
         add_cfg, fma, rnd = (
