@@ -8,6 +8,7 @@ from mptorch import (
 )
 from torch.utils.cpp_extension import load
 import os
+from .cublas import cublas_acceleration
 
 
 __all__ = [
@@ -27,7 +28,8 @@ __all__ = [
     "cublas_mm",
     "cublas_bmm",
     "CUBLASMatrixType",
-    "CUBLASComputeType"
+    "CUBLASComputeType",
+    "cublas_acceleration"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -215,6 +217,24 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
     return c.to(torch.float32)
 
 
+def format_to_cublas_config(man_mul, exp_mul, man_add, exp_add):
+    if not torch.cuda.is_available():
+        raise NotImplementedError("CUDA required.")
+    mt, ct = CUBLASMatrixType, CUBLASComputeType
+    match man_mul, exp_mul, man_add, exp_add:
+        case 23, 8, 23, 8: # fp32 mul, fp32 acc
+            return mt.F32, mt.F32, ct.F32
+        case 10, 5, 23, 8: # fp16 mul, fp32 acc
+            return mt.F16, mt.F32, ct.F32
+        case 7,  8, 23, 8: # bf16 mul, fp32 acc
+            return mt.BF16, mt.F32, ct.F32
+        case 10, 5, 10, 5: # fp16 mul, fp16 acc
+            return mt.F16, mt.F16, ct.F16
+        case 10, 8, 23, 8: # tf32 mul, fp32 acc
+            return mt.F32, mt.F32, ct.FAST_TF32
+    return None
+
+
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
         add_cfg, mul_cfg, fma, rnd = (
@@ -387,6 +407,13 @@ def float_mm(
     Returns:
         - the result of GEMM (torch.Tensor)
     """
+
+    if cublas_acceleration.enabled \
+        and rounding == "nearest" and fma and subnormals and not saturate:
+        cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
+        if cublas_cfg is not None:
+            it, ot, ct = cublas_cfg
+            return cublas_mm(a, b, it, ot, ct, False)
 
     assert len(a.shape) == 2
     assert len(b.shape) == 2
@@ -588,7 +615,13 @@ def float_bmm(
     subnormals=True,
     saturate=True,
 ):
-
+    if cublas_acceleration.enabled \
+        and rounding == "nearest" and fma and subnormals and not saturate:
+        cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
+        if cublas_cfg is not None:
+            it, ot, ct = cublas_cfg
+            return cublas_bmm(a, b, it, ot, ct, False)
+    
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
