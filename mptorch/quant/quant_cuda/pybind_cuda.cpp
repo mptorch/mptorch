@@ -1,5 +1,4 @@
 #include "quant.h"
-#include "cublas_helper.h"
 #include <torch/torch.h>
 #include <tuple>
 
@@ -408,9 +407,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("floating_point_mm_cublas",
             &floating_point_mm_cublas,
             "cuBLAS accelerated matrix multiply, using the specified precision and "
-            "math mode (CUDA)");
+            "compute mode (CUDA)");
       m.def("floating_point_bmm_cublas",
             &floating_point_bmm_cublas,
             "cuBLAS accelerated batched matrix multiply, using the specified precision "
-            "and math mode (CUDA)");
+            "and compute mode (CUDA)");
 }

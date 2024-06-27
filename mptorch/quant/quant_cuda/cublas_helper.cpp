@@ -1,4 +1,4 @@
-#include "cublas_helper.h"
+#include "quant.h"
 
 #include <ATen/ATen.h>
 #include <cuda.h>
@@ -123,7 +123,7 @@ void get_cublas_configuration(
     };
 
     // compatibility table from: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
-    auto to_computetype = [](cublas_compute_dt t) {
+    auto to_computetype = [&](cublas_compute_dt t) {
         switch (t) {
         case cublas_compute_dt::kF32:
             assert_types(
