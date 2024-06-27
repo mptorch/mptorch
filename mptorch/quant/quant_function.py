@@ -217,21 +217,41 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
     return c.to(torch.float32)
 
 
-def format_to_cublas_config(man_mul, exp_mul, man_add, exp_add):
+def cublas_config_for_format(
+    man_add,
+    exp_add,
+    man_mul,
+    exp_mul,
+    rounding,
+    fma,
+    subnormals,
+    saturate,
+    fast_mode=None
+):
     if not torch.cuda.is_available():
         raise NotImplementedError("CUDA required.")
+    
+    if man_mul != man_add or exp_mul != exp_add:
+        return None
+    
+    match rounding, fma, subnormals, saturate:
+        case "nearest", True, True, False:
+            pass
+        case _:
+            return None
+    
     mt, ct = CUBLASMatrixType, CUBLASComputeType
-    match man_mul, exp_mul, man_add, exp_add:
-        case 23, 8, 23, 8: # fp32 mul, fp32 acc
-            return mt.F32, mt.F32, ct.F32
-        case 10, 5, 23, 8: # fp16 mul, fp32 acc
-            return mt.F16, mt.F32, ct.F32
-        case 7,  8, 23, 8: # bf16 mul, fp32 acc
-            return mt.BF16, mt.F32, ct.F32
-        case 10, 5, 10, 5: # fp16 mul, fp16 acc
-            return mt.F16, mt.F16, ct.F16
-        case 10, 8, 23, 8: # tf32 mul, fp32 acc
+    match man_add, exp_add:
+        case 23, 8 if fast_mode == "f16":
+            return mt.F32, mt.F32, ct.FAST_F16
+        case 23, 8 if fast_mode == "bf16":
+            return mt.F32, mt.F32, ct.FAST_BF16
+        case 23, 8 if fast_mode == "tf32":
             return mt.F32, mt.F32, ct.FAST_TF32
+        case 23, 8:
+            return mt.F32, mt.F32, ct.F32
+        case 10, 5:
+            return mt.F16, mt.F16, ct.F16
     return None
 
 
@@ -408,12 +428,26 @@ def float_mm(
         - the result of GEMM (torch.Tensor)
     """
 
-    if torch.cuda.is_available() and cublas_acceleration.enabled \
-        and rounding == "nearest" and fma and subnormals and not saturate:
-        cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
-        if cublas_cfg is not None:
-            it, ot, ct = cublas_cfg
-            return cublas_mm(a, b, it, ot, ct, False)
+    if cublas_acceleration.enabled:
+        try:
+            cublas_cfg = cublas_config_for_format(
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                rounding,
+                fma,
+                subnormals,
+                saturate,
+                cublas_acceleration.fast_mode
+            )
+            if cublas_cfg is not None:
+                it, ot, ct = cublas_cfg
+                return cublas_mm(a, b, it, ot, ct, False)
+        except NotImplementedError:
+            pass
+        except:
+            raise
 
     assert len(a.shape) == 2
     assert len(b.shape) == 2
@@ -615,12 +649,26 @@ def float_bmm(
     subnormals=True,
     saturate=True,
 ):
-    if torch.cuda.is_available() and cublas_acceleration.enabled \
-        and rounding == "nearest" and fma and subnormals and not saturate:
-        cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
-        if cublas_cfg is not None:
-            it, ot, ct = cublas_cfg
-            return cublas_bmm(a, b, it, ot, ct, False)
+    if cublas_acceleration.enabled:
+        try:
+            cublas_cfg = cublas_config_for_format(
+                man_add,
+                exp_add,
+                man_mul,
+                exp_mul,
+                rounding,
+                fma,
+                subnormals,
+                saturate,
+                cublas_acceleration.fast_mode
+            )
+            if cublas_cfg is not None:
+                it, ot, ct = cublas_cfg
+                return cublas_bmm(a, b, it, ot, ct, False)
+        except NotImplementedError:
+            pass
+        except:
+            raise
     
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
