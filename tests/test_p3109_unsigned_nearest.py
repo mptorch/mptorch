@@ -73,6 +73,69 @@ def test_p3109p1_OVERFLOW():
         print(test["expected"])
         assert result_t.equal(test["expected"])
 
+def test_p3109p2_SATURATE(): # 0xfd is max bc there is inf
+    # Test cases
+    tests = [
+        {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,1],[1.77e-15, 5242880]]                     , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]] , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 1: round_to_min" ,"value": torch.tensor([bits_to_float(0b00100000000000000000000000011111)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b00100000000000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 2: round_to_0"  , "value": torch.tensor([bits_to_float(0b00000000010000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0]                                              , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 3: max_normal"  , "value": torch.tensor([bits_to_float(0b01011110010000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011110010000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 4: overflow"    , "value": torch.tensor([bits_to_float(0b01011110010001110000001100000100)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011110010000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 5: underflow"   , "value": torch.tensor([bits_to_float(0b00000000000000001110000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 7: NaN"         , "value": torch.tensor([float('nan')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('nan')], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 6: +inf"        , "value": torch.tensor([float('inf')],                                      dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('inf')], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 9: -inf"        , "value": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda")}
+    ]
+
+    for test in tests:
+        result_t = p3109_quantize(test["value"], 2, "nearest", "saturate", False, True)
+        print(result_t)
+        print(test["expected"])
+        assert result_t.equal(test["expected"])
+
+def test_p3109p2_NO_OVERFLOW(): # no inf so we go to 0xfe as max
+    # Test cases
+    tests = [
+        {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,1],[1.77e-15, 5242880]]                     , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]] , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 1: round_to_min"  , "value": torch.tensor([bits_to_float(0b00100000000000000000000000011111)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b00100000000000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 2: round_to_0"  , "value": torch.tensor([bits_to_float(0b00000000010000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0]                                              , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 3: max_normal"  , "value": torch.tensor([bits_to_float(0b01011110110000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011110110000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 4: overflow"    , "value": torch.tensor([bits_to_float(0b01011111000000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011111000000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 5: underflow"   , "value": torch.tensor([bits_to_float(0b00000000000000001110000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 7: NaN"         , "value": torch.tensor([float('nan')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('nan')], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 6: +inf"        , "value": torch.tensor([float('inf')],                                      dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011111000000000000000000000000)], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 9: -inf"        , "value": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda")}
+    ]
+
+    for test in tests:
+        result_t = p3109_quantize(test["value"], 2, "nearest", "no_overflow", False, True)
+        print(result_t)
+        print(test["expected"])
+        assert result_t.equal(test["expected"])
+
+def test_p3109p2_OVERFLOW(): # any overflow goes to inf, not 0xfd
+    # Test cases
+    tests = [
+        {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,1],[1.77e-15, 5242880]]     , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]] , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 1: round_to_min"  , "value": torch.tensor([bits_to_float(0b00100000000000000000000000011111)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b00100000000000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 2: round_to_0"  , "value": torch.tensor([bits_to_float(0b00000000010000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0]                                              , dtype=torch.float32, device="cuda")},
+        {"description": "CASE 3: max_normal"  , "value": torch.tensor([bits_to_float(0b01011110010000000000000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([bits_to_float(0b01011110010000000000000000000000)], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 4: overflow"    , "value": torch.tensor([bits_to_float(0b01011111100001110000001100000100)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('inf')], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 5: underflow"   , "value": torch.tensor([bits_to_float(0b00000000000000001110000000000000)], dtype=torch.float32, device="cuda"), "expected": torch.tensor([0.0], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 7: NaN"         , "value": torch.tensor([float('nan')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('nan')], dtype=torch.float32, device="cuda")},
+        {"description": "CASE 6: +inf"        , "value": torch.tensor([float('inf')],                                      dtype=torch.float32, device="cuda"), "expected": torch.tensor([float('inf')], dtype=torch.float32, device="cuda")},
+        # {"description": "CASE 9: -inf"        , "value": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda"), "expected": torch.tensor([-float('inf')], dtype=torch.float32, device="cuda")}
+    ]
+
+    for test in tests:
+        result_t = p3109_quantize(test["value"], 2, "nearest", "overflow", False, True)
+        print(result_t)
+        print(test["expected"])
+        assert result_t.equal(test["expected"])
+
+
+
+
 def test_p3109p8_SATURATE():
     # Test cases
     tests = [
