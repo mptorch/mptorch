@@ -3,6 +3,8 @@ from torch.testing import assert_close
 from mptorch.quant import cublas_mm, cublas_bmm
 from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 from mptorch.quant import float_mm, float_bmm
+from mptorch.quant.quant_function import cublas_config_for_format
+from mptorch.quant import cublas_acceleration
 
 def no_cuda():
     return not torch.cuda.is_available()
@@ -145,3 +147,41 @@ def test_bmm_if32_of32_cf32_p_4_4():
     assert res_cublas.shape == ref.shape
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
+
+def test_cublas_config_for_format():
+    if no_cuda():
+        return
+    
+    assert cublas_config_for_format(23, 8, 10, 5, "nearest", True, True, False) is None
+    assert cublas_config_for_format(23, 8, 23, 8, "nearest", False, True, False) is None
+    assert cublas_config_for_format(10, 5, 10, 5, "nearest", True, True, False) \
+        == (mt.F16, mt.F16, ct.F16)
+    assert cublas_config_for_format(23, 8, 23, 8, "nearest", True, True, False) \
+        == (mt.F32, mt.F32, ct.F32)
+    assert cublas_config_for_format(23, 8, 23, 8, "nearest", True, True, False, "f16") \
+        == (mt.F32, mt.F32, ct.FAST_F16)
+    assert cublas_config_for_format(23, 8, 23, 8, "nearest", True, True, False, "bf16") \
+        == (mt.F32, mt.F32, ct.FAST_BF16)
+    assert cublas_config_for_format(23, 8, 23, 8, "nearest", True, True, False, "tf32") \
+        == (mt.F32, mt.F32, ct.FAST_TF32)
+    
+def test_cublas_override():
+    assert not cublas_acceleration.enabled
+    cublas_acceleration.enable(True, "f16")
+    assert cublas_acceleration.enabled
+    assert cublas_acceleration.fast_mode == "f16"
+    cublas_acceleration.enable(False)
+    assert not cublas_acceleration.enabled
+    assert cublas_acceleration.fast_mode is None
+    
+    cublas_acceleration.fast_mode = "tf32"
+    with cublas_acceleration(True, "bf16"):
+        assert cublas_acceleration.enabled
+        assert cublas_acceleration.fast_mode == "bf16"
+        with cublas_acceleration(False):
+            assert not cublas_acceleration.enabled
+            assert cublas_acceleration.fast_mode is None
+        assert cublas_acceleration.enabled
+        assert cublas_acceleration.fast_mode == "bf16"
+    assert not cublas_acceleration.enabled
+    assert cublas_acceleration.fast_mode == "tf32"
