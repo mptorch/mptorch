@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#my file 
+Exercice
+wandb
+data
+gpt_shakespeare
+
 # C extensions
 *.so
 
