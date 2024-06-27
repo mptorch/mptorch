@@ -6,7 +6,11 @@
 
 using namespace at;
 
-
+/**
+ * Precision configuration structure. Holds information
+ * about the I/O matrix datatypes and compute precision
+ * used during the CUBLAS (B)MM calls.
+ */
 struct cublas_config
 {
     cudaDataType matrix_a;
@@ -18,11 +22,19 @@ struct cublas_config
     void summary() const;
 };
 
-
+/**
+ * Possible I/O matrix datatypes (binary32, binary16 and bfloat16).
+ */
 enum class cublas_matrix_dt {
     kF32, kF16, kBF16
 };
 
+/**
+ * Compute precision/reduction configuration for CUBLAS computations.
+ * The **fast** variations allow the use of tensor core with automatic
+ * downconversion and binary16/bfloat16/tfloat32 compute for binary32
+ * I/O matrices.
+ */
 enum class cublas_compute_dt {
     kF32, kF16,
     kFastF16,
@@ -33,12 +45,12 @@ enum class cublas_compute_dt {
 
 /**
  * Creates a new cuBLAS handle, if none hasn't been created yet. If it
- * already exist, nothing happens.
+ * already exists, nothing happens.
 */
 void create_cublas_handle();
 
 /**
- * Deletes the current cuBLAS handle, if has already been created. If not
+ * Deletes the current cuBLAS handle, if has already been created. If not,
  * throws an error.
 */
 void delete_cublas_handle();
