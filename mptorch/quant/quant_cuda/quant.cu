@@ -153,7 +153,7 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnorm
   int blockSize = 1024;
   int blockNums = (size + blockSize - 1) / blockSize;
 
-  if (is_signed == True){ // signed
+  if (is_signed == true){ // signed
       p3109_signed_kernel_nearest<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), o.data_ptr<float>(), size, P, subnormals);
   } else {  // unsigned
@@ -173,11 +173,11 @@ Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_si
   int blockSize = 1024;
   int blockNums = (size + blockSize - 1) / blockSize;
 
-  if (is_signed == True){ // signed
+  if (is_signed == true){ // signed
       p3109_signed_kernel_stochastic<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
   } else {  // unsigned
-      p3109_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
+      p3109_unsigned_kernel_stochastic<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, subnormals);
   }
 

@@ -10,7 +10,7 @@ __device__ __forceinline__ uint32_t extract_exponent(float *a) {
   return temp - 127 + 1;    // exponent offset and virtual bit
 }
 
-__device__ __forceinline__ uint32_t
+__host__ __device__ __forceinline__ uint32_t
 round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) { // passing number of random bits as second parameter (all the bits after the least significant bit which is based on prng); target is the original number
   uint32_t mask = (1 << (23 - man_bits)) - 1; 
   uint32_t add_r = target + (rand_prob & mask); // adding random bits to target (which is not masked)
@@ -27,7 +27,7 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) { //
 // set to zero the end that we don't want unless we are in the special case with x0|100...
 // in this case we round down because we are in the middle with the nearest even being the down
 
-__device__ __forceinline__ uint32_t
+__host__ __device__ __forceinline__ uint32_t
 round_bitwise_nearest(uint32_t target, int man_bits) {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 1 << (22 - man_bits);
@@ -111,7 +111,7 @@ clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quantized_num) 
   return quantized_num;
 }
 
-__device__ __forceinline__ uint32_t
+__host__ __device__ __forceinline__ uint32_t
 p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, bool saturate, bool subnormal) {  // currently sets max to FE; talks of possibly setting max to FD were mentioned for unsigned P = 1
   if (quantized_num == 0) 
     return quantized_num;
