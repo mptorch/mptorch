@@ -22,7 +22,7 @@ maintaining readability; bit shifts and masking are used aplenty
 #include <cstdint>
 #include <tuple>
 
-enum class SaturateState {
+enum class SaturateMode {
     SATURATE,
     NO_OVERFLOW,
     OVERFLOWS
@@ -39,7 +39,7 @@ uint32_t round_bitwise_stochastic_cpu(uint32_t target, uint32_t rand_prob, int m
     return quantized;
 }
 
-uint32_t p3109_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateState saturation_mode, bool subnormal) {
+uint32_t p3109_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateMode saturation_mode, bool subnormal) {
 
   if (quantized_num == 0){
     return quantized_num;
@@ -52,9 +52,9 @@ uint32_t p3109_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num, u
   int spec_exp = (man_bits == 0) ? 1 : 0; // if P = 1
   int special_p1 = 0;
   
-  if(exp_bits == 8 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=1
+  if(exp_bits == 8 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=1
       special_p1 = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
-  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=2 
+  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=2 
       special_p1 = 1;
   }else if(exp_bits + man_bits == 8){ // unsigned
       max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value 0xfd = mACax_exp | max_mantissa - 1 
@@ -65,13 +65,13 @@ uint32_t p3109_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num, u
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_p1; 
   int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
 
-  if (saturation_mode == SaturateState::NO_OVERFLOW) { // Saturate to max without infinity
+  if (saturation_mode == SaturateMode::NO_OVERFLOW) { // Saturate to max without infinity
     max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   }
 
   if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) 
   {
-    if (saturation_mode == SaturateState::OVERFLOWS){ // Overflow to infinity
+    if (saturation_mode == SaturateMode::OVERFLOWS){ // Overflow to infinity
         return quantized_num = old_sign | 0x7F800000; // INF
     } 
     return quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
@@ -103,7 +103,7 @@ uint32_t p3109_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num, u
   return quantized_num;
 }
 
-float cast_p3109_signed_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+float cast_p3109_signed_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
 
     int exp_bits = 8-P;
     int man_bits = P-1;  
@@ -116,7 +116,7 @@ float cast_p3109_signed_stochastic_cpu(float origin_float, int P, uint32_t rand_
     int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturateState::NO_OVERFLOW && man_val == 0)) {          
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {          
         return origin_float;
     }
 
@@ -140,7 +140,7 @@ float cast_p3109_signed_stochastic_cpu(float origin_float, int P, uint32_t rand_
     return fval8;
 }
 
-float cast_p3109_unsigned_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateState saturation_mode, bool subnormals) { 
+float cast_p3109_unsigned_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) { 
     
     if(origin_float < 0){
         return NAN;
@@ -157,7 +157,7 @@ float cast_p3109_unsigned_stochastic_cpu(float origin_float, int P, uint32_t ran
     int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturateState::NO_OVERFLOW && man_val == 0)) {
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
@@ -183,7 +183,7 @@ float cast_p3109_unsigned_stochastic_cpu(float origin_float, int P, uint32_t ran
 
 void p3109_signed_kernel_stochastic_cpu(float *__restrict__ a,
                                       int *__restrict__ r, float *o, int N,
-                                      int P, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
    for (int j = 0; j < N; ++j) {
          o[j] = cast_p3109_signed_stochastic_cpu(a[j], P, (uint32_t)r[j], prng_bits, saturation_mode, subnormals);
     }  
@@ -191,7 +191,7 @@ void p3109_signed_kernel_stochastic_cpu(float *__restrict__ a,
 
 void p3109_unsigned_kernel_stochastic_cpu(float *__restrict__ a, 
                                       int *__restrict__ r, float *o, int N,
-                                      int P, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
     for (int j = 0; j < N; ++j) {
          o[j] = cast_p3109_unsigned_stochastic_cpu(a[j], P, (uint32_t)r[j], prng_bits, saturation_mode, subnormals);
     }
@@ -209,7 +209,7 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) { //
 }
 
 __device__ __forceinline__ uint32_t
-p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateState saturation_mode, bool subnormal) {
+p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateMode saturation_mode, bool subnormal) {
 
   if (quantized_num == 0){
     return quantized_num;
@@ -222,9 +222,9 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
   int spec_exp = (man_bits == 0) ? 1 : 0; // if P = 1
   int special_p1 = 0;
   
-  if(exp_bits == 8 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=1
+  if(exp_bits == 8 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=1
       special_p1 = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
-  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateState::NO_OVERFLOW){ // unsigned and p=2 
+  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=2 
       special_p1 = 1;
       //print_uint(max_man);
       //max_man = 1 << 22; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
@@ -237,13 +237,13 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_p1; 
   int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
 
-  if (saturation_mode == SaturateState::NO_OVERFLOW) { // Saturate to max without infinity
+  if (saturation_mode == SaturateMode::NO_OVERFLOW) { // Saturate to max without infinity
     max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   }
 
   if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) 
   {
-    if (saturation_mode == SaturateState::OVERFLOWS){ // Overflow to infinity
+    if (saturation_mode == SaturateMode::OVERFLOWS){ // Overflow to infinity
         return quantized_num = old_sign | 0x7F800000; // INF
     } 
     return quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
@@ -275,7 +275,7 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
   return quantized_num;
 }
 
-__device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+__device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
 
     int exp_bits = 8-P;
     int man_bits = P-1;  
@@ -288,7 +288,7 @@ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_
     int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturateState::NO_OVERFLOW && man_val == 0)) {          
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {          
         return origin_float;
     }
 
@@ -312,7 +312,7 @@ __device__ float cast_p3109_signed_stochastic(float origin_float, int P, uint32_
     return fval8;
 }
 
-__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateState saturation_mode, bool subnormals) { 
+__device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) { 
     
     if(origin_float < 0){
         return NAN;
@@ -329,7 +329,7 @@ __device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint3
     int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturateState::NO_OVERFLOW && man_val == 0)) {
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
@@ -355,7 +355,7 @@ __device__ float cast_p3109_unsigned_stochastic(float origin_float, int P, uint3
 
 __global__ void p3109_signed_kernel_stochastic(float *__restrict__ a,
                                       int *__restrict__ r, float *o, int N,
-                                      int P, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < N) {
         o[idx] = cast_p3109_signed_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, saturation_mode, subnormals);
@@ -364,7 +364,7 @@ __global__ void p3109_signed_kernel_stochastic(float *__restrict__ a,
 
 __global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, 
                                       int *__restrict__ r, float *o, int N,
-                                      int P, int prng_bits, SaturateState saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < N) {
         o[idx] = cast_p3109_unsigned_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, saturation_mode, subnormals);
@@ -374,13 +374,13 @@ __global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a,
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
 
-void p3109_signed_stochastic(float *a, int *r, float *o, int N, int P, int prng_bits, SaturateState saturation_mode, bool subnormals, const int blockSize){
+void p3109_signed_stochastic(float *a, int *r, float *o, int N, int P, int prng_bits, SaturateMode saturation_mode, bool subnormals, const int blockSize){
     const int grid_size = ceil_div(N, blockSize);
     p3109_signed_kernel_stochastic<<<grid_size, blockSize>>>(a, r, o, N, P, prng_bits, saturation_mode, subnormals);
     cudaCheck(cudaGetLastError());
 }
 
-void p3109_unsigned_stochastic(float *a, int *r, float *o, int N, int P, int prng_bits, SaturateState saturation_mode, bool subnormals, const int blockSize){
+void p3109_unsigned_stochastic(float *a, int *r, float *o, int N, int P, int prng_bits, SaturateMode saturation_mode, bool subnormals, const int blockSize){
     const int grid_size = ceil_div(N, blockSize);
     p3109_unsigned_kernel_stochastic<<<grid_size, blockSize>>>(a, r, o, N, P, prng_bits, saturation_mode, subnormals);
     cudaCheck(cudaGetLastError());
@@ -394,7 +394,7 @@ void p3109_stochastic(int kernel_num, // 1 for signed and 2 for unsighed
                     int N,
                     int P,
                     int prng_bits,
-                    SaturateState saturation_mode,
+                    SaturateMode saturation_mode,
                     bool subnormals,
                     const int blockSize)
 {
@@ -428,7 +428,7 @@ int main(int argc, const char **argv)
     int P = 3;
     int prng_bits = 20;
     bool subnormals = true;
-    SaturateState saturation_mode = SaturateState::SATURATE;
+    SaturateMode saturation_mode = SaturateMode::SATURATE;
 
     float *x = (float*)malloc(1000 * sizeof(float));
     int *r = (int *)malloc(1000 * sizeof(int)); // numbers added to round

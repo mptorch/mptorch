@@ -46,7 +46,7 @@ def test_p3109_signed_stochastic_subnormal():
     prng_bits = 23
     iterations = 1000   
     tolerance = 0.05*iterations # = 5%
-    num = 3.81469772037235088646411895752E-6  # 0.00634765625 
+    num = 0.00634765625   
     # Middle value between 0 and min_val for P=3
     # 3.814697265625E-6  or  3.81469772037235088646411895752E-6  
     # 0 01101101 000...      0 01101101 000...1                      
@@ -58,9 +58,9 @@ def test_p3109_signed_stochastic_subnormal():
 
     for x in range(result.numel()):
         print(result[x].item())
-        if result[x].item() == 7.62939453125E-6: #0.0068359375
+        if result[x].item() == 0.0068359375: #7.62939453125E-6 
             rnd_up += 1
-        elif result[x].item() == 0.0: # 0.005859375
+        elif result[x].item() == 0.005859375: # 0.005859375
             rnd_down += 1
 
     print("3 : ",rnd_up, ",", abs((rnd_up - 500)))
@@ -77,55 +77,54 @@ def test_p3109_signed_constant():
     prng_bits = 23
     iterations = 1000
     tolerance = 0.10*iterations # = 10%
-    P = 3
 
     rnd_up = 0
     rnd_down = 0
-    exp_bits = 8 - P
-    man_bits = P - 1  
+    
+    for P in range(1, 8):
 
-    spec_exp = 1 if P == 1 else 0
+        print(P)
 
-    max_exp = (1 << (exp_bits - 1)) - 1
-    min_exp = spec_exp - max_exp
+        exp_bits = 8 - P
+        man_bits = P - 1  
 
-    min_val = np.uint32((min_exp - man_bits + 127) << 23)
+        spec_exp = 1 if P == 1 else 0
 
-    max_exp_bias = np.uint32((max_exp + 127) << 23) 
-    max_man = (((1 << man_bits) - 1) & ~1) << (23 - man_bits)
-    max_val = bits_to_float(max_exp_bias | max_man)
+        max_exp = (1 << (exp_bits - 1)) - 1
+        min_exp = spec_exp - max_exp
 
-    # previous_fval = bits_to_float(np.uint32(0))
-    i_fval = bits_to_float(min_val) + 2**(-man_bits)*2**(min_exp)
-    previous_fval = bits_to_float(min_val)
+        min_val = np.uint32((min_exp - man_bits + 127) << 23)
 
-    while i_fval <= max_val:
-        for i in range(10):
-            random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
-            print(previous_fval,i_fval,random_float)
-            num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
-            result = p3109_quantize(num_tensor, P, "stochastic", "saturate", True, True, prng_bits)
-            result1 = result.cpu() 
-            
-            rnd_up = 0
-            rnd_down = 0
+        max_exp_bias = np.uint32((max_exp + 127) << 23) 
+        max_man = (((1 << man_bits) - 1) & ~1) << (23 - man_bits)
+        max_val = bits_to_float(max_exp_bias | max_man)
 
-            for x in range(result1.numel()):
-                if result1[x].item() == i_fval: 
-                    rnd_up += 1
-                elif result1[x].item() == previous_fval:    
-                    rnd_down += 1
+        # previous_fval = bits_to_float(np.uint32(0))
+        i_fval = bits_to_float(min_val) + 2**(-man_bits)*2**(min_exp)
+        previous_fval = bits_to_float(min_val)
 
-            print(rnd_up, rnd_down)
-            print("distance : ",(random_float - previous_fval) / (i_fval - previous_fval))
-            distance = (random_float - previous_fval) / (i_fval - previous_fval)
-            print("rnd_up error : ", abs((rnd_up - distance*iterations)))
-            print("rnd_down error : ", abs((rnd_down - ((1-distance)*iterations))))
-            assert abs((rnd_up - distance*iterations)) < tolerance and abs((rnd_down - ((1-distance)*iterations))) < tolerance
+        while i_fval <= max_val:
+            for i in range(10):
+                random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
+                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
+                result = p3109_quantize(num_tensor, P, "stochastic", "saturate", True, True, prng_bits)
+                result1 = result.cpu() 
 
-        previous_fval = i_fval
-        exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
-        i_fval += 2**(-man_bits)*2**(exp_prev)
+                rnd_up = 0
+                rnd_down = 0
+
+                for x in range(result1.numel()):
+                    if result1[x].item() == i_fval: 
+                        rnd_up += 1
+                    elif result1[x].item() == previous_fval:    
+                        rnd_down += 1
+
+                distance = (random_float - previous_fval) / (i_fval - previous_fval)
+                assert abs((rnd_up - distance*iterations)) < tolerance and abs((rnd_down - ((1-distance)*iterations))) < tolerance
+
+            previous_fval = i_fval
+            exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
+            i_fval += 2**(-man_bits)*2**(exp_prev)
         
 
 def test_p3109_signed_stochastic_constant():
@@ -210,5 +209,4 @@ def getting_values(list, P):
         exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
         i_fval += 2**(-man_bits)*2**(exp_prev)
         list.append(i_fval)
-
 

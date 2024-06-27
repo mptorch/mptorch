@@ -9,7 +9,7 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "p3109_quantize",
-    "SaturateState",
+    "SaturationMode",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -64,9 +64,9 @@ def get_module(x):
     return quant_module
 
 if torch.cuda.is_available():
-    SaturateState  = quant_cuda.SaturateState
+    SaturationMode  = quant_cuda.SaturateMode
 else:
-    SaturateState = None
+    SaturationMode = None
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
@@ -1541,7 +1541,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def p3109_quantize(x, P, rounding="nearest", SaturationMode="saturate", is_signed=True, subnormals=True, prng_bits=0):
+def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1562,14 +1562,14 @@ def p3109_quantize(x, P, rounding="nearest", SaturationMode="saturate", is_signe
     assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
         rounding
     )
-    assert SaturationMode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
-        SaturationMode
+    assert saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
+        saturation_mode
     )
     saturation_enum = {
-        "saturate": SaturateState.SATURATE,
-        "no_overflow": SaturateState.NO_OVERFLOW,
-        "overflow": SaturateState.OVERFLOWS,
-    }[SaturationMode]
+        "saturate": SaturationMode.SATURATE,
+        "no_overflow": SaturationMode.NO_OVERFLOW,
+        "overflow": SaturationMode.OVERFLOWS,
+    }[saturation_mode]
 
     quant_module = get_module(x)
     if rounding == "nearest":

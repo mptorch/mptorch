@@ -147,7 +147,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 
 }
 
-Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateState saturation_mode, bool subnormals)
+Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateMode saturation_mode, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a
@@ -165,7 +165,7 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateStat
   return o;
 }
 
-Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturateState saturation_mode, bool subnormals)
+Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturateMode saturation_mode, bool subnormals)
 {
   auto o = zeros_like(a);
   // generate random number on the GPU for the SR operation

@@ -2,6 +2,7 @@ import torch
 from mptorch.quant import p3109_quantize
 import struct
 import numpy as np
+import random
 
 from gfloat import RoundMode, round_float
 from gfloat.formats import *
@@ -80,3 +81,47 @@ def test_p3109p2():
         print(result_t) 
         print(test["expected"])
         assert result_t.equal(test["expected"])
+
+def test_p3109_signed_nearest():
+
+    # parameters :
+    iterations = 1
+    
+    for P in range(1, 8):
+
+        print(P)
+
+        exp_bits = 8 - P
+        man_bits = P - 1  
+
+        spec_exp = 1 if P == 1 else 0
+
+        max_exp = (1 << (exp_bits - 1)) - 1
+        min_exp = spec_exp - max_exp
+
+        min_val = np.uint32((min_exp - man_bits + 127) << 23)
+
+        max_exp_bias = np.uint32((max_exp + 127) << 23) 
+        max_man = (((1 << man_bits) - 1) & ~1) << (23 - man_bits)
+        max_val = bits_to_float(max_exp_bias | max_man)
+
+        # previous_fval = bits_to_float(np.uint32(0))
+        i_fval = bits_to_float(min_val) + 2**(-man_bits)*2**(min_exp)
+        previous_fval = bits_to_float(min_val)
+
+        while i_fval <= max_val:
+            for i in range(10):
+                random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
+                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
+                result = p3109_quantize(num_tensor, P, "nearest", "saturate", True, True)
+                result1 = result.cpu() 
+
+                distance = (random_float - previous_fval) / (i_fval - previous_fval)
+                if(distance < 0.5):
+                    assert result1 == previous_fval
+                else:
+                    assert result1 == i_fval
+
+            previous_fval = i_fval
+            exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
+            i_fval += 2**(-man_bits)*2**(exp_prev)

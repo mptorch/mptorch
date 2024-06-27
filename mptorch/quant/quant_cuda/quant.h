@@ -100,7 +100,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  * with [P] precision bits.
  * Nearest Rounding.
  */
-Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateState saturation_mode, bool subnormals);
+Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateMode saturation_mode, bool subnormals);
 
 /**
  * quantize a FloatTensor into a P3109-compliant floating point
@@ -108,7 +108,7 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturateStat
  * with [P] precision bits.
  * Stochastic Rounding (with user-given PRNG resulution [prng_bits]).
  */
-Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturateState saturation_mode, bool subnormals);
+Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturateMode saturation_mode, bool subnormals);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
