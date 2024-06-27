@@ -149,6 +149,9 @@ def test_bmm_if32_of32_cf32_p_4_4():
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
 def test_format_to_cublas_cfg():
+    if no_cuda():
+        return
+    
     assert format_to_cublas_config(3, 4, 5, 6) is None
     assert format_to_cublas_config(10, 8, 10, 8) is None
     assert format_to_cublas_config(10, 8, 23, 8) == (mt.F32, mt.F32, ct.FAST_TF32)

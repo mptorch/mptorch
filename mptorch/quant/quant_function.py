@@ -408,7 +408,7 @@ def float_mm(
         - the result of GEMM (torch.Tensor)
     """
 
-    if cublas_acceleration.enabled \
+    if torch.cuda.is_available() and cublas_acceleration.enabled \
         and rounding == "nearest" and fma and subnormals and not saturate:
         cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
         if cublas_cfg is not None:
@@ -615,7 +615,7 @@ def float_bmm(
     subnormals=True,
     saturate=True,
 ):
-    if cublas_acceleration.enabled \
+    if torch.cuda.is_available() and cublas_acceleration.enabled \
         and rounding == "nearest" and fma and subnormals and not saturate:
         cublas_cfg = format_to_cublas_config(man_mul, exp_mul, man_add, exp_add)
         if cublas_cfg is not None:
