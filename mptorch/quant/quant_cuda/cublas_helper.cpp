@@ -147,23 +147,14 @@ void get_cublas_configuration(
         
         case CUBLASComputeType::kF32FastF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
-            if (pedantic) {
-                throw std::invalid_argument("FAST_F16 cannot be pedantic");
-            }
             return CUBLAS_COMPUTE_32F_FAST_16F;
         
         case CUBLASComputeType::kF32FastBF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
-            if (pedantic) {
-                throw std::invalid_argument("FAST_BF16 cannot be pedantic");
-            }
             return CUBLAS_COMPUTE_32F_FAST_16BF;
         
         case CUBLASComputeType::kF32FastTF32:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
-            if (pedantic) {
-                throw std::invalid_argument("FAST_TF32 cannot be pedantic");
-            }
             return CUBLAS_COMPUTE_32F_FAST_TF32;
         
         default:
