@@ -12,6 +12,8 @@ import random
 import numpy as np
 import argparse
 
+import wandb
+
 parser = argparse.ArgumentParser(description="MLP MNIST Example")
 parser.add_argument(
     "--batch_size",
@@ -38,6 +40,13 @@ parser.add_argument(
     help="precision size (default: 3)",
 )
 parser.add_argument(
+    "--p_q",
+    type=int,
+    default=6,
+    metavar="N",
+    help="precision size for accumulation(default: 3)",
+)
+parser.add_argument(
     "--exp",
     type=int,
     default=4,
@@ -54,9 +63,16 @@ parser.add_argument(
 parser.add_argument(
     "--lr_init",
     type=float,
-    default=0.05,
+    default=0.01,
     metavar="N",
     help="initial learning rate (default: 0.05)",
+)
+parser.add_argument(
+    "--saturation",
+    type=str,
+    default="saturate",
+    metavar="N",
+    help="saturation mode (default: saturate)",
 )
 parser.add_argument(
     "--momentum",
@@ -79,6 +95,15 @@ parser.add_argument(
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
+
+run = wandb.init(
+    project="mlp_training_mptorch_p3109",
+    notes="p3109 quantisation",
+    tags=["baseline"],
+)
+
+wandb.config = {"epochs": args.epochs, "learning_rate": args.lr_init, "batch_size": args.batch_size, 
+                "Precision P" : args.p, "P accumulation" : args.p_q, "rounding" : "nearest", "rounding acc" : "stochastic", "saturation" : args.saturation}
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
@@ -107,7 +132,7 @@ test_dataset = torchvision.datasets.MNIST(
 test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
 rounding = "nearest"
-saturation_mode = "saturate"
+saturation_mode = args.saturation
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.p3109_quantize(
@@ -155,7 +180,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.p3109_quantize(x, p=7, rounding="stochastic")
+acc_q = lambda x: qpt.p3109_quantize(x, args.p_q, rounding="stochastic", saturation_mode=saturation_mode)
 optimizer = OptimMP(
     optimizer,
     acc_quant=acc_q,
@@ -173,3 +198,5 @@ trainer(
     device=device,
     init_scale=256.0,
 )
+
+wandb.finish()

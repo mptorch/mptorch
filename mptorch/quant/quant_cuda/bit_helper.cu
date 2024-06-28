@@ -124,21 +124,19 @@ p3109_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quant
   uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   
   int spec_exp = (man_bits == 0) ? 1 : 0; // if P = 1
-  int special_p1 = 0;
+  int special_unsigned_exp = 0;
   
   if(exp_bits == 8 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=1
-      special_p1 = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
+      special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
   }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturateMode::NO_OVERFLOW){ // unsigned and p=2 
-      special_p1 = 1;
-      //print_uint(max_man);
-      //max_man = 1 << 22; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
+      special_unsigned_exp = 1; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
   }else if(exp_bits + man_bits == 8){ // unsigned
       max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value 0xfd = mACax_exp | max_mantissa - 1 
   }
 
   // Special because in unsigned we want our min to be 1 less because the space is taken by the Nan
   int quantized_exponent_store = (quantized_num << 1 >> 24);
-  int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_p1; 
+  int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_unsigned_exp; 
   int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
 
   if (saturation_mode == SaturateMode::NO_OVERFLOW) { // Saturate to max without infinity
