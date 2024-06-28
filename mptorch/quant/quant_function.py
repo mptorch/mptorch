@@ -83,7 +83,7 @@ else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
 
-def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
+def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert len(a.shape) == 2
@@ -97,12 +97,12 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
         CUBLASMatrixType.F16: torch.float16,
         CUBLASMatrixType.BF16: torch.bfloat16,
     }
-    a = a.to(dtype[inp_type])
-    b = b.to(dtype[inp_type])
+    a = a.to(dtype[input_type])
+    b = b.to(dtype[input_type])
     c = torch.zeros(
         b.shape[1], a.shape[0], # transposed
         device=a.device,
-        dtype=dtype[out_type]
+        dtype=dtype[output_type]
     )
     quant_cuda.floating_point_mm_cublas(
         a.t().contiguous(),
@@ -111,15 +111,15 @@ def cublas_mm(a, b, inp_type, out_type, compute_type, pedantic):
         a.shape[0],
         b.shape[1],
         a.shape[1],
-        inp_type,
-        out_type,
+        input_type,
+        output_type,
         compute_type,
         pedantic
     )
     return c.t().to(torch.float32)
 
 
-def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
+def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert a.shape[-1] == b.shape[-2]
@@ -131,12 +131,12 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
         CUBLASMatrixType.F16: torch.float16,
         CUBLASMatrixType.BF16: torch.bfloat16,
     }
-    a = a.to(dtype[inp_type])
-    b = b.to(dtype[inp_type])
+    a = a.to(dtype[input_type])
+    b = b.to(dtype[input_type])
     if len(a.shape) == 3 and len(b.shape) == 3:
         c = torch.zeros(a.shape[0], b.shape[2], a.shape[1], # transposed
                         device=a.device,
-                        dtype=dtype[out_type])
+                        dtype=dtype[output_type])
         quant_cuda.floating_point_bmm_cublas(
             a.transpose(-2, -1).contiguous(),
             b.transpose(-2, -1).contiguous(),
@@ -144,8 +144,8 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             a.shape[1],
             b.shape[2],
             a.shape[2],
-            inp_type,
-            out_type,
+            input_type,
+            output_type,
             compute_type,
             pedantic
         )
@@ -154,7 +154,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
         a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
         c_r = torch.zeros(b.shape[1], a_r.shape[0],
                           device=a.device,
-                          dtype=dtype[out_type])
+                          dtype=dtype[output_type])
         quant_cuda.floating_point_mm_cublas(
             a_r.t().contiguous(),
             b.t().contiguous(),
@@ -162,8 +162,8 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             a_r.shape[0],
             b.shape[1],
             a_r.shape[1],
-            inp_type,
-            out_type,
+            input_type,
+            output_type,
             compute_type,
             pedantic
         )
@@ -179,7 +179,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
         c_r = torch.zeros(
             a_r.shape[0], b_r.shape[2], a_r.shape[1],
             device=a.device,
-            dtype=dtype[out_type]
+            dtype=dtype[output_type]
         )
         quant_cuda.floating_point_bmm_cublas(
             a_r.transpose(-2, -1).contiguous(),
@@ -188,8 +188,8 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             a_r.shape[1],
             b_r.shape[2],
             a_r.shape[2],
-            inp_type,
-            out_type,
+            input_type,
+            output_type,
             compute_type,
             pedantic
         )
@@ -198,7 +198,7 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
     elif len(a.shape) == 2 and len(b.shape) == 2:
         c = torch.zeros(b.shape[1], a.shape[0],
                         device=a.device,
-                        dtype=dtype[out_type])
+                        dtype=dtype[output_type])
         quant_cuda.floating_point_mm_cublas(
             a.t().contiguous(),
             b.t().contiguous(),
@@ -206,8 +206,8 @@ def cublas_bmm(a, b, inp_type, out_type, compute_type, pedantic):
             a.shape[0],
             b.shape[1],
             a.shape[1],
-            inp_type,
-            out_type,
+            input_type,
+            output_type,
             compute_type,
             pedantic
         )
