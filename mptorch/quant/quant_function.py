@@ -217,7 +217,7 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
     return c.to(torch.float32)
 
 
-def cublas_config_for_format(
+def match_mac_format_with_cublas_types(
     man_add,
     exp_add,
     man_mul,
@@ -229,7 +229,7 @@ def cublas_config_for_format(
     fast_mode=None
 ):
     if not torch.cuda.is_available():
-        raise NotImplementedError("CUDA required.")
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     
     if man_mul != man_add or exp_mul != exp_add:
         return None
@@ -428,26 +428,28 @@ def float_mm(
         - the result of GEMM (torch.Tensor)
     """
 
-    if cublas_acceleration.enabled:
-        try:
-            cublas_cfg = cublas_config_for_format(
-                man_add,
-                exp_add,
-                man_mul,
-                exp_mul,
-                rounding,
-                fma,
-                subnormals,
-                saturate,
-                cublas_acceleration.fast_mode
+    if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
+        types = match_mac_format_with_cublas_types(
+            man_add,
+            exp_add,
+            man_mul,
+            exp_mul,
+            rounding,
+            fma,
+            subnormals,
+            saturate,
+            cublas_acceleration.fast_mode
+        )
+        if types is not None:
+            input_type, output_type, compute_type = types
+            return cublas_mm(
+                a,
+                b,
+                input_type,
+                output_type,
+                compute_type,
+                False
             )
-            if cublas_cfg is not None:
-                it, ot, ct = cublas_cfg
-                return cublas_mm(a, b, it, ot, ct, False)
-        except NotImplementedError:
-            pass
-        except:
-            raise
 
     assert len(a.shape) == 2
     assert len(b.shape) == 2
@@ -649,26 +651,28 @@ def float_bmm(
     subnormals=True,
     saturate=True,
 ):
-    if cublas_acceleration.enabled:
-        try:
-            cublas_cfg = cublas_config_for_format(
-                man_add,
-                exp_add,
-                man_mul,
-                exp_mul,
-                rounding,
-                fma,
-                subnormals,
-                saturate,
-                cublas_acceleration.fast_mode
+    if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
+        types = match_mac_format_with_cublas_types(
+            man_add,
+            exp_add,
+            man_mul,
+            exp_mul,
+            rounding,
+            fma,
+            subnormals,
+            saturate,
+            cublas_acceleration.fast_mode
+        )
+        if types is not None:
+            input_type, output_type, compute_type = types
+            return cublas_bmm(
+                a,
+                b,
+                input_type,
+                output_type,
+                compute_type,
+                False
             )
-            if cublas_cfg is not None:
-                it, ot, ct = cublas_cfg
-                return cublas_bmm(a, b, it, ot, ct, False)
-        except NotImplementedError:
-            pass
-        except:
-            raise
     
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
