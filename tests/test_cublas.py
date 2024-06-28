@@ -58,7 +58,7 @@ def test_mm_if32_of32_ctf32():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
-    res_cublas = cublas_mm(a, b, mt.F32, mt.F32, ct.FAST_TF32, False)
+    res_cublas = cublas_mm(a, b, mt.F32, mt.F32, ct.F32_FAST_TF32, False)
     res_mp = float_mm(a, b, 23, 8, 10, 8)
     assert res_cublas.dtype == torch.float32
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-3)
@@ -159,11 +159,11 @@ def test_cublas_config_for_format():
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False) \
         == (mt.F32, mt.F32, ct.F32)
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False, "f16") \
-        == (mt.F32, mt.F32, ct.FAST_F16)
+        == (mt.F32, mt.F32, ct.F32_FAST_F16)
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False, "bf16") \
-        == (mt.F32, mt.F32, ct.FAST_BF16)
+        == (mt.F32, mt.F32, ct.F32_FAST_BF16)
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False, "tf32") \
-        == (mt.F32, mt.F32, ct.FAST_TF32)
+        == (mt.F32, mt.F32, ct.F32_FAST_TF32)
     
 def test_cublas_override():
     assert not cublas_acceleration.enabled

@@ -290,8 +290,8 @@ void fixed_point_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
 }
 
 void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                              cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                              cublas_compute_dt compute_type, bool pedantic)
+                              CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                              CUBLASComputeType compute_type, bool pedantic)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
@@ -301,8 +301,8 @@ void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 }
 
 void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                               cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                               cublas_compute_dt compute_type, bool pedantic)
+                               CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                               CUBLASComputeType compute_type, bool pedantic)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
@@ -390,17 +390,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Quantization (CUDA)");
 
 
-      py::enum_<cublas_matrix_dt>(m, "CUBLASMatrixType", py::arithmetic())
-            .value("F32", cublas_matrix_dt::kF32)
-            .value("F16", cublas_matrix_dt::kF16)
-            .value("BF16", cublas_matrix_dt::kBF16);
+      py::enum_<CUBLASMatrixType>(m, "CUBLASMatrixType", py::arithmetic())
+            .value("F32", CUBLASMatrixType::kF32)
+            .value("F16", CUBLASMatrixType::kF16)
+            .value("BF16", CUBLASMatrixType::kBF16);
 
-      py::enum_<cublas_compute_dt>(m, "CUBLASComputeType", py::arithmetic())
-            .value("F32", cublas_compute_dt::kF32)
-            .value("F16", cublas_compute_dt::kF16)
-            .value("FAST_F16", cublas_compute_dt::kFastF16)
-            .value("FAST_BF16", cublas_compute_dt::kFastBF16)
-            .value("FAST_TF32", cublas_compute_dt::kFastTF32);
+      py::enum_<CUBLASComputeType>(m, "CUBLASComputeType", py::arithmetic())
+            .value("F32", CUBLASComputeType::kF32)
+            .value("F16", CUBLASComputeType::kF16)
+            .value("F32_FAST_F16", CUBLASComputeType::kF32FastF16)
+            .value("F32_FAST_BF16", CUBLASComputeType::kF32FastBF16)
+            .value("F32_FAST_TF32", CUBLASComputeType::kF32FastTF32);
 
       m.def("create_cublas_handle", &create_cublas_handle, "Creates a new cuBLAS handle");
       m.def("delete_cublas_handle", &delete_cublas_handle, "Deletes the current cuBLAS handle");

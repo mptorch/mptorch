@@ -66,7 +66,7 @@ static const char* computetype_string(cublasComputeType_t t) {
 }
 
 
-void cublas_config::summary() const {
+void CUBLASGemmConfig::summary() const {
     printf("matrix A: %s\n", datatype_string(matrix_a));
     printf("matrix B: %s\n", datatype_string(matrix_b));
     printf("matrix C: %s\n", datatype_string(matrix_c));
@@ -75,19 +75,19 @@ void cublas_config::summary() const {
 
 
 void get_cublas_configuration(
-    cublas_matrix_dt inp_matrix_type,
-    cublas_matrix_dt out_matrix_type,
-    cublas_compute_dt compute_type,
+    CUBLASMatrixType inp_matrix_type,
+    CUBLASMatrixType out_matrix_type,
+    CUBLASComputeType compute_type,
     bool pedantic,
-    cublas_config& config
+    CUBLASGemmConfig& config
 ) {
-    auto to_datatype = [](cublas_matrix_dt t) {
+    auto to_datatype = [](CUBLASMatrixType t) {
         switch (t) {
-        case cublas_matrix_dt::kF32:
+        case CUBLASMatrixType::kF32:
             return CUDA_R_32F;
-        case cublas_matrix_dt::kF16:
+        case CUBLASMatrixType::kF16:
             return CUDA_R_16F;
-        case cublas_matrix_dt::kBF16:
+        case CUBLASMatrixType::kBF16:
             return CUDA_R_16BF;
         default:
             throw std::invalid_argument("Invalid data type.");
@@ -99,9 +99,9 @@ void get_cublas_configuration(
     config.matrix_b = inp_type;
     config.matrix_c = out_type;
 
-    auto to_scalartype = [](cublas_compute_dt t) {
+    auto to_scalartype = [](CUBLASComputeType t) {
         switch (t) {
-        case cublas_compute_dt::kF16:
+        case CUBLASComputeType::kF16:
             return CUDA_R_16F;
         default:
             return CUDA_R_32F;
@@ -123,9 +123,9 @@ void get_cublas_configuration(
     };
 
     // compatibility table from: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmex
-    auto to_computetype = [&](cublas_compute_dt t) {
+    auto to_computetype = [&](CUBLASComputeType t) {
         switch (t) {
-        case cublas_compute_dt::kF32:
+        case CUBLASComputeType::kF32:
             assert_types(
                types_match(CUDA_R_32F,  CUDA_R_32F)
             || types_match(CUDA_R_16F,  CUDA_R_32F)
@@ -138,28 +138,28 @@ void get_cublas_configuration(
             }
             return CUBLAS_COMPUTE_32F;
         
-        case cublas_compute_dt::kF16:
+        case CUBLASComputeType::kF16:
             assert_types(types_match(CUDA_R_16F, CUDA_R_16F));
             if (pedantic) {
                 return CUBLAS_COMPUTE_16F_PEDANTIC;
             }
             return CUBLAS_COMPUTE_16F;
         
-        case cublas_compute_dt::kFastF16:
+        case CUBLASComputeType::kF32FastF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_F16 cannot be pedantic");
             }
             return CUBLAS_COMPUTE_32F_FAST_16F;
         
-        case cublas_compute_dt::kFastBF16:
+        case CUBLASComputeType::kF32FastBF16:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_BF16 cannot be pedantic");
             }
             return CUBLAS_COMPUTE_32F_FAST_16BF;
         
-        case cublas_compute_dt::kFastTF32:
+        case CUBLASComputeType::kF32FastTF32:
             assert_types(types_match(CUDA_R_32F, CUDA_R_32F));
             if (pedantic) {
                 throw std::invalid_argument("FAST_TF32 cannot be pedantic");
@@ -175,11 +175,11 @@ void get_cublas_configuration(
 
 
 void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                     cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                     cublas_compute_dt compute_type, bool pedantic)
+                     CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                     CUBLASComputeType compute_type, bool pedantic)
 {
   // Tensors a, b, and c are assumed to have the right datatype and be properly transposed.
-  cublas_config config;
+  CUBLASGemmConfig config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
 
   cublasMath_t math = pedantic ? CUBLAS_PEDANTIC_MATH : CUBLAS_DEFAULT_MATH;
@@ -219,11 +219,11 @@ void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 
 
 void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                      cublas_matrix_dt AB_type, cublas_matrix_dt C_type,
-                      cublas_compute_dt compute_type, bool pedantic)
+                      CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                      CUBLASComputeType compute_type, bool pedantic)
 {
   // Tensors a, b, and c are assumed to have the right datatype and be properly transposed.
-  cublas_config config;
+  CUBLASGemmConfig config;
   get_cublas_configuration(AB_type, C_type, compute_type, pedantic, config);
 
   cublasMath_t math = pedantic ? CUBLAS_PEDANTIC_MATH : CUBLAS_DEFAULT_MATH;

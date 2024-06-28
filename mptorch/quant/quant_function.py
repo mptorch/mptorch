@@ -243,11 +243,11 @@ def match_mac_format_with_cublas_types(
     mt, ct = CUBLASMatrixType, CUBLASComputeType
     match man_add, exp_add:
         case 23, 8 if fast_mode == "f16":
-            return mt.F32, mt.F32, ct.FAST_F16
+            return mt.F32, mt.F32, ct.F32_FAST_F16
         case 23, 8 if fast_mode == "bf16":
-            return mt.F32, mt.F32, ct.FAST_BF16
+            return mt.F32, mt.F32, ct.F32_FAST_BF16
         case 23, 8 if fast_mode == "tf32":
-            return mt.F32, mt.F32, ct.FAST_TF32
+            return mt.F32, mt.F32, ct.F32_FAST_TF32
         case 23, 8:
             return mt.F32, mt.F32, ct.F32
         case 10, 5:
