@@ -7,6 +7,9 @@ import random
 from gfloat import RoundMode, round_float
 from gfloat.formats import *
 
+def no_cuda():
+    return not torch.cuda.is_available()
+
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
     return struct.unpack('>f', s)[0]
@@ -16,6 +19,8 @@ def float_to_bits(value):
     return struct.unpack('>I', s)[0]
 
 # def test_p3109_to_gfloat():
+    # if no_cuda():
+    #     return
 #     for P in range(1, 8):
 #         fi = format_info_p3109(P)
 #         exp_bits = 8 - P
@@ -40,6 +45,9 @@ def float_to_bits(value):
 #             i_uival += 8192 #8192
 
 def test_p3109p1():
+    if no_cuda():
+        return
+    
     # Test cases
     tests = [
         {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,4.0E-13],[134210000.0,-9.0E-07]]             , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]] , dtype=torch.float32, device="cuda")},
@@ -61,6 +69,8 @@ def test_p3109p1():
         assert result_t.equal(test["expected"])
 
 def test_p3109p2():
+    if no_cuda():
+        return
     # Test cases
     tests = [
         {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]]             , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]] , dtype=torch.float32, device="cuda")},
@@ -83,7 +93,8 @@ def test_p3109p2():
         assert result_t.equal(test["expected"])
 
 def test_p3109_signed_nearest():
-
+    if no_cuda():
+        return
     # parameters :
     iterations = 1
     

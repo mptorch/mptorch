@@ -4,6 +4,9 @@ import numpy as np
 import struct
 import random
 
+def no_cuda():
+    return not torch.cuda.is_available()
+
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
     return struct.unpack('>f', s)[0]
@@ -13,7 +16,9 @@ def float_to_bits(value):
     return struct.unpack('>I', s)[0]
 
 def test_p3109_signed_stochastic():
-
+    if no_cuda():
+        return
+    
     rnd_up = 0
     rnd_down = 0
     P = 3
@@ -39,7 +44,9 @@ def test_p3109_signed_stochastic():
     # for i=10000 : 30, 78, 40, 58, 4, 25, 66, 7, 6, 75 : avg = 38.9 = 0.389%
 
 def test_p3109_signed_stochastic_subnormal():
-
+    if no_cuda():
+        return
+    
     rnd_up = 0
     rnd_down = 0
     P = 3
@@ -72,7 +79,9 @@ def test_p3109_signed_stochastic_subnormal():
     # for i=10000 : 18, 2, 39, 15, 15, 16, 91, 62, 30, 21 : avg = 30.9 = 0.309% 
 
 def test_p3109_signed_constant():
-
+    if no_cuda():
+        return
+    
     # parameters :
     prng_bits = 23
     iterations = 1000

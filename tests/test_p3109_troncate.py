@@ -2,6 +2,8 @@ import torch
 from mptorch.quant import p3109_quantize
 import struct
 
+def no_cuda():
+    return not torch.cuda.is_available()
 
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
@@ -12,6 +14,9 @@ def float_to_bits(value):
     return struct.unpack('>I', s)[0]
 
 def test_p3109p1():
+    if no_cuda():
+        return
+
     # Test cases
     tests = [
         {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,4.0E-13],[134210000.0,-9.0E-07]]             , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.0,2.2737368E-13],[6.7108864e+07,-4.7683716e-07]] , dtype=torch.float32, device="cuda")},
@@ -33,6 +38,8 @@ def test_p3109p1():
         assert result_t.equal(test["expected"])
 
 def test_p3109p4():
+    if no_cuda():
+        return
     # Test cases
     tests = [
         {"description": "CASE 0: normal"      , "value": torch.tensor([[1.5,165.65200],[0.0550651,-0.0685105]]             , dtype=torch.float32, device="cuda"), "expected": torch.tensor([[1.5,160.0],[0.0546875,-0.0625]] , dtype=torch.float32, device="cuda")},
@@ -53,11 +60,3 @@ def test_p3109p4():
         print(result_t) 
         print(test["expected"])
         assert result_t.equal(test["expected"])
-
-def main():
-    test_p3109p4()
-    test_p3109p1()
-
-
-if __name__ == "__main__":
-    main()
