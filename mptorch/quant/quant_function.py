@@ -64,7 +64,7 @@ def get_module(x):
     return quant_module
 
 if torch.cuda.is_available():
-    SaturationMode  = quant_cuda.SaturateMode
+    SaturationMode  = quant_cuda.SaturationMode
 else:
     SaturationMode = None
 
@@ -1549,7 +1549,8 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
         - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
         - :attr: `P` (int) : number of bits allocated for precision
         - :attr: `is_signed` (bool): if subnormals are supported or not
-        - :attr: `SaturationMode` (string): change the mode of saturation
+        - :attr: `rouding` (string): change the mode of rounding
+        - :attr: `saturation_mode` (string): change the mode of saturation
         - :attr: `subnormals` (bool): saturate on overflow or use infinities
         - :attr: `prng_bits` (int): number of bits for the random generator
 
@@ -1559,7 +1560,7 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
+    assert rounding in ["stochastic", "nearest", "troncate"], "invalid rounding mode, {}".format(
         rounding
     )
     assert saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
@@ -1574,11 +1575,15 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
     quant_module = get_module(x)
     if rounding == "nearest":
         out = quant_module.p3109_quantize_nearest(
-            x.contiguous(), P, is_signed , saturation_enum, subnormals
+            x.contiguous(), P, is_signed, saturation_enum, subnormals
         )
     elif rounding == "stochastic":
         out = quant_module.p3109_quantize_stochastic(
             x.contiguous(), P, prng_bits, is_signed, saturation_enum, subnormals
+        )
+    elif rounding == "troncate":
+        out = quant_module.p3109_quantize_troncate(
+            x.contiguous(), P, is_signed, saturation_enum, subnormals
         )
     return out
 

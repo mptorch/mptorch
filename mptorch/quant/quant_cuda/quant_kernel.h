@@ -37,16 +37,22 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
                                         bool saturate);
 
 __global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                            int P, saturate_mode saturation_mode, bool subnormals);
+                                            int P, SaturationMode saturation_mode, bool subnormals);
 
 __global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                              int P, saturate_mode saturation_mode, bool subnormals);
+                                              int P, SaturationMode saturation_mode, bool subnormals);
 
 __global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                               int P, int prng_bits, saturate_mode saturation_mode, bool subnormals);
+                                               int P, int prng_bits, SaturationMode saturation_mode, bool subnormals);
 
 __global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                                 int P, int prng_bits, saturate_mode saturation_mode, bool subnormals);
+                                                 int P, int prng_bits, SaturationMode saturation_mode, bool subnormals);
+
+__global__ void p3109_signed_kernel_troncate(float *__restrict__ a, float *o, int size,
+                                               int P, SaturationMode saturation_mode, bool subnormals);
+
+__global__ void p3109_unsigned_kernel_troncate(float *__restrict__ a, float *o, int size,
+                                                 int P, SaturationMode saturation_mode, bool subnormals);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,

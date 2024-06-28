@@ -1,6 +1,6 @@
 #pragma once
 
-enum class saturate_mode {
+enum class SaturationMode {
     SATURATE,
     NO_OVERFLOW,
     OVERFLOWS
