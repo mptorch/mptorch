@@ -344,7 +344,7 @@ int main(int argc, const char **argv)
             printf("\nvs\n");
             print_uint32(test_outputs[j]);
             printf("\n");
-            //exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -361,7 +361,7 @@ int main(int argc, const char **argv)
         float fval2 = cast_fp_nearest_cpu(fval, 10, 5);
         if ((fval1 != fval2))
         {
-            if (!isnan(fval1) || !isnan(fval2))
+            if (!isnanf(fval1) or !isnanf(fval2))
             {
                 printf("%.4f %.4f %.4f\n", fval, fval1, fval2);
                 print_float(fval);
