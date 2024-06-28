@@ -5,6 +5,7 @@ from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 from mptorch.quant import float_mm, float_bmm
 from mptorch.quant.quant_function import match_mac_format_with_cublas_types
 from mptorch.quant import cublas_acceleration
+import pytest
 
 def no_cuda():
     return not torch.cuda.is_available()
@@ -147,6 +148,24 @@ def test_bmm_if32_of32_cf32_p_4_4():
     assert res_cublas.shape == ref.shape
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
+
+def test_mm_type_error():
+    if no_cuda():
+        return
+    
+    a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
+    b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
+    with pytest.raises(RuntimeError):
+        cublas_mm(a, b, mt.F32, mt.F32, ct.F16, True)
+
+def test_bmm_type_error():
+    if no_cuda():
+        return
+    
+    a = torch.rand(8, 277, 1501, dtype=torch.float32, device="cuda")
+    b = torch.rand(8, 1501, 984, dtype=torch.float32, device="cuda")
+    with pytest.raises(RuntimeError):
+        cublas_bmm(a, b, mt.F32, mt.F32, ct.F16, True)
 
 def test_cublas_config_for_format():
     if no_cuda():
