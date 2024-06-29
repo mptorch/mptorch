@@ -137,7 +137,9 @@ def test_p3109_signed_constant():
         
 
 def test_p3109_signed_stochastic_constant():
-
+    if no_cuda():
+        return
+    
     P = 5
 
     values = [0]
@@ -154,6 +156,9 @@ def test_p3109_signed_stochastic_constant():
             assert result[x].item() == i
 
 def test_p3109_signed_stochastic_all_vals():
+    if no_cuda():
+        return
+    
     # for P = 5
     P = 5
     values = []
