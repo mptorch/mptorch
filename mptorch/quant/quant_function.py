@@ -89,7 +89,7 @@ def quant_softmax(a, dim, formats, use_forward=True):
     saturate = add_cfg.saturate
 
     # TODO: have separate transcendental, addition and divison man/exp bits
-    return quant_cpu.float_quantized_softmax_nearest(
+    return quant_cpu.float_quantize_nearest_softmax(
         a, man, exp, man, exp, man, exp, subnormals, saturate, dim
     )
 
@@ -114,7 +114,7 @@ def quant_softmax_lse(a, dim, formats, use_forward=True):
     saturate = add_cfg.saturate
 
     # TODO: have separate transcendental and addition man/exp bits
-    return quant_cpu.float_quantized_softmax_lse_nearest(
+    return quant_cpu.float_quantize_nearest_softmax_lse(
         a, man, exp, man, exp, subnormals, saturate, dim
     )
 
