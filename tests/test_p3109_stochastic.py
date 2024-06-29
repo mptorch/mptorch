@@ -137,7 +137,9 @@ def test_p3109_signed_constant():
         
 
 def test_p3109_signed_stochastic_constant():
-
+    if no_cuda():
+        return
+    
     P = 5
 
     values = [0]
@@ -154,6 +156,9 @@ def test_p3109_signed_stochastic_constant():
             assert result[x].item() == i
 
 def test_p3109_signed_stochastic_all_vals():
+    if no_cuda():
+        return
+    
     # for P = 5
     P = 5
     values = []
@@ -197,7 +202,6 @@ def test_p3109_signed_stochastic_all_vals():
     print("Average error: " + str(accu_error/count) + " | Lowest error: " + str(lowest) + " | Peak error: " + str(highest))
 
 def getting_values(list, P):
-
     exp_bits = 8 - P
     man_bits = P - 1 
     spec_exp = 1 if P == 1 else 0

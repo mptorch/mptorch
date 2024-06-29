@@ -108,7 +108,6 @@ def test_p3109p2_NO_OVERFLOW(): # no inf so we go to 0xfe as max
     assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant) # +inf
 
 def test_p3109p2_OVERFLOW(): # any overflow goes to inf, not 0xfd
-
     if no_cuda():
         return
     
@@ -145,7 +144,6 @@ def test_p3109p8_SATURATE():
     assert_quant([float('inf')], [float('inf')], quant) # +inf
 
 def test_p3109p8_NO_OVERFLOW():
-
     if no_cuda():
         return
     
@@ -165,7 +163,6 @@ def test_p3109p8_NO_OVERFLOW():
     assert_quant([float('inf')], b2f(0b00111111111111100000000000000000), quant) # +inf
 
 def test_p3109p8_OVERFLOW():
-
     if no_cuda():
         return
     
