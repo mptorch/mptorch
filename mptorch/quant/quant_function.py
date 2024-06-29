@@ -112,8 +112,9 @@ def quant_softmax_lse(a, dim, formats, use_forward=True):
     subnormals = add_cfg.subnormals
     saturate = add_cfg.saturate
 
+    # TODO: have separate transcendental and addition man/exp bits
     return quant_cpu.float_quantized_softmax_lse_nearest(
-        a, man, exp, subnormals, saturate, dim
+        a, man, exp, man, exp, subnormals, saturate, dim
     )
 
 def mp_mm(a, b, formats, use_forward=True):

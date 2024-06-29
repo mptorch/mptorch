@@ -484,7 +484,10 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_bits, int exp_bits, boo
   return o;
 }
 
-Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate, int dim){
+Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_trans, int exp_trans,
+                                           int man_add, int exp_add, bool subnormals,
+                                           bool saturate, int dim)
+{
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
@@ -493,12 +496,12 @@ Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits,
   int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
   
   int outer_size = 1;
-  for(int i = 0; i < real_dim; ++i){
+  for (int i = 0; i < real_dim; ++i) {
     outer_size *= a.size(i);
   }
 
   int inner_size = 1;
-  for(int i = real_dim + 1; i < a.dim(); ++i){
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
     inner_size *= a.size(i);
   }
 
@@ -506,14 +509,18 @@ Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits,
   int dim_stride = inner_size;
   int outer_stride = dim_size * dim_stride;
 
-  for(int L = 0; L < outer_size * inner_size; ++L){
+  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
+    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
+  };
+
+  for (int L = 0; L < outer_size * inner_size; ++L) {
     int i = L / inner_size;
     int j = L % inner_size;
 
-    int idx_max = (i*outer_stride)+j;
+    int idx_max = (i*outer_stride) + j;
     float max = a_array[idx_max];
-    for(int k = 0; k < dim_size; ++k){
-      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+    for (int k = 0; k < dim_size; ++k) {
+      int idx = (i*outer_stride) + (k*dim_stride) + j;
       if(a_array[idx] > max){
         max = a_array[idx];
         idx_max = idx;
@@ -521,18 +528,21 @@ Tensor float_quantized_softmax_lse_nearest(Tensor a, int man_bits, int exp_bits,
     }
 
     float lgs = 0.0f;
-    for(int k = 0; k < dim_size; ++k){
-      int idx = (i*outer_stride)+(k*dim_stride)+(j);
+    for (int k = 0; k < dim_size; ++k) {
+      int idx = (i*outer_stride) + (k*dim_stride) + j;
       if(idx == idx_max){
         continue;
       }
-      lgs = log(expf(lgs) + expf(a_array[idx] - max));
-      lgs = float_quantize(lgs, man_bits, exp_bits, rNearest, subnormals, saturate);
+      float x = quant(a_array[idx] - max, man_add, exp_add);
+      float e_lgs = quant(expf(lgs), man_trans, exp_trans);
+      float e_x = quant(expf(x), man_trans, exp_trans);
+      lgs = quant(log(e_lgs + e_x), man_trans, exp_trans);
     }
     for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride)+(k*dim_stride)+(j);
-      float out = expf(a_array[idx] - max - lgs);
-      o_array[idx] = out;
+      int idx = (i*outer_stride) + (k*dim_stride) + j;
+      float x = quant(a_array[idx] - max, man_add, exp_add);
+      x = quant(x - lgs, man_add, exp_add);
+      o_array[idx] = quant(expf(x), man_trans, exp_trans);
     }
   }
   return o;
