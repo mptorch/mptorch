@@ -50,7 +50,7 @@ def test_softmax_lse_dim2():
 	res = quant_softmax_lse(a, 2, layer_formats)
 	torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
-def test_softmax_lse_dim2():
+def test_softmax_lse_dim3():
 	a = torch.randn(10, 30, 40, 20, device=device)
 	ref = torch.softmax(a, dim=3)
 	res = quant_softmax_lse(a, 3, layer_formats)
