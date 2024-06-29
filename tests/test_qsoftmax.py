@@ -91,7 +91,7 @@ def test_softmax_backward_dim0():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=0)
-	res2 = Q.qsoftmax(res1, 0, layer_formats, useLSE=True)
+	res2 = Q.qsoftmax(res1, 0, layer_formats, use_lse=True)
 
 	ref2.backward(a)
 	res2.backward(a)
@@ -106,7 +106,7 @@ def test_softmax_backward_dim1():
 	res1.requires_grad_(True)
 
 	ref2 = torch.softmax(ref1, dim=1)
-	res2 = Q.qsoftmax(res1, 1, layer_formats, useLSE=True)
+	res2 = Q.qsoftmax(res1, 1, layer_formats, use_lse=True)
 
 	ref2.backward(a)
 	res2.backward(a)
