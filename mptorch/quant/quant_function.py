@@ -84,6 +84,21 @@ else:
 
 
 def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
+    """
+    Python wrapper for floating-point cuBLAS GEMM (`cublasGemmEx`). This function
+    only accepts binary32 (float32) input and output matrices, but allows intermediate
+    casting to other datatypes supported by cuBLAS. Please see allowed type combinations
+    in the [cuBLAS documentation](https://docs.nvidia.com/cuda/cublas/#cublasgemmex).
+    Args:
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
+        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
+        - :attr: `input_type` (CUBLASMatrixType) : intermediate float format for input matrices
+        - :attr: `output_type` (CUBLASMatrixType) : intermedtiate float format for the output matrix
+        - :attr: `compute_type` (CUBLASComputeType) : accumulator type used by cuBLAS GEMM
+        - :attr: `pedantic` (bool) : whethe to hint cuBLAS to use pedantic math or not
+    Returns:
+        - the result of GEMM (torch.Tensor)
+    """
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert len(a.shape) == 2
