@@ -465,13 +465,11 @@ Tensor float_quantized_softmax_nearest(Tensor a, int man_trans, int exp_trans,
     int i = L / inner_size;
     int j = L % inner_size;
 
-    int idx_max = (i*outer_stride) + j;
-    float max = a_array[idx_max];
+    float max = a_array[(i*outer_stride) + j];
     for (int k = 0; k < dim_size; ++k) {
       int idx = (i*outer_stride) + (k*dim_stride) + j;
       if (a_array[idx] > max) {
         max = a_array[idx];
-        idx_max = idx;
       }
     }
 
