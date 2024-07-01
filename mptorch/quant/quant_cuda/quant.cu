@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstdint>
 #include <tuple>
+#include <stdexcept>
+#include <cassert>
 
 using namespace at;
 
