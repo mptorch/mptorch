@@ -121,7 +121,7 @@ class SuperNormalFloat(Number):
     """
     Low-Precision SuperNormal Floating Point Format.
 
-    We set the exponent bias to be :math:`2^{exp-1}-1`. For rounding
+    We set the exponent bias to be :math:`2^{exp-1}`. For rounding
     mode, we apply *round to nearest even*.
 
     Args:
