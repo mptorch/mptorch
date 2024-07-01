@@ -5,8 +5,8 @@ class cublas_acceleration:
     This class allows enabling and disabling of automatic cuBLAS acceleration
     for compatible types. When enabled, all calls for float quantized (batched) GEMMs
     (`float_mm` and `float_bmm`) will use the cuBLAS GEMM functions if the
-    floating point computation format match one of the formats supported by cuBLAS, i.e:
-    - nearest rounding mode
+    floating point computation format matches one of the formats supported by cuBLAS, i.e:
+    - nearest rounding even mode
     - fused-multiply-add enabled
     - subnormals enabled
     - saturation disabled
