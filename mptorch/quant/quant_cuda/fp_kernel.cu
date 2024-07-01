@@ -7,37 +7,50 @@
 #include <iostream>
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                 bool subnormal_support = true,
-                                 bool saturate = false) {
-  uint32_t target, quantize_bits;
-  target = FLOAT_TO_BITS(&origin_float);
-  float quantized;
+                                       bool subnormal_support = true,
+                                       bool saturate = false)
+{
+    uint32_t target, quantize_bits;
+    target = FLOAT_TO_BITS(&origin_float);
+    float quantized;
 
-  int target_exp = (target << 1 >> 1 >> 23) - 127;
-  int min_exp = -((1 << (exp_bits - 1)) - 2);
-  bool subnormal = (target_exp < min_exp);
-  bool noquantize = (man_bits >= 23);
+    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int min_exp = -((1 << (exp_bits - 1)) - 2);
+    bool subnormal = (target_exp < min_exp);
+    bool noquantize = (man_bits >= 23);
 
-  if (noquantize) {
-    quantized = origin_float;
-  } else {
-    if (subnormal && subnormal_support) {
-      float shift_float, val;
-      int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
-      shift_float = BITS_TO_FLOAT(&shift_bits);
-      val = origin_float + shift_float;
-      target = FLOAT_TO_BITS(&val);
-      quantize_bits = round_bitwise_nearest(target, man_bits);
-      quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
-    } else {
-      quantize_bits = round_bitwise_nearest(target, man_bits);
-      quantize_bits =
-          clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
-      quantized = BITS_TO_FLOAT(&quantize_bits);
+    if (noquantize)
+    {
+        quantized = origin_float;
     }
-  }
+    else
+    {
+        // handle subnormal inputs (if subnormal mode is active)
+        if (subnormal && subnormal_support)
+        {
+            int exp_diff = man_bits - (min_exp - target_exp);
+            int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+            quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+            quantize_bits =
+                clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = BITS_TO_FLOAT(&quantize_bits);
+        }
+        // handle NaN/inf inputs
+        else if (target_exp == 128)
+        {
+            quantized = origin_float;
+        }
+        // normal value range or overflow
+        else
+        {
+            quantize_bits = round_bitwise_nearest(target, man_bits);
+            quantize_bits =
+                clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = BITS_TO_FLOAT(&quantize_bits);
+        }
+    }
 
-  return quantized;
+    return quantized;
 }
 
 __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
