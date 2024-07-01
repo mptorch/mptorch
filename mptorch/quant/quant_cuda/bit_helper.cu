@@ -94,7 +94,7 @@ clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
   return quantized_num;
 }
 
-__device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+__device__ __forceinline__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
                                                   uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
@@ -115,7 +115,7 @@ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, ui
     return quantized_num;
 }
 
-__device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+__device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
                                                     uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)

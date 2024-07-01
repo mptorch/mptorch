@@ -89,6 +89,7 @@ __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob, int 
                                     bool saturate = false) 
 {
   // TODO
+  return 0.0f;
 }
 
 

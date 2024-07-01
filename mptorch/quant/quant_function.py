@@ -310,10 +310,12 @@ def float_mm(
 def superfp_mm(
     a,
     b,
-    man_add=23,
+    man_add=7,
     exp_add=8,
-    man_mul=23,
+    binades_add=1,
+    man_mul=7,
     exp_mul=8,
+    binades_mul=1,
     rounding="nearest",
     fma=True,
     saturate=False,
@@ -354,6 +356,8 @@ def superfp_mm(
                 exp_add,
                 man_mul,
                 exp_mul,
+                binades_add,
+                binades_mul,
                 saturate,
             )
         else:
@@ -366,6 +370,7 @@ def superfp_mm(
                 a.shape[1],
                 man_add,
                 exp_add,
+                binades_add,
                 saturate,
             )
     else:
@@ -410,6 +415,8 @@ def mp_bmm(a, b, formats, use_forward=True):
             exp_add=add_cfg.exp,
             man_mul=mul_cfg.man,
             exp_mul=mul_cfg.exp,
+            binades_add=add_cfg.binades,
+            binades_mul=mul_cfg.binades,
             rounding=rnd,
             fma=fma,
             saturate=add_cfg.saturate,
@@ -722,8 +729,6 @@ def float_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
-                    man_mul,
-                    exp_mul,
                     subnormals,
                     saturate,
                 )
@@ -750,10 +755,12 @@ def float_bmm(
 def superfp_bmm(
     a,
     b,
-    man_add=23,
+    man_add=7,
     exp_add=8,
-    man_mul=23,
+    man_mul=7,
     exp_mul=8,
+    binades_add=1,
+    binades_mul=1,
     rounding="nearest",
     fma=True,
     saturate=True,
@@ -777,6 +784,8 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
+                    binades_add,
+                    binades_mul,
                     saturate,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
@@ -793,6 +802,8 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
+                    binades_add,
+                    binades_mul,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
@@ -817,6 +828,8 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
+                    binades_add,
+                    binades_mul,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
@@ -833,6 +846,8 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
+                    binades_add,
+                    binades_mul,
                     saturate,
                 )
             else:
@@ -849,6 +864,7 @@ def superfp_bmm(
                     a.shape[2],
                     man_add,
                     exp_add,
+                    binades_add,
                     saturate,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
@@ -863,6 +879,7 @@ def superfp_bmm(
                     a_r.shape[1],
                     man_add,
                     exp_add,
+                    binades_add,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
@@ -885,8 +902,7 @@ def superfp_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
-                    man_mul,
-                    exp_mul,
+                    binades_add,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
@@ -901,6 +917,7 @@ def superfp_bmm(
                     a.shape[1],
                     man_add,
                     exp_add,
+                    binades_add,
                     saturate,
                 )
             else:
@@ -1273,6 +1290,7 @@ def quantizer(
                         x,
                         forward_number.man,
                         forward_number.exp,
+                        forward_number.binades,
                         forward_number.saturate,
                     )
                 )
@@ -1353,6 +1371,7 @@ def quantizer(
                     a,
                     backward_number.man,
                     backward_number.exp,
+                    backward_number.binades,
                     backward_number.saturate,
                 )
             )
@@ -1541,7 +1560,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
     return out
 
 
-def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
+def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
     """
     Quantize a single precision Floating Point into low-precision Super Normal Floating Point
 
@@ -1549,6 +1568,7 @@ def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
         - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
         - :attr: `exp` (int) : number of bits allocated for exponent
         - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
+        - :attr: `binades` (int) : number of binades that will be transformed into log range
         - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
         - :attr: `saturate` (bool): saturate on overflow or use infinities
 
@@ -1563,7 +1583,7 @@ def superfp_quantize(x, exp, man, rounding="nearest", saturate=False):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.superfp_quantize_nearest(x.contiguous(), man, exp, saturate)
+        out = quant_module.superfp_quantize_nearest(x.contiguous(), man, exp, binades, saturate)
     elif rounding == "stochastic":
         # TODO
         raise NotImplementedError("SR SuperNormalFloat not yet implemented")

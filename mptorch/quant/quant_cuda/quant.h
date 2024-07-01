@@ -91,7 +91,7 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  * Nearest Rounding.
  **/
 Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
-                                   bool saturate);
+                                   int binades, bool saturate);
 
 /**
  * quantize a FloatTensor into a P3109-compliant floating point
@@ -165,8 +165,8 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
  **/
 void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                     int K, int man_add, int exp_add,
-                                    int man_mul, int exp_mul,
-                                    bool saturate);
+                                    int man_mul, int exp_mul, int binades_add,
+                                    int binades_mul, bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
@@ -178,8 +178,8 @@ void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N
  **/
 void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                      int K, int man_add, int exp_add,
-                                     int man_mul, int exp_mul,
-                                     bool saturate);
+                                     int man_mul, int exp_mul, int binades_add,
+                                     int binades_mul, bool saturate);
 
 /**
  * perform matrix multiplication with quantized FMA operations that simulate
@@ -190,7 +190,7 @@ void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int 
  **/
 void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int man_fma, int exp_fma,
-                                        bool saturate);
+                                        int binades_fma, bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized FMA operations that simulate
@@ -201,7 +201,7 @@ void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
  **/
 void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                          int N, int K, int man_fma, int exp_fma,
-                                         bool saturate);
+                                         int binades_fma, bool saturate);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
