@@ -15,3 +15,5 @@ The main references should be the CUDA C++ Programming guide and the best practi
 
 - [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html)
 - [CUDA C++ Best Practices Guide](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html)
+
+For a nice introduction to CUDA programming, see the [presentation](cuda_tutorial_nazar.pdf) given by Nazar Misyats, with a recorded video available [here](https://ubc.zoom.us/rec/share/oEx7T5BmisKQw9jc0VcLMg3fc2bJwhTilOmsekOBoSyuzxSIYLoldj02Y0KLwThE.cE48-5o8GBny4Yn_) (video requires the passcode "c@gKy1B=" without the quotes). This introduction also talks about how to call a C++ CUDA function from Python.
