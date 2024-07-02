@@ -46,6 +46,9 @@ quant_cpu = load(
 )
 
 if torch.cuda.is_available():
+    extra_ldflags = []
+    if os.name == "nt":
+        extra_ldflags.append("cublas.lib")
     quant_cuda = load(
         name="quant_cuda",
         sources=[
@@ -60,6 +63,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/p3109_kernel.cu"),
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
+        extra_ldflags=extra_ldflags
     )
 else:
     quant_cuda = quant_cpu
