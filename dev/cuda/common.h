@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
 #include <cfloat>
 #include <iostream>
 
@@ -54,7 +55,18 @@ void cuda_check(cudaError_t error, const char *file, int line) {
         exit(EXIT_FAILURE);
     }
 };
+
+// CUBLAS error checking code
+void cublas_check(cublasStatus_t error, const char* file, int line) {
+    if (error != CUBLAS_STATUS_SUCCESS) {
+        fprintf(stderr, "[CUBLAS ERROR] at file %s:%d\n%s\n", file, line,
+            cublasGetStatusString(error));
+        exit(EXIT_FAILURE);
+    }
+}
 #define cudaCheck(err) (cuda_check(err, __FILE__, __LINE__))
+
+#define cublasCheck(err) cublas_check(err, __FILE__, __LINE__)
 
 // --------------------------------------------------------------------------------
 // checking utils
@@ -62,6 +74,14 @@ float* make_random_float(size_t N) {
     float* arr = (float*)malloc(N * sizeof(float));
     for (size_t i = 0; i < N; i++) {
         arr[i] = ((float)rand() / RAND_MAX) * 2.0 - 1.0; // range -1..1
+    }
+    return arr;
+}
+
+float* make_zeros_float(size_t N) {
+    float* arr = (float*)malloc(N * sizeof(float));
+    for (size_t i = 0; i < N; i++) {
+        arr[i] = 0.f;
     }
     return arr;
 }

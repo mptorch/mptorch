@@ -1,5 +1,6 @@
 #include "quant.h"
 #include "quant_kernel.h"
+#include "p3109_kernel.h"
 #include <ATen/ATen.h>
 #include <climits>
 #include <cstdlib>
@@ -8,7 +9,8 @@
 #include <cmath>
 #include <cstdint>
 #include <tuple>
-#include "p3109_kernel.h"
+#include <stdexcept>
+#include <cassert>
 
 using namespace at;
 

@@ -296,6 +296,29 @@ void fixed_point_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
       return;
 }
 
+void floating_point_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                              CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                              CUBLASComputeType compute_type, bool pedantic)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      float_mm_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      return;
+}
+
+void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                               CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
+                               CUBLASComputeType compute_type, bool pedantic)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      float_bmm_cublas(a, b, c, M, N, K, AB_type, C_type, compute_type, pedantic);
+      return;
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
       m.def("fixed_point_quantize_stochastic", &fixed_point_quantize_stochastic,
@@ -380,4 +403,28 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &fixed_point_quantize_stochastic_mm_fma,
             "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic "
             "Quantization (CUDA)");
+
+
+      py::enum_<CUBLASMatrixType>(m, "CUBLASMatrixType", py::arithmetic())
+            .value("F32", CUBLASMatrixType::kF32)
+            .value("F16", CUBLASMatrixType::kF16)
+            .value("BF16", CUBLASMatrixType::kBF16);
+
+      py::enum_<CUBLASComputeType>(m, "CUBLASComputeType", py::arithmetic())
+            .value("F32", CUBLASComputeType::kF32)
+            .value("F16", CUBLASComputeType::kF16)
+            .value("F32_FAST_F16", CUBLASComputeType::kF32FastF16)
+            .value("F32_FAST_BF16", CUBLASComputeType::kF32FastBF16)
+            .value("F32_FAST_TF32", CUBLASComputeType::kF32FastTF32);
+
+      m.def("create_cublas_handle", &create_cublas_handle, "Creates a new cuBLAS handle");
+      m.def("delete_cublas_handle", &delete_cublas_handle, "Deletes the current cuBLAS handle");
+      m.def("floating_point_mm_cublas",
+            &floating_point_mm_cublas,
+            "cuBLAS accelerated matrix multiply, using the specified precision and "
+            "compute mode (CUDA)");
+      m.def("floating_point_bmm_cublas",
+            &floating_point_bmm_cublas,
+            "cuBLAS accelerated batched matrix multiply, using the specified precision "
+            "and compute mode (CUDA)");
 }
