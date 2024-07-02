@@ -429,9 +429,9 @@ class qsoftmax_kernel(torch.autograd.Function):
         qinput = formats.input_quant(a)
 
         if use_lse:
-            x = quant_softmax_lse(qinput, dim, formats)
+            x = float_softmax_lse(qinput, dim, formats)
         else:
-            x = quant_softmax(qinput, dim, formats)
+            x = float_softmax(qinput, dim, formats)
 
         ctx.save_for_backward(x)
         qoutput = formats.output_quant(x)

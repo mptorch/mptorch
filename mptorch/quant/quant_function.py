@@ -23,8 +23,8 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
-    "quant_softmax",
-    "quant_softmax_lse"
+    "float_softmax",
+    "float_softmax_lse"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -68,7 +68,7 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
-def quant_softmax(a, dim, formats, use_forward=True):
+def float_softmax(a, dim, formats, use_forward=True):
     assert not a.is_cuda
     if use_forward:  # FWD format configuration
         add_cfg, fma, rnd = (
@@ -93,7 +93,7 @@ def quant_softmax(a, dim, formats, use_forward=True):
         a, man, exp, man, exp, man, exp, subnormals, saturate, dim
     )
 
-def quant_softmax_lse(a, dim, formats, use_forward=True):
+def float_softmax_lse(a, dim, formats, use_forward=True):
     assert not a.is_cuda
     if use_forward:  # FWD format configuration
         add_cfg, fma, rnd = (
