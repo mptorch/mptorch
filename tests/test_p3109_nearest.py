@@ -23,31 +23,34 @@ def assert_quant(x_arr, expected_arr, quant_fn):
     expected = torch.tensor(expected_arr, dtype=torch.float32, device="cuda")
     assert expected.equal(quant_fn(x))
 
-# def test_p3109_to_gfloat():
-    # if no_cuda():
-    #     return
-#     for P in range(1, 8):
-#         fi = format_info_p3109(P)
-#         exp_bits = 8 - P
-#         man_bits = P - 1
+def test_p3109_to_gfloat():
+    if no_cuda():
+        return
+    
+    for P in range(1, 8):
+        fi = format_info_p3109(P)
+        exp_bits = 8 - P
+        man_bits = P - 1
 
-#         spec_exp = 1 if P == 1 else 0
-#         max_exp = (1 << (exp_bits - 1)) - 1
-#         min_exp = spec_exp - max_exp
+        spec_exp = 1 if P == 1 else 0
+        max_exp = (1 << (exp_bits - 1)) - 1
+        min_exp = spec_exp - max_exp
 
-#         min_val_uival = (min_exp - man_bits - 2 + 127) << 23
-#         max_val_uival = (max_exp + 2 + 127) << 23
+        min_val_uival = (min_exp - man_bits - 2 + 127) << 23
+        max_val_uival = (max_exp + 2 + 127) << 23
 
-#         i_uival = min_val_uival
-#         while i_uival <= max_val_uival:
-#             i_fval = bits_to_float(i_uival)
+        i_uival = min_val_uival
+        while i_uival <= max_val_uival:
+            i_fval = bits_to_float(i_uival)
 
-#             result1 = p3109_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
-#             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
-#             result1 = result1.cpu() 
+            result1 = p3109_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
+            result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
+            result1 = result1.cpu() 
 
-#             assert result1 == result2 or np.isnan(result1)
-#             i_uival += 8192 #8192
+            expected = torch.tensor(result2, dtype=torch.float32, device="cpu")
+
+            assert result1.equal(expected) or np.isnan(result1)
+            i_uival += 8192 #8192
 
 def test_p3109p1():
     if no_cuda():
@@ -132,3 +135,10 @@ def test_p3109_signed_nearest():
             previous_fval = i_fval
             exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
             i_fval += 2**(-man_bits)*2**(exp_prev)
+
+def main():
+    test_p3109_to_gfloat()
+
+
+if __name__ == "__main__":
+    main()

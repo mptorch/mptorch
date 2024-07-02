@@ -33,7 +33,11 @@ __host__ __device__ float cast_p3109_signed_nearest(float origin_float, int P, S
         }
     }
 
-    uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    if(P == 1){
+        uval8 = round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift);
+    }else {
+        uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    }
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     fval8 = BITS_TO_FLOAT(&uval8);
 
@@ -149,7 +153,11 @@ __host__ __device__ float cast_p3109_unsigned_nearest(float origin_float, int P,
         }
     }
 
-    uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    if(P == 1){
+        uval8 = round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift);
+    }else {
+        uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    }
     uval8 = p3109_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     fval8 = BITS_TO_FLOAT(&uval8);
 

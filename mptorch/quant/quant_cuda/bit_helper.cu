@@ -29,7 +29,7 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits) { //
 // in this case we round down because we are in the middle with the nearest even being the down
 
 __host__ __device__ __forceinline__ uint32_t
-round_bitwise_nearest(uint32_t target, int man_bits) {
+round_bitwise_nearest_p1(uint32_t target, int man_bits) {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 1 << (22 - man_bits);
   // tie breaking rule offset
@@ -42,6 +42,19 @@ round_bitwise_nearest(uint32_t target, int man_bits) {
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
+__host__ __device__ __forceinline__ uint32_t
+round_bitwise_nearest(uint32_t target, int man_bits) {
+  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+  uint32_t machine_eps = 1 << (22 - man_bits);
+  // tie breaking rule offset
+  int offset = (down == machine_eps);
+  uint32_t add_r = target + machine_eps;
+  // apply the mask
+  // this is the analogue of how you would do round 
+  // to nearest integer using the floor function: 
+  // round(x) = floor(x + 0.5)
+  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
+}
 
 __host__ __device__ __forceinline__ uint32_t round_bitwise_up(uint32_t target, int man_bits) {
   uint32_t mask = (1 << (23 - man_bits)) - 1;
