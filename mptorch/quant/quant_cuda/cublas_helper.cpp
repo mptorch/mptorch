@@ -220,18 +220,21 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
     }
   };
 
-  void *h_dA[B], *h_dB[B], *h_dC[B];
+  void **h_dA, **h_dB, **h_dC;
   void **d_dA, **d_dB, **d_dC;
 
+  h_dA = new void*[B];
+  h_dB = new void*[B];
+  h_dC = new void*[B];
   get_ptrs(h_dA, a, config.matrix_a, M*K);
   get_ptrs(h_dB, b, config.matrix_b, K*N);
   get_ptrs(h_dC, c, config.matrix_c, M*N);
-  cudaMalloc(&d_dA, B * sizeof(float*));
-  cudaMalloc(&d_dB, B * sizeof(float*));
-  cudaMalloc(&d_dC, B * sizeof(float*));
-  cudaMemcpy(d_dA, h_dA, B * sizeof(float*), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_dB, h_dB, B * sizeof(float*), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_dC, h_dC, B * sizeof(float*), cudaMemcpyHostToDevice);
+  cudaMalloc(&d_dA, B * sizeof(void*));
+  cudaMalloc(&d_dB, B * sizeof(void*));
+  cudaMalloc(&d_dC, B * sizeof(void*));
+  cudaMemcpy(d_dA, h_dA, B * sizeof(void*), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_dB, h_dB, B * sizeof(void*), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_dC, h_dC, B * sizeof(void*), cudaMemcpyHostToDevice);
 
   cublasStatus_t error;
   // special case for scalar types: https://docs.nvidia.com/cuda/cublas/index.html#cublasgemmbatchedex
@@ -267,6 +270,9 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
   cudaFree(d_dA);
   cudaFree(d_dB);
   cudaFree(d_dC);
+  delete[] h_dA;
+  delete[] h_dB;
+  delete[] h_dC;
 
   if(error != CUBLAS_STATUS_SUCCESS) {
     throw std::runtime_error(cublasGetStatusString(error));
