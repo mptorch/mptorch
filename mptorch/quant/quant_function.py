@@ -8,6 +8,8 @@ from mptorch import (
 )
 from torch.utils.cpp_extension import load
 import os
+from .cublas import cublas_acceleration
+
 
 __all__ = [
     "fixed_point_quantize",
@@ -24,6 +26,11 @@ __all__ = [
     "superfp_mm",
     "superfp_bmm",
     "float_softmax",
+    "cublas_mm",
+    "cublas_bmm",
+    "CUBLASMatrixType",
+    "CUBLASComputeType",
+    "cublas_acceleration"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -38,6 +45,9 @@ quant_cpu = load(
 )
 
 if torch.cuda.is_available():
+    extra_ldflags = []
+    if os.name == "nt":
+        extra_ldflags.append("cublas.lib")
     quant_cuda = load(
         name="quant_cuda",
         sources=[
@@ -49,7 +59,9 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
+            os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
+        extra_ldflags=extra_ldflags
     )
 else:
     quant_cuda = quant_cpu
@@ -66,6 +78,201 @@ def get_module(x):
     else:
         quant_module = quant_cpu
     return quant_module
+
+
+
+if torch.cuda.is_available():
+    CUBLASComputeType = quant_cuda.CUBLASComputeType
+    CUBLASMatrixType  = quant_cuda.CUBLASMatrixType
+else:
+    CUBLASComputeType, CUBLASMatrixType = None, None
+
+
+def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
+    """
+    Python wrapper for floating-point cuBLAS GEMM (`cublasGemmEx`). This function
+    only accepts binary32 (float32) input and output matrices, but allows intermediate
+    casting to other datatypes supported by cuBLAS. Please see allowed type combinations
+    in the [cuBLAS documentation](https://docs.nvidia.com/cuda/cublas/#cublasgemmex).
+    Args:
+        - :attr: `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
+        - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
+        - :attr: `input_type` (CUBLASMatrixType) : intermediate float format for input matrices
+        - :attr: `output_type` (CUBLASMatrixType) : intermedtiate float format for the output matrix
+        - :attr: `compute_type` (CUBLASComputeType) : accumulator type used by cuBLAS GEMM
+        - :attr: `pedantic` (bool) : whethe to hint cuBLAS to use pedantic math or not
+    Returns:
+        - the result of GEMM (torch.Tensor)
+    """
+    if not torch.cuda.is_available():
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
+    assert len(a.shape) == 2
+    assert len(b.shape) == 2
+    assert a.shape[1] == b.shape[0]
+    assert a.device == b.device
+    assert a.is_cuda
+    quant_cuda.create_cublas_handle()
+    dtype = {
+        CUBLASMatrixType.F32: torch.float32,
+        CUBLASMatrixType.F16: torch.float16,
+        CUBLASMatrixType.BF16: torch.bfloat16,
+    }
+    a = a.to(dtype[input_type])
+    b = b.to(dtype[input_type])
+    c = torch.zeros(
+        b.shape[1], a.shape[0], # transposed
+        device=a.device,
+        dtype=dtype[output_type]
+    )
+    quant_cuda.floating_point_mm_cublas(
+        a.t().contiguous(),
+        b.t().contiguous(),
+        c.contiguous(),
+        a.shape[0],
+        b.shape[1],
+        a.shape[1],
+        input_type,
+        output_type,
+        compute_type,
+        pedantic
+    )
+    return c.t().to(torch.float32)
+
+
+def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
+    if not torch.cuda.is_available():
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
+    assert a.shape[-1] == b.shape[-2]
+    assert a.device == b.device
+    assert a.is_cuda
+    quant_cuda.create_cublas_handle()
+    dtype = {
+        CUBLASMatrixType.F32: torch.float32,
+        CUBLASMatrixType.F16: torch.float16,
+        CUBLASMatrixType.BF16: torch.bfloat16,
+    }
+    a = a.to(dtype[input_type])
+    b = b.to(dtype[input_type])
+    if len(a.shape) == 3 and len(b.shape) == 3:
+        c = torch.zeros(a.shape[0], b.shape[2], a.shape[1], # transposed
+                        device=a.device,
+                        dtype=dtype[output_type])
+        quant_cuda.floating_point_bmm_cublas(
+            a.transpose(-2, -1).contiguous(),
+            b.transpose(-2, -1).contiguous(),
+            c.contiguous(),
+            a.shape[1],
+            b.shape[2],
+            a.shape[2],
+            input_type,
+            output_type,
+            compute_type,
+            pedantic
+        )
+        c = c.transpose(-2, -1)
+    elif len(a.shape) == 3 and len(b.shape) == 2:
+        a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
+        c_r = torch.zeros(b.shape[1], a_r.shape[0],
+                          device=a.device,
+                          dtype=dtype[output_type])
+        quant_cuda.floating_point_mm_cublas(
+            a_r.t().contiguous(),
+            b.t().contiguous(),
+            c_r.contiguous(),
+            a_r.shape[0],
+            b.shape[1],
+            a_r.shape[1],
+            input_type,
+            output_type,
+            compute_type,
+            pedantic
+        )
+        c_r = c_r.transpose(-2, -1)
+        c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
+    elif len(a.shape) == 4 and len(b.shape) == 4:
+        a_r = torch.reshape(
+            a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
+        )
+        b_r = torch.reshape(
+            b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
+        )
+        c_r = torch.zeros(
+            a_r.shape[0], b_r.shape[2], a_r.shape[1],
+            device=a.device,
+            dtype=dtype[output_type]
+        )
+        quant_cuda.floating_point_bmm_cublas(
+            a_r.transpose(-2, -1).contiguous(),
+            b_r.transpose(-2, -1).contiguous(),
+            c_r.contiguous(),
+            a_r.shape[1],
+            b_r.shape[2],
+            a_r.shape[2],
+            input_type,
+            output_type,
+            compute_type,
+            pedantic
+        )
+        c_r = c_r.transpose(-2, -1)
+        c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
+    elif len(a.shape) == 2 and len(b.shape) == 2:
+        c = torch.zeros(b.shape[1], a.shape[0],
+                        device=a.device,
+                        dtype=dtype[output_type])
+        quant_cuda.floating_point_mm_cublas(
+            a.t().contiguous(),
+            b.t().contiguous(),
+            c.contiguous(),
+            a.shape[0],
+            b.shape[1],
+            a.shape[1],
+            input_type,
+            output_type,
+            compute_type,
+            pedantic
+        )
+        c = c.t()
+    else:
+        raise Exception("Wrong tensor sizes")
+    return c.to(torch.float32)
+
+
+def match_mac_format_with_cublas_types(
+    man_add,
+    exp_add,
+    man_mul,
+    exp_mul,
+    rounding,
+    fma,
+    subnormals,
+    saturate,
+    fast_mode=None
+):
+    if not torch.cuda.is_available():
+        raise NotImplementedError("No CUDA-capable device found. Stopping script.")
+    
+    if man_mul != man_add or exp_mul != exp_add:
+        return None
+    
+    match rounding, fma, subnormals, saturate:
+        case "nearest", True, True, False:
+            pass
+        case _:
+            return None
+    
+    mt, ct = CUBLASMatrixType, CUBLASComputeType
+    match man_add, exp_add:
+        case 23, 8 if fast_mode == "f16":
+            return mt.F32, mt.F32, ct.F32_FAST_F16
+        case 23, 8 if fast_mode == "bf16":
+            return mt.F32, mt.F32, ct.F32_FAST_BF16
+        case 23, 8 if fast_mode == "tf32":
+            return mt.F32, mt.F32, ct.F32_FAST_TF32
+        case 23, 8:
+            return mt.F32, mt.F32, ct.F32
+        case 10, 5:
+            return mt.F16, mt.F16, ct.F16
+    return None
 
 
 def float_softmax(a, dim, formats):
@@ -273,6 +480,29 @@ def float_mm(
         - the result of GEMM (torch.Tensor)
     """
 
+    if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
+        types = match_mac_format_with_cublas_types(
+            man_add,
+            exp_add,
+            man_mul,
+            exp_mul,
+            rounding,
+            fma,
+            subnormals,
+            saturate,
+            cublas_acceleration.fast_mode
+        )
+        if types is not None:
+            input_type, output_type, compute_type = types
+            return cublas_mm(
+                a,
+                b,
+                input_type,
+                output_type,
+                compute_type,
+                False
+            )
+
     assert len(a.shape) == 2
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
@@ -473,7 +703,29 @@ def float_bmm(
     subnormals=True,
     saturate=True,
 ):
-
+    if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
+        types = match_mac_format_with_cublas_types(
+            man_add,
+            exp_add,
+            man_mul,
+            exp_mul,
+            rounding,
+            fma,
+            subnormals,
+            saturate,
+            cublas_acceleration.fast_mode
+        )
+        if types is not None:
+            input_type, output_type, compute_type = types
+            return cublas_bmm(
+                a,
+                b,
+                input_type,
+                output_type,
+                compute_type,
+                False
+            )
+    
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
