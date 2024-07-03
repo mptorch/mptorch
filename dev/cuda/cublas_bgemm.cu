@@ -41,11 +41,18 @@ static void simple_bsgemm(int P, int M, int N, int K, float alpha, const float *
 void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     printf("CUBLAS GEMM %dx%dx%d (MxNxK) using separate arrays...\n", M, N, K);
 
-    float *h_A[P], *h_B[P], *h_C[P];
-    float *h_dA[P], *h_dB[P], *h_dC[P];
+    float **h_A, **h_B, **h_C;
+    float **h_dA, **h_dB, **h_dC;
     float **d_dA, **d_dB, **d_dC;
     float alpha = 1.0f;
     float beta = 0.0f;
+
+    h_A = new float*[P];
+    h_B = new float*[P];
+    h_C = new float*[P];
+    h_dA = new float*[P];
+    h_dB = new float*[P];
+    h_dC = new float*[P];
 
     for(int i = 0; i < P; i++) {
         h_A[i] = make_random_float(M*K);
@@ -117,6 +124,13 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     cudaCheck(cudaFree(d_dA));
     cudaCheck(cudaFree(d_dB));
     cudaCheck(cudaFree(d_dC));
+
+    delete[] h_dA;
+    delete[] h_dB;
+    delete[] h_dC;
+    delete[] h_A;
+    delete[] h_B;
+    delete[] h_C;
 }
 
 
@@ -127,12 +141,19 @@ void main_separate_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
 void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     printf("CUBLAS GEMM %dx%dx%d (MxNxK) using shared arrays...\n", M, N, K);
 
-    float *h_A[P], *h_B[P], *h_C[P];
+    float **h_A, **h_B, **h_C;
     float *d_A, *d_B, *d_C;
-    float *h_dA[P], *h_dB[P], *h_dC[P];
+    float **h_dA, **h_dB, **h_dC;
     float **d_dA, **d_dB, **d_dC;
     float alpha = 1.0f;
     float beta = 0.0f;
+
+    h_A = new float*[P];
+    h_B = new float*[P];
+    h_C = new float*[P];
+    h_dA = new float*[P];
+    h_dB = new float*[P];
+    h_dC = new float*[P];
 
     for(int i = 0; i < P; i++) {
         h_A[i] = make_random_float(M*K);
@@ -211,6 +232,13 @@ void main_shared_arrays(cublasHandle_t handle, int P, int M, int N, int K) {
     cudaCheck(cudaFree(d_dA));
     cudaCheck(cudaFree(d_dB));
     cudaCheck(cudaFree(d_dC));
+
+    delete[] h_dA;
+    delete[] h_dB;
+    delete[] h_dC;
+    delete[] h_A;
+    delete[] h_B;
+    delete[] h_C;
 }
 
 // ---------------------------------------------------------------------------------------
