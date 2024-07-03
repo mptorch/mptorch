@@ -27,6 +27,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
         "Low-Bitwidth GEMM (CPU)");
-  m.def("float_quantize_nearest_softmax", &float_quantize_nearest_softmax);
-  m.def("float_quantize_nearest_softmax_lse", &float_quantize_nearest_softmax_lse);
+  m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward);
+  m.def("float_quantize_nearest_softmax_lse_forward", &float_quantize_nearest_softmax_lse_forward);
 }

@@ -435,9 +435,9 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
 // Quantize softmax function
 // Uses the standard softmax formula e^xi/sum(e^xj)
 // Returns ouput tensor of softmaxxed and quantized values
-Tensor float_quantize_nearest_softmax(Tensor a, int man_trans, int exp_trans,
-                                       int man_add, int exp_add, int man_div, int exp_div,
-                                       bool subnormals, bool saturate, int dim)
+Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_trans,
+                                              int man_add, int exp_add, int man_div, int exp_div,
+                                              bool subnormals, bool saturate, int dim)
 {
   // Creates two arrays that point to input and output tensors, creates the ouput tensor
   auto a_array = a.data_ptr<float>();
@@ -506,9 +506,9 @@ Tensor float_quantize_nearest_softmax(Tensor a, int man_trans, int exp_trans,
 // Quantize logsumexp softmax function
 // Uses the logsumexp formula of log(e^xi+sum(e^xj))
 // Returns ouput tensor of softmaxxed and quantized values
-Tensor float_quantize_nearest_softmax_lse(Tensor a, int man_trans, int exp_trans,
-                                           int man_add, int exp_add, bool subnormals,
-                                           bool saturate, int dim)
+Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int exp_trans,
+                                                  int man_add, int exp_add, bool subnormals,
+                                                  bool saturate, int dim)
 {
   // Creates two arrays that point to input and output tensors, creates the ouput tensor
   auto a_array = a.data_ptr<float>();

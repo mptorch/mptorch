@@ -291,7 +291,7 @@ def float_softmax(a, dim, formats):
     saturate = trans_cfg.saturate
 
     if not formats.use_lse:
-        return quant_cpu.float_quantize_nearest_softmax(
+        return quant_cpu.float_quantize_nearest_softmax_forward(
             a,
             trans_cfg.man, trans_cfg.exp,
             add_cfg.man, add_cfg.exp,
@@ -299,7 +299,7 @@ def float_softmax(a, dim, formats):
             subnormals, saturate, dim
         )
     else:
-        return quant_cpu.float_quantize_nearest_softmax_lse(
+        return quant_cpu.float_quantize_nearest_softmax_lse_forward(
             a,
             trans_cfg.man, trans_cfg.exp,
             add_cfg.man, add_cfg.exp,
