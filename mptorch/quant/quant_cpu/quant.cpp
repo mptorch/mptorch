@@ -445,41 +445,22 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
 
-  // Dimension we are doing softmax across, needed for negative inputs
-  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
-  
-  // Columns to iterate over
-  int outer_size = 1;
-  for (int i = 0; i < real_dim; ++i) {
-    outer_size *= a.size(i);
-  }
-
-  // Rows to iterate over
-  int inner_size = 1;
-  for (int i = real_dim + 1; i < a.dim(); ++i) {
-    inner_size *= a.size(i);
-  }
-
-  // Size of the dimension we are doing softmax on
-  int dim_size = a.size(real_dim);
-  int dim_stride = inner_size;
-
-  // How much we need to itertate to get to next set of elements in dimension
-  int outer_stride = dim_size * dim_stride;
+  TensorStrides strides;
+  tensor_strides(a, dim, strides);
 
   auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
     return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
   };
 
-  for (int L = 0; L < outer_size * inner_size; ++L) {
-    int i = L / inner_size;
-    int j = L % inner_size;
+  for (int L = 0; L < strides.outer_size * strides.inner_size; ++L) {
+    int i = L / strides.inner_size;
+    int j = L % strides.inner_size;
 	
 	  // Get max value of the current elemnts softmax is done on
 	  // This is for ensuring the exp() values do not overflow
-    float max = a_array[(i*outer_stride) + j];
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    float max = a_array[(i*strides.outer_stride) + j];
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       if (a_array[idx] > max) {
         max = a_array[idx];
       }
@@ -487,16 +468,16 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
 	
     float sum = 0.0f;
 	  // Calculates the sum and puts quantized value of exp(input tenor array) into output array
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       float x = quant(a_array[idx] - max, man_add, exp_add);
       float e_x = quant(expf(x), man_trans, exp_trans);
       o_array[idx] = e_x;
       sum = quant(sum + e_x, man_add, exp_add);
     }
 	  // Divides all outputs by the current sum
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       o_array[idx] = quant(o_array[idx]/sum, man_div, exp_div);
     }
   }
@@ -515,45 +496,26 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  
-  // Dimension we are doing softmax across, needed for negative inputs
-  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
-  
-  // Columns to iterate over
-  int outer_size = 1;
-  for (int i = 0; i < real_dim; ++i) {
-    outer_size *= a.size(i);
-  }
 
-  // Rows to iterate over
-  int inner_size = 1;
-  for (int i = real_dim + 1; i < a.dim(); ++i) {
-    inner_size *= a.size(i);
-  }
-
-  // Size of the dimesnion we are doing softmax on
-  int dim_size = a.size(real_dim);
-  int dim_stride = inner_size;
-
-  // How much we need to itertate to get to next set of elements in dimension
-  int outer_stride = dim_size * dim_stride;
+  TensorStrides strides;
+  tensor_strides(a, dim, strides);
 
   auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
     return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
   };
 
-  for (int L = 0; L < outer_size * inner_size; ++L) {
-    int i = L / inner_size;
-    int j = L % inner_size;
+  for (int L = 0; L < strides.outer_size * strides.inner_size; ++L) {
+    int i = L / strides.inner_size;
+    int j = L % strides.inner_size;
 
     // Get max value for current elements softmax is done on
     // This is for ensuring the exp() values do not overflow
     // Also saves idx of max values to skip over later
     // Skips because max value always creates a 1 that skews results
-    int idx_max = (i*outer_stride) + j;
+    int idx_max = (i*strides.outer_stride) + j;
     float max = a_array[idx_max];
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       if (a_array[idx] > max) {
         max = a_array[idx];
         idx_max = idx;
@@ -562,8 +524,8 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
 
     float lgs = 0.0f;
     // Calculates sum using logsumexp formula
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       if (idx == idx_max) {
         continue;
       }
@@ -573,8 +535,8 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
       lgs = quant(log(e_lgs + e_x), man_trans, exp_trans);
     }
     // Get output tensor elemnts 
-    for (int k = 0; k < dim_size; ++k) {
-      int idx = (i*outer_stride) + (k*dim_stride) + j;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
       float x = quant(a_array[idx] - max, man_add, exp_add);
       x = quant(x - lgs, man_add, exp_add);
       o_array[idx] = quant(expf(x), man_trans, exp_trans);
