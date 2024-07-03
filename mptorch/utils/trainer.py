@@ -4,8 +4,6 @@ from torch import nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-import wandb
-
 # utility function to see if execution can be done on a CUDA-enabled GPU
 def try_gpu():
     return "cuda" if torch.cuda.is_available() else "cpu"
@@ -97,7 +95,6 @@ def trainer(
                 train_acc="{:.5f}".format(train_acc / train_size),
                 train_loss="{:.5f}".format(train_loss / train_size),
             )
-            wandb.log({"accuracy": train_acc, "loss": train_loss})
         tq.close()
 
         test_acc = evaluate_accuracy(net, test_loader, device)
