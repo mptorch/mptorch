@@ -62,6 +62,15 @@ int main(int argc, char **argv) {
 
     std::vector<std::vector<float>> median( numformats, std::vector<float>(numformats));
 
+    //max percentage difference
+    std::vector<std::vector<float>> maxPercDiff( numformats, std::vector<float>(numformats));
+
+    //max percentage difference dot product of A and B
+    // A
+    std::vector<std::vector<std::vector<float>>> maxPercDiffA(numformats, std::vector<std::vector<float>>(numformats, std::vector<float>(width)));
+    // B
+    std::vector<std::vector<std::vector<float>>> maxPercDiffB(numformats, std::vector<std::vector<float>>(numformats, std::vector<float>(width)));
+
 
     // fill matrices A and B with random values, from a normal distribution
     std::default_random_engine generator;
@@ -244,42 +253,65 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
+
+                //get max percentage difference
+                for (unsigned i = 0; i < width; ++i) {
+                    for (unsigned j = 0; j < width; ++j) {
+                        //get absolute difference
+                        absDiff[(iter * width * width) + (i * width) + j][multiply_format][add_format] = std::abs(C[(iter * width * width) + (i * width) + j][0] - C[(iter * width * width) + (i * width) + j][add_format + 1]);
+                        //get percentage difference
+                        percDiff[(iter * width * width) + (i * width) + j][multiply_format][add_format] = std::abs((absDiff[(iter * width * width) + (i * width) + j][multiply_format][add_format] / C[(iter * width * width) + (i * width) + j][0])) * 100;
+
+                        //get max percentage difference
+                        if (percDiff[(iter * width * width) + (i * width) + j][multiply_format][add_format] > maxPercDiff[multiply_format][add_format]) {
+                            maxPercDiff[multiply_format][add_format] = percDiff[(iter * width * width) + (i * width) + j][multiply_format][add_format];
+
+                            //store the dot product of A and B that caused the max percentage difference
+                            maxPercDiffA[multiply_format][add_format] = A[i];
+                            maxPercDiffB[multiply_format][add_format] = B[j];
+                        }
+                    }
+                }
+
+
             }
         }
 
         if (outputFlag) {
-            // open file for writing, 1 file per multiplication format
-            std::ofstream file("output" + std::to_string(multiply_format) + ".csv");
 
-            // write header to file
-            file << "Reference,Binary8p1 Round to Nearest,Binary8p2 Round to Nearest,Binary8p3 Round to Nearest,Binary8p4 Round to Nearest,Binary8p5 Round to Nearest,Binary8p6 Round to Nearest,Binary8p7 Round to Nearest,Binary8p1 Stochastic,Binary8p2 Stochastic,Binary8p3 Stochastic,Binary8p4 Stochastic,Binary8p5 Stochastic,Binary8p6 Stochastic,Binary8p7 Stochastic,binary32 Round to Nearest" << std::endl;
+            //if(multiply_format == 15) {
+                // open file for writing, 1 file per multiplication format
+                std::ofstream file("output" + std::to_string(multiply_format) + ".csv");
 
-            // write outputs of C to file
-            for (unsigned i = 0; i < iterations * width * width; ++i) {
-                for (unsigned j = 0; j < numformats + 1; ++j) {
-                    file << C[i][j];
-                    if (j < numformats) {
-                        file << ",";
+                // write header to file
+                file << "Reference,Binary8p1 Round to Nearest,Binary8p2 Round to Nearest,Binary8p3 Round to Nearest,Binary8p4 Round to Nearest,Binary8p5 Round to Nearest,Binary8p6 Round to Nearest,Binary8p7 Round to Nearest,Binary8p1 Stochastic,Binary8p2 Stochastic,Binary8p3 Stochastic,Binary8p4 Stochastic,Binary8p5 Stochastic,Binary8p6 Stochastic,Binary8p7 Stochastic,bfloat 16 Round to Nearest,binary32 Round to Nearest" << std::endl;
+
+                // write outputs of C to file
+                for (unsigned i = 0; i < iterations * width * width; ++i) {
+                    for (unsigned j = 0; j < numformats + 1; ++j) {
+                        file << C[i][j];
+                        if (j < numformats) {
+                            file << ",";
+                        }
                     }
+                    file << std::endl;
                 }
-                file << std::endl;
-            }
 
-            file.close();
+                file.close();
+            //}
+            
         }
         
 
-        for (unsigned i = 0; i < iterations * width * width; ++i) {
-            for (unsigned j = 0; j < numformats; ++j) {
-                absDiff[i][multiply_format][j] = std::abs(C[i][0] - C[i][j + 1]);
-            }
-        }
+        // for (unsigned i = 0; i < iterations * width * width; ++i) {
+        //     for (unsigned j = 0; j < numformats; ++j) {
+        //         absDiff[i][multiply_format][j] = std::abs(C[i][0] - C[i][j + 1]);
+        //         percDiff[i][multiply_format][j] = std::abs((absDiff[i][multiply_format][j] / C[i][0])) * 100;
 
-        for (unsigned i = 0; i < iterations * width * width; ++i) {
-            for (unsigned j = 0; j < numformats; ++j) {
-                percDiff[i][multiply_format][j] = std::abs((absDiff[i][multiply_format][j] / C[i][0])) * 100;
-            }
-        }
+                
+
+        //     }
+        // }
 
 
         
@@ -315,6 +347,54 @@ int main(int argc, char **argv) {
         }
         file << std::endl;
     }
+
+    file.close();
+
+    // write max percentage differences to file
+    file.open("maxPercDiff.csv");
+    for (unsigned i = 0; i < numformats; ++i) {
+        for (unsigned j = 0; j < numformats; ++j) {
+            if (j < numformats - 1) {
+                file << maxPercDiff[j][i] << ",";
+            } else {
+                file << maxPercDiff[j][i];
+            }
+        }
+        file << std::endl;
+    }
+
+    file.close();
+
+    // // write A and B that caused max percentage difference of multiplication format 2 and addition format 2
+    // file.open("maxPercDiff2_2.csv");
+    // for (unsigned i = 0; i < width; ++i) {
+    //     file << maxPercDiffA[2][2][i];
+    //     file << std::endl;
+    // }
+    // file << std::endl;
+
+    // for (unsigned i = 0; i < width; ++i) {
+    //     file << maxPercDiffB[2][2][i];
+    //     file << std::endl;
+    // }
+
+    // file.close();
+
+    // // write A and B that caused max percentage difference of multiplication format 9 and addition format 9
+    // file.open("maxPercDiff9_9.csv");
+    // for (unsigned i = 0; i < width; ++i) {
+    //     file << maxPercDiffA[9][9][i];
+    //     file << std::endl;
+    // }
+    // file << std::endl;
+
+    // for (unsigned i = 0; i < width; ++i) {
+    //     file << maxPercDiffB[9][9][i];
+    //     file << std::endl;
+    // }
+
+    // file.close();  
+
 
 
     return 0;
