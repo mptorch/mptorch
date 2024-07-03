@@ -54,6 +54,8 @@ __global__ void p3109_signed_kernel_troncate(float *__restrict__ a, float *o, in
 __global__ void p3109_unsigned_kernel_troncate(float *__restrict__ a, float *o, int size,
                                                  int P, SaturationMode saturation_mode, bool subnormals);
 
+__global__ void bfloat16_kernel_nearest(float *__restrict__ a, float *o, int size);
+
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
                                         float *__restrict__ max_entry,

@@ -16,6 +16,7 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "p3109_quantize",
+    "bfloat16_quantize",
     "SaturationMode",
     "superfp_quantize",
     "quantizer",
@@ -1842,6 +1843,26 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
     elif rounding == "troncate":
         out = quant_module.p3109_quantize_troncate(
             x.contiguous(), P, is_signed, saturation_enum, subnormals
+        )
+    return out
+
+def bfloat16_quantize(x):
+    """
+    Quantize a single precision Floating Point into bfloat16 Floating Point
+
+    Args:
+        - :attr: `x` (torch.Tensor bfloat16_quantize_nearest: the single precision number(torch.Tensor) to be quantized
+
+    Returns:
+        - a quantized bfloat16 floating point number (torch.Tensor)
+    """
+    assert isinstance(
+        x, torch.Tensor
+    ), "x is not a single precision Floating Point Tensor"
+    
+    quant_module = get_module(x)
+    out = quant_module.bfloat16_quantize_nearest(
+            x.contiguous()
         )
     return out
 

@@ -105,6 +105,12 @@ Tensor p3109_quantize_troncate(Tensor a, int P, bool is_signed, SaturationMode s
       return p3109_quantize_troncate_cuda(a, P, is_signed, saturation_mode, subnormals);
 }
 
+Tensor bfloat16_quantize_nearest(Tensor a)
+{
+      CHECK_INPUT(a);
+      return bfloat16_quantize_nearest_cuda(a);
+}
+
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_mul, int exp_mul, int man_add,
                                int exp_add, bool subnormals, bool saturate)
@@ -352,6 +358,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "(CUDA)");
       m.def("p3109_quantize_nearest", &p3109_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
+
+      m.def("bfloat16_quantize_nearest", &bfloat16_quantize_nearest,
+            "Bfloat16 Floating-Point Number Nearest Quantization (CUDA)");
 
       py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic())
             .value("SATURATE", SaturationMode::SATURATE)

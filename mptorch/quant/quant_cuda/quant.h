@@ -103,6 +103,13 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  */
 Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals);
 
+
+/**
+ * quantize a FloatTensor into a bfloat16-compliant floating point Tensor.
+ */
+Tensor bfloat16_quantize_nearest_cuda(Tensor a);
+
+
 /**
  * quantize a FloatTensor into a P3109-compliant floating point
  * Tensor (signed or unsigned version, with or without subnormal support)
