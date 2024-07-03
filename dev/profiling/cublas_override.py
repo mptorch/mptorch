@@ -24,7 +24,7 @@ if torch.cuda.is_available():
     b = torch.rand(k, n).cuda()
 
     print("Benchmarking float_mm without cublas acceleration on.")
-    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         with record_function("float_mm"):
             float_mm(
                 a,
@@ -39,7 +39,7 @@ if torch.cuda.is_available():
     print("Self CUDA time total:", prof.key_averages().total_average().self_cuda_time_total_str)
 
     print("Benchmarking float_mm with cublas acceleration on.")
-    with profile(activities=[ProfilerActivity.CUDA]) as prof:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         with record_function("float_mm_with_cublas"):
             # enable cublas acceleration when type matches
             with cublas_acceleration(True):

@@ -313,7 +313,7 @@ optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 
-with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     trainer(
         net,
         train_loader,
