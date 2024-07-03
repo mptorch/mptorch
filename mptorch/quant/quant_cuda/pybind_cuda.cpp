@@ -1,7 +1,7 @@
 #include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
-#include "p3109_kernel.h"
+#include "binary8_kernel.h"
 
 using namespace at;
 
@@ -53,10 +53,10 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, saturate);
 }
 
-Tensor p3109_quantize_nearest(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_nearest_cuda(a, P, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_nearest_cuda(a, P, is_signed, saturation_mode, subnormals);
 }
 
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
@@ -93,16 +93,16 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                             saturate);
 }
 
-Tensor p3109_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_stochastic_cuda(a, P, prng_bits, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, saturation_mode, subnormals);
 }
 
-Tensor p3109_quantize_troncate(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_troncate_cuda(a, P, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_truncate_cuda(a, P, is_signed, saturation_mode, subnormals);
 }
 
 Tensor bfloat16_quantize_nearest(Tensor a)
@@ -338,10 +338,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Block Floating Point Number Stochastic Quantization (CUDA)");
       m.def("float_quantize_stochastic", &float_quantize_stochastic,
             "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
-      m.def("p3109_quantize_stochastic", &p3109_quantize_stochastic,
+      m.def("binary8_quantize_stochastic", &binary8_quantize_stochastic,
             "Low-Bitwidth P3109 Floating-Point Number Stochastic Quantization (CUDA)");
-      m.def("p3109_quantize_troncate", &p3109_quantize_troncate,
-            "Low-Bitwidth P3109 Floating-Point Number troncate Quantization (CUDA)");
+      m.def("binary8_quantize_truncate", &binary8_quantize_truncate,
+            "Low-Bitwidth P3109 Floating-Point Number truncate Quantization (CUDA)");
       m.def("fixed_point_quantize_nearest", &fixed_point_quantize_nearest,
             "Fixed Point Number Nearest Neighbor Quantization (CUDA)");
       m.def("fixed_point_quantize_nearest_mask", &fixed_point_quantize_nearest_mask,
@@ -356,7 +356,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("superfp_quantize_nearest", &superfp_quantize_nearest,
             "Low-Bitwidth Super Normal Floating Point Number Nearest Neighbor Quantization "
             "(CUDA)");
-      m.def("p3109_quantize_nearest", &p3109_quantize_nearest,
+      m.def("binary8_quantize_nearest", &binary8_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
 
       m.def("bfloat16_quantize_nearest", &bfloat16_quantize_nearest,

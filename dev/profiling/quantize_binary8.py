@@ -1,6 +1,6 @@
 from torch.profiler import profile, record_function, ProfilerActivity
 import torch
-from mptorch.quant import p3109_quantize
+from mptorch.quant import binary8_quantize
 import argparse
 
 
@@ -19,8 +19,8 @@ args = parser.parse_args()
 x = torch.rand(args.m, args.n, device="cuda")*10
 
 with profile(activities=[ProfilerActivity.CUDA]) as prof:
-    with record_function("p3109_quantize"):
-        p3109_quantize(
+    with record_function("binary8_quantize"):
+        binary8_quantize(
             x,
             P=args.p,
             rounding=args.rounding,

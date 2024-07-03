@@ -15,7 +15,7 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
-    "p3109_quantize",
+    "binary8_quantize",
     "bfloat16_quantize",
     "SaturationMode",
     "superfp_quantize",
@@ -61,7 +61,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
-            os.path.join(current_path, "quant_cuda/p3109_kernel.cu"),
+            os.path.join(current_path, "quant_cuda/binary8_kernel.cu"),
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
         extra_ldflags=extra_ldflags
@@ -1800,7 +1800,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_signed=True, subnormals=True, prng_bits=0):
+def binary8_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1819,7 +1819,7 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest", "troncate"], "invalid rounding mode, {}".format(
+    assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
         rounding
     )
     assert saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
@@ -1833,15 +1833,15 @@ def p3109_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_sign
 
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.p3109_quantize_nearest(
+        out = quant_module.binary8_quantize_nearest(
             x.contiguous(), P, is_signed, saturation_enum, subnormals
         )
     elif rounding == "stochastic":
-        out = quant_module.p3109_quantize_stochastic(
+        out = quant_module.binary8_quantize_stochastic(
             x.contiguous(), P, prng_bits, is_signed, saturation_enum, subnormals
         )
-    elif rounding == "troncate":
-        out = quant_module.p3109_quantize_troncate(
+    elif rounding == "truncate":
+        out = quant_module.binary8_quantize_truncate(
             x.contiguous(), P, is_signed, saturation_enum, subnormals
         )
     return out

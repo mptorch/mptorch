@@ -1,5 +1,5 @@
 import torch
-from mptorch.quant import p3109_quantize
+from mptorch.quant import binary8_quantize
 import struct
 import numpy as np
 import random
@@ -23,12 +23,12 @@ def assert_quant(x_arr, expected_arr, quant_fn):
     expected = torch.tensor(expected_arr, dtype=torch.float32, device="cuda")
     assert expected.equal(quant_fn(x))
 
-def test_p3109_to_gfloat():
+def test_binary8_to_gfloat():
     if no_cuda():
         return
     
     for P in range(1, 8):
-        fi = format_info_p3109(P)
+        fi = format_info_binary8(P)
         exp_bits = 8 - P
         man_bits = P - 1
 
@@ -43,7 +43,7 @@ def test_p3109_to_gfloat():
         while i_uival <= max_val_uival:
             i_fval = bits_to_float(i_uival)
 
-            result1 = p3109_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
+            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
             result1 = result1.cpu() 
 
@@ -52,11 +52,11 @@ def test_p3109_to_gfloat():
             assert result1.equal(expected) or np.isnan(result1)
             i_uival += 8192 #8192
 
-def test_p3109p1():
+def test_binary8p1():
     if no_cuda():
         return
     
-    quant = lambda x: p3109_quantize(x, 1, "nearest", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate", True, True)
     # normal
     assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]], quant)
 
@@ -71,11 +71,11 @@ def test_p3109p1():
     assert_quant([float('inf')], [float('inf')], quant)
     assert_quant([-float('inf')], [-float('inf')], quant)
 
-def test_p3109p2():
+def test_binary8p2():
     if no_cuda():
         return
     
-    quant = lambda x: p3109_quantize(x, 2, "nearest", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate", True, True)
     # normal
     assert_quant([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]], [[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]], quant)
 
@@ -91,7 +91,7 @@ def test_p3109p2():
     assert_quant([float('inf')], [float('inf')], quant)
     assert_quant([-float('inf')], [-float('inf')], quant) 
 
-def test_p3109_signed_nearest():
+def test_binary8_signed_nearest():
     if no_cuda():
         return
     # parameters :
@@ -123,7 +123,7 @@ def test_p3109_signed_nearest():
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
                 num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
-                result = p3109_quantize(num_tensor, P, "nearest", "saturate", True, True)
+                result = binary8_quantize(num_tensor, P, "nearest", "saturate", True, True)
                 result1 = result.cpu() 
 
                 distance = (random_float - previous_fval) / (i_fval - previous_fval)
@@ -137,7 +137,7 @@ def test_p3109_signed_nearest():
             i_fval += 2**(-man_bits)*2**(exp_prev)
 
 def main():
-    test_p3109_to_gfloat()
+    test_binary8_to_gfloat()
 
 
 if __name__ == "__main__":
