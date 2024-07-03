@@ -31,45 +31,10 @@ __host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P,
     }
 
     uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
-                               : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+                              : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
 
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     return BITS_TO_FLOAT(&uval8);
-
-    // int exp_bits = 8-P;
-    // int man_bits = P-1;    
-    // int subnormal_shift = 0;
-    // uint32_t uval32, uval8;
-    // float fval8;
-
-    // uval32 = FLOAT_TO_BITS(&origin_float);
-
-    // int exp_val = (uval32 << 1 >> 24) - 127;
-    // uint32_t man_val = uval32 & 0x7FFFFF;
-
-    // if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {             // inf/Nan case
-    //     return origin_float;
-    // }
-
-    // if (subnormals){
-    //     int spec_exp = (P == 1) ? 1 : 0;
-    //     int max_exp = (1 << (exp_bits -1)) - 1;    // minimal and maximal exponent value in binary8
-    //     int min_exp = spec_exp - max_exp;
-
-    //     if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)){ 
-    //         subnormal_shift = min_exp - exp_val;
-    //     }
-    // }
-
-    // if(P == 1){
-    //     uval8 = round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift);
-    // }else {
-    //     uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
-    // }
-    // uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    // fval8 = BITS_TO_FLOAT(&uval8);
-
-    // return fval8;
 }
 
 __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) {
@@ -102,40 +67,6 @@ __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
 
     return BITS_TO_FLOAT(&uval8);
-
-    // int exp_bits = 8-P;
-    // int man_bits = P-1;  
-    // int subnormal_shift = 0;
-    // uint32_t uval32, uval8;
-    // float fval8;
-
-    // uval32 = FLOAT_TO_BITS(&origin_float);
-
-    // int exp_val = (uval32 << 1 >> 24) - 127;
-    // uint32_t man_val = uval32 & 0x7FFFFF;
-
-    // if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {          
-    //     return origin_float;
-    // }
-
-    // if (subnormals){
-    //     int spec_exp = (P == 1) ? 1 : 0;
-    //     int max_exp = (1 << (exp_bits -1)) - 1;
-    //     int min_exp = spec_exp - max_exp;
-
-    //     if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
-    //         subnormal_shift = min_exp - exp_val;
-    //     }
-    // }
-
-    // rand_prob = rand_prob << 9 >> 9;
-    // rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
-
-    // uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
-    // uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    // fval8 = BITS_TO_FLOAT(&uval8);
-
-    // return fval8;
 }
 
 __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
@@ -165,37 +96,6 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
     uint32_t uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     return BITS_TO_FLOAT(&uval8);
-
-    // int exp_bits = 8-P;
-    // int man_bits = P-1;  
-    // int subnormal_shift = 0;
-    // uint32_t uval32, uval8;
-    // float fval8;
-
-    // uval32 = FLOAT_TO_BITS(&origin_float);
-
-    // int exp_val = (uval32 << 1 >> 24) - 127;
-    // uint32_t man_val = uval32 & 0x7FFFFF;
-
-    // if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {          
-    //     return origin_float;
-    // }
-
-    // if (subnormals){   
-    //     int spec_exp = (P == 1) ? 1 : 0;
-    //     int max_exp = (1 << (exp_bits -1)) - 1;
-    //     int min_exp = spec_exp - max_exp;        
-
-    //     if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
-    //         subnormal_shift = min_exp - exp_val;
-    //     }
-    // }
-
-    // uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
-    // uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    // fval8 = BITS_TO_FLOAT(&uval8);
-
-    // return fval8;
 }
 
 
@@ -230,48 +130,7 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     
     return BITS_TO_FLOAT(&uval8);
-
-    // if (origin_float < 0){
-    //   return NAN;
-    // }
- 
-    // int exp_bits = 8 - P + 1;
-    // int man_bits = P - 1; 
-    // int subnormal_shift = 0;
-    // uint32_t uval32, uval8;
-    // float fval8;
-
-    // uval32 = FLOAT_TO_BITS(&origin_float);
-
-    // int exp_val = (uval32 << 1 >> 24) - 127;
-    // uint32_t man_val = uval32 & 0x7FFFFF;
-    
-    // if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {  // return inf/Nan expect in the case of no_overflow && inf
-    //     return origin_float;
-    // }
-
-    // if (subnormals){
-    //     int spec_exp = (P == 1) ? 1 : 0;
-    //     int max_exp = (1 << (exp_bits -1)) - 1;
-    //     int min_exp = spec_exp - max_exp;
-           
-    //     if((min_exp - exp_val) <= man_bits && exp_val < min_exp && subnormals){ 
-    //         subnormal_shift = min_exp - exp_val;
-    //     }
-    // }
-
-    // if(P == 1){
-    //     uval8 = round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift);
-    // }else {
-    //     uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
-    // }
-    // uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    // fval8 = BITS_TO_FLOAT(&uval8);
-
-    // return fval8;
 }
-
-
 
 __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) { 
     
@@ -336,41 +195,6 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
     uint32_t uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
     return BITS_TO_FLOAT(&uval8);
-
-    // if (origin_float < 0){
-    //     return NAN;
-    // }
-
-    // int exp_bits = 8 - P + 1;
-    // int man_bits = P - 1; 
-    // int subnormal_shift = 0;
-    // uint32_t uval32, uval8;
-    // float fval8;
-
-    // uval32 = FLOAT_TO_BITS(&origin_float);
-
-    // int exp_val = (uval32 << 1 >> 24) - 127;
-    // uint32_t man_val = uval32 & 0x7FFFFF;
-
-    // if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
-    //     return origin_float;
-    // }
-
-    // if (subnormals){   
-    //     int spec_exp = (P == 1) ? 1 : 0;
-    //     int max_exp = (1 << (exp_bits -1)) - 1;
-    //     int min_exp = spec_exp - max_exp;        
-
-    //     if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)){ 
-    //         subnormal_shift = min_exp - exp_val;
-    //     }
-    // }
-    
-    // uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
-    // uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    // fval8 = BITS_TO_FLOAT(&uval8);
-
-    // return fval8;
 }
 
 __host__ __device__ float cast_bfloat16_nearest(float origin_float) {   //THIS HAS SUBNORMALS AND IS UNTESTED
