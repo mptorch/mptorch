@@ -28,7 +28,7 @@ def test_binary8_to_gfloat():
         return
     
     for P in range(1, 8):
-        fi = format_info_binary8(P)
+        fi = format_info_p3109(P)
         exp_bits = 8 - P
         man_bits = P - 1
 
