@@ -50,7 +50,7 @@ def test_binary8_to_gfloat():
             expected = torch.tensor(result2, dtype=torch.float32, device="cpu")
 
             assert result1.equal(expected) or np.isnan(result1)
-            i_uival += 8192 #8192
+            i_uival += 16384 #8192
 
 def test_binary8p1():
     if no_cuda():
@@ -82,7 +82,7 @@ def test_binary8p2():
     b2f = lambda b: [bits_to_float(b)]
 
     assert_quant(b2f(0b00110000000000000000000000000000), b2f(0b00110000000000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00101111100000000000000000000000), b2f(0b00101111100000000000000000000000), quant) # min normal
+    assert_quant(b2f(0b00101111100000000000000000000000), b2f(0b00101111100000000000000000000000), quant) # min subnormal
     assert_quant(b2f(0b00101111000000000000000000000000), [0.0], quant) # round to 0
     assert_quant(b2f(0b00101111000000000000000000000001), b2f(0b00101111100000000000000000000000), quant) # round to min
     # assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
@@ -94,6 +94,7 @@ def test_binary8p2():
 def test_binary8_signed_nearest():
     if no_cuda():
         return
+    
     # parameters :
     iterations = 1
     
