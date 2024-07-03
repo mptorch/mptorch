@@ -208,7 +208,7 @@ optimizer = SGD(
 )
 
 
-with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     trainer(
         model,
         train_loader,

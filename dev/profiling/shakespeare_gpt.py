@@ -374,7 +374,7 @@ tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
 
-with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
     for iter in range(args.max_iters):
         # every once in a while evaluate the loss on train and val sets
         tq.update(args.batch_size)
