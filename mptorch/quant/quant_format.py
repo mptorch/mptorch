@@ -2,7 +2,7 @@ from typing import Optional
 from ..number import Number
 from typing import Union, Optional, Tuple
 
-__all__ = ["QAffineFormats"]
+__all__ = ["QAffineFormats", "QSoftmaxFormats"]
 
 id_quant = lambda x: x
 
@@ -56,6 +56,45 @@ class QAffineFormats:
         self.bwd_rnd = bwd_rnd
         self.weight_quant = weight_quant
         self.bias_quant = bias_quant
+        self.input_quant = input_quant
+        self.output_quant = output_quant
+        self.grad_quant = grad_quant
+
+
+class QSoftmaxFormats:
+    def __init__(
+        self,
+        fwd_trans: Optional[Number] = None,
+        fwd_add: Optional[Number] = None,
+        fwd_div: Optional[Number] = None,
+        bwd_add: Optional[Number] = None,
+        fwd_rnd: Optional[str] = "nearest",
+        bwd_rnd: Optional[str] = "nearest",
+        input_quant=id_quant,
+        output_quant=id_quant,
+        grad_quant=id_quant,
+    ) -> None:
+        if fwd_trans is not None and fwd_add is not None:
+            self.fwd_trans = fwd_trans
+            self.fwd_add = fwd_add
+            if fwd_div is not None:
+                self.fwd_div = fwd_div
+                self.use_lse = False
+            else:
+                self.fwd_div = None
+                self.use_lse = True
+            self.fwd_use_default_prec = False
+        else:
+            self.fwd_use_default_prec = True
+        
+        if bwd_add is not None:
+            self.bwd_add = bwd_add
+            self.bwd_use_default_prec = False
+        else:
+            self.bwd_use_default_prec = True
+
+        self.fwd_rnd = fwd_rnd
+        self.bwd_rnd = bwd_rnd
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant

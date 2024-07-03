@@ -24,7 +24,6 @@ __all__ = [
     "superfp_mm",
     "superfp_bmm",
     "float_softmax",
-    "float_softmax_lse"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -68,55 +67,38 @@ def get_module(x):
         quant_module = quant_cpu
     return quant_module
 
-def float_softmax(a, dim, formats, use_forward=True):
-    assert not a.is_cuda
-    if use_forward:  # FWD format configuration
-        add_cfg, fma, rnd = (
-            formats.fwd_add,
-            formats.fwd_fma,
-            formats.fwd_rnd,
-        )
-    else:  # BWD format configuration
-        add_cfg, fma, rnd = (
-            formats.bwd_add,
-            formats.bwd_fma,
-            formats.bwd_rnd,
-        )
 
-    man = add_cfg.man
-    exp = add_cfg.exp
-    subnormals = add_cfg.subnormals
-    saturate = add_cfg.saturate
-
-    # TODO: have separate transcendental, addition and divison man/exp bits
-    return quant_cpu.float_quantize_nearest_softmax(
-        a, man, exp, man, exp, man, exp, subnormals, saturate, dim
+def float_softmax(a, dim, formats):
+    assert not a.is_cuda, "CUDA softmax not implemented."
+    trans_cfg, add_cfg, div_cfg, rnd = (
+        formats.fwd_trans,
+        formats.fwd_add,
+        formats.fwd_div,
+        formats.fwd_rnd,
     )
+    assert rnd == "nearest", \
+        "Only nearest rounding softmax is implemented."
 
-def float_softmax_lse(a, dim, formats, use_forward=True):
-    assert not a.is_cuda
-    if use_forward:  # FWD format configuration
-        add_cfg, fma, rnd = (
-            formats.fwd_add,
-            formats.fwd_fma,
-            formats.fwd_rnd,
+    # TODO: which configuration is used for subnormals/saturation?
+    subnormals = trans_cfg.subnormals
+    saturate = trans_cfg.saturate
+
+    if not formats.use_lse:
+        return quant_cpu.float_quantize_nearest_softmax(
+            a,
+            trans_cfg.man, trans_cfg.exp,
+            add_cfg.man, add_cfg.exp,
+            div_cfg.man, div_cfg.exp,
+            subnormals, saturate, dim
         )
-    else:  # BWD format configuration
-        add_cfg, fma, rnd = (
-            formats.bwd_add,
-            formats.bwd_fma,
-            formats.bwd_rnd,
+    else:
+        return quant_cpu.float_quantize_nearest_softmax_lse(
+            a,
+            trans_cfg.man, trans_cfg.exp,
+            add_cfg.man, add_cfg.exp,
+            subnormals, saturate, dim
         )
 
-    man = add_cfg.man
-    exp = add_cfg.exp
-    subnormals = add_cfg.subnormals
-    saturate = add_cfg.saturate
-
-    # TODO: have separate transcendental and addition man/exp bits
-    return quant_cpu.float_quantize_nearest_softmax_lse(
-        a, man, exp, man, exp, subnormals, saturate, dim
-    )
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
