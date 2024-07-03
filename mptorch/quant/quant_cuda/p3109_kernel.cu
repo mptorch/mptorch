@@ -225,6 +225,7 @@ __host__ __device__ float cast_p3109_unsigned_troncate(float origin_float, int P
     if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
+    mant = mant & 0x7F0000; //truncate mantissa
 
     if (subnormals){   
         int spec_exp = (P == 1) ? 1 : 0;

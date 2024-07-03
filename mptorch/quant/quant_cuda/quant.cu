@@ -167,6 +167,20 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturationMo
   return o;
 }
 
+
+Tensor bfloat16_quantize_nearest_cuda(Tensor a)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  bfloat16_kernel_nearest<<<blockNums, blockSize>>>(
+  a.data_ptr<float>(), o.data_ptr<float>(), size);
+
+  return o;
+}
+
 Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, bool subnormals)
 {
   auto o = zeros_like(a);
