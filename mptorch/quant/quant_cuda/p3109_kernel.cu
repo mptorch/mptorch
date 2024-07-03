@@ -225,7 +225,6 @@ __host__ __device__ float cast_p3109_unsigned_troncate(float origin_float, int P
     if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
-    mant = mant & 0x7F0000; //truncate mantissa
 
     if (subnormals){   
         int spec_exp = (P == 1) ? 1 : 0;
@@ -242,6 +241,62 @@ __host__ __device__ float cast_p3109_unsigned_troncate(float origin_float, int P
     fval8 = BITS_TO_FLOAT(&uval8);
 
     return fval8;
+}
+
+__host__ __device__ float cast_bfloat16_nearest(float origin_float) {   //THIS HAS SUBNORMALS AND IS UNTESTED
+
+    uint32_t bits;
+
+    bits = FLOAT_TO_BITS(&origin_float);
+    
+    int32_t exp = ((bits >> 23) & 0xFF) - 127;  //unbiased exponent
+    uint32_t sign = (bits >> 31) & 1;  //sign bit
+    uint32_t mant = (bits & 0x7FFFFF); //mantissa
+    
+
+    uint32_t outbits;
+    
+    float out;
+    
+    if(exp == 128){ //infinity or NaN, 128 is inf/nan, 2^(8-1) -1 = 127 is emax for IEEE 754
+        //infinity case
+        if(mant == 0){
+            outbits = (sign << 31| 0xFF << 23| 0); //infinities are propagated
+            uint32_t *tempout = &outbits;
+            out = *((float *)tempout);
+            return out;
+        } else {
+        //NaN case
+            outbits = (sign << 31| 0xFF << 23| mant);  //NaNs are propagated
+            uint32_t *tempout = &outbits;
+            out = *((float *)tempout);
+            return out;
+        }
+    }
+    
+    if((mant & 0x1FFFF) == 0x8000) {//round to nearest even tie round down, 1ffff is bottom 23 - 7 + 1 = 17 bits of the mantissa, 8000 is the tie point
+    
+        mant = mant & 0x7F0000; //truncate mantissa, 7f0000 is top 7 bits of mantissa
+        exp = exp + 127; //add bias
+        outbits = (sign << 31| exp << 23| mant);
+        uint32_t *tempout = &outbits;
+        out = *((float *)tempout);
+        return out;
+    }
+
+    mant = mant + (1 << (23 - 1 - 7)); //round to nearest
+
+    if((mant >> 23) == 1) {//if overflow through rounding
+        mant = 0; //truncate mantissa
+        exp = exp + 1; //add bias
+    }
+    mant = mant & 0x7F0000; //truncate mantissa
+
+    exp = exp + 127; //add bias
+    outbits = (sign << 31| exp << 23| mant);
+    uint32_t *tempout = &outbits;
+    out = *((float *)tempout);
+    return out;
 }
 
 
@@ -291,5 +346,12 @@ __global__ void p3109_unsigned_kernel_troncate(float *__restrict__ a, float *o, 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
         o[idx] = cast_p3109_unsigned_troncate(a[idx], P, saturation_mode, subnormals);
+  }
+}
+
+__global__ void bfloat16_kernel_nearest(float *__restrict__ a, float *o, int size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+        o[idx] = cast_bfloat16_nearest(a[idx]);
   }
 }

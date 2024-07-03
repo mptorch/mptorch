@@ -121,7 +121,8 @@ int main(void) {
     int repeats = 500;
 
 
-    
+    SaturationMode mode = SaturationMode::SATURATE;
+
 
     //std::random_device rd;  // Seed generator
     std::mt19937 gen(1); // Mersenne Twister engine
@@ -149,7 +150,7 @@ int main(void) {
                 input = input * input;
             }
 
-            input = cast_p3109_signed_nearest(input * 5, 5, true);
+            input = cast_p3109_signed_nearest(input * 5, 5, mode, true);
 
             // float ans_sto = cast_p3109_signed_stochastic(input, 5, random, 10, true);
             // float ans_nearest = cast_p3109_signed_nearest(input, 5, true);       
@@ -159,8 +160,8 @@ int main(void) {
             // accumulate_nearest += ans_nearest;    
 
             accumulate_float += input;
-            accumulate_stochastic = cast_p3109_signed_stochastic(input + accumulate_stochastic, 5, random, 23, true);
-            accumulate_nearest = cast_p3109_signed_nearest(input + accumulate_nearest, 5, true); 
+            accumulate_stochastic = cast_p3109_signed_stochastic(input + accumulate_stochastic, 5, random, 23, mode, true);
+            accumulate_nearest = cast_p3109_signed_nearest(input + accumulate_nearest, 5, mode, true); 
 
             diffResults[a][i] = std::abs(accumulate_stochastic - accumulate_float);
             diffResults[a+repeats][i] = std::abs(accumulate_nearest - accumulate_float);
