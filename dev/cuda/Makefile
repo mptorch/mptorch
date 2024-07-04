@@ -28,6 +28,7 @@ fp_nearest: fp_nearest.cu
 cublas_gemm: cublas_gemm.cu
 cublas_bgemm: cublas_bgemm.cu
 cublaslt_matmul: cublaslt_matmul.cu
+softmax: softmax.cu
 
 # Run all targets with the default (first) kernel
 run_all: all 
