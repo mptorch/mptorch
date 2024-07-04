@@ -544,3 +544,44 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
   }
   return o;
 }
+
+
+Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g, int man_add, int exp_add,
+                                               int man_mul, int exp_mul, int man_div, int exp_div,
+                                               bool subnormals, bool saturate, int dim)
+{
+  auto g_array = g.data_ptr<float>();
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  TensorStrides strides;
+  tensor_strides(a, dim, strides);
+
+  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
+    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
+  };
+
+  for (int L = 0; L < strides.outer_size * strides.inner_size; ++L) {
+    int i = L / strides.inner_size;
+    int j = L % strides.inner_size;
+
+    float input_sum = 0.f;
+    float weighted_grad_sum = 0.f;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
+      input_sum = quant(input_sum + a_array[idx], man_add, exp_add);
+      float prod = quant(a_array[idx] * g_array[idx], man_mul, exp_mul);
+      weighted_grad_sum = quant(weighted_grad_sum + prod, man_add, exp_add);
+    }
+
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = (i*strides.outer_stride) + (k*strides.dim_stride) + j;
+      float a = quant(g_array[idx] - weighted_grad_sum, man_add, exp_add);
+      float b = quant(a / input_sum, man_div, exp_div);
+      o_array[idx] = quant(a_array[idx] * b, man_mul, exp_mul);
+    }
+  }
+  return o;
+}

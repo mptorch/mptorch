@@ -66,3 +66,7 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
 Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int exp_trans,
                                                   int man_add, int exp_add, bool subnormals,
                                                   bool saturate, int dim);
+
+Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g, int man_add, int exp_add,
+                                               int man_mul, int exp_mul, int man_div, int exp_div,
+                                               bool subnormals, bool saturate, int dim);

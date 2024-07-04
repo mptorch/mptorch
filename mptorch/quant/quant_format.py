@@ -68,6 +68,8 @@ class QSoftmaxFormats:
         fwd_add: Optional[Number] = None,
         fwd_div: Optional[Number] = None,
         bwd_add: Optional[Number] = None,
+        bwd_mul: Optional[Number] = None,
+        bwd_div: Optional[Number] = None,
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
         input_quant=id_quant,
@@ -87,8 +89,10 @@ class QSoftmaxFormats:
         else:
             self.fwd_use_default_prec = True
         
-        if bwd_add is not None:
+        if bwd_add is not None and bwd_mul is not None and bwd_div is not None:
             self.bwd_add = bwd_add
+            self.bwd_mul = bwd_mul
+            self.bwd_div = bwd_div
             self.bwd_use_default_prec = False
         else:
             self.bwd_use_default_prec = True

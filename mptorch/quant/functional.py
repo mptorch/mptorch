@@ -430,28 +430,30 @@ class qsoftmax_kernel(torch.autograd.Function):
 
         if formats.fwd_use_default_prec:
             with torch.no_grad():
-                x = torch.softmax(qinput, dim)
+                output = torch.softmax(qinput, dim)
         else:
-            x = float_softmax(qinput, dim, formats)
+            output = float_softmax_forward(qinput, dim, formats)
 
-        ctx.save_for_backward(x)
-        qoutput = formats.output_quant(x)
+        qoutput = formats.output_quant(output)
+        ctx.save_for_backward(qoutput)
         return qoutput
 
     @staticmethod
     def backward(ctx, grad_output):
-        (x,) = ctx.saved_tensors
+        (qoutput,) = ctx.saved_tensors
         formats = ctx.formats
         dim = ctx.dim
 
         qgrad_output = formats.grad_quant(grad_output)
 
-        input_sum = qsum(x, dim=dim, quant=formats.grad_quant, keepdim=True)
-        weighted_grad_sum = qsum((x * qgrad_output), dim=dim, quant=formats.grad_quant, keepdim=True)
-        grad_x = x * ((qgrad_output - weighted_grad_sum) / input_sum)
+        if formats.bwd_use_default_prec:
+            raise NotImplementedError("TODO")
+        else:
+            grad_input = float_softmax_backward(qoutput, qgrad_output, dim, formats)
 
-        return grad_x, None, None
+        qgrad_input = formats.grad_quant(grad_input)
 
-# add param for lse or norm
+        return qgrad_input, None, None
+
 def qsoftmax(x, dim, formats):
     return qsoftmax_kernel.apply(x, dim, formats)

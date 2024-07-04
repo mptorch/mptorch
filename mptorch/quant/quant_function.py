@@ -25,7 +25,8 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
-    "float_softmax",
+    "float_softmax_forward",
+    "float_softmax_backward",
     "cublas_mm",
     "cublas_bmm",
     "CUBLASMatrixType",
@@ -275,7 +276,7 @@ def match_mac_format_with_cublas_types(
     return None
 
 
-def float_softmax(a, dim, formats):
+def float_softmax_forward(a, dim, formats):
     assert not a.is_cuda, "CUDA softmax not implemented."
     trans_cfg, add_cfg, div_cfg, rnd = (
         formats.fwd_trans,
@@ -286,7 +287,6 @@ def float_softmax(a, dim, formats):
     assert rnd == "nearest", \
         "Only nearest rounding softmax is implemented."
 
-    # TODO: which configuration is used for subnormals/saturation?
     subnormals = trans_cfg.subnormals
     saturate = trans_cfg.saturate
 
@@ -305,6 +305,29 @@ def float_softmax(a, dim, formats):
             add_cfg.man, add_cfg.exp,
             subnormals, saturate, dim
         )
+
+def float_softmax_backward(output, grad_output, dim, formats):
+    assert not output.is_cuda and not grad_output.is_cuda, \
+        "CUDA softmax not implemented."
+    add_cfg, mul_cfg, div_cfg, rnd = (
+        formats.bwd_add,
+        formats.bwd_mul,
+        formats.bwd_div,
+        formats.bwd_rnd,
+    )
+    assert rnd == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    
+    subnormals = add_cfg.subnormals
+    saturate = add_cfg.saturate
+
+    return quant_cpu.float_quantize_nearest_softmax_backward(
+        output, grad_output,
+        add_cfg.man, add_cfg.exp,
+        mul_cfg.man, mul_cfg.exp,
+        div_cfg.man, div_cfg.exp,
+        subnormals, saturate, dim
+    )
 
 
 def mp_mm(a, b, formats, use_forward=True):

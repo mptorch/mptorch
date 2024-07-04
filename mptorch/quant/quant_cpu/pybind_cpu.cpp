@@ -29,4 +29,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward);
   m.def("float_quantize_nearest_softmax_lse_forward", &float_quantize_nearest_softmax_lse_forward);
+  m.def("float_quantize_nearest_softmax_backward", &float_quantize_nearest_softmax_backward);
 }

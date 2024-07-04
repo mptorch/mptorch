@@ -2,7 +2,7 @@ import torch
 import torch.nn
 from mptorch import FloatingPoint
 from mptorch.quant import QSoftmaxFormats
-from mptorch.quant import float_softmax, float_quantize
+from mptorch.quant import float_softmax_forward, float_quantize
 from mptorch.quant import functional as Q
 
 device = torch.device("cpu")
@@ -26,6 +26,8 @@ formats_div = QSoftmaxFormats(
     fwd_add=fp_format,
     fwd_div=fp_format,
     bwd_add=fp_format,
+    bwd_mul=fp_format,
+    bwd_div=fp_format,
     output_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
@@ -35,6 +37,8 @@ formats_lse = QSoftmaxFormats(
     fwd_trans=fp_format,
     fwd_add=fp_format,
     bwd_add=fp_format,
+    bwd_mul=fp_format,
+    bwd_div=fp_format,
     output_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
@@ -42,6 +46,7 @@ formats_lse = QSoftmaxFormats(
 
 
 def test_softmax_formats():
+
     assert formats_lse.use_lse
     assert formats_lse.fwd_div is None
     assert not formats_div.use_lse
@@ -51,50 +56,50 @@ def test_softmax_formats():
 def test_softmax_lse_dim0():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=0)
-    res = float_softmax(a, 0, formats_lse)
+    res = float_softmax_forward(a, 0, formats_lse)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim1():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=1)
-    res = float_softmax(a, 1, formats_lse)
+    res = float_softmax_forward(a, 1, formats_lse)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim2():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=2)
-    res = float_softmax(a, 2, formats_lse)
+    res = float_softmax_forward(a, 2, formats_lse)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_lse_dim3():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=3)
-    res = float_softmax(a, 3, formats_lse)
+    res = float_softmax_forward(a, 3, formats_lse)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 # Testing mptorch division-based softmax against pytorch softmax
 def test_softmax_dim0():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=0)
-    res = float_softmax(a, 0, formats_div)
+    res = float_softmax_forward(a, 0, formats_div)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim1():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=1)
-    res = float_softmax(a, 1, formats_div)
+    res = float_softmax_forward(a, 1, formats_div)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim2():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=2)
-    res = float_softmax(a, 2, formats_div)
+    res = float_softmax_forward(a, 2, formats_div)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 def test_softmax_dim3():
     a = torch.randn(10, 30, 40, 20, device=device)
     ref = torch.softmax(a, dim=3)
-    res = float_softmax(a, 3, formats_div)
+    res = float_softmax_forward(a, 3, formats_div)
     torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
 
 # Testing mptorch backward against pytorch
