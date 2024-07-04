@@ -461,7 +461,7 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
 	  // Get max value of the current elemnts softmax is done on
 	  // This is for ensuring the exp() values do not overflow
     float max = input[0];
-    for (int k = 0; k < strides.dim_size; ++k) {
+    for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
       if (input[idx] > max) {
         max = input[idx];
@@ -518,7 +518,7 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
     // Skips because max value always creates a 1 that skews results
     int idx_max = 0;
     float max = input[idx_max];
-    for (int k = 0; k < strides.dim_size; ++k) {
+    for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
       if (input[idx] > max) {
         idx_max = idx;
