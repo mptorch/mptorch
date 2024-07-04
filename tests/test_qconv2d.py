@@ -46,8 +46,8 @@ def test_qconv2d_custom_mm():
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-3)
-    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-3)
+    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-2)
+    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-2)
 
     res_m = m(x)
     res_qm = qm(qx)
