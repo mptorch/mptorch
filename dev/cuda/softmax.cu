@@ -110,7 +110,7 @@ __global__ void softmax_kernel(float *input_array, float *output_array, DimStrid
 }
 
 void softmax_cuda(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
-    auto h_strides = dim_striding(dims, n_dims, dim);
+    DimStrides h_strides = dim_striding(dims, n_dims, dim);
     DimStrides *d_strides;
     cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
     cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
