@@ -308,7 +308,7 @@ class FeedFoward(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
-            nn.Linear(4 * n_embd, n_embd),
+            qpt.QLinear(4 * n_embd, n_embd, formats=layer_formats),
             nn.Dropout(dropout),
         )
 
@@ -345,7 +345,7 @@ class GPTLanguageModel(nn.Module):
             *[Block(args.n_embd, n_head=args.n_head) for _ in range(args.n_layer)]
         )
         self.ln_f = nn.LayerNorm(args.n_embd)  # final layer norm
-        self.lm_head = nn.Linear(args.n_embd, vocab_size)
+        self.lm_head = qpt.QLinear(args.n_embd, vocab_size, formats=layer_formats)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -406,7 +406,7 @@ if os.path.exists("model.pth"):
     m.load_state_dict(torch.load("model.pth"))
 else:
     # set up loss scaling
-    init_scale = 2**7
+    init_scale = 2**16
     if device == "cpu" or init_scale is None:
         scaler = None
     else:

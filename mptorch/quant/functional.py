@@ -21,7 +21,7 @@ __all__ = [
 # Utility functions to perform tensor scaling operations in low precison (8-bit and
 # below) DNN training
 # See: https://arxiv.org/pdf/2309.17224
-# NOTE: using this routine seems quite sensitive to how the margin terms is picked,
+# NOTE: using this routine seems quite sensitive to how the margin term is picked,
 # notably the empirical value suggested in the aformentioned reference leads to 
 # divergence (i.e. grad_input computation in the linear layer backward pass is 
 # unstable and produces NaNs right from the start); more investigation is needed 
@@ -157,7 +157,8 @@ class qmm_kernel(torch.autograd.Function):
         qother = formats.weight_quant(scale(other, ctx.weight_scale))
 
         if formats.fwd_use_default_prec:
-            output = torch.mm(qinput, qother)
+            with torch.no_grad():
+                output = torch.mm(qinput, qother)
         else:
             output = mp_mm(
                 qinput,
@@ -181,8 +182,7 @@ class qmm_kernel(torch.autograd.Function):
             grad_scale = compute_bias(grad_output, ctx.formats.grad_format)
         else:
             grad_scale = 0
-        grad_output = scale(grad_output, grad_scale)
-        qgrad_output = ctx.formats.grad_quant(grad_output)
+        qgrad_output = ctx.formats.grad_quant(scale(grad_output, grad_scale))
 
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
