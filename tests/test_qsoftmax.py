@@ -161,3 +161,22 @@ def test_softmax_backward_dim3():
     res2.backward(a)
 
     torch.testing.assert_close(ref1.grad, res1.grad, atol=1e-5, rtol=0)
+
+def test_softmax_default_prec():
+    a1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+    a2 = a1.clone().detach()
+    a2.requires_grad_(True)
+
+    formats_default = QSoftmaxFormats() # default precision, no quantization
+    assert formats_default.fwd_use_default_prec
+    assert formats_default.bwd_use_default_prec
+
+    b1 = torch.softmax(a1, dim=2)
+    b2 = Q.qsoftmax(a2, 2, formats_default)
+
+    x = torch.randn(10, 30, 40, 20, device=device)
+    b1.backward(x)
+    b2.backward(x)
+
+    torch.testing.assert_close(b1, b2, atol=1e-5, rtol=0)
+    torch.testing.assert_close(a2.grad, a1.grad, atol=1e-5, rtol=0)

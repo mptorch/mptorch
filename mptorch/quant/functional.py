@@ -447,7 +447,9 @@ class qsoftmax_kernel(torch.autograd.Function):
         qgrad_output = formats.grad_quant(grad_output)
 
         if formats.bwd_use_default_prec:
-            raise NotImplementedError("TODO")
+            input_sum = torch.sum(qoutput, dim=dim, keepdim=True)
+            weighted_grad_sum = torch.sum(qoutput * qgrad_output, dim=dim, keepdim=True)
+            grad_input = qoutput * ((qgrad_output - weighted_grad_sum) / input_sum)
         else:
             grad_input = float_softmax_backward(qoutput, qgrad_output, dim, formats)
 
