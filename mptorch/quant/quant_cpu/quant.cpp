@@ -536,7 +536,7 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
       float x = quant(input[idx] - max, man_add, exp_add);
       float exp_lgs = quant(expf(lgs), man_trans, exp_trans);
       float exp_x = quant(expf(x), man_trans, exp_trans);
-      lgs = quant(log(exp_lgs + exp_x), man_trans, exp_trans);
+      lgs = quant(logf(exp_lgs + exp_x), man_trans, exp_trans);
     }
     // Get output tensor elemnts 
     for (int k = 0; k < strides.dim_size; ++k) {
