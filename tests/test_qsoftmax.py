@@ -4,6 +4,7 @@ from mptorch import FloatingPoint
 from mptorch.quant import QSoftmaxFormats
 from mptorch.quant import float_quantize
 from mptorch.quant import functional as Q
+from mptorch.quant import QSoftmax
 
 device = torch.device("cpu")
 
@@ -184,3 +185,40 @@ def test_softmax_default_prec():
 
     torch.testing.assert_close(b1, b2, atol=1e-5, rtol=0)
     torch.testing.assert_close(a2.grad, a1.grad, atol=1e-5, rtol=0)
+
+def test_softmax_layer():
+    man, exp = 12, 8
+    quantize = lambda x: Q.float_quantize(
+        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+    )
+    float_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+    qsoftmax_formats = QSoftmaxFormats(
+        fwd_trans=float_format,
+        fwd_add=float_format,
+        fwd_div=float_format,
+        bwd_add=float_format,
+        bwd_mul=float_format,
+        bwd_div=float_format,
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        input_quant=quantize,
+        output_quant=quantize,
+        grad_quant=quantize
+    )
+    dim = 2
+    layer = torch.nn.Softmax(dim)
+    qlayer = QSoftmax(dim, qsoftmax_formats)
+
+    a1 = torch.randn(10, 30, 40, 20, device=device, requires_grad=True)
+    a2 = a1.clone().detach()
+    a2.requires_grad_(True)
+
+    b1 = layer.forward(a1)
+    b2 = qlayer.forward(a2)
+
+    x = torch.randn(10, 30, 40, 20, device=device)
+    b1.backward(x)
+    b2.backward(x)
+
+    torch.testing.assert_close(b1, b2, atol=1e-3, rtol=0)
+    torch.testing.assert_close(a2.grad, a1.grad, atol=1e-3, rtol=0)
