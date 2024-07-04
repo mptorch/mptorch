@@ -2,6 +2,7 @@ import mptorch
 import mptorch.quant as qt
 import torch
 import torch.nn as nn
+from torch.testing import assert_close
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 12, 8
@@ -36,29 +37,14 @@ def test_qlinear_custom_mm():
 
     res_m = m(x)
     res_qm = qm(qx)
-    err_fwd = torch.max(torch.abs(res_m - res_qm)).item()
-    assert err_fwd < 1e-2
+    assert_close(res_m, res_qm, atol=1e-2, rtol=0.0)
 
     res_m = m(x).mean()
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-
-    err_grad_bias = torch.max(
-        torch.abs(
-            (m.bias.grad.view(qm.bias.grad.shape) - qm.bias.grad)
-            / m.bias.grad.view(qm.bias.grad.shape)
-        )
-    ).item()
-
-    err_grad_weight = torch.max(
-        torch.abs((m.weight.grad.view(qm.weight.grad.shape) - qm.weight.grad))
-    ).item()
-
-    res_m = m(x)
-    res_qm = qm(qx)
-    assert err_grad_bias < 1e-3
-    assert err_grad_weight < 1e-3
+    assert_close(m.bias.grad, qm.bias.grad, atol=1e-3, rtol=0.0)
+    assert_close(m.weight.grad, qm.weight.grad, atol=1e-3, rtol=0.0)
 
 
 def test_qlinear_default_mm():
@@ -81,26 +67,11 @@ def test_qlinear_default_mm():
 
     res_m = m(x)
     res_qm = qm(qx)
-    err_fwd = torch.max(torch.abs(res_m - res_qm)).item()
-    assert err_fwd < 1e-3
+    assert_close(res_m, res_qm, atol=1e-3, rtol=0.0)
 
     res_m = m(x).mean()
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-
-    err_grad_bias = torch.max(
-        torch.abs(
-            (m.bias.grad.view(qm.bias.grad.shape) - qm.bias.grad)
-            / m.bias.grad.view(qm.bias.grad.shape)
-        )
-    ).item()
-
-    err_grad_weight = torch.max(
-        torch.abs((m.weight.grad.view(qm.weight.grad.shape) - qm.weight.grad))
-    ).item()
-
-    res_m = m(x)
-    res_qm = qm(qx)
-    assert err_grad_bias < 1e-4
-    assert err_grad_weight < 1e-4
+    assert_close(m.bias.grad, qm.bias.grad, atol=1e-4, rtol=0.0)
+    assert_close(m.weight.grad, qm.weight.grad, atol=1e-4, rtol=0.0)
