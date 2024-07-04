@@ -20,27 +20,17 @@ float round(float a, float r, int sigma)
   return a;
 }
 
-void tensor_strides(Tensor a, int dim, TensorStrides &strides) {
-  // dimension we are iterating across, needed for negative dims
+void dim_striding(Tensor a, int dim, DimStrides &strides) {
   int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
-  
-  // columns to iterate over
   strides.outer_size = 1;
+  strides.dim_size = a.size(real_dim);
+  strides.inner_size = 1;
   for (int i = 0; i < real_dim; ++i) {
     strides.outer_size *= a.size(i);
   }
-
-  // rows to iterate over
-  strides.inner_size = 1;
   for (int i = real_dim + 1; i < a.dim(); ++i) {
     strides.inner_size *= a.size(i);
   }
-
-  // size of the dimesnion we are iterating accross
   strides.dim_stride = strides.inner_size;
-
-  // how much to iterate to get to next set of elements in dim
-  int dim_size = a.size(real_dim);
-  strides.dim_size = dim_size;
-  strides.outer_stride = dim_size * strides.dim_stride;
+  strides.outer_stride = strides.dim_size * strides.dim_stride;
 }

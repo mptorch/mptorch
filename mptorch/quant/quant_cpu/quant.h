@@ -5,7 +5,7 @@ using namespace at;
 
 enum Mode { rNearest, rStochastic };
 
-struct TensorStrides
+struct DimStrides
 {
     int outer_size;
     int inner_size;
@@ -18,7 +18,7 @@ float round(float a, float r, int sigma);
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max);
 
-void tensor_strides(Tensor a, int dim, TensorStrides &strides);
+void dim_striding(Tensor a, int dim, DimStrides &strides);
 
 uint32_t clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
                            uint32_t quantized_num, bool saturate);
