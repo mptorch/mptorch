@@ -5,7 +5,6 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-// TODO: support saturate logic
 // Remark: bias = 2^{e-1}
 __device__ float cast_superfp_nearest(float origin, int man_bits, int exp_bits, int binades = 1, bool saturate = false) {
     int32_t sat = saturate;
