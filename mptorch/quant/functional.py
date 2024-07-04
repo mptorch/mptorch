@@ -61,15 +61,16 @@ class qlinear_kernel(torch.autograd.Function):
 
         if formats.fwd_use_default_prec:
             with torch.no_grad():
-                output = torch.nn.functional.linear(qinput, qweight, qbias)
+                output = torch.nn.functional.linear(qinput, qweight)
         else:
             output = mp_bmm(qinput, qweight.t(), formats, use_forward=True)
-            output = unscale(output, ctx.input_scale + ctx.weight_scale)
 
-            if qbias is not None:
-                output += qbias.view(
-                    -1, qbias.shape[-1]
-                )  # broadcasting should be done automatically
+        output = unscale(output, ctx.input_scale + ctx.weight_scale)
+
+        if qbias is not None:
+            output += qbias.view(
+                -1, qbias.shape[-1]
+            )  # broadcasting should be done automatically
 
         ctx.save_for_backward(qinput, qweight, qbias)
         qoutput = formats.output_quant(output)
@@ -233,7 +234,8 @@ class qmatmul_kernel(torch.autograd.Function):
         qother = formats.weight_quant(scale(other, ctx.weight_scale))
 
         if formats.fwd_use_default_prec:
-            output = torch.matmul(qinput, qother)
+            with torch.no_grad():
+                output = torch.matmul(qinput, qother)
         else:
             output = mp_bmm(
                 qinput,
@@ -241,12 +243,11 @@ class qmatmul_kernel(torch.autograd.Function):
                 formats=formats,
                 use_forward=True,
             )
-
         output = unscale(output, ctx.input_scale + ctx.weight_scale)
 
         ctx.save_for_backward(qinput, qother)
         qoutput = formats.output_quant(output)
-        return qoutput.clone()
+        return qoutput
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -257,8 +258,7 @@ class qmatmul_kernel(torch.autograd.Function):
             grad_scale = compute_bias(grad_output, ctx.formats.grad_format)
         else:
             grad_scale = 0
-        grad_output = scale(grad_output, grad_scale)
-        qgrad_output = ctx.formats.grad_quant(grad_output)
+        qgrad_output = ctx.formats.grad_quant(scale(grad_output, grad_scale))
 
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
