@@ -117,6 +117,7 @@ void softmax_cuda(float *input, float *output, const int *dims, int n_dims, int 
     int N = h_strides.outer_size * h_strides.inner_size * h_strides.dim_size;
     int blocks = N / block_size + (N % block_size != 0);
     softmax_kernel<<<blocks, block_size>>>(input, output, d_strides, N);
+    cudaCheck(cudaFree(d_strides));
 }
 
 // ---------------------------------------------------------------------------------------
