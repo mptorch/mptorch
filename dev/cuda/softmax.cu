@@ -79,12 +79,13 @@ static void softmax_cpu(float *input_array, float *output_array, const int *dims
 /* Device (CUDA) implementations of softmax */
 __global__ void softmax_kernel(float *input_array, float *output_array, DimStrides *strides, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(id >= N) return;
+
     int outer_idx = id / strides->inner_size;
     int inner_idx = id % strides->inner_size;
 
     int base_index = outer_idx * strides->outer_stride + inner_idx;
-    if(base_index >= N) return;
-
     float* input = input_array + base_index;
     float* output = output_array + base_index;
 
@@ -114,9 +115,10 @@ void softmax_cuda(float *input, float *output, const int *dims, int n_dims, int 
     DimStrides *d_strides;
     cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
     cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    int N = h_strides.outer_size * h_strides.inner_size * h_strides.dim_size;
-    int blocks = N / block_size + (N % block_size != 0);
-    softmax_kernel<<<blocks, block_size>>>(input, output, d_strides, N);
+    // one thread per row of values to softmax
+    int num_threads = h_strides.outer_size * h_strides.inner_size;
+    int blocks = num_threads / block_size + (num_threads % block_size != 0);
+    softmax_kernel<<<blocks, block_size>>>(input, output, d_strides, num_threads);
     cudaCheck(cudaFree(d_strides));
 }
 
