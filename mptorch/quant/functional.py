@@ -430,7 +430,7 @@ class qsoftmax_kernel(torch.autograd.Function):
 
         if formats.fwd_use_default_prec:
             with torch.no_grad():
-                output = torch.softmax(qinput, dim)
+                output = torch.nn.functional.softmax(qinput, dim)
         else:
             output = float_softmax_forward(qinput, dim, formats)
 
