@@ -46,6 +46,10 @@ formats_lse = QSoftmaxFormats(
 
 
 def test_softmax_formats():
+    assert not formats_lse.fwd_use_default_prec
+    assert not formats_lse.bwd_use_default_prec
+    assert not formats_div.fwd_use_default_prec
+    assert not formats_div.bwd_use_default_prec
     assert formats_lse.use_lse
     assert formats_lse.fwd_div is None
     assert not formats_div.use_lse
