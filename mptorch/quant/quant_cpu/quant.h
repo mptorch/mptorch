@@ -34,7 +34,7 @@ Tensor block_quantize_stochastic(Tensor a, int wl, int dim);
 Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
                       bool subnormal_support, bool saturate);
 
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, bool saturate); 
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades, bool saturate); 
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_add, int exp_add, int man_mul,
@@ -46,4 +46,4 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subn
 
 Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool saturate);
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);

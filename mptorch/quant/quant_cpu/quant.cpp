@@ -323,37 +323,55 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
 }
 
 // TODO: support saturate logic
-// Remark: bias = 2^{e-1}-1
-float superfp_quantize(float origin, int man_bits, int exp_bits,
-                     bool saturate = false) {
+// Remark: bias = 2^{e-1}
+float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bool saturate = false) {
+    int32_t sat = saturate;
     uint32_t target;
     target = RFLOAT_TO_BITS(&origin);
     float ftarget{0u};
 
     int32_t target_exp = (target << 1 >> 24) - 127;
-    int32_t min_exp = 1 - ((1 << (exp_bits - 1)) - 1);
-    int32_t max_exp = ((1 << (exp_bits - 1)) - 1);
+    int32_t min_exp = 1 - ((1 << (exp_bits - 1))) + (binades - 1);
+    int32_t max_exp = ((1 << (exp_bits - 1)) - 2) - (binades - 1);
     bool subnormal = (target_exp < min_exp);
     bool supnormal = (target_exp > max_exp);
     if(subnormal) {
-        if (target_exp < min_exp - (1 << man_bits) + 1) // underflow
+        if (target_exp < min_exp - binades * (1 << man_bits) + 1) // underflow
             return 0.0f;
         uint32_t mask = (1 << 23) - 1;
-        uint32_t rand_prob = 1 << 22;
-        uint32_t add_r = target + rand_prob;
+        uint32_t eps = 1 << 22;
+        uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = RBITS_TO_FLOAT(&qtarget);
     } else if (supnormal) {
         if (target_exp == 128) { // NaN/inf
-            return origin;
-        } else if (target_exp > max_exp + (1 << man_bits) - 1) { // overflow
-            float infty = INFINITY;
-            uint32_t qtarget = (target >> 31 << 31) | RFLOAT_TO_BITS(&infty);
-            return RBITS_TO_FLOAT(&qtarget);
+            if (saturate) {
+                if ((target & 0x7FFFFFFF) == 0x7F800000) { // inf
+                    uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
+                    return RBITS_TO_FLOAT(&qtarget);
+                } else { // NaN
+                    return origin;
+                }
+            } else {
+                return origin;
+            }
+        } else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat) { // overflow
+            if (saturate) {
+                uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
+                return RBITS_TO_FLOAT(&qtarget);
+            } else {
+                if (((target << 9) == 0u) && (target_exp == max_exp + binades * (1 << man_bits) - 1))
+                    return origin;
+                else {
+                    float infty = INFINITY;
+                    uint32_t qtarget = (target >> 31 << 31) | RFLOAT_TO_BITS(&infty);
+                    return RBITS_TO_FLOAT(&qtarget);
+                }
+            }
         }
         uint32_t mask = (1 << 23) - 1;
-        uint32_t rand_prob = 1 << 22;
-        uint32_t add_r = target + rand_prob;
+        uint32_t eps = 1 << 22;
+        uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = RBITS_TO_FLOAT(&qtarget);
     } else {
@@ -364,7 +382,7 @@ float superfp_quantize(float origin, int man_bits, int exp_bits,
     return ftarget;
 }
 
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, bool saturate = false) 
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades, bool saturate = false) 
 {
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
@@ -372,7 +390,7 @@ Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, bool saturate = fa
   int size = a.numel();
 
   for (int64_t i = 0; i < size; i++) {
-    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, saturate);
+    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, binades, saturate);
   }
   return o;
 }
@@ -427,7 +445,7 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 }
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades,
                               bool saturate) {
-  return superfp_quantize(a, man_bits, exp_bits, saturate);
+  return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }

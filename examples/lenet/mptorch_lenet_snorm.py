@@ -101,7 +101,7 @@ random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
 float_format = SuperNormalFloat(
-    exp=args.exp, man=args.man, saturate=args.saturate
+    exp=args.exp, man=args.man, binades=1, saturate=args.saturate
 )
 mac_format = FloatingPoint(
     exp=8, man=7, subnormals=args.subnormals, saturate=args.saturate
@@ -142,6 +142,7 @@ param_q = lambda x: superfp_quantize(
     x,
     exp=args.exp,
     man=args.man,
+    binades=1,
     rounding="nearest",
     saturate=args.saturate,
 )
