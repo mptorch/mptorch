@@ -50,8 +50,9 @@ static void softmax_cpu(float *input_array, float *output_array, const int *dims
         int outer_idx = i / strides.inner_size;
         int inner_idx = i % strides.inner_size;
 
-        float* input = input_array + outer_idx * strides.outer_stride + inner_idx;
-        float* output = output_array + outer_idx * strides.outer_stride + inner_idx;
+        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        float* input = input_array + base_index;
+        float* output = output_array + base_index;
 
         float max = input[0];
         for (int k = 1; k < strides.dim_size; ++k) {
