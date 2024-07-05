@@ -1,14 +1,14 @@
 /* 
-Low-precision float softmax along any dimension.
+Low-precision float softmax forward along any dimension.
 
 Compile example:
-nvcc -O3 softmax.cu -o softmax
+nvcc -O3 softmax_forward.cu -o softmax_forward
 
 Simple implementation parallelizing over the rows to be softmaxed, one thread per row
-./softmax 1 [dim=-3..2]
+./softmax_forward 1 [dim=-3..2]
 
 Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 0
-./softmax 2 [dim=-3..2]
+./softmax_forward 2 [dim=-3..2]
 */
 
 
@@ -46,7 +46,7 @@ DimStrides dim_striding(const int *dims, int n_dims, int dim) {
 
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax */
-static void softmax_cpu(float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
+static void softmax_forward_cpu(float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
     auto strides = dim_striding(dims, n_dims, dim);
 
     for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
@@ -82,7 +82,7 @@ static void softmax_cpu(float *input_array, float *output_array, const int *dims
 // ---------------------------------------------------------------------------------------
 /* Device (CUDA) softmax kernels */
 
-__global__ void softmax_kernel1(float *input_array, float *output_array, DimStrides *strides, int N) {
+__global__ void softmax_forward_kernel1(float *input_array, float *output_array, DimStrides *strides, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(id >= N) return;
@@ -115,7 +115,7 @@ __global__ void softmax_kernel1(float *input_array, float *output_array, DimStri
     }
 }
 
-void softmax_cuda1(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+void softmax_forward_cuda1(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
     DimStrides h_strides = dim_striding(dims, n_dims, dim);
     DimStrides *d_strides;
     cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
@@ -123,11 +123,11 @@ void softmax_cuda1(float *input, float *output, const int *dims, int n_dims, int
     // one thread per row to be softmaxed
     int N = h_strides.outer_size * h_strides.inner_size; // number of rows
     int blocks = N / block_size + (N % block_size != 0);
-    softmax_kernel1<<<blocks, block_size>>>(input, output, d_strides, N);
+    softmax_forward_kernel1<<<blocks, block_size>>>(input, output, d_strides, N);
     cudaCheck(cudaFree(d_strides));
 }
 
-__global__ void softmax_kernel2(float *input_array, float *output_array, DimStrides *strides) {
+__global__ void softmax_forward_kernel2(float *input_array, float *output_array, DimStrides *strides) {
     extern __shared__ float shared[];
 
     int tid = threadIdx.x;
@@ -221,7 +221,7 @@ __global__ void softmax_kernel2(float *input_array, float *output_array, DimStri
     }
 }
 
-void softmax_cuda2(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+void softmax_forward_cuda2(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
     DimStrides h_strides = dim_striding(dims, n_dims, dim);
     DimStrides *d_strides;
     cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
@@ -230,20 +230,20 @@ void softmax_cuda2(float *input, float *output, const int *dims, int n_dims, int
     int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
     // block_size must be multiple of 32
     size_t shared_mem_size = block_size * sizeof(float);
-    softmax_kernel2<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
+    softmax_forward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
     cudaCheck(cudaFree(d_strides));
 }
 
 
 // ---------------------------------------------------------------------------------------
-void softmax_cuda(int kernel_num, float *input, float *output,
-                  const int *dims, int n_dims, int dim, int block_size) {
+void softmax_forward_cuda(int kernel_num, float *input, float *output,
+                          const int *dims, int n_dims, int dim, int block_size) {
     switch (kernel_num) {
     case 1:
-        softmax_cuda1(input, output, dims, n_dims, dim, block_size);
+        softmax_forward_cuda1(input, output, dims, n_dims, dim, block_size);
         break;
     case 2:
-        softmax_cuda2(input, output, dims, n_dims, dim, block_size);
+        softmax_forward_cuda2(input, output, dims, n_dims, dim, block_size);
         break;
     default:
         printf("Invalid kernel number\n");
@@ -289,15 +289,15 @@ int main(int argc, const char **argv) {
     cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
 
     // cpu reference
-    softmax_cpu(h_input, h_output, dims, n_dims, dim);
+    softmax_forward_cpu(h_input, h_output, dims, n_dims, dim);
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        softmax_cuda(version, d_input, d_output, dims, n_dims, dim, block_size);
+        softmax_forward_cuda(version, d_input, d_output, dims, n_dims, dim, block_size);
         float tol = 1e-6f;
-        validate_result(d_output, h_output, "softmax output", numel, tol);
+        validate_result(d_output, h_output, "output", numel, tol);
     }
 
     printf("All results match. Starting benchmarks.\n\n");
@@ -305,7 +305,7 @@ int main(int argc, const char **argv) {
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
         int block_size = block_sizes[j];
         int repeat_times = 1000;
-        float elapsed_time = benchmark_kernel(repeat_times, softmax_cuda, version,
+        float elapsed_time = benchmark_kernel(repeat_times, softmax_forward_cuda, version,
                                               d_input, d_output, dims, n_dims, dim, block_size);
 
         printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
