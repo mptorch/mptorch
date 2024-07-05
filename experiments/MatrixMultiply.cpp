@@ -5,8 +5,8 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
-#include "../mptorch/quant/quant_cuda/p3109_kernel.cu"
-#include "../mptorch/quant/quant_cuda/p3109_kernel.h"
+#include "../mptorch/quant/quant_cuda/binary8_kernel.cu"
+#include "../mptorch/quant/quant_cuda/binary8_kernel.h"
 
 
 
@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
             # get overflows when you are doing additions;
             # you can tweak this value to be something smaller to make overflows less likely to manifest
             */
-            float scale = 20.0;
+            float scale = 600.0;
             
             for (unsigned iter = 0; iter < iterations; iter++) {
                 //print iteration number
@@ -185,33 +185,33 @@ int main(int argc, char **argv) {
 
                             float product;
                             if(multiply_format == 0) {
-                                product = cast_p3109_signed_nearest(A[i][k], 1, mode, true) * cast_p3109_signed_nearest(B[k][j], 1, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 1, mode, true) * cast_binary8_signed_nearest(B[k][j], 1, mode, true);
                             } else if (multiply_format == 1) {
-                                product = cast_p3109_signed_nearest(A[i][k], 2, mode, true) * cast_p3109_signed_nearest(B[k][j], 2, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 2, mode, true) * cast_binary8_signed_nearest(B[k][j], 2, mode, true);
                             } else if (multiply_format == 2) {
-                                product = cast_p3109_signed_nearest(A[i][k], 3, mode, true) * cast_p3109_signed_nearest(B[k][j], 3, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 3, mode, true) * cast_binary8_signed_nearest(B[k][j], 3, mode, true);
                             } else if (multiply_format == 3) {
-                                product = cast_p3109_signed_nearest(A[i][k], 4, mode, true) * cast_p3109_signed_nearest(B[k][j], 4, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 4, mode, true) * cast_binary8_signed_nearest(B[k][j], 4, mode, true);
                             } else if (multiply_format == 4) {
-                                product = cast_p3109_signed_nearest(A[i][k], 5, mode, true) * cast_p3109_signed_nearest(B[k][j], 5, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 5, mode, true) * cast_binary8_signed_nearest(B[k][j], 5, mode, true);
                             } else if (multiply_format == 5) {
-                                product = cast_p3109_signed_nearest(A[i][k], 6, mode, true) * cast_p3109_signed_nearest(B[k][j], 6, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 6, mode, true) * cast_binary8_signed_nearest(B[k][j], 6, mode, true);
                             } else if (multiply_format == 6) {
-                                product = cast_p3109_signed_nearest(A[i][k], 7, mode, true) * cast_p3109_signed_nearest(B[k][j], 7, mode, true);
+                                product = cast_binary8_signed_nearest(A[i][k], 7, mode, true) * cast_binary8_signed_nearest(B[k][j], 7, mode, true);
                             } else if (multiply_format == 7) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 1, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 1, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 1, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 1, random, 23, mode, true);
                             } else if (multiply_format == 8) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 2, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 2, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 2, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 2, random, 23, mode, true);
                             } else if (multiply_format == 9) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 3, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 3, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 3, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 3, random, 23, mode, true);
                             } else if (multiply_format == 10) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 4, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 4, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 4, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 4, random, 23, mode, true);
                             } else if (multiply_format == 11) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 5, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 5, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 5, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 5, random, 23, mode, true);
                             } else if (multiply_format == 12) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 6, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 6, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 6, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 6, random, 23, mode, true);
                             } else if (multiply_format == 13) {
-                                product = cast_p3109_signed_stochastic(A[i][k], 7, random, 23, mode, true) * cast_p3109_signed_stochastic(B[k][j], 7, random, 23, mode, true);
+                                product = cast_binary8_signed_stochastic(A[i][k], 7, random, 23, mode, true) * cast_binary8_signed_stochastic(B[k][j], 7, random, 23, mode, true);
                             } else if (multiply_format == 14) {
                                 product = cast_bfloat16_nearest(A[i][k]) * cast_bfloat16_nearest(B[k][j]);
                             } else {
@@ -221,33 +221,33 @@ int main(int argc, char **argv) {
                             random = (uint32_t) distrib(gen);
 
                             if(add_format == 0) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 1, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 1, mode, true);
                             } else if (add_format == 1) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 2, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 2, mode, true);
                             } else if (add_format == 2) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 3, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 3, mode, true);
                             } else if (add_format == 3) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 4, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 4, mode, true);
                             } else if (add_format == 4) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 5, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 5, mode, true);
                             } else if (add_format == 5) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 6, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 6, mode, true);
                             } else if (add_format == 6) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 7, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 7, mode, true);
                             } else if (add_format == 7) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 1, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 1, random, 23, mode, true);
                             } else if (add_format == 8) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 2, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 2, random, 23, mode, true);
                             } else if (add_format == 9) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 3, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 3, random, 23, mode, true);
                             } else if (add_format == 10) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 4, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 4, random, 23, mode, true);
                             } else if (add_format == 11) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 5, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 5, random, 23, mode, true);
                             } else if (add_format == 12) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 6, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 6, random, 23, mode, true);
                             } else if (add_format == 13) {
-                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_p3109_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 7, random, 23, mode, true);
+                                C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_binary8_signed_stochastic((C[(iter * width * width) + (i * width) + j][add_format + 1] + product), 7, random, 23, mode, true);
                             } else if (add_format == 14) {
                                 C[(iter * width * width) + (i * width) + j][add_format + 1] =  cast_bfloat16_nearest((C[(iter * width * width) + (i * width) + j][add_format + 1] + product));
                             } else {
