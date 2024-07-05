@@ -17,7 +17,7 @@ NVCCFLAGS = -lcublas -lcublasLt -std=c++17
 	$(NVCC) $(CFLAGS) $(NVCCFLAGS) $< -o $@
 
 # Build all targets (new executables go here)
-TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul
+TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul softmax
 
 all: $(TARGETS)
 
