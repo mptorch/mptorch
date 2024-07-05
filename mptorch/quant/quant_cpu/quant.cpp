@@ -455,8 +455,9 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
     int outer_idx = i / strides.inner_size;
     int inner_idx = i % strides.inner_size;
 
-    float* input = a_array + outer_idx * strides.outer_stride + inner_idx;
-    float* output = o_array + outer_idx * strides.outer_stride + inner_idx;
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* output = o_array + base_index;
 	
 	  // Get max value of the current elemnts softmax is done on
 	  // This is for ensuring the exp() values do not overflow
@@ -509,8 +510,9 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
     int outer_idx = i / strides.inner_size;
     int inner_idx = i % strides.inner_size;
 
-    float* input = a_array + outer_idx * strides.outer_stride + inner_idx;
-    float* output = o_array + outer_idx * strides.outer_stride + inner_idx;
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* output = o_array + base_index;
 
     // Get max value for current elements softmax is done on
     // This is for ensuring the exp() values do not overflow
@@ -570,9 +572,10 @@ Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g, int man_add, 
     int outer_idx = i / strides.inner_size;
     int inner_idx = i % strides.inner_size;
 
-    float* input = a_array + outer_idx * strides.outer_stride + inner_idx;
-    float* grad = g_array + outer_idx * strides.outer_stride + inner_idx;
-    float* output = o_array + outer_idx * strides.outer_stride + inner_idx;
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* grad = g_array + base_index;
+    float* output = o_array + base_index;
 
     float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
