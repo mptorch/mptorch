@@ -4,7 +4,7 @@ Low-precision float softmax.
 Compile example:
 nvcc -O3 softmax.cu -o softmax
 
-Run with:
+Simple implementation parallelizing over the rows to be softmaxed, one thread per row
 ./softmax [dim=0|1|2]
 */
 
@@ -77,7 +77,8 @@ static void softmax_cpu(float *input_array, float *output_array, const int *dims
 }
 
 // ---------------------------------------------------------------------------------------
-/* Device (CUDA) implementations of softmax */
+/* Device (CUDA) softmax kernels */
+
 __global__ void softmax_kernel(float *input_array, float *output_array, DimStrides *strides, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -116,10 +117,10 @@ void softmax_cuda(float *input, float *output, const int *dims, int n_dims, int 
     DimStrides *d_strides;
     cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
     cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    // one thread per row of values to softmax
-    int num_threads = h_strides.outer_size * h_strides.inner_size;
-    int blocks = num_threads / block_size + (num_threads % block_size != 0);
-    softmax_kernel<<<blocks, block_size>>>(input, output, d_strides, num_threads);
+    // one thread per row to be softmaxed
+    int N = h_strides.outer_size * h_strides.inner_size; // number of rows
+    int blocks = N / block_size + (N % block_size != 0);
+    softmax_kernel<<<blocks, block_size>>>(input, output, d_strides, N);
     cudaCheck(cudaFree(d_strides));
 }
 
@@ -139,18 +140,18 @@ int main(int argc, const char **argv) {
     }
 
     // create host tensors
-    int N = 1;
+    int numel = 1;
     for(int i = 0; i < n_dims; i++) {
-        N *= dims[i];
+        numel *= dims[i];
     }
-    float *h_input = make_random_float(N);
-    float* h_output = make_zeros_float(N);
+    float *h_input = make_random_float(numel);
+    float* h_output = make_zeros_float(numel);
 
     // create cuda tensors
     float *d_input, *d_output;
-    cudaCheck(cudaMalloc(&d_input, N * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_output, N * sizeof(float)));
-    cudaCheck(cudaMemcpy(d_input, h_input, N * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMalloc(&d_input, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_output, numel * sizeof(float)));
+    cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
 
     // cpu reference
     softmax_cpu(h_input, h_output, dims, n_dims, dim);
@@ -161,7 +162,7 @@ int main(int argc, const char **argv) {
         printf("Checking block size %d.\n", block_size);
         softmax_cuda(d_input, d_output, dims, n_dims, dim, block_size);
         float tol = 1e-7f;
-        validate_result(d_output, h_output, "softmax output", N, tol);
+        validate_result(d_output, h_output, "softmax output", numel, tol);
     }
 
     printf("All results match. Starting benchmarks.\n\n");
@@ -173,7 +174,7 @@ int main(int argc, const char **argv) {
 
         // estimate memory bandwidth achieved
         // for each output element, we do 3 reads and 2 writes, 4 bytes each
-        long memory_ops = N * 5 * (int)sizeof(float);
+        long memory_ops = numel * 5 * (int)sizeof(float);
         float memory_bandwidth = memory_ops / elapsed_time / 1e6;
 
         printf("block_size %4d | time %.4f ms | bandwidth %.2f GB/s\n", block_size, elapsed_time, memory_bandwidth);
