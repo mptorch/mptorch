@@ -7,7 +7,7 @@ nvcc -O3 p3109_signed_nearest.cu -o p3109_signed_nearest -std=c++17 -lcublas
 
 version 1 attempted to make the code as compact as possible, while also 
 maintaining readability; bit shifts and masking are used aplenty
-./fp_nearest 1
+./p3109_signed_nearest 1
 
 */
 
