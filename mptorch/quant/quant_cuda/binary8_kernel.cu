@@ -55,7 +55,7 @@ __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int
         int max_exp = (1 << (exp_bits -1)) - 1;
         int min_exp = spec_exp - max_exp;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -88,7 +88,7 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
-        if (((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)) {
+        if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -119,7 +119,7 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = (P == 1) - max_exp;
         
-        if ((min_exp - exp_val) <= man_bits && exp_val < min_exp && subnormals){ 
+        if ((min_exp - exp_val) <= man_bits && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -152,7 +152,7 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
         const int max_exp = (1 << (exp_bits -1)) - 1;
         const int min_exp = spec_exp - max_exp;        
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)){ 
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -187,7 +187,7 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
-        if (((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)) {
+        if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
     }

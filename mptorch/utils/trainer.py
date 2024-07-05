@@ -3,6 +3,7 @@ import math
 from torch import nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import wandb
 
 # utility function to see if execution can be done on a CUDA-enabled GPU
 def try_gpu():
@@ -41,6 +42,7 @@ def trainer(
     scheduler=None,
     plot_file=None,
     init_scale=None,
+    log_wandb=False,
 ):
     # 1. move the model to the appropriate device for training
     net.to(device)
@@ -102,6 +104,16 @@ def trainer(
             scheduler.step()
         train_acc_list.append(train_acc / train_size)
         test_acc_list.append(test_acc)
+
+        if log_wandb:  # Log metrics to wandb
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": train_loss / train_size,
+                "train_acc": train_acc / train_size,
+                "test_acc": test_acc,
+                "learning_rate": get_lr(optimizer)
+            })
+
         if scaler is None:
             print(
                 f"loss {train_loss / train_size:.3f}, train acc {train_acc / train_size:.3f}, test acc {test_acc:.3f}"

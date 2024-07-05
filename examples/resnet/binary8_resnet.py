@@ -85,8 +85,56 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
+# new parser arguments for binary8 format and testing-----------------------
+# weights and biases
 parser.add_argument(
     "--wandb", action="store_true", default=False, help="wandb logging"
+)
+
+# Precision (P)
+parser.add_argument(
+    "--P",
+    type=int,
+    default=3,
+    metavar="N",
+    help="precision (1-7)"
+)
+
+# subnormals
+parser.add_argument(
+    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
+)
+
+# signed or unsigned
+parser.add_argument(
+    "--is_signed", action="store_true", default = True, help="signed or unsigned"
+)
+
+# prng_bits
+parser.add_argument(
+    "--prng_bits",
+    type=int,
+    default=23,
+    metavar="N",
+    help="number of random bits used for adding in stochatic"
+)
+
+# type of rounding
+parser.add_argument(
+    "--rounding",
+    type=str,
+    default="nearest",
+    metavar="N",
+    help="nearest, stochastic, truncate"
+)
+
+# type of saturation mode
+parser.add_argument(
+    "--saturation_mode",
+    type=str,
+    default="overflow",
+    metavar="N",
+    help="saturate, overflow, no_overflow"
 )
 
 # name of wandb project run will be in
@@ -94,6 +142,7 @@ parser.add_argument(
     "--wandb_proj_name",
     type=str,
     default="ResNet Tests",
+    metavar="N",
     help="name of the project where runs will be logged"
 )
 
@@ -102,8 +151,10 @@ parser.add_argument(
     "--group_name",
     type=str,
     default="P=3",
+    metavar="N",
     help="name of group the run will reside in"
 )
+# ------------------------------------------------------------------
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -121,11 +172,12 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
+# must still set exp_mul, man_mul, exp_acc, and man_acc manually (ask how this is going to work)
 fpmul = FloatingPoint(
-    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=False
+    exp=args.exp_mul, man=args.man_mul, subnormals=args.subnormals, saturate=False
 )
 fpacc = FloatingPoint(
-    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=False
+    exp=args.exp_acc, man=args.man_acc, subnormals=args.subnormals, saturate=False
 )
 
 transform_train = transforms.Compose(
@@ -166,29 +218,34 @@ act_error_quant = lambda: qpt.Quantizer(
     backward_rounding="stochastic",
 )
 
-param_q = lambda x: qpt.float_quantize(
+param_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    saturation_mode=args.saturation_mode,
+    is_signed=args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
-input_q = lambda x: qpt.float_quantize(
+
+input_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    saturation_mode=args.saturation_mode,
+    is_signed=args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
-grad_q = lambda x: qpt.float_quantize(
+
+grad_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    saturation_mode=args.saturation_mode,
+    is_signed=args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
 
 layer_formats = qpt.QAffineFormats(
@@ -201,7 +258,6 @@ layer_formats = qpt.QAffineFormats(
     input_quant=input_q,
     grad_quant=grad_q,
 )
-
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -341,9 +397,16 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="stochastic", subnormals=True
+acc_q = lambda x: qpt.binary8_quantize(
+    x,
+    P = args.P,
+    rounding=args.rounding,
+    saturation_mode=args.saturation_mode,
+    is_signed=args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
+
 optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
