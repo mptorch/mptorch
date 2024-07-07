@@ -46,11 +46,11 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                                          saturate);
 }
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, 
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades,
                               bool saturate)
 {
       CHECK_INPUT(a);
-      return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, saturate);
+      return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, binades, saturate);
 }
 
 Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
@@ -161,46 +161,49 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
 
 void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_mul, int exp_mul, int man_add,
-                               int exp_add, bool saturate)
+                               int exp_add, int binades_add, int binades_mul,
+                              bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
       superfp_quantize_nearest_mm_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
-                                     exp_add, saturate);
+                                     exp_add, binades_add, binades_mul, saturate);
       return;
 }
 
 void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
                                 int K, int man_mul, int exp_mul, int man_add,
-                                int exp_add, bool saturate)
+                                int exp_add, int binades_add, int binades_mul,
+                                bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
       superfp_quantize_nearest_bmm_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
-                                      exp_add, saturate);
+                                      exp_add, binades_add, binades_mul, saturate);
       return;
 }
 
 void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                   int K, int man_fma, int exp_fma, bool saturate)
+                                   int K, int man_fma, int exp_fma,
+                                   int binades_fma, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      superfp_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, saturate);
+      superfp_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma, binades_fma, saturate);
       return;
 }
 
 void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                    int K, int man_fma, int exp_fma, bool saturate)
+                                    int K, int man_fma, int exp_fma, int binades_fma, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
       superfp_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K, 
-                                    man_fma, exp_fma, saturate);
+                                    man_fma, exp_fma, binades_fma, saturate);
       return;
 }
 

@@ -1,9 +1,10 @@
 import torch
-import math
 from torch import nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import wandb
+import os
+
 
 # utility function to see if execution can be done on a CUDA-enabled GPU
 def try_gpu():
@@ -36,6 +37,8 @@ def trainer(
     num_epochs,
     lr,
     batch_size,
+    start_epoch=0,
+    start_acc=0,
     loss=nn.CrossEntropyLoss(reduction="mean"),
     optimizer=None,
     device=try_gpu(),
@@ -43,11 +46,13 @@ def trainer(
     plot_file=None,
     init_scale=None,
     log_wandb=False,
+    checkpoint=False,
 ):
     # 1. move the model to the appropriate device for training
     net.to(device)
     train_acc_list = []
     test_acc_list = []
+    best_acc = start_acc
 
     # 2. set up the optimizer and updater
     if optimizer is None:
@@ -58,7 +63,7 @@ def trainer(
     else:
         scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
     # 3. the training loop
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, start_epoch + num_epochs):
         # use a tqdm progress bar to see how training progresses
         tq = tqdm(total=len(train_loader) * batch_size)
         if scheduler is not None:
@@ -100,6 +105,19 @@ def trainer(
         tq.close()
 
         test_acc = evaluate_accuracy(net, test_loader, device)
+        if test_acc > best_acc:
+            best_acc = test_acc
+            if checkpoint:
+                print("Saving...")
+                state = {
+                    "net": net.state_dict(),
+                    "acc": test_acc,
+                    "epoch": epoch,
+                }
+                if not os.path.isdir("checkpoint"):
+                    os.mkdir("checkpoint")
+                torch.save(state, "./checkpoint/ckpt.pth")
+
         if scheduler is not None:
             scheduler.step()
         train_acc_list.append(train_acc / train_size)

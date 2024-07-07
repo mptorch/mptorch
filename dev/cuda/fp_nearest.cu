@@ -3,7 +3,7 @@ Kernels for IEEE-754 down casting from binary32 to a lower precision format.
 Payload is still a binary32 value.
 
 Compile example:
-nvcc -O3 fp_nearest.cu -o fp_nearest -std=c++17
+nvcc -O3 fp_nearest.cu -o fp_nearest -std=c++17 -lcublas
 
 version 1 attempted to make the code as compact as possible, while also 
 maintaining readability; bit shifts and masking are used aplenty

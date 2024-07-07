@@ -33,7 +33,7 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      bool subnormals, bool saturate);
 
 __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size, 
-                                        int man_bits, int exp_bits,
+                                        int man_bits, int exp_bits, int binades,
                                         bool saturate);
 
 __global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
@@ -106,19 +106,17 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
 
 void mm_superfp_nearest(float *a, float *b, float *c, int M, int K, int N,
                    int man_add, int exp_add, int man_mul, int exp_mul,
-                   bool saturate);
+                   int binades_add, int binades_mul, bool saturate);
 
 void bmm_superfp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
                     int man_add, int exp_add, int man_mul, int exp_mul,
-                    bool saturate);
+                    int binades_add, int binades_mul, bool saturate);
 
 void mm_superfp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
-                       int man_fma, int exp_fma,
-                       bool saturate);
+                       int man_fma, int exp_fma, int binades_fma, bool saturate);
 
 void bmm_superfp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
-                        int N, int man_fma, int exp_fma,
-                        bool saturate);
+                        int N, int man_fma, int exp_fma, int binades_fma, bool saturate);
 
 void mm_fxp_nearest(float *a, float *b, float *c, int M, int K, int N,
                     int sigma_add, int t_min_add, int t_max_add, int sigma_mul,
