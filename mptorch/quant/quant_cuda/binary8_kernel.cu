@@ -101,9 +101,11 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
 
 __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
     
-    if (origin_float < 0) return NAN;
-
     uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int sign = uval32 >> 31 & 0x1;
+    
+    if (sign == 0x1) return NAN;   
+
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
     
@@ -134,11 +136,11 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
 
 __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) { 
     
-    if (origin_float < 0) return NAN;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int sign = uval32 >> 31 & 0x1;
     
-    const int exp_bits = 8 - P + 1;
-    const int man_bits = P - 1; 
-    const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    if (sign == 0x1) return NAN; 
+    
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const int32_t man_val = uval32 & 0x7FFFFF;
 
@@ -146,7 +148,10 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
         return origin_float;
     }
 
+    const int exp_bits = 8 - P + 1;
+    const int man_bits = P - 1; 
     int subnormal_shift = 0;
+
     if (subnormals){   
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits -1)) - 1;
@@ -168,11 +173,11 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
 
 __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) { 
     
-    if (origin_float < 0) return NAN;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int sign = uval32 >> 31 & 0x1;
+    
+    if (sign == 0x1) return NAN; 
 
-    const int exp_bits = 8 - P;
-    const int man_bits = P - 1;
-    const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
@@ -181,7 +186,10 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
         return origin_float;
     }
 
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
     int subnormal_shift = 0;
+
     if (subnormals) {
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits - 1)) - 1;
