@@ -87,12 +87,12 @@ parser.add_argument(
 
 # subnormals
 parser.add_argument(
-    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
+    "--subnormals", action="store_true", default=False, help="subnormals or no subnormals"
 )
 
 # signed or unsigned
 parser.add_argument(
-    "--is_signed", action="store_true", default = True, help="signed or unsigned"
+    "--is_signed", action="store_true", default=False, help="signed or unsigned"
 )
 
 # prng_bits

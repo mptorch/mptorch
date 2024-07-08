@@ -34,28 +34,28 @@ parser.add_argument(
 parser.add_argument(
     "--exp_mul",
     type=int,
-    default=3,
+    default=5,
     metavar="N",
     help="exponent size (default: 5)",
 )
 parser.add_argument(
     "--man_mul",
     type=int,
-    default=4,
+    default=2,
     metavar="N",
     help="mantissa size (default: 2)",
 )
 parser.add_argument(
     "--exp_acc",
     type=int,
-    default=6,
+    default=8,
     metavar="N",
     help="exponent size (default: 8)",
 )
 parser.add_argument(
     "--man_acc",
     type=int,
-    default=1,
+    default=7,
     metavar="N",
     help="mantissa size (default: 7)",
 )
@@ -102,12 +102,12 @@ parser.add_argument(
 
 # subnormals
 parser.add_argument(
-    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
+    "--subnormals", action="store_true", default=False, help="subnormals or no subnormals"
 )
 
 # signed or unsigned
 parser.add_argument(
-    "--is_signed", action="store_true", default = True, help="signed or unsigned"
+    "--is_signed", action="store_true", default=False, help="signed or unsigned"
 )
 
 # prng_bits
@@ -123,7 +123,7 @@ parser.add_argument(
 parser.add_argument(
     "--rounding",
     type=str,
-    default="nearest",
+    default="stochastic",
     metavar="N",
     help="nearest, stochastic, truncate"
 )
@@ -150,7 +150,7 @@ parser.add_argument(
 parser.add_argument(
     "--group_name",
     type=str,
-    default="P=3",
+    default="P=4",
     metavar="N",
     help="name of group the run will reside in"
 )
@@ -214,8 +214,8 @@ test_loader = torch.utils.data.DataLoader(
 act_error_quant = lambda: qpt.Quantizer(
     forward_number=fpmul,
     backward_number=fpmul,
-    forward_rounding="stochastic",
-    backward_rounding="stochastic",
+    forward_rounding="nearest",
+    backward_rounding="nearest",
 )
 
 param_q = lambda x: qpt.binary8_quantize(
@@ -250,9 +250,9 @@ grad_q = lambda x: qpt.binary8_quantize(
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fpacc, fpmul),
-    fwd_rnd="stochastic",
+    fwd_rnd="nearest",
     bwd_mac=(fpacc, fpmul),
-    bwd_rnd="stochastic",
+    bwd_rnd="nearest",
     weight_quant=param_q,
     bias_quant=param_q,
     input_quant=input_q,
