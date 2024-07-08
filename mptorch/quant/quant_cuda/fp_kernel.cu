@@ -32,7 +32,7 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
             int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
             quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
             quantize_bits =
-                clip_exponent_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
         // handle NaN/inf inputs
@@ -45,7 +45,7 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
         {
             quantize_bits = round_bitwise_nearest(target, man_bits);
             quantize_bits =
-                clip_exponent_wo_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
     }
@@ -89,6 +89,7 @@ __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob, int 
                                     bool saturate = false) 
 {
   // TODO
+  return 0.0f;
 }
 
 
