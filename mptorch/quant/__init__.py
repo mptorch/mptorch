@@ -8,7 +8,7 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
-    "p3109_quantize",
+    "binary8_quantize",
     "bfloat16_quantize",
     "superfp_quantize",
     "quantizer",

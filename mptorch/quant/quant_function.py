@@ -1829,6 +1829,14 @@ def binary8_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_si
         - :attr: `subnormals` (bool): saturate on overflow or use infinities
         - :attr: `prng_bits` (int): number of bits for the random generator
 
+    Saturation Modes:
+        - "saturate": Input values that exceed the maximum float of the binary8 format will saturate to the
+                      the maximum float. Infinite inputs will still map to infinities.
+        - "no_overflow": Both finite and infinite input values that exceed the maximum float of the binary8
+                         format will saturate to the maximum float.
+        - "overflow": Input values exceeding the maximum float of the binary8 format will map to finity.
+                      Infinite inputs will still map to infinities.
+
     Returns:
         - a quantized low-precision floating point number (torch.Tensor)
     """
