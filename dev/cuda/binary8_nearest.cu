@@ -474,7 +474,7 @@ int main(int argc, const char **argv)
     // sanity check the CPU reference code - signed and with subnormals
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
-        float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, true);
+        float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, subnormals);
         uint32_t res = FLOAT_TO_BITS(&fres);
         if (res != test_outputs[j])
         {
@@ -490,7 +490,7 @@ int main(int argc, const char **argv)
     // sanity check the CPU reference code - signed without subnormals
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
-        float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, false);
+        float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, !subnormals);
         uint32_t res = FLOAT_TO_BITS(&fres);
         if (res != test_outputs_no_sub[j])
         {
@@ -506,7 +506,7 @@ int main(int argc, const char **argv)
     // sanity check the CPU reference code - unsigned with subnormals
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
-        float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, true);
+        float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, subnormals);
         uint32_t res = FLOAT_TO_BITS(&fres);
         if (res != test_outputs_unsigned[j] && !std::isnan(fres))
         {
@@ -522,7 +522,7 @@ int main(int argc, const char **argv)
     // sanity check the CPU reference code - unsigned without subnormals
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
-        float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, false);
+        float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, !subnormals);
         uint32_t res = FLOAT_TO_BITS(&fres);
         if (res != test_outputs_unsigned_w[j] && !std::isnan(fres))
         {
@@ -547,13 +547,13 @@ int main(int argc, const char **argv)
     printf("Using kernel %d\n", kernel_num);
 
     // compute reference CPU solution - with subnormals
-    binary8_signed_nearest_cpu(y, x, N, P, is_signed, saturation_mode, true);
+    binary8_signed_nearest_cpu(y, x, N, P, is_signed, saturation_mode, subnormals);
     // compute reference CPU solution - without subnormals
-    binary8_signed_nearest_cpu(v, x, N, P, is_signed, saturation_mode, false);
+    binary8_signed_nearest_cpu(v, x, N, P, is_signed, saturation_mode, !subnormals);
     // compute reference CPU solution - with subnormals - unsigned
-    binary8_signed_nearest_cpu(w, x, N, P, false, saturation_mode, true);
+    binary8_signed_nearest_cpu(w, x, N, P, !is_signed, saturation_mode, subnormals);
     // compute reference CPU solution - without subnormals - unsigned
-    binary8_signed_nearest_cpu(u, x, N, P, false, saturation_mode, false);
+    binary8_signed_nearest_cpu(u, x, N, P, !is_signed, saturation_mode, !subnormals);
 
     // move data to the GPU
     float *d_x, *d_y, *d_v, *d_w, *d_u;
@@ -581,7 +581,7 @@ int main(int argc, const char **argv)
     {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        binary8_signed_nearest(kernel_num, d_v, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+        binary8_signed_nearest(kernel_num, d_v, d_x, N, P, block_size, is_signed, saturation_mode, !subnormals);
 
         float tol = 0.0f;
         validate_result(d_v, v, "v", N, tol);
@@ -590,7 +590,7 @@ int main(int argc, const char **argv)
     {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        binary8_signed_nearest(kernel_num, d_w, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+        binary8_signed_nearest(kernel_num, d_w, d_x, N, P, block_size, !is_signed, saturation_mode, subnormals);
 
         float tol = 0.0f;
         validate_result(d_w, w, "w", N, tol);
@@ -599,7 +599,7 @@ int main(int argc, const char **argv)
     {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        binary8_signed_nearest(kernel_num, d_u, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+        binary8_signed_nearest(kernel_num, d_u, d_x, N, P, block_size, !is_signed, saturation_mode, !subnormals);
 
         float tol = 0.0f;
         validate_result(d_u, u, "u", N, tol);
