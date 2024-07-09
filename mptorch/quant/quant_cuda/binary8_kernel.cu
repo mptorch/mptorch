@@ -101,14 +101,12 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
 
 __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
     
-    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
-    const int sign = uval32 >> 31 & 0x1;
-    
-    if (sign == 0x1) return NAN;   
+    if (origin_float < 0) return NAN;   
 
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
-    
+
     if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
@@ -136,13 +134,11 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
 
 __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) { 
     
+    if (origin_float < 0) return NAN;   
+
     uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
-    const int sign = uval32 >> 31 & 0x1;
-    
-    if (sign == 0x1) return NAN; 
-    
     const int exp_val = (uval32 << 1 >> 24) - 127;
-    const int32_t man_val = uval32 & 0x7FFFFF;
+    uint32_t man_val = uval32 & 0x7FFFFF;
 
     if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
@@ -173,13 +169,11 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
 
 __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) { 
     
-    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
-    const int sign = uval32 >> 31 & 0x1;
-    
-    if (sign == 0x1) return NAN; 
+    if (origin_float < 0) return NAN;   
 
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
-    const uint32_t man_val = uval32 & 0x7FFFFF;
+    uint32_t man_val = uval32 & 0x7FFFFF;
 
     // Early return for inf/NaN case
     if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
