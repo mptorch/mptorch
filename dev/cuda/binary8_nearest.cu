@@ -595,6 +595,15 @@ int main(int argc, const char **argv)
         float tol = 0.0f;
         validate_result(d_w, w, "w", N, tol);
     }
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
+        int block_size = block_sizes[j];
+        printf("Checking block size %d.\n", block_size);
+        binary8_signed_nearest(kernel_num, d_u, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+
+        float tol = 0.0f;
+        validate_result(d_u, u, "u", N, tol);
+    }
     printf("All results match.\n\n");
 
     printf("\nStarting benchmarks for signed with subnormals.\n");
