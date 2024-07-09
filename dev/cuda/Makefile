@@ -32,7 +32,6 @@ binary8_nearest: binary8_nearest.cu
 binary8_stochastic: binary8_stochastic.cu
 nv_bfloat16: nv_bfloat16.cu
 superfp_nearest: superfp_nearest.cu
-binary8_signed_nearest: binary8_signed_nearest.cu
 
 # Run all targets with the default (first) kernel
 run_all: all 

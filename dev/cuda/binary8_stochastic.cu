@@ -3,11 +3,11 @@ Kernels for IEEE-754 down casting from binary32 to a lower precision format.
 Payload is still a binary32 value.
 
 Compile example:
-nvcc -O3 cast_binary8_stochastic.cu -o cast_binary8_stochastic -std=c++17 -lcublas
+nvcc -O3 binary8_stochastic.cu -o binary8_stochastic -std=c++17 -lcublas
 
 version 1 attempted to make the code as compact as possible, while also 
 maintaining readability; bit shifts and masking are used aplenty
-./cast_binary8_stochastic 1
+./binary8_stochastic 1
 
 */
 
@@ -105,27 +105,23 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
 
 float cast_binary8_signed_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
 
-    int exp_bits = 8-P;
-    int man_bits = P-1;  
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
-
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
-    uint32_t man_val = uval32 & 0x7FFFFF;
+    const int exp_bits = 8-P;
+    const int man_bits = P-1; 
+    const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
+    const uint32_t man_val = uval32 & 0x7FFFFF;
 
     if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {          
         return origin_float;
     }
 
+    int subnormal_shift = 0;
     if (subnormals){
         int spec_exp = (P == 1) ? 1 : 0;
         int max_exp = (1 << (exp_bits -1)) - 1;
         int min_exp = spec_exp - max_exp;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -133,40 +129,34 @@ float cast_binary8_signed_stochastic_cpu(float origin_float, int P, uint32_t ran
     rand_prob = rand_prob << 9 >> 9;
     rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
 
-    uval8 = round_bitwise_stochastic_cpu(uval32, rand_prob, man_bits - subnormal_shift);
+    uint32_t uval8 = round_bitwise_stochastic_cpu(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = binary8_clip_exponent_cpu(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
 
-    return fval8;
+    return BITS_TO_FLOAT(&uval8);
 }
 
 float cast_binary8_unsigned_stochastic_cpu(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) { 
     
-    if(origin_float < 0){
-        return NAN;
-    }
+    if (origin_float < 0) return NAN;   
 
-    int exp_bits = 8 - P + 1;
-    int man_bits = P - 1; 
-    uint32_t uval32, uval8;
-    int subnormal_shift = 0;
-    float fval8;
-
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
     if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){   
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
-        int min_exp = spec_exp - max_exp;        
+    const int exp_bits = 8 - P + 1;
+    const int man_bits = P - 1; 
+    int subnormal_shift = 0;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+    if (subnormals){   
+        const int spec_exp = (P == 1) ? 1 : 0;
+        const int max_exp = (1 << (exp_bits -1)) - 1;
+        const int min_exp = spec_exp - max_exp;        
+
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -174,11 +164,10 @@ float cast_binary8_unsigned_stochastic_cpu(float origin_float, int P, uint32_t r
     rand_prob = rand_prob << 9 >> 9;
     rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
 
-    uval8 = round_bitwise_stochastic_cpu(uval32, rand_prob, man_bits - subnormal_shift);
+    uint32_t uval8 = round_bitwise_stochastic_cpu(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = binary8_clip_exponent_cpu(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
 
-    return fval8;
+    return BITS_TO_FLOAT(&uval8);
 }
 
 void binary8_signed_kernel_stochastic_cpu(float *__restrict__ a,
@@ -277,68 +266,26 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
 __device__ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) {
 
-    int exp_bits = 8-P;
-    int man_bits = P-1;  
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
+    if (origin_float < 0) return NAN;   
 
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
-    uint32_t man_val = uval32 & 0x7FFFFF;
-
-    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {          
-        return origin_float;
-    }
-
-    if (subnormals){
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
-        int min_exp = spec_exp - max_exp;
-
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
-            subnormal_shift = min_exp - exp_val;
-        }
-    }
-
-    rand_prob = rand_prob << 9 >> 9;
-    rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
-
-    uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
-
-    return fval8;
-}
-
-__device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) { 
-    
-    if(origin_float < 0){
-        return NAN;
-    }
-
-    int exp_bits = 8 - P + 1;
-    int man_bits = P - 1; 
-    uint32_t uval32, uval8;
-    int subnormal_shift = 0;
-    float fval8;
-
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
     if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){   
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
-        int min_exp = spec_exp - max_exp;        
+    const int exp_bits = 8 - P + 1;
+    const int man_bits = P - 1; 
+    int subnormal_shift = 0;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+    if (subnormals){   
+        const int spec_exp = (P == 1) ? 1 : 0;
+        const int max_exp = (1 << (exp_bits -1)) - 1;
+        const int min_exp = spec_exp - max_exp;        
+
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
@@ -346,11 +293,45 @@ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uin
     rand_prob = rand_prob << 9 >> 9;
     rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
 
-    uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
+    uint32_t uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
 
-    return fval8;
+    return BITS_TO_FLOAT(&uval8);
+}
+
+__device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturateMode saturation_mode, bool subnormals) { 
+    
+    if (origin_float < 0) return NAN;   
+
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
+    uint32_t man_val = uval32 & 0x7FFFFF;
+
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
+        return origin_float;
+    }
+
+    const int exp_bits = 8 - P + 1;
+    const int man_bits = P - 1; 
+    int subnormal_shift = 0;
+
+    if (subnormals){   
+        const int spec_exp = (P == 1) ? 1 : 0;
+        const int max_exp = (1 << (exp_bits -1)) - 1;
+        const int min_exp = spec_exp - max_exp;        
+
+        if(((min_exp - exp_val) <= man_bits) && exp_val < min_exp){ 
+            subnormal_shift = min_exp - exp_val;
+        }
+    }
+
+    rand_prob = rand_prob << 9 >> 9;
+    rand_prob = rand_prob & ~(1 << (23 - prng_bits) - 1);
+
+    uint32_t uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+
+    return BITS_TO_FLOAT(&uval8);
 }
 
 __global__ void binary8_signed_kernel_stochastic(float *__restrict__ a,

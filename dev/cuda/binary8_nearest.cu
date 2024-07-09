@@ -3,11 +3,11 @@ Kernels for IEEE-754 down casting from binary32 to a lower precision format.
 Payload is still a binary32 value.
 
 Compile example:
-nvcc -O3 binary8_signed_nearest.cu -o binary8_signed_nearest -std=c++17 -lcublas
+nvcc -O3 binary8_nearest.cu -o binary8_nearest -std=c++17 -lcublas
 
 version 1 attempted to make the code as compact as possible, while also 
 maintaining readability; bit shifts and masking are used aplenty
-./binary8_signed_nearest 1
+./binary8_nearest 1
 
 */
 
@@ -81,7 +81,7 @@ uint32_t test_outputs_unsigned[] = {
     0b01000111010000000000000000000000,
     0b01000111011000000000000000000000,
     0b00110110000000000000000000000000,
-    NAN}; // NAN
+    0x7FC00000}; // NAN
 
 uint32_t test_outputs_unsigned_w[] = {
     0b00110000000000000000000000000000, // min normal
@@ -93,12 +93,21 @@ uint32_t test_outputs_unsigned_w[] = {
     0b01000111010000000000000000000000,
     0b01000111011000000000000000000000,
     0b00110110000000000000000000000000,
-    NAN}; // NAN
+    0x7FC00000}; // NAN
 
 
 uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits) {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 1 << (22 - man_bits);
+  int offset = (down == machine_eps);
+  uint32_t add_r = target + machine_eps;
+  return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+}
+
+uint32_t round_bitwise_nearest_p1_cpu(uint32_t target, int man_bits) {
+  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+  uint32_t machine_eps = 1 << (22 - man_bits);
+  // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
@@ -170,79 +179,66 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
 
 float cast_binary8_signed_nearest_cpu(float origin_float, int P, SaturateMode saturation_mode, bool subnormals) {
 
-    int exp_bits = 8-P;
-    int man_bits = P-1;    
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
+    const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
+    const uint32_t man_val = uval32 & 0x7FFFFF;
 
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
-    uint32_t man_val = uval32 & 0x7FFFFF;
-
-    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {             // inf/Nan case
+    // Early return for inf/NaN case
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;    // minimal and maximal exponent value in binary8
-        int min_exp = spec_exp - max_exp;
+    int subnormal_shift = 0;
+    if (subnormals) {
+        const int spec_exp = (P == 1) ? 1 : 0;
+        const int max_exp = (1 << (exp_bits - 1)) - 1;
+        const int min_exp = spec_exp - max_exp;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+        if (((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)) {
             subnormal_shift = min_exp - exp_val;
         }
     }
 
-    uval8 = round_bitwise_nearest_cpu(uval32, man_bits - subnormal_shift);
-    uval8 = binary8_clip_exponent_cpu(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1_cpu(uval32, man_bits - subnormal_shift)
+                              : round_bitwise_nearest_cpu(uval32, man_bits - subnormal_shift);
 
-    return fval8;
+    uval8 = binary8_clip_exponent_cpu(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    return BITS_TO_FLOAT(&uval8);
 }
 
 float cast_binary8_unsigned_nearest_cpu(float origin_float, int P, SaturateMode saturation_mode, bool subnormals) {
-    // we had talks abt the following for unsigned, P = 1:
-    // 0: 0000 0000
-    // NaN: FE or FF (currently. it is 1000 0000 in this revision)
-    // inf: FE of FF (currently, it is FF)
-    // max float: FD (currently, it is FE)
-    // we have a variation that allows for this in the special condition where 
-    if (origin_float < 0){
-      return NAN;
-    }
- 
-    int exp_bits = 8 - P + 1;
-    int man_bits = P - 1; 
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
 
-    uval32 = FLOAT_TO_BITS(&origin_float);
+    if (origin_float < 0) return NAN;   
 
-    int exp_val = (uval32 << 1 >> 24) - 127;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
-    
-    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {  // return inf/Nan expect in the case of no_overflow && inf
+
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
-        int min_exp = spec_exp - max_exp;
-           
-        if((min_exp - exp_val) <= man_bits && exp_val < min_exp && subnormals){ 
+    const int exp_bits = 9 - P;
+    const int man_bits = P - 1;
+    int subnormal_shift = 0;
+
+    if (subnormals) {
+        const int max_exp = (1 << (exp_bits - 1)) - 1;
+        const int min_exp = (P == 1) - max_exp;
+        
+        if ((min_exp - exp_val) <= man_bits && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
 
-    uval8 = round_bitwise_nearest_cpu(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1_cpu(uval32, man_bits - subnormal_shift)
+                               : round_bitwise_nearest_cpu(uval32, man_bits - subnormal_shift);
+    
     uval8 = binary8_clip_exponent_cpu(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
-
-    return fval8;
+    
+    return BITS_TO_FLOAT(&uval8);
 }
 
 void binary8_signed_nearest_cpu(float *o, float *a, int N, int P, bool is_signed, SaturateMode saturation_mode, bool subnormals) {
@@ -266,6 +262,17 @@ round_bitwise_nearest(uint32_t target, int man_bits) {
   uint32_t add_r = target + machine_eps;
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
+
+__device__ __forceinline__ uint32_t
+round_bitwise_nearest_p1(uint32_t target, int man_bits) {
+  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+  uint32_t machine_eps = 1 << (22 - man_bits);
+  // tie breaking rule offset
+  int offset = (down == machine_eps);
+  uint32_t add_r = target + machine_eps;
+  return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+}
+
 
 __device__ __forceinline__ uint32_t
 binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturateMode saturation_mode, bool subnormal) {
@@ -334,80 +341,65 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
 __device__ float cast_binary8_signed_nearest(float origin_float, int P, SaturateMode saturation_mode, bool subnormals) {
 
-    int exp_bits = 8-P;
-    int man_bits = P-1;    
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
+    const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
+    const uint32_t man_val = uval32 & 0x7FFFFF;
 
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
-    uint32_t man_val = uval32 & 0x7FFFFF;
-
-    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {             // inf/Nan case
+    // Early return for inf/NaN case
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;    // minimal and maximal exponent value in binary8
-        int min_exp = spec_exp - max_exp;
+    int subnormal_shift = 0;
+    if (subnormals) {
+        const int spec_exp = (P == 1) ? 1 : 0;
+        const int max_exp = (1 << (exp_bits - 1)) - 1;
+        const int min_exp = spec_exp - max_exp;
 
-        if(((min_exp - exp_val) <= man_bits) && (exp_val < min_exp) && (subnormals)){ 
+        if (((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)) {
             subnormal_shift = min_exp - exp_val;
         }
     }
 
-    uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
+                              : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
 
-    return fval8;
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    return BITS_TO_FLOAT(&uval8);
 }
 
 __device__ float cast_binary8_unsigned_nearest(float origin_float, int P, SaturateMode saturation_mode, bool subnormals) {
-    // we had talks abt the following for unsigned, P = 1:
-    // 0: 0000 0000
-    // NaN: FE or FF (currently. it is 1000 0000 in this revision)
-    // inf: FE of FF (currently, it is FF)
-    // max float: FD (currently, it is FE)
-    // we have a variation that allows for this in the special condition where 
-    
-    if (origin_float < 0){
-      return NAN;
-    }
- 
-    int exp_bits = 8 - P + 1;
-    int man_bits = P - 1; 
-    int subnormal_shift = 0;
-    uint32_t uval32, uval8;
-    float fval8;
+    if (origin_float < 0) return NAN;   
 
-    uval32 = FLOAT_TO_BITS(&origin_float);
-
-    int exp_val = (uval32 << 1 >> 24) - 127;
+    uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
+    const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
-    
-    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {  // return inf/Nan expect in the case of no_overflow && inf
+
+    if (exp_val == 128 && !(saturation_mode == SaturateMode::NO_OVERFLOW && man_val == 0)) {
         return origin_float;
     }
 
-    if (subnormals){
-        int spec_exp = (P == 1) ? 1 : 0;
-        int max_exp = (1 << (exp_bits -1)) - 1;
-        int min_exp = spec_exp - max_exp;
-           
-        if((min_exp - exp_val) <= man_bits && exp_val < min_exp && subnormals){ 
+    const int exp_bits = 9 - P;
+    const int man_bits = P - 1;
+    int subnormal_shift = 0;
+
+    if (subnormals) {
+        const int max_exp = (1 << (exp_bits - 1)) - 1;
+        const int min_exp = (P == 1) - max_exp;
+        
+        if ((min_exp - exp_val) <= man_bits && exp_val < min_exp){ 
             subnormal_shift = min_exp - exp_val;
         }
     }
 
-    uval8 = round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
+                               : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
-    fval8 = BITS_TO_FLOAT(&uval8);
-
-    return fval8;
+    
+    return BITS_TO_FLOAT(&uval8);
 }
 
 __global__ void binary8_signed_nearest_gpu(float *o, float *__restrict__ a, int N, int P, bool is_signed, SaturateMode saturation_mode, bool subnormals)
