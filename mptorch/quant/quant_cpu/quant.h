@@ -59,14 +59,24 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnorm
 
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool saturate);
 
-Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_trans,
-                                              int man_add, int exp_add, int man_div, int exp_div,
-                                              bool subnormals, bool saturate, int dim);
+Tensor float_quantize_nearest_softmax_forward(Tensor a,
+                                              int man_expf, int exp_expf,
+                                              int man_off, int exp_off,
+                                              int man_acc, int exp_acc,
+                                              int man_div, int exp_div,
+                                              bool subnormals, bool saturate,
+                                              int dim);
 
-Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int exp_trans,
-                                                  int man_add, int exp_add, bool subnormals,
-                                                  bool saturate, int dim);
+Tensor float_quantize_nearest_softmax_lse_forward(Tensor a,
+                                                  int man_expf, int exp_expf,
+                                                  int man_off, int exp_off,
+                                                  int man_lse, int exp_lse,
+                                                  bool subnormals, bool saturate,
+                                                  int dim);
 
-Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g, int man_add, int exp_add,
-                                               int man_mul, int exp_mul, int man_div, int exp_div,
-                                               bool subnormals, bool saturate, int dim);
+Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g,
+                                               int man_add, int exp_add,
+                                               int man_mul, int exp_mul,
+                                               int man_div, int exp_div,
+                                               bool subnormals, bool saturate,
+                                               int dim);

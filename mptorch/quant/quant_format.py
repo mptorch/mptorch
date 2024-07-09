@@ -64,27 +64,36 @@ class QAffineFormats:
 class QSoftmaxFormats:
     def __init__(
         self,
-        fwd_trans: Optional[Number] = None,
-        fwd_add: Optional[Number] = None,
+        fwd_off: Optional[Number] = None,
+        fwd_exp: Optional[Number] = None,
+        fwd_acc: Optional[Number] = None,
         fwd_div: Optional[Number] = None,
+        fwd_lse: Optional[Number] = None,
+
         bwd_add: Optional[Number] = None,
         bwd_mul: Optional[Number] = None,
         bwd_div: Optional[Number] = None,
+        
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
+        
         input_quant=id_quant,
         output_quant=id_quant,
         grad_quant=id_quant,
     ) -> None:
-        if fwd_trans is not None and fwd_add is not None:
-            self.fwd_trans = fwd_trans
-            self.fwd_add = fwd_add
-            if fwd_div is not None:
+        if fwd_off is not None and fwd_exp is not None:
+            self.fwd_off = fwd_off
+            self.fwd_exp = fwd_exp
+            if fwd_acc is not None and fwd_div is not None:
+                self.fwd_acc = fwd_acc
                 self.fwd_div = fwd_div
                 self.use_lse = False
-            else:
-                self.fwd_div = None
+            elif fwd_lse is not None:
+                self.fwd_lse = fwd_lse
                 self.use_lse = True
+            else:
+                raise ValueError("Incomplete softmax format, "
+                                 "missing fwd_acc/fwd_div or fwd_lse.")
             self.fwd_use_default_prec = False
         else:
             self.fwd_use_default_prec = True

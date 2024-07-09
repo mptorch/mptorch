@@ -23,23 +23,29 @@ quant_fp = lambda x: float_quantize(
 )
 
 formats_div = QSoftmaxFormats(
-    fwd_trans=fp_format,
-    fwd_add=fp_format,
+    fwd_exp=fp_format,
+    fwd_off=fp_format,
+    fwd_acc=fp_format,
     fwd_div=fp_format,
+
     bwd_add=fp_format,
     bwd_mul=fp_format,
     bwd_div=fp_format,
+
     output_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
 )
 
 formats_lse = QSoftmaxFormats(
-    fwd_trans=fp_format,
-    fwd_add=fp_format,
+    fwd_exp=fp_format,
+    fwd_off=fp_format,
+    fwd_lse=fp_format,
+
     bwd_add=fp_format,
     bwd_mul=fp_format,
     bwd_div=fp_format,
+
     output_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
@@ -52,9 +58,9 @@ def test_softmax_formats():
     assert not formats_div.fwd_use_default_prec
     assert not formats_div.bwd_use_default_prec
     assert formats_lse.use_lse
-    assert formats_lse.fwd_div is None
+    assert not hasattr(formats_lse, "fwd_div")
     assert not formats_div.use_lse
-    assert formats_div.fwd_div is not None
+    assert hasattr(formats_div, "fwd_div")
 
 # Testing mptorch LSE-based softmax against pytorch softmax
 def test_softmax_lse_dim0():
@@ -193,17 +199,18 @@ def test_softmax_layer():
     )
     float_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
     qsoftmax_formats = QSoftmaxFormats(
-        fwd_trans=float_format,
-        fwd_add=float_format,
+        fwd_exp=float_format,
+        fwd_off=float_format,
+        fwd_acc=float_format,
         fwd_div=float_format,
+
         bwd_add=float_format,
         bwd_mul=float_format,
         bwd_div=float_format,
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
-        input_quant=quantize,
+
         output_quant=quantize,
-        grad_quant=quantize
+        input_quant=quantize,
+        grad_quant=quantize,
     )
     dim = 2
     layer = torch.nn.Softmax(dim)

@@ -278,31 +278,34 @@ def match_mac_format_with_cublas_types(
 
 def float_softmax_forward(a, dim, formats):
     assert not a.is_cuda, "CUDA softmax not implemented."
-    trans_cfg, add_cfg, div_cfg, rnd = (
-        formats.fwd_trans,
-        formats.fwd_add,
-        formats.fwd_div,
+    exp_cfg, off_cfg, rnd = (
+        formats.fwd_exp,
+        formats.fwd_off,
         formats.fwd_rnd,
     )
     assert rnd == "nearest", \
         "Only nearest rounding softmax is implemented."
 
-    subnormals = trans_cfg.subnormals
-    saturate = trans_cfg.saturate
+    subnormals = off_cfg.subnormals
+    saturate = off_cfg.saturate
 
     if not formats.use_lse:
+        acc_cfg, div_cfg = formats.fwd_acc, formats.fwd_div
         return quant_cpu.float_quantize_nearest_softmax_forward(
             a,
-            trans_cfg.man, trans_cfg.exp,
-            add_cfg.man, add_cfg.exp,
+            exp_cfg.man, exp_cfg.exp,
+            off_cfg.man, off_cfg.exp,
+            acc_cfg.man, acc_cfg.exp,
             div_cfg.man, div_cfg.exp,
             subnormals, saturate, dim
         )
     else:
+        lse_cfg = formats.fwd_lse
         return quant_cpu.float_quantize_nearest_softmax_lse_forward(
             a,
-            trans_cfg.man, trans_cfg.exp,
-            add_cfg.man, add_cfg.exp,
+            exp_cfg.man, exp_cfg.exp,
+            off_cfg.man, off_cfg.exp,
+            lse_cfg.man, lse_cfg.exp,
             subnormals, saturate, dim
         )
 

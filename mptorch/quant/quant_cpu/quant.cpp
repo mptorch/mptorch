@@ -432,12 +432,15 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return superfp_quantize(a, man_bits, exp_bits, saturate);
 }
 
-// Quantize softmax function
 // Uses the standard softmax formula e^xi/sum(e^xj)
 // Returns ouput tensor of softmaxxed and quantized values
-Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_trans,
-                                              int man_add, int exp_add, int man_div, int exp_div,
-                                              bool subnormals, bool saturate, int dim)
+Tensor float_quantize_nearest_softmax_forward(Tensor a,
+                                              int man_expf, int exp_expf,
+                                              int man_off, int exp_off,
+                                              int man_acc, int exp_acc,
+                                              int man_div, int exp_div,
+                                              bool subnormals, bool saturate,
+                                              int dim)
 {
   // Creates two arrays that point to input and output tensors, creates the ouput tensor
   auto a_array = a.data_ptr<float>();
@@ -455,6 +458,7 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
     int outer_idx = i / strides.inner_size;
     int inner_idx = i % strides.inner_size;
 
+    // Get beginning pointers to the row being softmaxed
     int base_index = outer_idx * strides.outer_stride + inner_idx;
     float* input = a_array + base_index;
     float* output = o_array + base_index;
@@ -469,14 +473,14 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
       }
     }
 
-    // Calculates the sum and puts quantized value of exp(input tenor array) into output array
+    // Calculates the sum and puts quantized values of exp(input) into output array
     float sum = 0.0f;
     for (int k = 0; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      float x = quant(input[idx] - max, man_add, exp_add);
-      float exp_x = quant(expf(x), man_trans, exp_trans);
-      output[idx] = exp_x;
-      sum = quant(sum + exp_x, man_add, exp_add);
+      float x = quant(input[idx] - max, man_off, exp_off);
+      float e_x = quant(expf(x), man_expf, exp_expf);
+      output[idx] = e_x;
+      sum = quant(sum + e_x, man_acc, exp_acc);
     }
     // Divides all outputs by the current sum
     for (int k = 0; k < strides.dim_size; ++k) {
@@ -487,12 +491,14 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a, int man_trans, int exp_t
   return o;
 }
 
-// Quantize logsumexp softmax function
-// Uses the logsumexp formula of log(e^xi+sum(e^xj))
+// Uses the LogSumExp formula to compute softmax without divisions
 // Returns ouput tensor of softmaxxed and quantized values
-Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int exp_trans,
-                                                  int man_add, int exp_add, bool subnormals,
-                                                  bool saturate, int dim)
+Tensor float_quantize_nearest_softmax_lse_forward(Tensor a,
+                                                  int man_expf, int exp_expf,
+                                                  int man_off, int exp_off,
+                                                  int man_lse, int exp_lse,
+                                                  bool subnormals, bool saturate,
+                                                  int dim)
 {
   // Creates two arrays that point to input and output tensors, creates the ouput tensor
   auto a_array = a.data_ptr<float>();
@@ -510,14 +516,14 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
     int outer_idx = i / strides.inner_size;
     int inner_idx = i % strides.inner_size;
 
+    // Get beginning pointers to the row being softmaxed
     int base_index = outer_idx * strides.outer_stride + inner_idx;
     float* input = a_array + base_index;
     float* output = o_array + base_index;
 
-    // Get max value for current elements softmax is done on
-    // This is for ensuring the exp() values do not overflow
-    // Also saves idx of max values to skip over later
-    // Skips because max value always creates a 1 that skews results
+    // Get the maximum of the current row being softmaxed.
+    // This ensures no overflow and more stable exponentials.
+    // Index of maximum is saved for later.
     int idx_max = 0;
     float max = input[idx_max];
     for (int k = 1; k < strides.dim_size; ++k) {
@@ -528,31 +534,34 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a, int man_trans, int e
       }
     }
 
-    // Calculates LogSumExp
-    float lgs = 0.0f; // = log(1) = log(exp(x[idx_max] - max))
+    // Calculate LogSumExp
+    float lgs = 0.0f; // = log(1) = log(exp(x[idx_max] - max)) (implied term)
     for (int k = 0; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (idx == idx_max) {
+      if (idx == idx_max) { // Skip because of the implied term
         continue;
       }
-      float x = input[idx] - max;
-      lgs = quant(logf(expf(lgs) + expf(x)), man_trans, exp_trans);
+      float x = quant(input[idx] - max, man_off, exp_off);
+      output[idx] = x;
+      lgs = quant(logf(expf(lgs) + expf(x)), man_lse, exp_lse);
     }
-    // Get output tensor elemnts 
+    // Compute output tensor elements
     for (int k = 0; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      float x = quant(input[idx] - max, man_add, exp_add);
-      x = quant(x - lgs, man_add, exp_add);
-      output[idx] = quant(expf(x), man_trans, exp_trans);
+      float x = quant(output[idx] - lgs, man_off, exp_off);
+      output[idx] = quant(expf(x), man_expf, exp_expf);
     }
   }
   return o;
 }
 
 
-Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g, int man_add, int exp_add,
-                                               int man_mul, int exp_mul, int man_div, int exp_div,
-                                               bool subnormals, bool saturate, int dim)
+Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g,
+                                               int man_add, int exp_add,
+                                               int man_mul, int exp_mul,
+                                               int man_div, int exp_div,
+                                               bool subnormals, bool saturate,
+                                               int dim)
 {
   auto g_array = g.data_ptr<float>();
   auto a_array = a.data_ptr<float>();
