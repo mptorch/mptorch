@@ -468,7 +468,7 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a,
     float max = input[0];
     for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (input[idx] > max) {
+      if (input[idx] > max) { // TODO: use fmaxf to ignore nans?
         max = input[idx];
       }
     }
@@ -528,7 +528,7 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a,
     float max = input[idx_max];
     for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (input[idx] > max) {
+      if (input[idx] > max) { // TODO: use fmaxf to ignore nans?
         idx_max = idx;
         max = input[idx];
       }
