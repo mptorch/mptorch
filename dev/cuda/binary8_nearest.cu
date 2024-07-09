@@ -634,7 +634,7 @@ int main(int argc, const char **argv)
         int repeat_times = 1000;
 
         float elapsed_time = benchmark_kernel(repeat_times, binary8_signed_nearest, 
-                kernel_num, d_v, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+                kernel_num, d_v, d_x, N, P, block_size, is_signed, saturation_mode, !subnormals);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each
@@ -653,7 +653,7 @@ int main(int argc, const char **argv)
         int repeat_times = 1000;
 
         float elapsed_time = benchmark_kernel(repeat_times, binary8_signed_nearest, 
-                kernel_num, d_w, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+                kernel_num, d_w, d_x, N, P, block_size, !is_signed, saturation_mode, subnormals);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each
@@ -672,7 +672,7 @@ int main(int argc, const char **argv)
         int repeat_times = 1000;
 
         float elapsed_time = benchmark_kernel(repeat_times, binary8_signed_nearest, 
-                kernel_num, d_u, d_x, N, P, block_size, is_signed, saturation_mode, subnormals);
+                kernel_num, d_u, d_x, N, P, block_size, !is_signed, saturation_mode, !subnormals);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each
