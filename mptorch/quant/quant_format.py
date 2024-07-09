@@ -1,5 +1,5 @@
 from typing import Optional
-from ..number import Number
+from ..number import Number, FloatingPoint
 from typing import Union, Optional, Tuple
 
 __all__ = ["QAffineFormats"]
@@ -8,6 +8,30 @@ id_quant = lambda x: x
 
 
 class QAffineFormats:
+    r"""
+    Configuration class for number formats to use during compute (forward
+    and/or backward pass) of affine layers (e.g. linear and convolutional).
+    One can optionally specify quantizer objects for the signals in the
+    layer (I/O activations, weights/bias terms and weight/error gradients)
+    to facilitate quantization-aware-training (QAT) and post-training
+    quantization (PTQ) workloads. Format parameters can also be specified
+    for tensor scaling operations, in a similar way to what is described
+    in: https://arxiv.org/pdf/2309.17224
+
+    Args:
+        - :attr: `fwd_mac` (Number or (Number, Number)) : compute configuration (add and multiply) for FWD MAC operations
+        - :attr: `bwd_mac` (Number or (Number, Number)) : compute configuration (add and multiply) for BWD MAC operations
+        - :attr: `fwd_rnd` (str) : rounding mode for FWD computations
+        - :attr: `bwd_rnd` (str) : rounding mode for BWD computations
+        - :attr: `weight_quant` (function) : differentiable quantization function on the weight signal inputs
+        - :attr: `bias_quant` (function) : differentiable quantization function on the bias signal inputs
+        - :attr: `input_quant` (function) : differentiable quantization function on the output signal from the layer
+        - :attr: `grad_quant` (function) : differentiable quantization function on the gradient signals in the BWD pass
+        - :attr: `weight_scaled_format` (FloatingPoint) : number format to be used during weight tensor scaling (optional) 
+        - :attr: `input_scaled_format` (FloatingPoint) : number format to be used during input tensor scaling (optional)  
+        - :attr: `grad_scaled_format` (FloatingPoint) : number format to be used during output tensor scaling (optional)  
+ 
+    """
     def __init__(
         self,
         fwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
@@ -19,9 +43,9 @@ class QAffineFormats:
         input_quant=id_quant,
         output_quant=id_quant,
         grad_quant=id_quant,
-        weight_format=None,
-        input_format=None,
-        grad_format=None,
+        weight_scaled_format: Optional[FloatingPoint] = None,
+        input_scaled_format: Optional[FloatingPoint] = None,
+        grad_scaled_format: Optional[FloatingPoint] = None,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -62,6 +86,6 @@ class QAffineFormats:
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
-        self.weight_format = weight_format
-        self.input_format = input_format
-        self.grad_format = grad_format
+        self.weight_scaled_format = weight_scaled_format
+        self.input_scaled_format = input_scaled_format
+        self.grad_scaled_format = grad_scaled_format

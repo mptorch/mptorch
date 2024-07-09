@@ -144,25 +144,10 @@ layer_formats = qpt.QAffineFormats(
     input_quant=quant_w,
     grad_quant=quant_g,
     bias_quant=quant_b,
-    weight_format=w_format,
-    grad_format=g_format,
-    input_format=i_format,
+    weight_scaled_format=w_format,
+    grad_scaled_format=g_format,
+    input_scaled_format=i_format,
 )
-
-layer_formats_proj = qpt.QAffineFormats(
-    fwd_mac=fma_format,
-    fwd_rnd=rounding,
-    bwd_mac=fma_format,
-    bwd_rnd=rounding,
-    weight_quant=quant_w,
-    input_quant=quant_w,
-    grad_quant=quant_g,
-    bias_quant=quant_b,
-    # weight_format=w_format,
-    # grad_format=g_format,
-    # input_format=i_format,
-)
-
 
 # hyperparameters
 eval_iters = 10  # 200
