@@ -1849,6 +1849,7 @@ def binary8_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_si
     assert saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid saturation mode, {}".format(
         saturation_mode
     )
+    assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
         "saturate": SaturationMode.SATURATE,
         "no_overflow": SaturationMode.NO_OVERFLOW,

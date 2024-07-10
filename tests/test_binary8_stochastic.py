@@ -22,7 +22,7 @@ def test_binary8_signed_stochastic():
     rnd_up = 0
     rnd_down = 0
     P = 3
-    prng_bits = 17
+    prng_bits = 23 - (P - 1)
     iterations = 1000
     num = 2.1
 
@@ -50,7 +50,7 @@ def test_binary8_signed_stochastic_subnormal():
     rnd_up = 0
     rnd_down = 0
     P = 3
-    prng_bits = 23
+    prng_bits = 23 - (P - 1)
     iterations = 1000   
     tolerance = 0.05*iterations # = 5%
     num = 0.00634765625   
@@ -83,7 +83,6 @@ def test_binary8_signed_constant():
         return
     
     # parameters :
-    prng_bits = 23
     iterations = 1000
     tolerance = 0.10*iterations # = 10%
 
@@ -95,7 +94,8 @@ def test_binary8_signed_constant():
         print(P)
 
         exp_bits = 8 - P
-        man_bits = P - 1  
+        man_bits = (P - 1) 
+        prng_bits = 23 - (P - 1)
 
         spec_exp = 1 if P == 1 else 0
 
@@ -146,7 +146,7 @@ def test_binary8_signed_stochastic_constant():
     getting_values(values, P)
 
     iterations = 1000
-    prng_bits = 23
+    prng_bits = 23 - (P - 1)
     for i in values:
         num_tensor = torch.full((iterations,), i, dtype=torch.float32, device="cuda")
         result = binary8_quantize(num_tensor, P, "stochastic", "saturate", True, True, prng_bits)
@@ -165,7 +165,7 @@ def test_binary8_signed_stochastic_all_vals():
     getting_values(values, P)
 
     iterations = 1000
-    prng_bits = 23
+    prng_bits = 23 - (P - 1)
     accu_error = 0
     count = 0
     highest = -1e100
