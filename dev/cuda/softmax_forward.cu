@@ -14,6 +14,7 @@ Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 
 
 #include <cuda_runtime.h>
 #include <cmath>
+#include <chrono>
 #include "common.h"
 
 
@@ -447,6 +448,18 @@ int main(int argc, const char **argv) {
 
         printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
     }
+
+    printf("\nBenchmarking CPU version.");
+    int repeat_times = 10;
+    namespace chr = std::chrono;
+    chr::steady_clock::time_point begin = chr::steady_clock::now();
+    for(int i = 0; i < repeat_times; i++) {
+        softmax_forward_cpu(h_input, h_output, dims, n_dims, dim);
+    }
+    chr::steady_clock::time_point end = chr::steady_clock::now();
+    auto elapsed_time_us = chr::duration_cast<chr::microseconds>(end - begin).count();
+    float average_time_ms = ((float)elapsed_time_us / (float)repeat_times) / 1000.f;
+    printf(" %.4f ms\n ", average_time_ms);
 
     // cleanup memory
     free(h_input);
