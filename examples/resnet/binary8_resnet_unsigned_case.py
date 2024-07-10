@@ -13,7 +13,6 @@ import numpy as np
 import argparse
 import wandb
 
-
 parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
 parser.add_argument(
     "--batch_size",
@@ -115,16 +114,15 @@ parser.add_argument(
 parser.add_argument(
     "--prng_bits",
     type=int,
-    default=23,
     metavar="N",
-    help="number of random bits used for adding in stochatic"
+    help="number of random bits used for adding in stochastic",
 )
 
 # type of rounding
 parser.add_argument(
     "--rounding",
     type=str,
-    default="stochastic",
+    default="nearest",
     metavar="N",
     help="nearest, stochastic, truncate"
 )
@@ -133,7 +131,7 @@ parser.add_argument(
 parser.add_argument(
     "--saturation_mode",
     type=str,
-    default="overflow",
+    default="saturate",
     metavar="N",
     help="saturate, overflow, no_overflow"
 )
@@ -156,7 +154,6 @@ parser.add_argument(
     help="name of group the run will reside in"
 )
 # ------------------------------------------------------------------
-
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
@@ -166,6 +163,17 @@ if args.wandb:
     wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
+
+# check for valid prng_bits from user
+def check_prng_bits(value, P):
+    ivalue = int(value)
+    if ivalue <= 0 or ivalue > 23 - (P - 1):
+        raise argparse.ArgumentTypeError(f"{value} is an invalid value for prng_bits with P={P}. It must be positive and less than or equal to {23 - (P - 1)}")
+    return ivalue
+
+if args.prng_bits is not None:
+    args.prng_bits = check_prng_bits(args.prng_bits, args.P)
+
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)

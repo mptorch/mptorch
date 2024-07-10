@@ -13,6 +13,7 @@ import numpy as np
 import argparse
 import wandb
 
+
 parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
 parser.add_argument(
     "--batch_size",
@@ -114,16 +115,15 @@ parser.add_argument(
 parser.add_argument(
     "--prng_bits",
     type=int,
-    default=23,
     metavar="N",
-    help="number of random bits used for adding in stochatic"
+    help="number of random bits used for adding in stochastic",
 )
 
 # type of rounding
 parser.add_argument(
     "--rounding",
     type=str,
-    default="stochastic",
+    default="nearest",
     metavar="N",
     help="nearest, stochastic, truncate"
 )
@@ -132,7 +132,7 @@ parser.add_argument(
 parser.add_argument(
     "--saturation_mode",
     type=str,
-    default="overflow",
+    default="saturate",
     metavar="N",
     help="saturate, overflow, no_overflow"
 )
@@ -150,7 +150,7 @@ parser.add_argument(
 parser.add_argument(
     "--group_name",
     type=str,
-    default="P=4",
+    default="P=3_Binary8_Testing",
     metavar="N",
     help="name of group the run will reside in"
 )
@@ -166,18 +166,27 @@ if args.wandb:
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
 
+# check for valid prng_bits from user
+def check_prng_bits(value, P):
+    ivalue = int(value)
+    if ivalue <= 0 or ivalue > 23 - (P - 1):
+        raise argparse.ArgumentTypeError(f"{value} is an invalid value for prng_bits with P={P}. It must be positive and less than or equal to {23 - (P - 1)}")
+    return ivalue
+
+if args.prng_bits is not None:
+    args.prng_bits = check_prng_bits(args.prng_bits, args.P)
+
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
-# must still set exp_mul, man_mul, exp_acc, and man_acc manually (ask how this is going to work)
 fpmul = FloatingPoint(
-    exp=args.exp_mul, man=args.man_mul, subnormals=args.subnormals, saturate=False
+    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=True
 )
 fpacc = FloatingPoint(
-    exp=args.exp_acc, man=args.man_acc, subnormals=args.subnormals, saturate=False
+    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=True
 )
 
 transform_train = transforms.Compose(
@@ -223,7 +232,7 @@ param_q = lambda x: qpt.binary8_quantize(
     P = args.P,
     rounding=args.rounding,
     saturation_mode=args.saturation_mode,
-    is_signed=args.is_signed,
+    is_signed=True,      #args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
 )
@@ -243,7 +252,7 @@ grad_q = lambda x: qpt.binary8_quantize(
     P = args.P,
     rounding=args.rounding,
     saturation_mode=args.saturation_mode,
-    is_signed=args.is_signed,
+    is_signed=True,      #args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
 )
@@ -266,7 +275,7 @@ class LambdaLayer(nn.Module):
 
     def forward(self, x):
         return self.lambd(x)
-
+# make sure i am not misapplying unsigned quant 
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -330,6 +339,8 @@ class BasicBlock(nn.Module):
         out = F.relu(out)
         return out
 
+# for first layer in network, should be signed input
+# change one at a time (nn.Linear -> Qlinear)
 
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
@@ -402,7 +413,7 @@ acc_q = lambda x: qpt.binary8_quantize(
     P = args.P,
     rounding=args.rounding,
     saturation_mode=args.saturation_mode,
-    is_signed=args.is_signed,
+    is_signed=True,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
 )
