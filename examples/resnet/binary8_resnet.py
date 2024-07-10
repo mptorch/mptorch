@@ -116,7 +116,7 @@ parser.add_argument(
     "--prng_bits",
     type=int,
     metavar="N",
-    help="number of random bits used for adding in stochastic",
+    help="number of random bits used for adding in stochatic"
 )
 
 # type of rounding
@@ -165,16 +165,6 @@ if args.wandb:
     wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
-
-# check for valid prng_bits from user
-def check_prng_bits(value, P):
-    ivalue = int(value)
-    if ivalue <= 0 or ivalue > 23 - (P - 1):
-        raise argparse.ArgumentTypeError(f"{value} is an invalid value for prng_bits with P={P}. It must be positive and less than or equal to {23 - (P - 1)}")
-    return ivalue
-
-if args.prng_bits is not None:
-    args.prng_bits = check_prng_bits(args.prng_bits, args.P)
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
