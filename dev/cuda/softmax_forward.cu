@@ -27,6 +27,8 @@ struct DimStrides
 };
 
 /* Helper function for tensor striding */
+// ---------------------------------------------------------------------------------------
+
 DimStrides dim_striding(const int *dims, int n_dims, int dim) {
     DimStrides strides;
     int real_dim = (n_dims + (dim % n_dims)) % n_dims;
@@ -43,6 +45,110 @@ DimStrides dim_striding(const int *dims, int n_dims, int dim) {
     strides.outer_stride = strides.dim_size * strides.dim_stride;
     return strides;
 }
+
+/* Quantization function and wrapper */
+// ---------------------------------------------------------------------------------------
+
+#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
+#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
+
+__host__ __device__ __forceinline__ uint32_t
+round_bitwise_nearest(uint32_t target, int man_bits) {
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    uint32_t machine_eps = 1 << (22 - man_bits);
+    // tie breaking rule offset
+    int offset = (down == machine_eps);
+    uint32_t add_r = target + machine_eps;
+    // apply the mask
+    // this is the analogue of how you would do round 
+    // to nearest integer using the floor function: 
+    // round(x) = floor(x + 0.5)
+    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+}
+
+__host__ __device__ __forceinline__ uint32_t
+clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
+              uint32_t quantized_num, bool saturate = false) {
+  if (quantized_num == 0)
+    return quantized_num;
+
+  int quantized_exponent_store = quantized_num << 1 >> 24;
+  int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
+  int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
+
+  uint32_t old_sign = old_num >> 31 << 31;
+  // saturate or overflow
+  if (quantized_exponent_store > max_exponent_store) {
+    if (saturate) {
+      uint32_t max_man =
+          (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+      uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
+      quantized_num = old_sign | max_num;
+    } else {
+      quantized_num =
+          ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
+      quantized_num = quantized_num | old_sign;
+    }
+  } else if (quantized_exponent_store < min_exponent_store) {
+    uint32_t min_num = ((uint32_t)min_exponent_store << 23);
+    uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
+    uint32_t unsigned_quantized_num = quantized_num << 1 >> 1;
+    if (unsigned_quantized_num > middle_num) {
+      uint32_t old_sign = old_num >> 31 << 31;
+      quantized_num = old_sign | min_num;
+    } else {
+      quantized_num = 0;
+    }
+  }
+  return quantized_num;
+}
+
+__host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
+                                 bool subnormal_support = true,
+                                 bool saturate = false) {
+  uint32_t target, quantize_bits;
+  target = FLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23);
+
+  if (noquantize) {
+    quantized = origin_float;
+  } else {
+    if (subnormal && subnormal_support) {
+      float shift_float, val;
+      int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
+      shift_float = BITS_TO_FLOAT(&shift_bits);
+      val = origin_float + shift_float;
+      target = FLOAT_TO_BITS(&val);
+      quantize_bits = round_bitwise_nearest(target, man_bits);
+      quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
+    } else {
+      quantize_bits = round_bitwise_nearest(target, man_bits);
+      quantize_bits =
+          clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+__host__ __device__ float quant_add(float origin_float) {
+    return cast_fp_nearest(origin_float, 10, 8, true, false);
+}
+
+__host__ __device__ float quant_exp(float origin_float) {
+    return cast_fp_nearest(origin_float, 7, 8, true, false);
+}
+
+__host__ __device__ float quant_div(float origin_float) {
+    return cast_fp_nearest(origin_float, 7, 8, true, false);
+}
+
 
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax */
@@ -68,13 +174,13 @@ static void softmax_forward_cpu(float *input_array, float *output_array, const i
         float sum = 0.0f;
         for (int k = 0; k < strides.dim_size; ++k) {
             int idx = k * strides.dim_stride;
-            float exp_x = expf(input[idx] - max);
+            float exp_x = quant_exp(expf(quant_add(input[idx] - max)));
             output[idx] = exp_x;
-            sum += exp_x;
+            sum = quant_add(sum + exp_x);
         }
         for (int k = 0; k < strides.dim_size; ++k) {
             int idx = k * strides.dim_stride;
-            output[idx] = output[idx] / sum;
+            output[idx] = quant_div(output[idx] / sum);
         }
     }
 }
@@ -105,13 +211,13 @@ __global__ void softmax_forward_kernel1(float *input_array, float *output_array,
     float sum = 0.0f;
     for (int k = 0; k < strides->dim_size; ++k) {
         int idx = k * strides->dim_stride;
-        float exp_x = expf(input[idx] - max);
+        float exp_x = quant_exp(expf(quant_add(input[idx] - max)));
         output[idx] = exp_x;
-        sum += exp_x;
+        sum = quant_add(sum + exp_x);
     }
     for (int k = 0; k < strides->dim_size; ++k) {
         int idx = k * strides->dim_stride;
-        output[idx] = output[idx] / sum;
+        output[idx] = quant_div(output[idx] / sum);
     }
 }
 
@@ -186,7 +292,7 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     // each thread computes its exp(x[i] - max)
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        output[idx] = expf(input[idx] - max);
+        output[idx] = quant_exp(expf(quant_add(input[idx] - max)));
     }
 
     // compute the sum of exp(x[i] - max), using a similar approach as for the maximum,
@@ -195,10 +301,10 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     float sum = 0.f;
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        sum += output[idx]; // we sum the previously computed exponentials
+        sum = quant_add(sum + output[idx]); // we sum the previously computed exponentials
     }
     for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        sum += __shfl_down_sync(0xFFFFFFFF, sum, offset);
+        sum = quant_add(sum + __shfl_down_sync(0xFFFFFFFF, sum, offset));
     }
     if (lane == 0) {
         shared[warp] = sum;
@@ -207,7 +313,7 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     if(tid == 0) {
         sum = shared[0];
         for (int i = 1; i < warpsPerBlock; i++) {
-            sum += shared[i];
+            sum = quant_add(sum + shared[i]);
         }
         shared[0] = sum;
     }
@@ -217,7 +323,7 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     // finally, divide each previously computed exponentials by the sum
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        output[idx] = output[idx] / sum;
+        output[idx] = quant_div(output[idx] / sum);
     }
 }
 
@@ -248,6 +354,36 @@ void softmax_forward_cuda(int kernel_num, float *input, float *output,
     default:
         printf("Invalid kernel number\n");
         exit(1);
+    }
+}
+
+void check_softmax_cpu(float* array, const int *dims, int n_dims, int dim, float tol=1e-1f) {
+    auto strides = dim_striding(dims, n_dims, dim);
+
+    int nfaults = 0;
+    for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
+        int outer_idx = i / strides.inner_size;
+        int inner_idx = i % strides.inner_size;
+
+        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        float* arr = array + base_index;
+
+        float sum = 0.0f;
+        for (int k = 0; k < strides.dim_size; ++k) {
+            sum += arr[k * strides.dim_stride];
+        }
+
+        if(i < 5) {
+            printf("%.4f\n", sum);
+        }
+
+        if(fabs(sum - 1.f) >= tol) {
+            printf("Row %d doesn't sum to 1: %.4f\n", i, sum);
+            nfaults++;
+            if(nfaults >= 5) {
+                exit(1);
+            }
+        }
     }
 }
 
@@ -290,13 +426,14 @@ int main(int argc, const char **argv) {
 
     // cpu reference
     softmax_forward_cpu(h_input, h_output, dims, n_dims, dim);
+    check_softmax_cpu(h_output, dims, n_dims, dim);
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
         softmax_forward_cuda(version, d_input, d_output, dims, n_dims, dim, block_size);
-        float tol = 1e-6f;
+        float tol = 1e-3f;
         validate_result(d_output, h_output, "output", numel, tol);
     }
 
