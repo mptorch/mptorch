@@ -101,7 +101,7 @@ uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits) {
   uint32_t machine_eps = 1 << (22 - man_bits);
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
 }
 
 uint32_t round_bitwise_nearest_p1_cpu(uint32_t target, int man_bits) {
