@@ -122,6 +122,8 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
+mac_format = fp_format
+
 quant_fp = lambda x: qpt.float_quantize(
     x,
     exp=args.expWeight,
@@ -132,9 +134,9 @@ quant_fp = lambda x: qpt.float_quantize(
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format),
+    fwd_mac=(mac_format),
     fwd_rnd=rounding,
-    bwd_mac=(fp_format),
+    bwd_mac=(mac_format),
     bwd_rnd=rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,

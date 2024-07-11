@@ -55,6 +55,20 @@ parser.add_argument(
     help="mantissa size (default: 2)",
 )
 parser.add_argument(
+    "--exp_mac",
+    type=int,
+    default=5,
+    metavar="N",
+    help="exponent size (default: 5)",
+)
+parser.add_argument(
+    "--man_mac",
+    type=int,
+    default=10,
+    metavar="N",
+    help="mantissa size (default: 2)",
+)
+parser.add_argument(
     "--lr_init",
     type=float,
     default=0.1,
@@ -111,7 +125,7 @@ float_format = FloatingPoint(
     exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
 )
 mac_format = FloatingPoint(
-    exp=5, man=10, subnormals=True, saturate=False # F16, supported by cublas
+    exp=args.exp_mac, man=args.man_mac, subnormals=True, saturate=False
 )
 
 transform_train = transforms.Compose(

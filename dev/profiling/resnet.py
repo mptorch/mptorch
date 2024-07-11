@@ -46,7 +46,20 @@ parser.add_argument(
     metavar="N",
     help="mantissa size (default: 10)",
 )
-
+parser.add_argument(
+    "--exp_mac",
+    type=int,
+    default=5,
+    metavar="N",
+    help="exponent size (default: 5)",
+)
+parser.add_argument(
+    "--man_mac",
+    type=int,
+    default=10,
+    metavar="N",
+    help="mantissa size (default: 10)",
+)
 parser.add_argument(
     "--lr_init",
     type=float,
@@ -91,6 +104,11 @@ torch.backends.cudnn.deterministic = True
 fp_format = FloatingPoint(
     exp=args.exp, man=args.man, subnormals=True, saturate=False
 )
+
+mac_format = FloatingPoint(
+    exp=args.exp_mac, man=args.man_mac, subnormals=True, saturate=False
+)
+
 
 transform_train = transforms.Compose(
     [
@@ -156,9 +174,9 @@ grad_q = lambda x: qpt.float_quantize(
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format,),
+    fwd_mac=(mac_format,),
     fwd_rnd="nearest",
-    bwd_mac=(fp_format,),
+    bwd_mac=(mac_format,),
     bwd_rnd="nearest",
     weight_quant=param_q,
     bias_quant=param_q,
