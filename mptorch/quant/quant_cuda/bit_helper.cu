@@ -94,6 +94,63 @@ clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
   return quantized_num;
 }
 
+__device__ __forceinline__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+                                                  uint32_t quantized_num, bool saturate = false)
+{
+    if (quantized_num == 0)
+        return quantized_num;
+
+    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) - man_bits + 127;
+
+    uint32_t old_sign = old_num >> 31 << 31;
+    // underflow or round to smallest non zero subnormal value
+    if (quantized_exponent_store < min_exponent_store)
+    {
+        int offset = (quantized_exponent_store == (min_exponent_store - 1));
+        quantized_num += offset * (1u << 23);
+        quantized_num = quantized_num | old_sign;
+        quantized_num = offset * quantized_num;
+    }
+    return quantized_num;
+}
+
+__device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+                                                    uint32_t quantized_num, bool saturate = false)
+{
+    if (quantized_num == 0)
+        return quantized_num;
+
+    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
+    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
+
+    uint32_t old_sign = old_num >> 31 << 31;
+    // saturate or overflow
+    if (quantized_exponent_store > max_exponent_store)
+    {
+        if (saturate)
+        {
+            uint32_t max_man =
+                (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+            uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
+            quantized_num = old_sign | max_num;
+        }
+        else
+        {
+            quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
+            quantized_num = quantized_num | old_sign;
+        }
+    } // underflow or round to smallest nonzero normal value
+    else if (quantized_exponent_store < min_exponent_store)
+    {
+        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
+        quantized_num = offset * (min_exponent_store << 23);
+        quantized_num |= old_sign;
+    }
+    return quantized_num;
+}
+
 __device__ __forceinline__ uint32_t
 clip_max_exponent(int man_bits, uint32_t max_exponent,
                   uint32_t quantized_num) {

@@ -2,6 +2,7 @@ import mptorch
 import mptorch.quant as qt
 import torch
 import torch.nn as nn
+from torch.testing import assert_close
 
 seed = 1234
 torch.manual_seed(seed)
@@ -67,28 +68,13 @@ def test_qconvtranspose2d_custom_mm():
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-
-    err_grad_bias = torch.max(
-        torch.abs(
-            (m.bias.grad.view(qm.bias.grad.shape) - qm.bias.grad)
-            / m.bias.grad.view(qm.bias.grad.shape)
-        )
-    ).item()
-
-    err_grad_weight = torch.max(
-        torch.abs(
-            (m.weight.grad.view(qm.weight.grad.shape) - qm.weight.grad)
-            / m.weight.grad.view(qm.weight.grad.shape)
-        )
-    ).item()
-    assert err_grad_bias < 1e-3
-    assert err_grad_weight < 1e-3
+    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-3)
+    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-3)
 
     res_m = m(x)
     res_qm = qm(qx)
-    err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert res_m.shape == res_qm.shape
-    assert err_fwd < 1e-2
+    assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
 
 def test_qconvtranspose2d_default_mm():
@@ -132,25 +118,10 @@ def test_qconvtranspose2d_default_mm():
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-
-    err_grad_bias = torch.max(
-        torch.abs(
-            (m.bias.grad.view(qm.bias.grad.shape) - qm.bias.grad)
-            / m.bias.grad.view(qm.bias.grad.shape)
-        )
-    ).item()
-
-    err_grad_weight = torch.max(
-        torch.abs(
-            (m.weight.grad.view(qm.weight.grad.shape) - qm.weight.grad)
-            / m.weight.grad.view(qm.weight.grad.shape)
-        )
-    ).item()
-    assert err_grad_bias < 1e-8
-    assert err_grad_weight < 1e-8
+    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-8)
+    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-8)
 
     res_m = m(x)
     res_qm = qm(qx)
-    err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert res_m.shape == res_qm.shape
-    assert err_fwd < 1e-8
+    assert_close(res_m, res_qm, atol=0.0, rtol=1e-8)

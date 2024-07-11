@@ -2,7 +2,7 @@
 This is an example kernel for perfoming the addition of two 1D vectors.
 
 Compile example:
-nvcc -O3 vec_add.cu -o vec_add -std=c++17
+nvcc -O3 vec_add.cu -o vec_add -std=c++17 -lcublas
 
 version 1 creates a fixed grid with each thread performing potentially
 more than one operation
