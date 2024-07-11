@@ -24,38 +24,56 @@ from mptorch.quant import QAffineFormats
 from model import GPTConfig
 
 
-float_format = FloatingPoint(
+lowp_format = FloatingPoint(
     exp=8, man=7, subnormals=True, saturate=False
 )
-mac_format = FloatingPoint(
-    exp=8, man=7, subnormals=True, saturate=False
+highp_format = FloatingPoint(
+    exp=8, man=23, subnormals=True, saturate=False
 )
 
 activation_q = Quantizer(
-    forward_number=float_format,
-    backward_number=float_format,
+    forward_number=highp_format,
+    backward_number=highp_format,
     forward_rounding="nearest",
     backward_rounding="nearest",
 )
 
-param_q = lambda x: float_quantize(
-    x,
-    exp=8,
-    man=7,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
+softmax_q = Quantizer(
+    forward_number=lowp_format,
+    backward_number=lowp_format,
+    forward_rounding="nearest",
+    backward_rounding="nearest",
 )
 
+# param_q = lambda x: float_quantize(
+#     x,
+#     exp=8,
+#     man=7,
+#     rounding="nearest",
+#     subnormals=True,
+#     saturate=False,
+# )
+
+# affine_formats = QAffineFormats(
+#     fwd_mac=(lowp_format,),
+#     bwd_mac=(lowp_format,),
+#     fwd_rnd="nearest",
+#     bwd_rnd="nearest",
+#     weight_quant=param_q,
+#     bias_quant=param_q,
+#     input_quant=param_q,
+#     output_quant=param_q,
+# )
+
 affine_formats = QAffineFormats(
-    fwd_mac=(mac_format,),
-    bwd_mac=(mac_format,),
+    fwd_mac=None,
+    bwd_mac=None,
     fwd_rnd="nearest",
     bwd_rnd="nearest",
-    weight_quant=param_q,
-    bias_quant=param_q,
-    input_quant=param_q,
-    output_quant=param_q,
+    weight_quant=lambda x: x,
+    bias_quant=lambda x: x,
+    input_quant=lambda x: x,
+    output_quant=lambda x: x,
 )
 
 # layernorm_q = lambda x: float_quantize(
@@ -105,8 +123,9 @@ class CausalSelfAttention(nn.Module):
         # manual implementation of attention
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        att = softmax_q(att) # quantization
         att = F.softmax(att, dim=-1)
-        att = activation_q(att) # quantization
+        att = softmax_q(att) # quantization
         att = self.attn_dropout(att)
         y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
