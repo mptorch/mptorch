@@ -432,7 +432,7 @@ class qsoftmax_kernel(torch.autograd.Function):
             with torch.no_grad():
                 output = torch.nn.functional.softmax(qinput, dim)
         else:
-            output = float_softmax_forward(qinput, dim, formats)
+            output = mp_softmax_forward(qinput, dim, formats)
 
         qoutput = formats.output_quant(output)
         ctx.save_for_backward(qoutput)
@@ -451,7 +451,7 @@ class qsoftmax_kernel(torch.autograd.Function):
             weighted_grad_sum = torch.sum(qoutput * qgrad_output, dim=dim, keepdim=True)
             grad_input = qoutput * ((qgrad_output - weighted_grad_sum) / input_sum)
         else:
-            grad_input = float_softmax_backward(qoutput, qgrad_output, dim, formats)
+            grad_input = mp_softmax_backward(qoutput, qgrad_output, dim, formats)
 
         qgrad_input = formats.grad_quant(grad_input)
 

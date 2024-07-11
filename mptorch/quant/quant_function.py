@@ -25,6 +25,8 @@ __all__ = [
     "fxp_bmm",
     "superfp_mm",
     "superfp_bmm",
+    "mp_softmax_forward",
+    "mp_softmax_backward",
     "float_softmax_forward",
     "float_softmax_backward",
     "cublas_mm",
@@ -274,6 +276,19 @@ def match_mac_format_with_cublas_types(
         case 10, 5:
             return mt.F16, mt.F16, ct.F16
     return None
+
+
+def mp_softmax_forward(a, dim, formats):
+    exp_cfg = formats.fwd_exp
+    if type(exp_cfg) == FloatingPoint:
+        return float_softmax_forward(a, dim, formats)
+    raise NotImplementedError("Unsupported float type.")
+
+def mp_softmax_backward(output, grad_output, dim, formats):
+    add_cfg = formats.bwd_add
+    if type(add_cfg) == FloatingPoint:
+        return float_softmax_backward(output, grad_output, dim, formats)
+    raise NotImplementedError("Unsupported float type.")
 
 
 def float_softmax_forward(a, dim, formats):
