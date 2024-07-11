@@ -1,5 +1,4 @@
-__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat"]
-
+__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
 
 class Number:
     def __init__(self):
@@ -176,3 +175,74 @@ class BlockFloatingPoint(Number):
 
     def __repr__(self):
         return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
+
+
+class Binary8(Number):
+    """
+    Low-Precision Binary8 Format following the P3109 standard.
+
+    Binary8 is a format that takes a value P as an input and determines the number
+    of mantissa and exponent bits.
+
+    Args:
+        - :attr: `P`: integer precision of the binary8 format
+        - :attr: `signed`: boolean indicating whether the format is signed or unsigned
+        - :attr: `saturation_mode`: string indicating the saturation mode (dictates the max float)
+    """
+
+    def __init__(self, P, signed=True, saturation_mode="saturate"):
+        assert isinstance(P, int) and 8 > P > 0, "invalid input for precision: {}".format(P)
+        assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(
+            type(signed)
+        )
+        assert type(saturation_mode) == str and saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid input for saturation mode: {}".format(saturation_mode)
+
+        self.P = P
+        spec_exp = P == 1
+        
+        # Determine mantissa and exponent bits based on P and signed
+        self.man = P - 1
+        self.exp = (7 - P) if signed else (8 - P)
+        max_exp = 2**(self.exp - 1) - 1
+        min_exp = -max_exp + spec_exp
+
+        # Define the subnormal and normal ranges
+        if self.man != 1:
+            self.subnormal_min = (2**-self.man) * (2**min_exp)   # this is good
+            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)   # this is also good
+        else:
+            self.subnormal_min = "no subnormals"
+            self.subnormal_max = "no subnormals"
+
+        self.normal_min = 2**min_exp   # this is good
+
+        if signed:
+            if saturation_mode == "no_overflow":    # no inf case, so max is FF not FE
+                if self.man > 0:
+                    self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**(max_exp + 1)  # 0 mantissa case
+            else:   # normal case where FE is max   
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**max_exp    # 0 mantissa case
+        else:   # unsigned case
+            if saturation_mode == "no_overflow":    # no inf case, so max is FE not FD
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**max_exp    # 0 mantissa case
+            else:   # normal case where FD is max
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-self.man - 2**-(self.man-1)) * (2**max_exp)  # good for more than 1 mantissa
+                elif self.man == 1:
+                    self.normal_max = 1.5 * (2**(max_exp-1))      # (2 - 2**-self.man) * (2**(max_exp-1))
+                else:
+                    self.normal_max = 2**(max_exp-1)
+
+    def __str__(self):
+        return "Binary8 (P={:d}, signed={}, exponent={:d}, mantissa={:d})".format(self.P, self.signed, self.exp, self.man)  # potentially add saturation mode
+
+    def __repr__(self):
+        return "Binary8 (P={:d}, signed={}, exponent={:d}, mantissa={:d})".format(self.P, self.signed, self.exp, self.man)
