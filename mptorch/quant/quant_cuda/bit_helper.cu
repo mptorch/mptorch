@@ -192,6 +192,10 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_unsigned_exp; 
   int min_exponent_store = -((1 << (exp_bits - 1)) - 1) + 127 + spec_exp;
 
+  if(!subnormal){
+    min_exponent_store--;
+  }
+
   if (saturation_mode == SaturationMode::NO_OVERFLOW) { // Saturate to max without infinity
     max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   }
@@ -205,10 +209,10 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   }
   if (quantized_exponent_store < min_exponent_store) {
     if (subnormal) {
-        int subnormal_shift = min_exponent_store - quantized_exponent_store;
-        int min_subnormals_exp = min_exponent_store - man_bits;
-        uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
-        uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
+      int subnormal_shift = min_exponent_store - quantized_exponent_store;
+      int min_subnormals_exp = min_exponent_store - man_bits;
+      uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
+      uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
       if (subnormal_shift <= man_bits) {
         // quantized_num stays the same in this case
       } else if ((old_num & 0x7FFFFFFF) > middle_num) {
@@ -216,28 +220,16 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
       } else {
         quantized_num = 0;
       }
+    } else {
+        int min_subnormals_exp = min_exponent_store - man_bits;
+        uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
+        uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
+        if ((old_num & 0x7FFFFFFF) > middle_num){
+          return quantized_num = old_sign | min_num;
+        } else {
+          return quantized_num = 0;
+        }
     }
-
-    // this is how subnormals will be represented when there are no subnormals instead of RNE: 2 ^ (-bias) * 1.M --> ONLY CHANGE WOULD BE INCREASEING EXPONENT RANGE BY 1 FOR MINIMUM
-    // middle point: 2^(-BIAS - 1) * 1.00000000 --> round to 0 or 2^(-BIAS)
-
-    // The following is the original implementation where RNE was conducted when there were no subnormals
-    // if(!subnormal) {
-    //   uint32_t min_num = (uint32_t)min_exponent_store << 23;
-    //   uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
-    //   if ((old_num & 0x7FFFFFFF) > middle_num) {
-    //     quantized_num = old_sign | min_num;
-    //   } else {
-    //     quantized_num = 0;
-    //   }
-    // }
-
-    // The following is the new implementation where subnormal values are normalized where there are no subnormals
-    // min exp is actually (current min exp - 1) so min exp (which should be normal) is actually normalized
-    // treat as if 1.man, not 0.man for subnormals -> normal range is now increased by 1 to handle that subnormal case
-    if (!subnormal){
-         
-    } 
   }
   return quantized_num;
 }
