@@ -91,6 +91,18 @@ def test_binary8p2():
     assert_quant([float('inf')], [float('inf')], quant)
     assert_quant([-float('inf')], [-float('inf')], quant) 
 
+def test_no_subnormal_case():
+    if no_cuda():
+        return
+
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate", True, False)
+
+    assert_quant(float(1.9E-5), float(1.907348633E-5), quant)
+    assert_quant(float(2.3E-5), float(2.288818359E-5), quant)
+    assert_quant(float(2.67E-5), float(2.670288086E-5), quant)
+    assert_quant(float(9.7E-6), float(1.907348633E-5), quant) # minimum normalized value
+    assert_quant(float(9.5E-6), float(0), quant) # to 0
+
 def test_binary8_signed_nearest():
     if no_cuda():
         return

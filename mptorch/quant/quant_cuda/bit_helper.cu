@@ -220,10 +220,9 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
       } else {
         quantized_num = 0;
       }
-    } else {
-        int min_subnormals_exp = min_exponent_store - man_bits;
-        uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
-        uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
+    } else {  // no subnormal case; normalizing subnormal values
+        uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
+        uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
         if ((old_num & 0x7FFFFFFF) > middle_num){
           return quantized_num = old_sign | min_num;
         } else {
