@@ -9,6 +9,9 @@ Simple implementation parallelizing over the rows to be softmaxed, one thread pe
 
 Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 0
 ./softmax_forward 2 [dim=-3..2]
+
+Same as version 1 but using LogSumExp iterations to compute the sum of exponentials
+./softmax_forward 3 [dim=-3..2]
 */
 
 
@@ -148,6 +151,10 @@ __host__ __device__ float quant_exp(float origin_float) {
 
 __host__ __device__ float quant_div(float origin_float) {
     return cast_fp_nearest(origin_float, 7, 8, true, false);
+}
+
+__host__ __device__ float quant_lse(float origin_float) {
+    return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
 
@@ -341,6 +348,56 @@ void softmax_forward_cuda2(float *input, float *output, const int *dims, int n_d
     cudaCheck(cudaFree(d_strides));
 }
 
+__global__ void softmax_forward_kernel3(float *input_array, float *output_array, DimStrides *strides, int N) {
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(id >= N) return;
+
+    int outer_idx = id / strides->inner_size;
+    int inner_idx = id % strides->inner_size;
+
+    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    float* input = input_array + base_index;
+    float* output = output_array + base_index;
+
+    int idx_max = 0;
+    float max = input[idx_max];
+    for (int k = 1; k < strides->dim_size; ++k) {
+        int idx = k * strides->dim_stride;
+        if (input[idx] > max) {
+            idx_max = idx;
+            max = input[idx];
+        }
+    }
+
+    float lgs = 0.0f;
+    for (int k = 0; k < strides->dim_size; ++k) {
+      int idx = k * strides->dim_stride;
+      if (idx == idx_max) {
+        continue;
+      }
+      float x = quant_add(input[idx] - max);
+      output[idx] = x;
+      lgs = quant_lse(logf(expf(lgs) + expf(x)));
+    }
+    for (int k = 0; k < strides->dim_size; ++k) {
+      int idx = k * strides->dim_stride;
+      float x = quant_add(output[idx] - lgs);
+      output[idx] = quant_exp(expf(x));
+    }
+}
+
+void softmax_forward_cuda3(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimStrides h_strides = dim_striding(dims, n_dims, dim);
+    DimStrides *d_strides;
+    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
+    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
+    // one thread per row to be softmaxed
+    int N = h_strides.outer_size * h_strides.inner_size; // number of rows
+    int blocks = N / block_size + (N % block_size != 0);
+    softmax_forward_kernel3<<<blocks, block_size>>>(input, output, d_strides, N);
+    cudaCheck(cudaFree(d_strides));
+}
 
 // ---------------------------------------------------------------------------------------
 void softmax_forward_cuda(int kernel_num, float *input, float *output,
@@ -351,6 +408,9 @@ void softmax_forward_cuda(int kernel_num, float *input, float *output,
         break;
     case 2:
         softmax_forward_cuda2(input, output, dims, n_dims, dim, block_size);
+        break;
+    case 3:
+        softmax_forward_cuda3(input, output, dims, n_dims, dim, block_size);
         break;
     default:
         printf("Invalid kernel number\n");
