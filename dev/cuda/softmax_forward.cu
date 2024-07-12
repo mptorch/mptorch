@@ -393,7 +393,7 @@ void check_softmax_cpu(float* array, const int *dims, int n_dims, int dim, float
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int dims[] = {100, 50, 2549};
+    const int dims[] = {189, 189, 189};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
 
     // which kernel version to use
