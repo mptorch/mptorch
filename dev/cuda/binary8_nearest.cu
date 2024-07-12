@@ -472,6 +472,7 @@ int main(int argc, const char **argv)
     }
 
     // sanity check the CPU reference code - signed and with subnormals
+    printf("START: Sanity check for signed nearest CPU code with subnormals...\n");
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
         float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, subnormals);
@@ -483,11 +484,13 @@ int main(int argc, const char **argv)
             printf("\nvs\n");
             print_uint32(test_outputs[j]);
             printf("\n");
-            //exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
+    printf("FINISH: Sanity check for signed nearest CPU code with subnormals...\n");
 
     // sanity check the CPU reference code - signed without subnormals
+    printf("START: Sanity check for signed nearest CPU code without subnormals...\n");
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
         float fres = cast_binary8_signed_nearest_cpu(BITS_TO_FLOAT(&test_inputs[j]), 3, saturation_mode, !subnormals);
@@ -499,11 +502,13 @@ int main(int argc, const char **argv)
             printf("\nvs\n");
             print_uint32(test_outputs_no_sub[j]);
             printf("\n");
-            //exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
+    printf("FINISH: Sanity check for signed nearest CPU code without subnormals...\n");
 
     // sanity check the CPU reference code - unsigned with subnormals
+    printf("START: Sanity check for unsigned nearest CPU code with subnormals...\n");
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
         float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, subnormals);
@@ -515,11 +520,13 @@ int main(int argc, const char **argv)
             printf("\nvs\n");
             print_uint32(test_outputs_unsigned[j]);
             printf("\n");
-            //exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
+    printf("FINISH: Sanity check for unsigned nearest CPU code with subnormals...\n");
 
     // sanity check the CPU reference code - unsigned without subnormals
+    printf("START: Sanity check for unsigned nearest CPU code without subnormals...\n");
     for (int j = 0; j < sizeof(test_inputs) / sizeof(uint32_t); ++j)
     {
         float fres = cast_binary8_unsigned_nearest_cpu(BITS_TO_FLOAT(&test_inputs_unsigned[j]), 3, saturation_mode, !subnormals);
@@ -531,9 +538,10 @@ int main(int argc, const char **argv)
             printf("\nvs\n");
             print_uint32(test_outputs_unsigned_w[j]);
             printf("\n");
-            //exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         }
     }
+    printf("FINISH: Sanity check for unsigned nearest CPU code without subnormals...\n");
 
     int N = 1 << 24;
     int P = 3;
