@@ -17,7 +17,7 @@ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
     int target_exp = (target << 1 >> 1 >> 23) - 127;
     int min_exp = -((1 << (exp_bits - 1)) - 2);
     bool subnormal = (target_exp < min_exp);
-    bool noquantize = (man_bits >= 23);
+    bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
 
     if (noquantize)
     {
