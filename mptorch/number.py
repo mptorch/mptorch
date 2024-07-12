@@ -195,7 +195,7 @@ class Binary8(Number):
     """
 
     def __init__(self, P, signed=True, subnormals=True, saturation_mode="saturate"):
-        assert isinstance(P, int) and 8 > P > 0, "invalid input for precision: {}".format(P)
+        assert type(P) == input and 8 > P > 0, "invalid input for precision: {}".format(P)  # is P = 8 valid?
         assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(type(signed))
         assert type(subnormals) == bool, "invalid type for allowing subnormals or not: {}".format(type(subnormals))
         assert type(saturation_mode) == str and saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid input for saturation mode: {}".format(saturation_mode)
@@ -217,8 +217,12 @@ class Binary8(Number):
             self.subnormal_min = "no subnormals"
             self.subnormal_max = "no subnormals"
 
-        self.normal_min = 2**min_exp   # this is good
-
+        # no subnormal case
+        if subnormals == True or self.man == 1:
+            self.normal_min = 2**min_exp   # this is good
+        else:   # values of P with subnormal values will have different normal_min
+            self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
+    
         if signed:
             if saturation_mode == "no_overflow":    # no inf case, so max is FF not FE
                 if self.man > 0:
