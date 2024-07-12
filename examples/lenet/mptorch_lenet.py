@@ -8,6 +8,7 @@ from mptorch.quant import (
     Quantizer,
     QBatchNorm2d,
     QAffineFormats,
+    cublas_acceleration,
 )
 from mptorch.optim import OptimMP
 import torch.nn as nn
@@ -98,12 +99,13 @@ torch.cuda.manual_seed(args.seed)
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
+cublas_acceleration.enable(args.cuda)
 
 float_format = FloatingPoint(
     exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
 )
 mac_format = FloatingPoint(
-    exp=8, man=7, subnormals=args.subnormals, saturate=args.saturate
+    exp=5, man=10, subnormals=args.subnormals, saturate=args.saturate
 )
 
 transform_train = transforms.Compose(
@@ -156,11 +158,6 @@ layer_formats = QAffineFormats(
     input_quant=param_q,
     output_quant=param_q,
 )
-
-batchnorm_q = lambda x: float_quantize(
-    x, exp=8, man=23, rounding="nearest", saturate=args.saturate
-)
-
 
 class QLenet(nn.Module):
     def __init__(self):
