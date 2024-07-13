@@ -25,7 +25,7 @@ def test_bfloat16():
     if no_cuda():
         return
     
-    quant = lambda x: bfloat16_quantize(x)
+    quant = lambda x: bfloat16_quantize(x, "nearest")
     # normal
     assert_quant([[20.0625,20.06251],[20.0625,20.06251]], [[20.0,20.125],[20.0,20.125]], quant)
 

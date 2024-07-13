@@ -1871,12 +1871,14 @@ def binary8_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_si
         )
     return out
 
-def bfloat16_quantize(x):
+def bfloat16_quantize(x, rounding="nearest", prng_bits=0):
     """
     Quantize a single precision Floating Point into bfloat16 Floating Point
 
     Args:
         - :attr: `x` (torch.Tensor bfloat16_quantize_nearest: the single precision number(torch.Tensor) to be quantized
+        - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
+        - :attr: `prng_bits` (int): number of bits for the random generator
 
     Returns:
         - a quantized bfloat16 floating point number (torch.Tensor)
@@ -1884,10 +1886,21 @@ def bfloat16_quantize(x):
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
+
+    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
+        rounding
+    )
+    assert 0 <= prng_bits <= 23 - 7, "prng_bits should be between 0 and 23 minus the number of mantissa bits"
+
     
     quant_module = get_module(x)
-    out = quant_module.bfloat16_quantize_nearest(
+    if rounding == "nearest":
+        out = quant_module.bfloat16_quantize_nearest(
             x.contiguous()
+        )
+    elif rounding == "stochastic":
+        out = quant_module.bfloat16_quantize_stochastic(
+            x.contiguous(), prng_bits
         )
     return out
 

@@ -111,6 +111,12 @@ Tensor bfloat16_quantize_nearest(Tensor a)
       return bfloat16_quantize_nearest_cuda(a);
 }
 
+Tensor bfloat16_quantize_stochastic(Tensor a, int prng_bits)
+{
+      CHECK_INPUT(a);
+      return bfloat16_quantize_stochastic_cuda(a, prng_bits);
+}
+
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_mul, int exp_mul, int man_add,
                                int exp_add, bool subnormals, bool saturate)
@@ -364,6 +370,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 
       m.def("bfloat16_quantize_nearest", &bfloat16_quantize_nearest,
             "Bfloat16 Floating-Point Number Nearest Quantization (CUDA)");
+
+      m.def("bfloat16_quantize_stochastic", &bfloat16_quantize_stochastic,
+            "Bfloat16 Floating-Point Number Stochastic Quantization (CUDA)");
 
       py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic())
             .value("SATURATE", SaturationMode::SATURATE)
