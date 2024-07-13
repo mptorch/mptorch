@@ -10,8 +10,12 @@ Simple implementation parallelizing over the rows to be softmaxed, one thread pe
 Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 0
 ./softmax_forward 2 [dim=-3..2]
 
-Same as version 1 but using LogSumExp iterations to compute the sum of exponentials
+LogSumExp-based softmax with naive parallelization over the rows to be softmaxed, one
+thread per row.
 ./softmax_forward 3 [dim=-3..2]
+
+LogSumExp-based softmax using efficient intra-warp and inter-warp reductions.
+./softmax_forward 4 [dim=-3..2]
 */
 
 
@@ -399,6 +403,105 @@ void softmax_forward_cuda3(float *input, float *output, const int *dims, int n_d
     cudaCheck(cudaFree(d_strides));
 }
 
+__global__ void softmax_forward_kernel4(float *input_array, float *output_array, DimStrides *strides) {
+    extern __shared__ float shared[];
+
+    int tid = threadIdx.x;
+
+    int warp = threadIdx.x / warpSize; // which warp within this block the thread belongs to
+    int lane = threadIdx.x % warpSize; // the id of the thread in its warp
+
+    int warpsPerBlock = blockDim.x / warpSize;
+
+    int outer_idx = blockIdx.x / strides->inner_size;
+    int inner_idx = blockIdx.x % strides->inner_size;
+    
+    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    float* input = input_array + base_index;
+    float* output = output_array + base_index;
+
+    // compute the maximum value of the row
+
+    float max = -INFINITY;
+    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
+        int idx = k * strides->dim_stride;
+        if (input[idx] > max) {
+            max = input[idx];
+        }
+    }
+    // intra-warp maximum reduction
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
+        float other = __shfl_down_sync(0xFFFFFFFF, max, offset);
+        if (other > max) {
+            max = other;
+        }
+    }
+    // store the warp-level maximum in shared memory
+    if (lane == 0) {
+        shared[warp] = max;
+    }
+    __syncthreads();
+    // reduce the maximum of each warp into the 0th thread of the block (warp 0, lane 0)
+    if(tid == 0) {
+        max = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++) {
+            if (shared[i] > max) {
+                max = shared[i];
+            }
+        }
+        // store the block's maximum (i.e row's maximum) in a fixed shared location
+        shared[0] = max;
+    }
+    __syncthreads();
+    // each thread reads the row's maximum
+    max = shared[0];
+
+    // compute log(exp(x[i] - max) + ...) using LogSumExp iterations
+    float lgs = -INFINITY;
+    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
+        int idx = k * strides->dim_stride;
+        float x = quant_add(input[idx] - max);
+        output[idx] = x;
+        lgs = quant_lse(logf(expf(lgs) + expf(x)));
+    }
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
+        float other_lgs = __shfl_down_sync(0xFFFFFFFF, lgs, offset);
+        lgs = quant_lse(logf(expf(lgs) + expf(other_lgs)));
+    }
+    if (lane == 0) {
+        shared[warp] = lgs;
+    }
+    __syncthreads();
+    if(tid == 0) {
+        lgs = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++) {
+            lgs = quant_lse(logf(expf(lgs) + expf(shared[i])));
+        }
+        shared[0] = lgs;
+    }
+    __syncthreads();
+    lgs = shared[0];
+
+    // finally, divide each previously computed exponentials by the sum
+    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
+        int idx = k * strides->dim_stride;
+        output[idx] = quant_exp(expf(quant_add(output[idx] - lgs)));
+    }
+}
+
+void softmax_forward_cuda4(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimStrides h_strides = dim_striding(dims, n_dims, dim);
+    DimStrides *d_strides;
+    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
+    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
+    // one block per row to be softmaxed
+    int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
+    // block_size must be multiple of 32
+    size_t shared_mem_size = block_size * sizeof(float);
+    softmax_forward_kernel4<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
+    cudaCheck(cudaFree(d_strides));
+}
+
 // ---------------------------------------------------------------------------------------
 void softmax_forward_cuda(int kernel_num, float *input, float *output,
                           const int *dims, int n_dims, int dim, int block_size) {
@@ -411,6 +514,9 @@ void softmax_forward_cuda(int kernel_num, float *input, float *output,
         break;
     case 3:
         softmax_forward_cuda3(input, output, dims, n_dims, dim, block_size);
+        break;
+    case 4:
+        softmax_forward_cuda4(input, output, dims, n_dims, dim, block_size);
         break;
     default:
         printf("Invalid kernel number\n");
@@ -453,7 +559,7 @@ void check_softmax_cpu(float* array, const int *dims, int n_dims, int dim, float
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int dims[] = {189, 189, 189};
+    const int dims[] = {125, 81, 384};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
 
     // which kernel version to use
