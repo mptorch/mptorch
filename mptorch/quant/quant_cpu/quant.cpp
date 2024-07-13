@@ -486,9 +486,7 @@ Tensor float_quantize_nearest_softmax_forward(Tensor a,
     float max = input[0];
     for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (input[idx] > max) { // TODO: use fmaxf to ignore nans?
-        max = input[idx];
-      }
+      max = fmaxf(max, input[idx]);
     }
 
     // Calculate the sum and store quantized values of exp(input) into output
@@ -541,24 +539,19 @@ Tensor float_quantize_nearest_softmax_lse_forward(Tensor a,
 
     // Get the maximum of the current row being softmaxed.
     // This ensures no overflow and more stable exponentials.
-    // Index of maximum is saved for later.
-    int idx_max = 0;
-    float max = input[idx_max];
+    // Index of maximum is saved for later.;
+    float max = input[0];
     for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (input[idx] > max) { // TODO: use fmaxf to ignore nans?
-        idx_max = idx;
-        max = input[idx];
-      }
+      max = fmaxf(max, input[idx]);
     }
 
     // Calculate LogSumExp
-    float lgs = 0.0f; // = log(1) = log(exp(x[idx_max] - max)) (implied term)
-    for (int k = 0; k < strides.dim_size; ++k) {
+    float x0 = quant(input[0] - max, man_off, exp_off);
+    output[0] = x0;
+    float lgs = x0; // = log(exp(x[0] - max))
+    for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
-      if (idx == idx_max) { // Skip because of the implied term
-        continue;
-      }
       float x = quant(input[idx] - max, man_off, exp_off);
       output[idx] = x;
       lgs = quant(logf(expf(lgs) + expf(x)), man_lse, exp_lse);
