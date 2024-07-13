@@ -364,22 +364,19 @@ __global__ void softmax_forward_kernel3(float *input_array, float *output_array,
     float* input = input_array + base_index;
     float* output = output_array + base_index;
 
-    int idx_max = 0;
-    float max = input[idx_max];
+    float max = input[0];
     for (int k = 1; k < strides->dim_size; ++k) {
         int idx = k * strides->dim_stride;
         if (input[idx] > max) {
-            idx_max = idx;
             max = input[idx];
         }
     }
 
-    float lgs = 0.0f;
-    for (int k = 0; k < strides->dim_size; ++k) {
+    float x0 = quant_add(input[0] - max);
+    output[0] = x0;
+    float lgs = x0; // log(exp(x[0] - max))
+    for (int k = 1; k < strides->dim_size; ++k) {
       int idx = k * strides->dim_stride;
-      if (idx == idx_max) {
-        continue;
-      }
       float x = quant_add(input[idx] - max);
       output[idx] = x;
       lgs = quant_lse(logf(expf(lgs) + expf(x)));
