@@ -178,9 +178,7 @@ static void softmax_forward_cpu(float *input_array, float *output_array, const i
         float max = input[0];
         for (int k = 1; k < strides.dim_size; ++k) {
             int idx = k * strides.dim_stride;
-            if (input[idx] > max) {
-                max = input[idx];
-            }
+            max = fmaxf(max, input[idx]);
         }
 
         float sum = 0.0f;
@@ -215,9 +213,7 @@ __global__ void softmax_forward_kernel1(float *input_array, float *output_array,
     float max = input[0];
     for (int k = 1; k < strides->dim_size; ++k) {
         int idx = k * strides->dim_stride;
-        if (input[idx] > max) {
-            max = input[idx];
-        }
+        max = fmaxf(max, input[idx]);
     }
 
     float sum = 0.0f;
@@ -268,18 +264,14 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     // position along the row, as many times as required to cover all the row
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        if (input[idx] > max) {
-            max = input[idx];
-        }
+        max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
     // each thread now contains part of the maximum of the row, we combine these maximums
     // into a per-warp maximum, stored in the 0th thread of the warp (lane = 0)
     for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        float other = __shfl_down_sync(0xFFFFFFFF, max, offset);
-        if (other > max) {
-            max = other;
-        }
+        float other_max = __shfl_down_sync(0xFFFFFFFF, max, offset);
+        max = fmaxf(max, other_max);
     }
     // store the warp-level maximum in shared memory
     if (lane == 0) {
@@ -290,9 +282,7 @@ __global__ void softmax_forward_kernel2(float *input_array, float *output_array,
     if(tid == 0) {
         max = shared[0];
         for (int i = 1; i < warpsPerBlock; i++) {
-            if (shared[i] > max) {
-                max = shared[i];
-            }
+            max = fmaxf(max, shared[i]);
         }
         // store the block's maximum (i.e row's maximum) in a fixed shared location
         shared[0] = max;
@@ -367,9 +357,7 @@ __global__ void softmax_forward_kernel3(float *input_array, float *output_array,
     float max = input[0];
     for (int k = 1; k < strides->dim_size; ++k) {
         int idx = k * strides->dim_stride;
-        if (input[idx] > max) {
-            max = input[idx];
-        }
+        max = fmaxf(max, input[idx]);
     }
 
     float x0 = quant_add(input[0] - max);
@@ -422,16 +410,12 @@ __global__ void softmax_forward_kernel4(float *input_array, float *output_array,
     float max = -INFINITY;
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        if (input[idx] > max) {
-            max = input[idx];
-        }
+        max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
     for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        float other = __shfl_down_sync(0xFFFFFFFF, max, offset);
-        if (other > max) {
-            max = other;
-        }
+        float other_max = __shfl_down_sync(0xFFFFFFFF, max, offset);
+        max = fmaxf(max, other_max);
     }
     // store the warp-level maximum in shared memory
     if (lane == 0) {
@@ -442,9 +426,7 @@ __global__ void softmax_forward_kernel4(float *input_array, float *output_array,
     if(tid == 0) {
         max = shared[0];
         for (int i = 1; i < warpsPerBlock; i++) {
-            if (shared[i] > max) {
-                max = shared[i];
-            }
+            max = fmaxf(max, shared[i]);
         }
         // store the block's maximum (i.e row's maximum) in a fixed shared location
         shared[0] = max;
