@@ -41,18 +41,23 @@ parser.add_argument(
     help="number of epochs to train (default: 1)",
 )
 parser.add_argument(
-    "--exp",
+    "--exp_param",
     type=int,
     default=5,
     metavar="N",
     help="exponent size (default: 5)",
 )
 parser.add_argument(
-    "--man",
+    "--man_param",
     type=int,
     default=2,
     metavar="N",
     help="mantissa size (default: 2)",
+)
+parser.add_argument(
+    "--no_param_quant",
+    action="store_true",
+    help="No quantization on parameters",
 )
 parser.add_argument(
     "--exp_mac",
@@ -67,6 +72,11 @@ parser.add_argument(
     default=10,
     metavar="N",
     help="mantissa size (default: 2)",
+)
+parser.add_argument(
+    "--no_mac_quant",
+    action="store_true",
+    help="No quantization on MAC",
 )
 parser.add_argument(
     "--lr_init",
@@ -103,7 +113,12 @@ parser.add_argument(
     default=False,
     help="enable subnormal encodings",
 )
-
+parser.add_argument(
+    "--no_act_error_quant",
+    action="store_true",
+    default=False,
+    help="No act_error_quant",
+)
 parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
 )
@@ -112,17 +127,20 @@ args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.subnormals = not args.no_subnormals
 device = "cuda" if args.cuda else "cpu"
+print("Using device:", device)
 
 cublas_acceleration.enable(args.cublas)
+print("Using cublas acceleration:", cublas_acceleration.enabled)
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
+print("Using seed:", args.seed)
 
-float_format = FloatingPoint(
-    exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=args.saturate
+param_format = FloatingPoint(
+    exp=args.exp_param, man=args.man_param, subnormals=args.subnormals, saturate=args.saturate
 )
 mac_format = FloatingPoint(
     exp=args.exp_mac, man=args.man_mac, subnormals=True, saturate=False
@@ -152,37 +170,57 @@ test_dataset = torchvision.datasets.MNIST(
 test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
 # define a lambda function so that the Quantizer module can be duplicated easily
-act_error_quant = Quantizer(
-    forward_number=float_format,
-    backward_number=float_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
-)
+if not args.no_act_error_quant:
+    act_error_quant = Quantizer(
+        forward_number=param_format,
+        backward_number=param_format,
+        forward_rounding="nearest",
+        backward_rounding="nearest",
+    )
+    print("Using activation error quant:", act_error_quant)
+else:
+    act_error_quant = lambda x: x
+    print("Using activation error quant: None")
 
-param_q = lambda x: float_quantize(
-    x,
-    exp=args.exp,
-    man=args.man,
-    rounding="nearest",
-    subnormals=args.subnormals,
-    saturate=args.saturate,
-)
+if not args.no_param_quant:
+    param_q = lambda x: float_quantize(
+        x,
+        exp=args.exp_param,
+        man=args.man_param,
+        rounding="nearest",
+        subnormals=args.subnormals,
+        saturate=args.saturate,
+    )
+    print("Using parameter quant: float_quantize("
+    f"man={args.exp_param}, exp={args.man_param}, "
+    f"rounding=nearest, "
+    f"subnormals={args.subnormals}, "
+    f"saturate={args.saturate})")
+else:
+    param_q = lambda x: x
+    print("Using parameter quant: None")
 
-layer_formats = QAffineFormats(
-    fwd_mac=(mac_format,),
-    bwd_mac=(mac_format,),
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=param_q,
-    bias_quant=param_q,
-    input_quant=param_q,
-    output_quant=param_q,
-)
-
-batchnorm_q = lambda x: float_quantize(
-    x, exp=8, man=23, rounding="nearest", saturate=args.saturate
-)
-
+if not args.no_mac_quant:
+    layer_formats = QAffineFormats(
+        fwd_mac=(mac_format,),
+        bwd_mac=(mac_format,),
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=param_q,
+        bias_quant=param_q,
+        input_quant=param_q,
+        output_quant=param_q,
+    )
+else:
+    layer_formats = QAffineFormats(
+        fwd_mac=None,
+        bwd_mac=None,
+        weight_quant=param_q,
+        bias_quant=param_q,
+        input_quant=param_q,
+        output_quant=param_q,
+    )
+print("Using affine formats:", layer_formats)
 
 class QLenet(nn.Module):
     def __init__(self):
@@ -222,16 +260,16 @@ optimizer = SGD(
 )
 
 
-with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    trainer(
-        model,
-        train_loader,
-        test_loader,
-        num_epochs=args.epochs,
-        lr=args.lr_init,
-        batch_size=args.batch_size,
-        optimizer=optimizer,
-        device=device,
-        init_scale=2.0**10,
-    )
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+trainer(
+    model,
+    train_loader,
+    test_loader,
+    num_epochs=args.epochs,
+    lr=args.lr_init,
+    batch_size=args.batch_size,
+    optimizer=optimizer,
+    device=device,
+    init_scale=2.0**10,
+)
+# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))

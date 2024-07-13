@@ -50,7 +50,7 @@ parser.add_argument(
 parser.add_argument(
     "--n_embd",
     type=int,
-    default=96,
+    default=384,
     metavar="N",
     help="embedding dimension (default: 96)",
 )
@@ -93,6 +93,11 @@ parser.add_argument(
     help="MAC mantissa size (default: 10)",
 )
 parser.add_argument(
+    "--no_mac_quant",
+    action="store_true",
+    help="No quantization on MAC",
+)
+parser.add_argument(
     "--expWeight",
     type=int,
     default=5,
@@ -107,6 +112,11 @@ parser.add_argument(
     help="Weights mantissa size (default: 2)",
 )
 parser.add_argument(
+    "--no_weight_quant",
+    action="store_true",
+    help="No quantization on parameters",
+)
+parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
 )
 
@@ -114,35 +124,55 @@ args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
+print("Using device:", device)
 
 cublas_acceleration.enable(args.cublas)
+print("Using cublas acceleration:", cublas_acceleration.enabled)
 
-rounding = "nearest"
-"""Specify the formats and quantization functions for the layer operations and signals"""
-fp_format = FloatingPoint(
+mac_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-mac_format = fp_format
 
-quant_fp = lambda x: qpt.float_quantize(
-    x,
-    exp=args.expWeight,
-    man=args.manWeight,
-    rounding=rounding,
-    subnormals=True,
-    saturate=False,
-)
+if not args.no_weight_quant:
+    weight_q = lambda x: qpt.float_quantize(
+        x,
+        exp=args.expWeight,
+        man=args.manWeight,
+        rounding="nearest",
+        subnormals=True,
+        saturate=False,
+    )
+    print("Using parameter quant: float_quantize("
+    f"man={args.expWeight}, exp={args.manWeight}, "
+    f"rounding=nearest, "
+    f"subnormals={True}, "
+    f"saturate={False})")
+else:
+    weight_q = lambda x: x
+    print("Using parameter quant: None")
 
-layer_formats = qpt.QAffineFormats(
-    fwd_mac=(mac_format),
-    fwd_rnd=rounding,
-    bwd_mac=(mac_format),
-    bwd_rnd=rounding,
-    weight_quant=quant_fp,
-    input_quant=quant_fp,
-    grad_quant=quant_fp,
-    bias_quant=quant_fp,
-)
+
+if not args.no_mac_quant:
+    layer_formats = qpt.QAffineFormats(
+        fwd_mac=(mac_format),
+        fwd_rnd="nearest",
+        bwd_mac=(mac_format),
+        bwd_rnd="nearest",
+        weight_quant=weight_q,
+        input_quant=weight_q,
+        grad_quant=weight_q,
+        bias_quant=weight_q,
+    )
+else:
+    layer_formats = qpt.QAffineFormats(
+        fwd_mac=None,
+        bwd_mac=None,
+        weight_quant=weight_q,
+        bias_quant=weight_q,
+        input_quant=weight_q,
+        output_quant=weight_q,
+    )
+print("Using affine formats:", layer_formats)
 
 
 # hyperparameters
@@ -376,35 +406,35 @@ tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
 
-with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    for iter in range(args.max_iters):
-        # every once in a while evaluate the loss on train and val sets
-        tq.update(args.batch_size)
-        tq.set_postfix(
-            train_loss="{:.5f}".format(losses["train"]),
-            val_loss="{:.5f}".format(losses["val"]),
-            epoch="{:d}".format(int(iter * args.batch_size / n)),
-            scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
-        )
-        if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
-            losses = estimate_loss()
+# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+for iter in range(args.max_iters):
+    # every once in a while evaluate the loss on train and val sets
+    tq.update(args.batch_size)
+    tq.set_postfix(
+        train_loss="{:.5f}".format(losses["train"]),
+        val_loss="{:.5f}".format(losses["val"]),
+        epoch="{:d}".format(int(iter * args.batch_size / n)),
+        scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
+    )
+    if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
+        losses = estimate_loss()
 
-        # sample a batch of data
-        xb, yb = get_batch("train")
+    # sample a batch of data
+    xb, yb = get_batch("train")
 
-        # evaluate the loss
-        logits, loss = model(xb, yb)
-        optimizer.zero_grad(set_to_none=True)
-        if scaler is None:
-            loss.backward()
-        else:
-            scaler.scale(loss).backward()
+    # evaluate the loss
+    logits, loss = model(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    if scaler is None:
+        loss.backward()
+    else:
+        scaler.scale(loss).backward()
 
-        if scaler is None:
-            optimizer.step()
-        else:
-            scaler.step(optimizer)
-            scaler.update()
+    if scaler is None:
+        optimizer.step()
+    else:
+        scaler.step(optimizer)
+        scaler.update()
 tq.close()
 
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
