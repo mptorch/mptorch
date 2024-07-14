@@ -33,20 +33,43 @@ parser.add_argument(
     help="number of epochs to train (default: 1)",
 )
 parser.add_argument(
-    "--exp",
+    "--exp_param",
     type=int,
     default=5,
     metavar="N",
     help="exponent size (default: 5)",
 )
 parser.add_argument(
-    "--man",
+    "--man_param",
+    type=int,
+    default=2,
+    metavar="N",
+    help="mantissa size (default: 10)",
+)
+parser.add_argument(
+    "--no_param_quant",
+    action="store_true",
+    help="No quantization on parameters",
+)
+parser.add_argument(
+    "--exp_mac",
+    type=int,
+    default=5,
+    metavar="N",
+    help="exponent size (default: 5)",
+)
+parser.add_argument(
+    "--man_mac",
     type=int,
     default=10,
     metavar="N",
     help="mantissa size (default: 10)",
 )
-
+parser.add_argument(
+    "--no_mac_quant",
+    action="store_true",
+    help="No quantization on MAC",
+)
 parser.add_argument(
     "--lr_init",
     type=float,
@@ -71,7 +94,12 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-
+parser.add_argument(
+    "--no_act_error_quant",
+    action="store_true",
+    default=False,
+    help="No act_error_quant",
+)
 parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
 )
@@ -79,18 +107,26 @@ parser.add_argument(
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
+print("Using device:", device)
 
 cublas_acceleration.enable(args.cublas)
+print("Using cublas acceleration:", cublas_acceleration.enabled)
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
+print("Using seed:", args.seed)
 
-fp_format = FloatingPoint(
-    exp=args.exp, man=args.man, subnormals=True, saturate=False
+param_format = FloatingPoint(
+    exp=args.exp_param, man=args.man_param, subnormals=True, saturate=False
 )
+
+mac_format = FloatingPoint(
+    exp=args.exp_mac, man=args.man_mac, subnormals=True, saturate=False
+)
+
 
 transform_train = transforms.Compose(
     [
@@ -123,48 +159,76 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 # define a lambda function so that the Quantizer module can be duplicated easily
-act_error_quant = lambda: qpt.Quantizer(
-    forward_number=fp_format,
-    backward_number=fp_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
-)
+if not args.no_act_error_quant:
+    act_error_quant = Quantizer(
+        forward_number=param_format,
+        backward_number=param_format,
+        forward_rounding="nearest",
+        backward_rounding="nearest",
+    )
+    print("Using activation error quant:", act_error_quant)
+else:
+    act_error_quant = lambda: (lambda x: x)
+    print("Using activation error quant: None")
 
-param_q = lambda x: qpt.float_quantize(
-    x,
-    exp=args.exp,
-    man=args.man,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
-)
-input_q = lambda x: qpt.float_quantize(
-    x,
-    exp=args.exp,
-    man=args.man,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
-)
-grad_q = lambda x: qpt.float_quantize(
-    x,
-    exp=args.exp,
-    man=args.man,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
-)
 
-layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format,),
-    fwd_rnd="nearest",
-    bwd_mac=(fp_format,),
-    bwd_rnd="nearest",
-    weight_quant=param_q,
-    bias_quant=param_q,
-    input_quant=input_q,
-    grad_quant=grad_q,
-)
+if not args.no_param_quant:
+    param_q = lambda x: qpt.float_quantize(
+        x,
+        exp=args.exp_param,
+        man=args.man_param,
+        rounding="nearest",
+        subnormals=True,
+        saturate=False,
+    )
+    input_q = lambda x: qpt.float_quantize(
+        x,
+        exp=args.exp_param,
+        man=args.man_param,
+        rounding="nearest",
+        subnormals=True,
+        saturate=False,
+    )
+    grad_q = lambda x: qpt.float_quantize(
+        x,
+        exp=args.exp_param,
+        man=args.man_param,
+        rounding="nearest",
+        subnormals=True,
+        saturate=False,
+    )
+    print("Using parameter quant: float_quantize("
+    f"man={args.exp_param}, exp={args.man_param}, "
+    f"rounding=nearest, "
+    f"subnormals={True}, "
+    f"saturate={False})")
+else:
+    param_q = lambda x: x
+    input_q = lambda x: x
+    grad_q = lambda x: x
+    print("Using parameter quant: None")
+
+if not args.no_mac_quant:
+    layer_formats = qpt.QAffineFormats(
+        fwd_mac=(mac_format,),
+        fwd_rnd="nearest",
+        bwd_mac=(mac_format,),
+        bwd_rnd="nearest",
+        weight_quant=param_q,
+        bias_quant=param_q,
+        input_quant=input_q,
+        grad_quant=grad_q,
+    )
+else:
+    layer_formats = qpt.QAffineFormats(
+        fwd_mac=None,
+        bwd_mac=None,
+        weight_quant=param_q,
+        bias_quant=param_q,
+        input_quant=input_q,
+        output_quant=grad_q,
+    )
+print("Using affine formats:", layer_formats)
 
 
 class LambdaLayer(nn.Module):
@@ -313,17 +377,17 @@ optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 
-with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    trainer(
-        net,
-        train_loader,
-        test_loader,
-        num_epochs=args.epochs,
-        lr=args.lr_init,
-        batch_size=args.batch_size,
-        optimizer=optimizer,
-        device=device,
-        scheduler=scheduler,
-        init_scale=256.0,
-    )
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+trainer(
+    net,
+    train_loader,
+    test_loader,
+    num_epochs=args.epochs,
+    lr=args.lr_init,
+    batch_size=args.batch_size,
+    optimizer=optimizer,
+    device=device,
+    scheduler=scheduler,
+    init_scale=256.0,
+)
+# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
