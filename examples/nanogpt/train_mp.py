@@ -2,7 +2,7 @@
 This training script can be run on a single gpu in debug mode.
 
 To run on a single GPU, example:
-$ python train_mp.py --batch_size=32 --compile=False
+$ python train_mp.py --batch_size=32
 
 TODO: explore how to use this script and mptorch in a multi-GPU context
 """
