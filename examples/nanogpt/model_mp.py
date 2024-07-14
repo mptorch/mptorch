@@ -16,7 +16,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from mptorch import FloatingPoint
-from mptorch.quant import float_quantize
+from mptorch.quant import float_quantize, qmatmul
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
 from mptorch.quant import QAffineFormats
@@ -121,13 +121,15 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # manual implementation of attention
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        # att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        att = qmatmul(q, k.transpose(-2, -1), formats=affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
         att = softmax_q(att) # quantization
         att = F.softmax(att, dim=-1)
         att = softmax_q(att) # quantization
         att = self.attn_dropout(att)
-        y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = qmatmul(att, v, formats=affine_formats)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
