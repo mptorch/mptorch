@@ -16,7 +16,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from mptorch import FloatingPoint
-from mptorch.quant import float_quantize, qmatmul
+from mptorch.quant import float_quantize, qmatmul, cublas_acceleration
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
 from mptorch.quant import QAffineFormats
@@ -45,36 +45,38 @@ softmax_q = Quantizer(
     backward_rounding="nearest",
 )
 
-# param_q = lambda x: float_quantize(
-#     x,
-#     exp=8,
-#     man=7,
-#     rounding="nearest",
-#     subnormals=True,
-#     saturate=False,
-# )
-
-# affine_formats = QAffineFormats(
-#     fwd_mac=(lowp_format,),
-#     bwd_mac=(lowp_format,),
-#     fwd_rnd="nearest",
-#     bwd_rnd="nearest",
-#     weight_quant=param_q,
-#     bias_quant=param_q,
-#     input_quant=param_q,
-#     output_quant=param_q,
-# )
+param_q = lambda x: float_quantize(
+     x,
+     exp=8,
+     man=7,
+     rounding="nearest",
+     subnormals=True,
+     saturate=False,
+)
 
 affine_formats = QAffineFormats(
-    fwd_mac=None,
-    bwd_mac=None,
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=lambda x: x,
-    bias_quant=lambda x: x,
-    input_quant=lambda x: x,
-    output_quant=lambda x: x,
+     fwd_mac=(highp_format,),
+     bwd_mac=(highp_format,),
+     fwd_rnd="nearest",
+     bwd_rnd="nearest",
+     weight_quant=param_q,
+     bias_quant=param_q,
+     input_quant=param_q,
+     output_quant=param_q,
 )
+
+cublas_acceleration(True)
+
+# affine_formats = QAffineFormats(
+#     fwd_mac=None,
+#     bwd_mac=None,
+#     fwd_rnd="nearest",
+#     bwd_rnd="nearest",
+#    weight_quant=lambda x: x,
+#     bias_quant=lambda x: x,
+#     input_quant=lambda x: x,
+#     output_quant=lambda x: x,
+# )
 
 # layernorm_q = lambda x: float_quantize(
 #     x, exp=8, man=23, rounding="nearest", saturate=False
