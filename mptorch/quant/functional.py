@@ -263,6 +263,7 @@ class qmatmul_kernel(torch.autograd.Function):
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
                 grad_input = torch.matmul(qgrad_output, qother.transpose(-2, -1))
+                grad_input = torch.matmul(qgrad_output, qother.transpose(-2, -1))
             else:
                 grad_input = mp_bmm(
                     qgrad_output,
@@ -276,6 +277,7 @@ class qmatmul_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             if ctx.formats.bwd_use_default_prec:
+                grad_other = torch.matmul(qinput.transpose(-2, -1), qgrad_output)
                 grad_other = torch.matmul(qinput.transpose(-2, -1), qgrad_output)
             else:
                 grad_other = mp_bmm(

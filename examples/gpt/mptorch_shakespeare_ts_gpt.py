@@ -120,7 +120,6 @@ device = "cuda" if args.cuda else "cpu"
 
 rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
-"""Specify the formats and quantization functions for the layer operations and signals"""
 fma_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, saturate=False)
 w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
