@@ -164,7 +164,7 @@ __host__ __device__ float quant_lse(float origin_float) {
 
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax */
-static void softmax_forward_cpu(float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
+static void softmax_forward_div_cpu(float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
     auto strides = dim_striding(dims, n_dims, dim);
 
     for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
@@ -191,6 +191,40 @@ static void softmax_forward_cpu(float *input_array, float *output_array, const i
         for (int k = 0; k < strides.dim_size; ++k) {
             int idx = k * strides.dim_stride;
             output[idx] = quant_div(output[idx] / sum);
+        }
+    }
+}
+
+static void softmax_forward_lse_cpu(float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
+    auto strides = dim_striding(dims, n_dims, dim);
+
+    for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
+        int outer_idx = i / strides.inner_size;
+        int inner_idx = i % strides.inner_size;
+
+        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        float* input = input_array + base_index;
+        float* output = output_array + base_index;
+
+        float max = input[0];
+        for (int k = 1; k < strides.dim_size; ++k) {
+            int idx = k * strides.dim_stride;
+            max = fmaxf(max, input[idx]);
+        }
+
+        float x0 = quant_add(input[0] - max);
+        output[0] = x0;
+        float lgs = x0; // log(exp(x[0] - max))
+        for (int k = 1; k < strides.dim_size; ++k) {
+            int idx = k * strides.dim_stride;
+            float x = quant_add(input[idx] - max);
+            output[idx] = x;
+            lgs = quant_lse(logf(expf(lgs) + expf(x)));
+        }
+        for (int k = 0; k < strides.dim_size; ++k) {
+            int idx = k * strides.dim_stride;
+            float x = quant_add(output[idx] - lgs);
+            output[idx] = quant_exp(expf(x));
         }
     }
 }
@@ -503,6 +537,24 @@ void softmax_forward_cuda(int kernel_num, float *input, float *output,
     }
 }
 
+void softmax_forward_cpu(int kernel_num, float *input, float *output,
+                        const int *dims, int n_dims, int dim) {
+    switch (kernel_num) {
+    case 1:
+    case 2:
+        softmax_forward_div_cpu(input, output, dims, n_dims, dim);
+        break;
+    case 3:
+    case 4:
+        softmax_forward_lse_cpu(input, output, dims, n_dims, dim);
+        break;
+    default:
+        printf("Invalid kernel number\n");
+        exit(1);
+    }
+}
+
+
 void check_softmax_cpu(float* array, const int *dims, int n_dims, int dim, float tol=1e-1f) {
     auto strides = dim_striding(dims, n_dims, dim);
 
@@ -571,7 +623,7 @@ int main(int argc, const char **argv) {
     cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
 
     // cpu reference
-    softmax_forward_cpu(h_input, h_output, dims, n_dims, dim);
+    softmax_forward_cpu(version, h_input, h_output, dims, n_dims, dim);
     check_softmax_cpu(h_output, dims, n_dims, dim);
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
@@ -599,7 +651,7 @@ int main(int argc, const char **argv) {
     namespace chr = std::chrono;
     chr::steady_clock::time_point begin = chr::steady_clock::now();
     for(int i = 0; i < repeat_times; i++) {
-        softmax_forward_cpu(h_input, h_output, dims, n_dims, dim);
+        softmax_forward_cpu(version, h_input, h_output, dims, n_dims, dim);
     }
     chr::steady_clock::time_point end = chr::steady_clock::now();
     auto elapsed_time_us = chr::duration_cast<chr::microseconds>(end - begin).count();
