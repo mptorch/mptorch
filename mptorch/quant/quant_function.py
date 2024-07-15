@@ -1816,7 +1816,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def binary8_quantize(x, P, rounding="nearest", overflow_policy="overflow_maxfloat_ff", is_signed=True, subnormals=True, prng_bits=0):
+def binary8_quantize(x, P, rounding="nearest", overflow_policy="overflow_maxfloat_ext_reals", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1852,9 +1852,9 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="overflow_maxfloa
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
-        "overflow_infty": OverflowPolicy.OVERLY_INFTY,
+        "overflow_infty": OverflowPolicy.OVERFLOW_INFTY,
         "overflow_maxfloat_ext_reals": OverflowPolicy.OVERFLOW_MAXFLOAT_EXT_REALS,
-        "overflow_maxfloat_reals": OverflowPolicy.MAXFLOAT_REALS,
+        "overflow_maxfloat_reals": OverflowPolicy.OVERFLOW_MAXFLOAT_REALS,
     }[overflow_policy]
 
     quant_module = get_module(x)

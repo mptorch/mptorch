@@ -376,8 +376,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 
       py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
             .value("OVERFLOW_INFTY", OverflowPolicy::OVERFLOW_INFTY)
-            .value("OVERFLOW_MAXFLOAT_FE", OverflowPolicy::OVERFLOW_MAXFLOAT_FE)
-            .value("OVERFLOW_MAXFLOAT_FF", OverflowPolicy::OVERFLOW_MAXFLOAT_FF);
+            .value("OVERFLOW_MAXFLOAT_EXT_REALS", OverflowPolicy::OVERFLOW_MAXFLOAT_EXT_REALS)
+            .value("OVERFLOW_MAXFLOAT_REALS", OverflowPolicy::OVERFLOW_MAXFLOAT_REALS);
             
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");

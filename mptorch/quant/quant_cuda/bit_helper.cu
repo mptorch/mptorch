@@ -166,8 +166,8 @@ __device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bit
 }
 
 __host__ __device__ __forceinline__ uint32_t 
-binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, OverflowPolicy overflow_policy, bool subnormal) {
-
+binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, OverflowPolicy overflow_policy, bool subnormal)
+{
   if (quantized_num == 0){
     return quantized_num;
   }
@@ -207,29 +207,30 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
     if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // Overflow to infinity (exceeds 0xfe or 0xff, depending on the mode)
       return quantized_num = old_sign | 0x7F800000; // INF
     } 
-    return quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
+    quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
    
-  if (quantized_exponent_store < min_exponent_store) {
-    if (subnormal) {
-      int subnormal_shift = min_exponent_store - quantized_exponent_store;
-      int min_subnormals_exp = min_exponent_store - man_bits;
-      uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
-      uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
-      if (subnormal_shift <= man_bits) {
-        // quantized_num stays the same in this case
-      } else if ((old_num & 0x7FFFFFFF) > middle_num) {
-        quantized_num = old_sign | min_num;
-      } else {
-        quantized_num = 0;
-      }
-    } else {  // no subnormal case; normalizing subnormal values
-        uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
-        uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
-        if ((old_num & 0x7FFFFFFF) > middle_num){
-          return quantized_num = old_sign | min_num;
+    if (quantized_exponent_store < min_exponent_store) {
+      if (subnormal) {
+        int subnormal_shift = min_exponent_store - quantized_exponent_store;
+        int min_subnormals_exp = min_exponent_store - man_bits;
+        uint32_t min_num = ((uint32_t)min_subnormals_exp << 23);
+        uint32_t middle_num = ((uint32_t)(min_subnormals_exp - 1) << 23);
+        if (subnormal_shift <= man_bits) {
+          // quantized_num stays the same in this case
+        } else if ((old_num & 0x7FFFFFFF) > middle_num) {
+          quantized_num = old_sign | min_num;
         } else {
-          return quantized_num = 0;
+          quantized_num = 0;
         }
+      } else {  // no subnormal case; normalizing subnormal values
+          uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
+          uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
+          if ((old_num & 0x7FFFFFFF) > middle_num){
+            return quantized_num = old_sign | min_num;
+          } else {
+            return quantized_num = 0;
+          }
+      }
     }
   }
   return quantized_num;
