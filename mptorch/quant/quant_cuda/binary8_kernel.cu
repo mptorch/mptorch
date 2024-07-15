@@ -284,6 +284,58 @@ __host__ __device__ float cast_bfloat16_nearest(float origin_float) {   //THIS H
     return out;
 }
 
+__host__ __device__ float cast_bfloat16_stochastic(float origin_float, uint32_t rand_prob, int prng_bits) {   //THIS HAS SUBNORMALS AND IS UNTESTED
+
+    uint32_t bits;
+
+    bits = FLOAT_TO_BITS(&origin_float);
+    
+    int32_t exp = ((bits >> 23) & 0xFF) - 127;  //unbiased exponent
+    uint32_t sign = (bits >> 31) & 1;  //sign bit
+    uint32_t mant = (bits & 0x7FFFFF); //mantissa
+    
+    uint32_t outbits;
+    
+    float out;
+    
+    if(exp == 128){ //infinity or NaN, 128 is inf/nan, 2^(8-1) -1 = 127 is emax for IEEE 754
+        //infinity case
+        if(mant == 0){
+            outbits = (sign << 31| 0xFF << 23| 0); //infinities are propagated
+            uint32_t *tempout = &outbits;
+            out = *((float *)tempout);
+            return out;
+        } else {
+        //NaN case
+            outbits = (sign << 31| 0xFF << 23| mant);  //NaNs are propagated
+            uint32_t *tempout = &outbits;
+            out = *((float *)tempout);
+            return out;
+        }
+    }
+
+    rand_prob = rand_prob << 9 >> 9;
+    rand_prob = rand_prob & ~(1 << (23 - 7 - prng_bits) - 1);
+
+    uint32_t mask = (1 << (23 - 7)) - 1; //mask for random bits
+    mant = mant + (rand_prob & mask); // adding random bits to target (which is not masked)
+
+    // mant = mant + (1 << (23 - 1 - 7)); //round to nearest
+
+
+    if((mant >> 23) == 1) {//if overflow through rounding
+        mant = 0; //truncate mantissa
+        exp = exp + 1; //add bias
+    }
+    mant = mant & 0x7F0000; //truncate mantissa
+
+    exp = exp + 127; //add bias
+    outbits = (sign << 31| exp << 23| mant);
+    uint32_t *tempout = &outbits;
+    out = *((float *)tempout);
+    return out;
+}
+
 
 __global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size, int P, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -338,5 +390,13 @@ __global__ void bfloat16_kernel_nearest(float *__restrict__ a, float *o, int siz
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
         o[idx] = cast_bfloat16_nearest(a[idx]);
+  }
+}
+
+__global__ void bfloat16_kernel_stochastic(float *__restrict__ a, int *__restrict__ r,
+                                           float *o, int size, int prng_bits) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+        o[idx] = cast_bfloat16_stochastic(a[idx], (uint32_t)r[idx], prng_bits);
   }
 }
