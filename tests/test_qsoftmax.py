@@ -8,8 +8,10 @@ from mptorch.quant import QSoftmax
 
 device = torch.device("cpu")
 
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
+seed = 1234
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
 
 fp_format = FloatingPoint(exp=8, man=23, subnormals=True, saturate=False)
 
