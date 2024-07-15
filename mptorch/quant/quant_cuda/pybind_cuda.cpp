@@ -53,10 +53,10 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, binades, saturate);
 }
 
-Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_nearest_cuda(a, P, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_nearest_cuda(a, P, is_signed, policy, subnormals);
 }
 
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
@@ -93,16 +93,16 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                             saturate);
 }
 
-Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, policy, subnormals);
 }
 
-Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_truncate_cuda(a, P, is_signed, saturation_mode, subnormals);
+      return binary8_quantize_truncate_cuda(a, P, is_signed, policy, subnormals);
 }
 
 Tensor bfloat16_quantize_nearest(Tensor a)
@@ -365,10 +365,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("bfloat16_quantize_nearest", &bfloat16_quantize_nearest,
             "Bfloat16 Floating-Point Number Nearest Quantization (CUDA)");
 
-      py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic())
-            .value("SATURATE", SaturationMode::SATURATE)
-            .value("NO_OVERFLOW", SaturationMode::NO_OVERFLOW)
-            .value("OVERFLOWS", SaturationMode::OVERFLOWS);
+      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
+            .value("OVERFLOW_INFTY", OverflowPolicy::OVERFLOW_INFTY)
+            .value("OVERFLOW_MAXFLOAT_FE", OverflowPolicy::OVERFLOW_MAXFLOAT_FE)
+            .value("OVERFLOW_MAXFLOAT_FF", OverflowPolicy::OVERFLOW_MAXFLOAT_FF);
             
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");

@@ -6,7 +6,7 @@
 #include <cuda_runtime.h>
 #include "binary8_kernel.h"
 
-__host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
+__host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy policy, bool subnormals) {
 
     const int exp_bits = 8 - P;
     const int man_bits = P - 1;
@@ -15,7 +15,11 @@ __host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P,
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
     // Early return for inf/NaN case
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -33,11 +37,11 @@ __host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P,
     uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
                               : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
 
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
     return BITS_TO_FLOAT(&uval8);
 }
 
-__host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) {
+__host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, OverflowPolicy policy, bool subnormals) {
 
     const int exp_bits = 8-P;
     const int man_bits = P-1; 
@@ -45,7 +49,12 @@ __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {          
+    // Early return for inf/NaN case
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -65,12 +74,12 @@ __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int
     rand_prob = rand_prob & ~(1 << (23 - man_bits - prng_bits) - 1);
 
     uint32_t uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
 
     return BITS_TO_FLOAT(&uval8);
 }
 
-__host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
+__host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P, OverflowPolicy policy, bool subnormals) {
 
     const int exp_bits = 8 - P;
     const int man_bits = P - 1;
@@ -79,7 +88,11 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
     // Early return for inf/NaN case
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -95,12 +108,12 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
     }
 
     uint32_t uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
     return BITS_TO_FLOAT(&uval8);
 }
 
 
-__host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) {
+__host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int P, OverflowPolicy policy, bool subnormals) {
     
     if (origin_float < 0) return NAN;   
 
@@ -108,7 +121,12 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
+    // Early return for inf/NaN case
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -128,12 +146,12 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
     uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
                                : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
     
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
     
     return BITS_TO_FLOAT(&uval8);
 }
 
-__host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, SaturationMode saturation_mode, bool subnormals) { 
+__host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, OverflowPolicy policy, bool subnormals) { 
     
     if (origin_float < 0) return NAN;   
 
@@ -141,7 +159,12 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
+    // Early return for inf/NaN case
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -165,12 +188,12 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
 
 
     uint32_t uval8 = round_bitwise_stochastic(uval32, rand_prob, man_bits - subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
 
     return BITS_TO_FLOAT(&uval8);
 }
 
-__host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int P, SaturationMode saturation_mode, bool subnormals) { 
+__host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int P, OverflowPolicy policy, bool subnormals) { 
     
     if (origin_float < 0) return NAN;   
 
@@ -179,7 +202,11 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
     uint32_t man_val = uval32 & 0x7FFFFF;
 
     // Early return for inf/NaN case
-    if (exp_val == 128 && !(saturation_mode == SaturationMode::NO_OVERFLOW && man_val == 0)) {
+    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+        return origin_float;
+    }
+    
+    if (policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and policy is OVERFLOW_INFTY
         return origin_float;
     }
 
@@ -198,7 +225,7 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
     }
 
     uint32_t uval8 = uval32 >> (23-man_bits+subnormal_shift) << (23-man_bits+subnormal_shift);
-    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, saturation_mode, subnormals);
+    uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, policy, subnormals);
     return BITS_TO_FLOAT(&uval8);
 }
 
@@ -258,52 +285,52 @@ __host__ __device__ float cast_bfloat16_nearest(float origin_float) {   //THIS H
 }
 
 
-__global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size, int P, SaturationMode saturation_mode, bool subnormals) {
+__global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size, int P, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_signed_nearest(a[idx], P, saturation_mode, subnormals);
+        o[idx] = cast_binary8_signed_nearest(a[idx], P, policy, subnormals);
   }
 }
 
 __global__ void binary8_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                      int P, SaturationMode saturation_mode, bool subnormals) {
+                                      int P, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_unsigned_nearest(a[idx], P, saturation_mode, subnormals);
+        o[idx] = cast_binary8_unsigned_nearest(a[idx], P, policy, subnormals);
   }
 }
 
 __global__ void binary8_signed_kernel_stochastic(float *__restrict__ a,
                                       int *__restrict__ r, float *o, int size,
-                                      int P, int prng_bits, SaturationMode saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_signed_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, saturation_mode, subnormals);
+        o[idx] = cast_binary8_signed_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, policy, subnormals);
   }
 }
 
 __global__ void binary8_unsigned_kernel_stochastic(float *__restrict__ a, 
                                       int *__restrict__ r, float *o, int size,
-                                      int P, int prng_bits, SaturationMode saturation_mode, bool subnormals) {
+                                      int P, int prng_bits, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_unsigned_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, saturation_mode, subnormals);
+        o[idx] = cast_binary8_unsigned_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, policy, subnormals);
   }
 }
 
 __global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                      int P, SaturationMode saturation_mode, bool subnormals) {
+                                      int P, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_signed_truncate(a[idx], P, saturation_mode, subnormals);
+        o[idx] = cast_binary8_signed_truncate(a[idx], P, policy, subnormals);
   }
 }
 
 __global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                      int P, SaturationMode saturation_mode, bool subnormals) {
+                                      int P, OverflowPolicy policy, bool subnormals) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
-        o[idx] = cast_binary8_unsigned_truncate(a[idx], P, saturation_mode, subnormals);
+        o[idx] = cast_binary8_unsigned_truncate(a[idx], P, policy, subnormals);
   }
 }
 

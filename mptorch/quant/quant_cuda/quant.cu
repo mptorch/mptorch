@@ -149,7 +149,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 
 }
 
-Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a
@@ -158,10 +158,10 @@ Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, Saturation
 
   if (is_signed == true){ // signed
       binary8_signed_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, policy, subnormals);
   } else {  // unsigned
       binary8_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, policy, subnormals);
   }
 
   return o;
@@ -181,7 +181,7 @@ Tensor bfloat16_quantize_nearest_cuda(Tensor a)
   return o;
 }
 
-Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
   auto o = zeros_like(a);
   // generate random number on the GPU for the SR operation
@@ -192,16 +192,16 @@ Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_
 
   if (is_signed == true){ // signed
       binary8_signed_kernel_stochastic<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, saturation_mode, subnormals);
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, policy, subnormals);
   } else {  // unsigned
       binary8_unsigned_kernel_stochastic<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, saturation_mode, subnormals);
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, policy, subnormals);
   }
 
   return o;
 }
 
-Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, SaturationMode saturation_mode, bool subnormals)
+Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy policy, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a
@@ -210,10 +210,10 @@ Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, Saturatio
 
   if (is_signed == true){ // signed
       binary8_signed_kernel_truncate<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, policy, subnormals);
   } else {  // unsigned
       binary8_unsigned_kernel_truncate<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, saturation_mode, subnormals);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, policy, subnormals);
   }
 
   return o;

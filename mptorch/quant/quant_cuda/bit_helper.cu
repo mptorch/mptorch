@@ -166,7 +166,7 @@ __device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bit
 }
 
 __host__ __device__ __forceinline__ uint32_t 
-binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, SaturationMode saturation_mode, bool subnormal) {
+binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, OverflowPolicy policy, bool subnormal) {
 
   if (quantized_num == 0){
     return quantized_num;
@@ -174,14 +174,20 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   
   uint32_t man_val = quantized_num & 0x7FFFFF;
   uint32_t old_sign = old_num >> 31 << 31;
-  uint32_t max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
+  uint32_t max_man;
+
+  if (policy == OverflowPolicy::OVERFLOW_MAXFLOAT_FE){  // fe max man case
+    max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
+  } else {  //ff max man case
+    max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
+  }
   
   int spec_exp = (man_bits == 0) ? 1 : 0; // if P = 1
   int special_unsigned_exp = 0;
   
-  if(exp_bits == 8 && saturation_mode != SaturationMode::NO_OVERFLOW){ // unsigned and p=1
+  if(exp_bits == 8 && policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=1
       special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
-  }else if (exp_bits == 7 &&  man_bits == 1 && saturation_mode != SaturationMode::NO_OVERFLOW){ // unsigned and p=2 
+  }else if (exp_bits == 7 &&  man_bits == 1 && policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=2 
       special_unsigned_exp = 1; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
   }else if(exp_bits + man_bits == 8){ // unsigned
       max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value 0xfd = mACax_exp | max_mantissa - 1 
@@ -196,17 +202,13 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
     min_exponent_store--;
   }
 
-  if (saturation_mode == SaturationMode::NO_OVERFLOW) { // Saturate to max without infinity
-    max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
-  }
-
   if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) 
   {
-    if (saturation_mode == SaturationMode::OVERFLOWS){ // Overflow to infinity
+    if (policy == OverflowPolicy::OVERFLOW_INFTY){ // Overflow to infinity (exceeds 0xfe or 0xff, depending on the mode)
       return quantized_num = old_sign | 0x7F800000; // INF
     } 
     return quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
-  }
+   
   if (quantized_exponent_store < min_exponent_store) {
     if (subnormal) {
       int subnormal_shift = min_exponent_store - quantized_exponent_store;

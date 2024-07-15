@@ -17,7 +17,7 @@ __all__ = [
     "float_quantize",
     "binary8_quantize",
     "bfloat16_quantize",
-    "SaturationMode",
+    "OverflowPolicy",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -83,9 +83,9 @@ def get_module(x):
     return quant_module
 
 if torch.cuda.is_available():
-    SaturationMode  = quant_cuda.SaturationMode
+    OverflowPolicy  = quant_cuda.OverflowPolicy
 else:
-    SaturationMode = None
+    OverflowPolicy = None
 
 
 if torch.cuda.is_available():
@@ -1851,9 +1851,9 @@ def binary8_quantize(x, P, rounding="nearest", saturation_mode="saturate", is_si
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
-        "saturate": SaturationMode.SATURATE,
-        "no_overflow": SaturationMode.NO_OVERFLOW,
-        "overflow": SaturationMode.OVERFLOWS,
+        "overflow_infty": OverflowPolicy.OVERLY_INFTY,
+        "overflow_maxfloat_fe": OverflowPolicy.OVERFLOW_MAXFLOAT_FE,
+        "overflow_maxfloat_ff": OverflowPolicy.MAXFLOAT_FF,
     }[saturation_mode]
 
     quant_module = get_module(x)
