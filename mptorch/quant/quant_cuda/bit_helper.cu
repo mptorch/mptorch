@@ -176,7 +176,7 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   uint32_t old_sign = old_num >> 31 << 31;
   uint32_t max_man;
 
-  if (overflow_policy == OverflowPolicy::OVERFLOW_MAXFLOAT_EXT_REALS){  // fe max man case
+  if (overflow_policy != OverflowPolicy::OVERFLOW_MAXFLOAT_REALS){  // fe max man case for 
     max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits);
   } else {  //ff max man case
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
