@@ -17,8 +17,10 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
-from model import GPTConfig, GPT
-from model_mp import QGPT
+from model_mp import QGPTConfig, QGPT
+from mptorch import FloatingPoint
+from mptorch.quant import QAffineFormats
+from mptorch.quant import float_quantize, cublas_acceleration
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -61,13 +63,63 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 # dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 dtype = 'float32'
-use_quant = False # used mptorch wrapped model
+# quantization
+man_mac, exp_mac = None, None
+man_affine_input, exp_affine_input = None, None
+man_affine_output, exp_affine_output = None, None
+man_affine_grad, exp_affine_grad = None, None
+man_param, exp_param = None, None
+man_softmax_input, exp_softmax_input = None, None
+man_softmax_output, exp_softmax_output = None, None
+use_cublas = False
+
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
+
+# -----------------------------------------------------------------------------
+def make_float(man, exp):
+    if man is None or exp is None:
+        return None
+    return FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+
+def make_fp_quant(man, exp):
+    if man is None or exp is None:
+        return lambda x: x
+    return lambda x: float_quantize(x, exp, man, rounding="nearest",
+                                    subnormals=True, saturate=False)
+
+softmax_input_quant = make_fp_quant(man_softmax_input, exp_softmax_input)
+softmax_output_quant = make_fp_quant(man_softmax_output, exp_softmax_output)
+affine_formats = QAffineFormats(
+    fwd_mac=make_float(man_mac, exp_mac),
+    bwd_mac=make_float(man_mac, exp_mac),
+    fwd_rnd="nearest",
+    bwd_rnd="nearest",
+    weight_quant=make_fp_quant(man_param, exp_param),
+    bias_quant=make_fp_quant(man_param, exp_param),
+    input_quant=make_fp_quant(man_affine_input, exp_affine_input),
+    output_quant=make_fp_quant(man_affine_output, exp_affine_output),
+    grad_quant=make_fp_quant(man_affine_grad, exp_affine_grad)
+)
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+cublas_acceleration.enabled = use_cublas
+# -----------------------------------------------------------------------------
+
+print("Softmax input format:", make_float(man_softmax_input, exp_softmax_input))
+print("Softmax output format:", make_float(man_softmax_output, exp_softmax_output))
+print("Affine formats:", affine_formats)
+print("Affine weight_quant:", make_float(man_param, exp_param))
+print("Affine bias_quant:", make_float(man_param, exp_param))
+print("Affine input_quant:", make_float(man_affine_input, exp_affine_input))
+print("Affine output_quant:", make_float(man_affine_output, exp_affine_output))
+print("Affine grad_quant:", make_float(man_affine_grad, exp_affine_grad))
+print("Use cublas:", cublas_acceleration.enabled)
 
 # we are running on a single gpu, and one process
 tokens_per_iter = gradient_accumulation_steps * batch_size * block_size
@@ -115,8 +167,13 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
+# start with model_args from command line
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+                  bias=bias, vocab_size=None, dropout=dropout,
+                  affine_formats=affine_formats,
+                  softmax_input_quant=softmax_input_quant,
+                  softmax_output_quant=softmax_output_quant)
+
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -124,11 +181,8 @@ if init_from == 'scratch':
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
-    gptconf = GPTConfig(**model_args)
-    if use_quant:
-        model = QGPT(gptconf)
-    else:
-        model = GPT(gptconf)
+    gptconf = QGPTConfig(**model_args)
+    model = QGPT(gptconf)
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -140,11 +194,8 @@ elif init_from == 'resume':
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
-    if use_quant:
-        model = QGPT(gptconf)
-    else:
-        model = GPT(gptconf)
+    gptconf = QGPTConfig(**model_args)
+    model = QGPT(gptconf)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -159,10 +210,7 @@ elif init_from.startswith('gpt2'):
     print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
     # initialize from OpenAI GPT-2 weights
     override_args = dict(dropout=dropout)
-    if use_quant:
-        model = QGPT.from_pretrained(init_from, override_args)
-    else:
-        model = GPT.from_pretrained(init_from, override_args)
+    model = QGPT.from_pretrained(init_from, override_args)
     # read off the created config params, so we can store them into checkpoint correctly
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = getattr(model.config, k)
@@ -262,7 +310,7 @@ while True:
                     'config': config,
                 }
                 # print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                # torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
         break
 
