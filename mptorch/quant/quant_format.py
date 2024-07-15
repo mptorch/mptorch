@@ -60,6 +60,31 @@ class QAffineFormats:
         self.output_quant = output_quant
         self.grad_quant = grad_quant
 
+    def __repr__(self) -> str:
+        out = []
+        if self.fwd_use_default_prec:
+            out.append("default_fwd")
+        elif self.fwd_fma:
+            out.append(f"fwd_fma={self.fwd_add}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        else:
+            out.append(f"fwd_mul={self.fwd_mul}")
+            out.append(f"fwd_add={self.fwd_add}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        if self.bwd_use_default_prec:
+            out.append("default_bwd")
+        elif self.bwd_fma:
+            out.append(f"bwd_fma={self.bwd_add}")
+            out.append(f"bwd_rnd={self.bwd_rnd}")
+        else:
+            out.append(f"bwd_mul={self.bwd_mul}")
+            out.append(f"bwd_add={self.bwd_add}")
+            out.append(f"bwd_rnd={self.bwd_rnd}")
+        sep = ", "
+        return f"QAffineFormats ({sep.join(out)})"
+    
+    def __str__(self) -> str:
+        return self.__repr__()
 
 class QSoftmaxFormats:
     def __init__(
