@@ -22,7 +22,7 @@ def test_binary8p1():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "truncate", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 1, "truncate", "overflow_maxfloat_ext_reals", True, True)
     # normal
     assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[1.0,2.2737368E-13],[6.7108864e+07,-4.7683716e-07]], quant)
 
@@ -35,14 +35,14 @@ def test_binary8p1():
     assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
     assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
     # assert_quant([float('nan')], [float('nan')], quant) # NaN
-    assert_quant([float('inf')], [float('inf')], quant) # +inf
-    assert_quant([-float('inf')], [-float('inf')], quant) # -inf
+    assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant) # +max normal
+    assert_quant([-float('inf')], b2f(0b11011111000000000000000000000000), quant) # -max normal
 
 def test_binary8p4():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 4, "truncate", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 4, "truncate", "overflow_maxfloat_ext_reals", True, True)
     # normal
     assert_quant([[1.5,165.65200],[0.0550651,-0.0685105]], [[1.5,160.0],[0.0546875,-0.0625]], quant)
 
@@ -56,5 +56,5 @@ def test_binary8p4():
     assert_quant(b2f(0b01000011011100000000000000000000), b2f(0b01000011011000000000000000000000), quant) # overflow
     assert_quant(b2f(0b00111001100000000000000000000000), [0.0], quant) # underflow
     # assert_quant([float('nan')], [float('nan')], quant) # NaN
-    assert_quant([float('inf')], [float('inf')], quant) # +inf
-    assert_quant([-float('inf')], [-float('inf')], quant) # -inf
+    assert_quant([float('inf')], b2f(0b01000011011000000000000000000000), quant) # +max normal
+    assert_quant([-float('inf')], b2f(0b11000011011000000000000000000000), quant) # -max normal

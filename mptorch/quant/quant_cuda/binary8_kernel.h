@@ -12,7 +12,7 @@ enum class OverflowPolicy {
 
 /*
 OVERFLOW_INFTY: 
-Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float.
+Finite input values of binary32, exceeding the maximum float value of the binary8 format, will map to infinity.
 Infinite inputs will still map to infinities in this mode.
 
 OVERFLOW_MAXFLOAT_EXT_REALS:
