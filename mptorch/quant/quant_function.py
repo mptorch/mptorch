@@ -1816,7 +1816,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate", is_signed=True, subnormals=True, prng_bits=0):
+def binary8_quantize(x, P, rounding="nearest", overflow_policy="overflow_maxfloat_ff", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1825,17 +1825,18 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate", is_si
         - :attr: `P` (int) : number of bits allocated for precision
         - :attr: `is_signed` (bool): if subnormals are supported or not
         - :attr: `rouding` (string): change the mode of rounding
-        - :attr: `policy` (string): change the overflow policy
+        - :attr: `overflow_policy` (string): change the overflow policy
         - :attr: `subnormals` (bool): saturate on overflow or use infinities
         - :attr: `prng_bits` (int): number of bits for the random generator
 
     Overflow Policies:
         - "overflow_infty": Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float.
                             Infinite inputs will still map to infinities in this mode.
-        - "overflow_maxfloat_fe": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
-                                  to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
-        - "overflow_maxfloat_ff": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
-                                  to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
+        - "overflow_maxfloat_ext_reals": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+                                         to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
+        - "overflow_maxfloat_reals": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+                                         to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
+
 
     Returns:
         - a quantized low-precision floating point number (torch.Tensor)
@@ -1846,14 +1847,14 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate", is_si
     assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
         rounding
     )
-    assert overflow_policy in ["overflow_infty", "overflow_maxfloat_fe", "overflow_maxfloat_ff"], "invalid overflow policy, {}".format(
+    assert overflow_policy in ["overflow_infty", "overflow_maxfloat_ext_reals", "overflow_maxfloat_reals"], "invalid overflow policy, {}".format(
         overflow_policy
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
         "overflow_infty": OverflowPolicy.OVERLY_INFTY,
-        "overflow_maxfloat_fe": OverflowPolicy.OVERFLOW_MAXFLOAT_FE,
-        "overflow_maxfloat_ff": OverflowPolicy.MAXFLOAT_FF,
+        "overflow_maxfloat_ext_reals": OverflowPolicy.OVERFLOW_MAXFLOAT_EXT_REALS,
+        "overflow_maxfloat_reals": OverflowPolicy.MAXFLOAT_REALS,
     }[overflow_policy]
 
     quant_module = get_module(x)

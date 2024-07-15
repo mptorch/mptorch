@@ -194,11 +194,11 @@ class Binary8(Number):
                                     - no_overflow : don't have infinity encoded have +1 normal value possible
     """
 
-    def __init__(self, P, signed=True, subnormals=True, saturation_mode="saturate"):
+    def __init__(self, P, signed=True, subnormals=True, overflow_policy="saturate"):
         assert type(P) == input and 8 > P > 0, "invalid input for precision: {}".format(P)  # is P = 8 valid?
         assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(type(signed))
         assert type(subnormals) == bool, "invalid type for allowing subnormals or not: {}".format(type(subnormals))
-        assert type(saturation_mode) == str and saturation_mode in ["saturate", "overflow", "no_overflow"], "invalid input for saturation mode: {}".format(saturation_mode)
+        assert type(overflow_policy) == str and overflow_policy in ["overflow_infty", "overflow_maxfloat_ext_reals", "overflow_maxfloat_reals"], "invalid input for saturation mode: {}".format(overflow_policy)
 
         self.P = P
         spec_exp = P == 1
@@ -224,7 +224,7 @@ class Binary8(Number):
             self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
     
         if signed:
-            if saturation_mode == "no_overflow":    # no inf case, so max is FF not FE
+            if overflow_policy == "overflow_maxfloat_reals":    # no inf case, so max is FF not FE
                 if self.man > 0:
                     self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
@@ -235,7 +235,7 @@ class Binary8(Number):
                 else:
                     self.normal_max = 2**max_exp    # 0 mantissa case
         else:   # unsigned case
-            if saturation_mode == "no_overflow":    # no inf case, so max is FE not FD
+            if overflow_policy == "overflow_maxfloat_reals":    # no inf case, so max is FE not FD
                 if self.man > 0:
                     self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
