@@ -208,7 +208,7 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
       return quantized_num = old_sign | 0x7F800000; // INF
     } 
     quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man;
-   
+  }
     if (quantized_exponent_store < min_exponent_store) {
       if (subnormal) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
@@ -232,6 +232,5 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
           }
       }
     }
+    return quantized_num;
   }
-  return quantized_num;
-}
