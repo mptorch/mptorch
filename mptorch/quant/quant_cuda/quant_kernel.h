@@ -37,22 +37,22 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
                                         bool saturate);
 
 __global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                            int P, OverflowPolicy policy, bool subnormals);
+                                            int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binary8_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                              int P, OverflowPolicy policy, bool subnormals);
+                                              int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binary8_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                               int P, int prng_bits, OverflowPolicy policy, bool subnormals);
+                                               int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binary8_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                                 int P, int prng_bits, OverflowPolicy policy, bool subnormals);
+                                                 int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                               int P, OverflowPolicy policy, bool subnormals);
+                                               int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                                 int P, OverflowPolicy policy, bool subnormals);
+                                                 int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void bfloat16_kernel_nearest(float *__restrict__ a, float *o, int size);
 
