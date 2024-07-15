@@ -1816,7 +1816,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def binary8_quantize(x, P, rounding="nearest", policy="saturate", is_signed=True, subnormals=True, prng_bits=0):
+def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1846,15 +1846,15 @@ def binary8_quantize(x, P, rounding="nearest", policy="saturate", is_signed=True
     assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
         rounding
     )
-    assert policy in ["overflow_infty", "overflow_maxfloat_fe", "overflow_maxfloat_ff"], "invalid overflow policy, {}".format(
-        policy
+    assert overflow_policy in ["overflow_infty", "overflow_maxfloat_fe", "overflow_maxfloat_ff"], "invalid overflow policy, {}".format(
+        overflow_policy
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
         "overflow_infty": OverflowPolicy.OVERLY_INFTY,
         "overflow_maxfloat_fe": OverflowPolicy.OVERFLOW_MAXFLOAT_FE,
         "overflow_maxfloat_ff": OverflowPolicy.MAXFLOAT_FF,
-    }[policy]
+    }[overflow_policy]
 
     quant_module = get_module(x)
     if rounding == "nearest":
