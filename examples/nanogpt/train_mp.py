@@ -71,6 +71,7 @@ man_affine_grad, exp_affine_grad = None, None
 man_param, exp_param = None, None
 man_softmax_input, exp_softmax_input = None, None
 man_softmax_output, exp_softmax_output = None, None
+subnormals = True
 use_cublas = False
 
 # -----------------------------------------------------------------------------
@@ -147,7 +148,8 @@ model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=bloc
                   man_softmax_input=man_softmax_input,
                   exp_softmax_input=exp_softmax_input,
                   man_softmax_output=man_softmax_output,
-                  exp_softmax_output=exp_softmax_output)
+                  exp_softmax_output=exp_softmax_output,
+                  subnormals=subnormals)
 
 if init_from == 'scratch':
     # init a new model from scratch

@@ -24,29 +24,28 @@ from mptorch.quant import float_quantize
 
 
 # -----------------------------------------------------------------------------
-def make_float(man, exp):
+def make_float(man, exp, subnormals):
     if man is None or exp is None:
         return None
-    return FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+    return FloatingPoint(exp=exp, man=man, subnormals=subnormals, saturate=False)
 
-def make_fp_quant(man, exp):
+def make_quant(man, exp, subnormals):
     if man is None or exp is None:
         return lambda x: x
     else:
-        print("Using float_quantize", exp, man)
         return lambda x: float_quantize(x, exp, man, rounding="nearest",
-                                    subnormals=True, saturate=False)
+                                    subnormals=subnormals, saturate=False)
 def make_affine_formats(config):
     return QAffineFormats(
-        fwd_mac=make_float(config.man_mac, config.exp_mac),
-        bwd_mac=make_float(config.man_mac, config.exp_mac),
+        fwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals),
+        bwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals),
         fwd_rnd="nearest",
         bwd_rnd="nearest",
-        weight_quant=make_fp_quant(config.man_param, config.exp_param),
-        bias_quant=make_fp_quant(config.man_param, config.exp_param),
-        input_quant=make_fp_quant(config.man_affine_input, config.exp_affine_input),
-        output_quant=make_fp_quant(config.man_affine_output, config.exp_affine_output),
-        grad_quant=make_fp_quant(config.man_affine_grad, config.exp_affine_grad)
+        weight_quant=make_quant(config.man_param, config.exp_param, config.subnormals),
+        bias_quant=make_quant(config.man_param, config.exp_param, config.subnormals),
+        input_quant=make_quant(config.man_affine_input, config.exp_affine_input, config.subnormals),
+        output_quant=make_quant(config.man_affine_output, config.exp_affine_output, config.subnormals),
+        grad_quant=make_quant(config.man_affine_grad, config.exp_affine_grad, config.subnormals)
     )
 # -----------------------------------------------------------------------------
 
@@ -82,8 +81,8 @@ class CausalSelfAttention(nn.Module):
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                     .view(1, 1, config.block_size, config.block_size))
-        self.softmax_input_q = make_fp_quant(config.man_softmax_input, config.exp_softmax_input)
-        self.softmax_output_q = make_fp_quant(config.man_softmax_output, config.exp_softmax_output)
+        self.softmax_input_q = make_quant(config.man_softmax_input, config.exp_softmax_input, config.subnormals)
+        self.softmax_output_q = make_quant(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
         self.affine_formats = make_affine_formats(config)
 
     def forward(self, x):
@@ -170,6 +169,7 @@ class QGPTConfig:
     exp_softmax_input: int | None = None
     man_softmax_output: int | None = None
     exp_softmax_output: int | None = None
+    subnormals: bool = False
 
 class QGPT(nn.Module):
 
