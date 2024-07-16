@@ -7,6 +7,9 @@ nvcc -O3 softmax_backward.cu -o softmax_backward -lcublas
 Simple implementation parallelizing over the rows that were softmaxed, one thread per row
 ./softmax_backward 1 [dim=-3..2]
 
+Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 0
+./softmax_backward 2 [dim=-3..2]
+
 */
 
 
