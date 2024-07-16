@@ -43,7 +43,7 @@ def test_binary8_to_gfloat():
         while i_uival <= max_val_uival:
             i_fval = bits_to_float(i_uival)
 
-            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate", True, True)
+            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "overflow_maxfloat_ext_reals", True, True)
             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
             result1 = result1.cpu() 
 
@@ -52,11 +52,11 @@ def test_binary8_to_gfloat():
             assert result1.equal(expected) or np.isnan(result1)
             i_uival += 16384 #8192
 
-def test_binary8p1():
+def test_binary8p1_overflow_maxfloat_ext_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "overflow_maxfloat_ext_reals", True, True)
     # normal
     assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]], quant)
 
@@ -68,14 +68,14 @@ def test_binary8p1():
     assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
     assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
     assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
-    assert_quant([float('inf')], [float('inf')], quant)
-    assert_quant([-float('inf')], [-float('inf')], quant)
+    assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant)
+    assert_quant([-float('inf')], b2f(0b11011111000000000000000000000000), quant)
 
-def test_binary8p2():
+def test_binary8p2_overflow_maxfloat_ext_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate", True, True)
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "overflow_maxfloat_ext_reals", True, True)
     # normal
     assert_quant([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]], [[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]], quant)
 
@@ -83,11 +83,71 @@ def test_binary8p2():
 
     assert_quant(b2f(0b00110000000000000000000000000000), b2f(0b00110000000000000000000000000000), quant) # min normal
     assert_quant(b2f(0b00101111100000000000000000000000), b2f(0b00101111100000000000000000000000), quant) # min subnormal
-    assert_quant(b2f(0b00101111000000000000000000000000), [0.0], quant) # round to 0
+    assert_quant(b2f(0b00101111000000000000000000000000), [0.0], quant)                                   # round to 0
     assert_quant(b2f(0b00101111000000000000000000000001), b2f(0b00101111100000000000000000000000), quant) # round to min
-    # assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
-    # assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
-    # assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
+    assert_quant(b2f(0b01001111000000000000000000000000), b2f(0b01001111000000000000000000000000), quant) # max normal
+    assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01001111000000000000000000000000), quant) # overflow
+    assert_quant(b2f(0b00101110100000000000000000000000), [0.0], quant)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01001111000000000000000000000000), quant)
+    assert_quant([-float('inf')], b2f(0b11001111000000000000000000000000), quant) 
+
+def test_binary8p3_overflow_maxfloat_ext_reals():
+    if no_cuda():
+        return
+    
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "overflow_maxfloat_ext_reals", True, True)
+    # normal
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+
+    b2f = lambda b: [bits_to_float(b)]
+
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
+    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # max normal
+    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01000111010000000000000000000000), quant)
+    assert_quant([-float('inf')], b2f(0b11000111010000000000000000000000), quant) 
+
+def test_binary8p3_overflow_maxfloat_reals():
+    if no_cuda():
+        return
+    
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "overflow_maxfloat_reals", True, True)
+    # normal
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+
+    b2f = lambda b: [bits_to_float(b)]
+
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
+    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111011000000000000000000000), quant) # max normal
+    assert_quant(b2f(0b01000111011100000000000000000000), b2f(0b01000111011000000000000000000000), quant) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01000111011000000000000000000000), quant)
+    assert_quant([-float('inf')], b2f(0b11000111011000000000000000000000), quant) 
+
+def test_binary8p3_overflow_infty():
+    if no_cuda():
+        return
+    
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "overflow_infty", True, True)
+    # normal
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+
+    b2f = lambda b: [bits_to_float(b)]
+
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
+    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # max normal
+    assert_quant(b2f(0b01000111011000000000000000000000), [float('inf')], quant) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
     assert_quant([float('inf')], [float('inf')], quant)
     assert_quant([-float('inf')], [-float('inf')], quant) 
 
@@ -95,7 +155,7 @@ def test_no_subnormal_case():
     if no_cuda():
         return
 
-    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate", True, False)
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "overflow_maxfloat_ext_reals", True, False)
 
     assert_quant(float(1.9E-5), float(1.907348633E-5), quant)
     assert_quant(float(2.3E-5), float(2.288818359E-5), quant)
@@ -136,7 +196,7 @@ def test_binary8_signed_nearest():
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
                 num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
-                result = binary8_quantize(num_tensor, P, "nearest", "saturate", True, True)
+                result = binary8_quantize(num_tensor, P, "nearest", "overflow_maxfloat_ext_reals", True, True)
                 result1 = result.cpu() 
 
                 distance = (random_float - previous_fval) / (i_fval - previous_fval)

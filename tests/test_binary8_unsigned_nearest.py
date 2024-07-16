@@ -19,11 +19,11 @@ def assert_quant(x_arr, expected_arr, quant_fn):
     assert expected.equal(quant_fn(x))
 
 
-def test_binary8p1_SATURATE():
+def test_binary8p1_overflow_maxfloat_ext_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate", False, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "overflow_maxfloat_ext_reals", False, True)
     # normal
     assert_quant([[1.5,6.0E-5],[72057500037900000.0,0.01171875]], [[2.0,6.103515625e-5],[72057594037927936.0,0.0078125]], quant)
 
@@ -35,13 +35,13 @@ def test_binary8p1_SATURATE():
     assert_quant(b2f(0b01111110100000000000000000000000), b2f(0b01111110100000000000000000000000), quant) # max normal
     assert_quant(b2f(0b01111110110011100000000000000000), b2f(0b01111110100000000000000000000000), quant) # overflow
     assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
-    assert_quant([float('inf')], [float('inf')], quant)
+    assert_quant([float('inf')], b2f(0b01111110100000000000000000000000), quant)
 
-def test_binary8p1_NO_OVERFLOW():
+def test_binary8p1_overflow_maxfloat_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "nearest", "no_overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "overflow_maxfloat_reals", False, True)
     # normal 
     assert_quant([[1.5,6.0E-5],[72057500037900000.0,0.01171875]], [[2.0,6.103515625e-5],[72057594037927936.0,0.0078125]], quant)
 
@@ -55,11 +55,11 @@ def test_binary8p1_NO_OVERFLOW():
     assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
     assert_quant([float('inf')], b2f(0b01111111000000000000000000000000), quant) # +inf
 
-def test_binary8p1_OVERFLOW():
+def test_binary8p1_overflow_infty():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "nearest", "overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "overflow_infty", False, True)
     # normal 
     assert_quant([[1.5,6.0E-5],[72057500037900000.0,0.01171875]], [[2.0,6.103515625e-5],[72057594037927936.0,0.0078125]], quant)
 
@@ -73,28 +73,11 @@ def test_binary8p1_OVERFLOW():
     assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
     assert_quant([float('inf')], [float('inf')], quant) # +inf
 
-def test_binary8p2_SATURATE(): # 0xfd is max bc there is inf
+def test_binary8p2_overflow_maxfloat_ext_reals():
     if no_cuda():
         return 
 
-    quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate", False, True)
-    # normal 
-    assert_quant([[1.5,1],[1.77e-15, 5242880]], [[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]], quant)
-
-    b2f = lambda b: [bits_to_float(b)]
-
-    assert_quant(b2f(0b00100000000000000000000000011111), b2f(0b00100000000000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b00000000010000000000000000000000), [0.0], quant) # round to 0
-    assert_quant(b2f(0b01011110010000000000000000000000), b2f(0b01011110010000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01011110010001110000001100000100), b2f(0b01011110010000000000000000000000), quant) # overflow
-    assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
-    assert_quant([float('inf')], [float('inf')], quant) # +inf
-
-def test_binary8p2_NO_OVERFLOW(): # no inf so we go to 0xfe as max
-    if no_cuda():
-        return
-    
-    quant = lambda x: binary8_quantize(x, 2, "nearest", "no_overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "overflow_maxfloat_ext_reals", False, True)
     # normal 
     assert_quant([[1.5,1],[1.77e-15, 5242880]], [[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]], quant)
 
@@ -103,15 +86,32 @@ def test_binary8p2_NO_OVERFLOW(): # no inf so we go to 0xfe as max
     assert_quant(b2f(0b00100000000000000000000000011111), b2f(0b00100000000000000000000000000000), quant) # round to min
     assert_quant(b2f(0b00000000010000000000000000000000), [0.0], quant) # round to 0
     assert_quant(b2f(0b01011110110000000000000000000000), b2f(0b01011110110000000000000000000000), quant) # max normal
+    assert_quant(b2f(0b01011110111001110000001100000100), b2f(0b01011110110000000000000000000000), quant) # overflow
+    assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
+    assert_quant([float('inf')], b2f(0b01011110110000000000000000000000), quant) # +inf
+
+def test_binary8p2_overflow_maxfloat_reals(): # no inf so we go to 0xfe as max
+    if no_cuda():
+        return
+    
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "overflow_maxfloat_reals", False, True)
+    # normal 
+    assert_quant([[1.5,1],[1.77e-15, 5242880]], [[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]], quant)
+
+    b2f = lambda b: [bits_to_float(b)]
+
+    assert_quant(b2f(0b00100000000000000000000000011111), b2f(0b00100000000000000000000000000000), quant) # round to min
+    assert_quant(b2f(0b00000000010000000000000000000000), [0.0], quant) # round to 0
+    assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
     assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
     assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
     assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant) # +inf
 
-def test_binary8p2_OVERFLOW(): # any overflow goes to inf, not 0xfd
+def test_binary8p2_overflow_infty(): # any overflow goes to inf, not 0xfd
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 2, "nearest", "overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "overflow_infty", False, True)
     # normal 
     assert_quant([[1.5,1],[1.77e-15, 5242880]], [[1.5, 1],[bits_to_float(0b00100111000000000000000000000000), 4194304]], quant)
 
@@ -124,11 +124,11 @@ def test_binary8p2_OVERFLOW(): # any overflow goes to inf, not 0xfd
     assert_quant(b2f(0b00000000000000001110000000000000), [0.0], quant) # underflow
     assert_quant([float('inf')], [float('inf')], quant) # +inf
 
-def test_binary8p8_SATURATE():
+def test_binary8p8_overflow_maxfloat_ext_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 8, "nearest", "saturate", False, True)
+    quant = lambda x: binary8_quantize(x, 8, "nearest", "overflow_maxfloat_ext_reals", False, True)
     # normal 
     assert_quant([[1.5,1.00390625],[1.4921875,1.01171875E0]] , [[1.5,1.0],[1.4921875,1.015625E0]], quant)
 
@@ -141,13 +141,13 @@ def test_binary8p8_SATURATE():
     assert_quant(b2f(0b00111111111111010000000000000000), b2f(0b00111111111111010000000000000000), quant) # max normal
     assert_quant(b2f(0b00111111111111110000000000000000), b2f(0b00111111111111010000000000000000), quant) # overflow
     assert_quant(b2f(0b00111011000000000000000000000000), [0.0], quant) # underflow
-    assert_quant([float('inf')], [float('inf')], quant) # +inf
+    assert_quant([float('inf')], b2f(0b00111111111111010000000000000000), quant) # +inf
 
-def test_binary8p8_NO_OVERFLOW():
+def test_binary8p8_overflow_maxfloat_reals():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 8, "nearest", "no_overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 8, "nearest", "overflow_maxfloat_reals", False, True)
     # normal 
     assert_quant([[1.5,1.00390625],[1.4921875,1.01171875E0]] , [[1.5,1.0],[1.4921875,1.015625E0]], quant)
 
@@ -162,11 +162,11 @@ def test_binary8p8_NO_OVERFLOW():
     assert_quant(b2f(0b00111011000000000000000000000000), [0.0], quant) # underflow
     assert_quant([float('inf')], b2f(0b00111111111111100000000000000000), quant) # +inf
 
-def test_binary8p8_OVERFLOW():
+def test_binary8p8_overflow_infty():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 8, "nearest", "overflow", False, True)
+    quant = lambda x: binary8_quantize(x, 8, "nearest", "overflow_infty", False, True)
     # normal 
     assert_quant([[1.5,1.00390625],[1.4921875,1.01171875E0]] , [[1.5,1.0],[1.4921875,1.015625E0]], quant)
 
