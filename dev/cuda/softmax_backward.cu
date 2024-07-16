@@ -133,7 +133,7 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
     int target_exp = (target << 1 >> 1 >> 23) - 127;
     int min_exp = -((1 << (exp_bits - 1)) - 2);
     bool subnormal = (target_exp < min_exp);
-    bool noquantize = (man_bits >= 23);
+    bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
 
     if (noquantize)
     {
@@ -170,15 +170,15 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
 }
 
 __host__ __device__ float quant_add(float origin_float) {
-    return cast_fp_nearest(origin_float, 23, 8, true, false);
+    return cast_fp_nearest(origin_float, 22, 8, true, false);
 }
 
 __host__ __device__ float quant_mul(float origin_float) {
-    return cast_fp_nearest(origin_float, 23, 8, true, false);
+    return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
 __host__ __device__ float quant_div(float origin_float) {
-    return cast_fp_nearest(origin_float, 23, 8, true, false);
+    return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
 
@@ -402,7 +402,7 @@ int main(int argc, const char **argv) {
         printf("Checking block size %d.\n", block_size);
         softmax_backward_cuda(version, d_input, d_grad, d_output, dims, n_dims, dim, block_size);
         float tol = 1e-1f;
-        float rtol = 5e-2f;
+        float rtol = 1e-1f;
         validate_result(d_output, h_output, "output", numel, tol, rtol);
     }
 
