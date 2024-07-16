@@ -19,7 +19,7 @@ __host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P,
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
@@ -54,7 +54,7 @@ __host__ __device__ float cast_binary8_signed_stochastic(float origin_float, int
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
@@ -92,7 +92,7 @@ __host__ __device__ float cast_binary8_signed_truncate(float origin_float, int P
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
@@ -126,7 +126,7 @@ __host__ __device__ float cast_binary8_unsigned_nearest(float origin_float, int 
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
@@ -164,7 +164,7 @@ __host__ __device__ float cast_binary8_unsigned_stochastic(float origin_float, i
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
@@ -206,7 +206,7 @@ __host__ __device__ float cast_binary8_unsigned_truncate(float origin_float, int
         return origin_float;
     }
     
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is OVERFLOW_INFTY
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 

@@ -1,27 +1,23 @@
 #pragma once
 
 enum class OverflowPolicy {
-    OVERFLOW_INFTY,
-    OVERFLOW_MAXFLOAT_EXT_REALS,
-    OVERFLOW_MAXFLOAT_REALS
-    
-    // SATURATE,
-    // NO_OVERFLOW,
-    // OVERFLOWS
+    SATURATE_INFTY,
+    SATURATE_ER,
+    SATURATE_RE
 };
 
 /*
-OVERFLOW_INFTY: 
+SATURATE_INFTY: 
 Finite input values of binary32, exceeding the maximum float value of the binary8 format, will map to infinity.
 maximum float value : 0xfe or 0xfd in unsigned
 Infinite inputs will still map to infinities in this mode.
 
-OVERFLOW_MAXFLOAT_EXT_REALS:
+SATURATE_ER:
 Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, 
 will saturate to the maximum float represented by 0x7e/0xfe or 0xfd in unsigned.
 This number system has an encoding reserved for infinity (0x7f/0xff).
 
-OVERFLOW_MAXFLOAT_REALS:
+SATURATE_RE:
 Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, 
 will saturate to the maximum float represented by 0x7f/0xff or 0xfe in unsigned
 This number system does not have an encoding reserved for infinity (0x7f/0xff).

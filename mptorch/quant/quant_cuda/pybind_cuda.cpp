@@ -375,9 +375,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Bfloat16 Floating-Point Number Stochastic Quantization (CUDA)");
 
       py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
-            .value("OVERFLOW_INFTY", OverflowPolicy::OVERFLOW_INFTY)
-            .value("OVERFLOW_MAXFLOAT_EXT_REALS", OverflowPolicy::OVERFLOW_MAXFLOAT_EXT_REALS)
-            .value("OVERFLOW_MAXFLOAT_REALS", OverflowPolicy::OVERFLOW_MAXFLOAT_REALS);
+            .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
+            .value("SATURATE_ER", OverflowPolicy::SATURATE_ER)
+            .value("SATURATE_RE", OverflowPolicy::SATURATE_RE);
             
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");

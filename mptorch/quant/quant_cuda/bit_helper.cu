@@ -181,11 +181,11 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
   max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits); // max mantissa = 0xfe in the normal case
 
-  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::OVERFLOW_MAXFLOAT_REALS){  // if signed and policy maxfloat_real then max mantissa = 0xff   
+  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
   
-  if(overflow_policy != OverflowPolicy::OVERFLOW_MAXFLOAT_REALS){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
+  if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
     }else if (exp_bits == 7 && man_bits == 1){ // unsigned and p=2 
@@ -215,7 +215,7 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
   if (quantized_exponent_store > max_exponent_store || ((quantized_exponent_store == max_exponent_store) && (man_val > max_man))) 
   {
-    if (overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // Overflow to infinity (exceeds the max value 0xfe or 0xfd if signed or unsigned)
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY){ // Overflow to infinity (exceeds the max value 0xfe or 0xfd if signed or unsigned)
       return quantized_num = old_sign | 0x7F800000; // INF
     } 
     // Otherwise saturate to the max float value permitted by the policy reprensented by the max_man and max_exponent_store
