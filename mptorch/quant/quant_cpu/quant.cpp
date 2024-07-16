@@ -607,8 +607,8 @@ Tensor float_quantize_nearest_softmax_backward(Tensor a, Tensor g,
     for (int k = 0; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
       float a = quant(grad[idx] - weighted_grad_sum, man_add, exp_add);
-      float b = quant(a / input_sum, man_div, exp_div);
-      output[idx] = quant(input[idx] * b, man_mul, exp_mul);
+      float b = quant(a * input[idx], man_mul, exp_mul);
+      output[idx] = quant(b / input_sum, man_div, exp_div);
     }
   }
   return o;
