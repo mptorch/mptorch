@@ -221,7 +221,9 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
     // Otherwise saturate to the max float value permitted by the policy reprensented by the max_man and max_exponent_store
     quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man; 
   }
-    if (quantized_exponent_store < min_exponent_store) {
+
+  uint32_t min_man = 1u << (23 - man_bits);
+  if (quantized_exponent_store < min_exponent_store || (quantized_exponent_store == min_exponent_store && man_val < min_man)) {
       if (subnormal) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
         int min_subnormals_exp = min_exponent_store - man_bits;
@@ -235,12 +237,12 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
           quantized_num = 0;
         }
       } else {  // no subnormal case; normalizing subnormal values
-          uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
+          uint32_t min_num = ((uint32_t)(min_exponent_store << 23) | 1 << (23-man_bits));
           uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
           if ((old_num & 0x7FFFFFFF) > middle_num){
             return quantized_num = old_sign | min_num;
           } else {
-            return quantized_num = 0;
+            quantized_num = 0;
           }
       }
     }

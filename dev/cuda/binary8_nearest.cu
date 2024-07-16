@@ -28,14 +28,14 @@ uint32_t test_inputs[] = {
     0b00110111000000000000000000000000, // subnormals 1
     0b00110111100000000000000000000000, // subnormals 2
     0b00110111110000000000000000000000, // subnormals 3
-    0b00110110100000000000000000000000,
+    0b00110110100000000000000000000000, 
     0b00110110100000000000000000000001,
     0b01000111010000000000000000000000,
     0b01000111011000000000000000000000,
     0b00110110000000000000000000000000,
     0b10111111110000000000000000000000}; // -1.5
 
-uint32_t test_outputs[] = {
+uint32_t test_outputs[] = {           
     0b00111000000000000000000000000000, // min normal
     0b00110111000000000000000000000000, // subnormals 1
     0b00110111100000000000000000000000, // subnormals 2
@@ -47,13 +47,13 @@ uint32_t test_outputs[] = {
     0b00000000000000000000000000000000,
     0b10111111110000000000000000000000}; // -1.5
 
-uint32_t test_outputs_no_sub[] = {
-    0b00111000000000000000000000000000, // min normal
-    0b00000000000000000000000000000000, // min normal 
-    0b00000000000000000000000000000000, // min normal
-    0b00111000000000000000000000000000, // min normal
+uint32_t test_outputs_no_sub[] = {      // changes on this, for p3, signed
+    0b00111000000000000000000000000000, 
+    0b00000000000000000000000000000000, // 0
+    0b00110111101000000000000000000000, // min normal
+    0b00110111110000000000000000000000, 
     0b00000000000000000000000000000000,
-    0b00000000000000000000000000000000  ,
+    0b00000000000000000000000000000000,
     0b01000111010000000000000000000000,
     0b01000111010000000000000000000000,
     0b00000000000000000000000000000000,
@@ -99,9 +99,10 @@ uint32_t test_outputs_unsigned_w[] = {
 uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits) {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 1 << (22 - man_bits);
+  // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << MIN((23 - man_bits + offset), 23)) - 1);
+  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
 }
 
 uint32_t round_bitwise_nearest_p1_cpu(uint32_t target, int man_bits) {
@@ -118,7 +119,7 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
   if (quantized_num == 0){
     return quantized_num;
   }
-
+  
   uint32_t man_val = quantized_num & 0x7FFFFF;
   uint32_t old_sign = old_num >> 31 << 31;
   uint32_t max_man;
@@ -131,7 +132,7 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
   if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
-
+  
   if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
@@ -142,14 +143,6 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
         max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value is 0xfd = max_exp | max_mantissa - 1 
     }
   } 
-
-  // if(exp_bits == 8 && overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=1
-  //     special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
-  // }else if (exp_bits == 7 &&  man_bits == 1 && overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=2 
-  //     special_unsigned_exp = 1; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
-  // }else if(exp_bits + man_bits == 8){ // unsigned
-  //     max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value is 0xfd = max_exp | max_mantissa - 1 
-  // }
 
   // Special because in unsigned we want our min to be 1 less because the space is taken by the Nan
   int quantized_exponent_store = (quantized_num << 1 >> 24);
@@ -168,7 +161,9 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
     // Otherwise saturate to the max float value permitted by the policy reprensented by the max_man and max_exponent_store
     quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man; 
   }
-    if (quantized_exponent_store < min_exponent_store) {
+
+  uint32_t min_man = 1u << (23 - man_bits);
+  if (quantized_exponent_store < min_exponent_store || (quantized_exponent_store == min_exponent_store && man_val < min_man)) {
       if (subnormal) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
         int min_subnormals_exp = min_exponent_store - man_bits;
@@ -182,17 +177,17 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
           quantized_num = 0;
         }
       } else {  // no subnormal case; normalizing subnormal values
-          uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
+          uint32_t min_num = ((uint32_t)(min_exponent_store << 23) | 1 << (23-man_bits));
           uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
           if ((old_num & 0x7FFFFFFF) > middle_num){
             return quantized_num = old_sign | min_num;
           } else {
-            return quantized_num = 0;
+            quantized_num = 0;
           }
       }
     }
     return quantized_num;
-}
+  }
   
 float cast_binary8_signed_nearest_cpu(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
 
@@ -306,7 +301,7 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   if (quantized_num == 0){
     return quantized_num;
   }
-
+  
   uint32_t man_val = quantized_num & 0x7FFFFF;
   uint32_t old_sign = old_num >> 31 << 31;
   uint32_t max_man;
@@ -319,7 +314,7 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
   if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
-
+  
   if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
@@ -356,7 +351,9 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
     // Otherwise saturate to the max float value permitted by the policy reprensented by the max_man and max_exponent_store
     quantized_num = old_sign | ((uint32_t)max_exponent_store << 23) | max_man; 
   }
-    if (quantized_exponent_store < min_exponent_store) {
+
+  uint32_t min_man = 1u << (23 - man_bits);
+  if (quantized_exponent_store < min_exponent_store || (quantized_exponent_store == min_exponent_store && man_val < min_man)) {
       if (subnormal) {
         int subnormal_shift = min_exponent_store - quantized_exponent_store;
         int min_subnormals_exp = min_exponent_store - man_bits;
@@ -370,17 +367,17 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
           quantized_num = 0;
         }
       } else {  // no subnormal case; normalizing subnormal values
-          uint32_t min_num = ((uint32_t)min_exponent_store<< 23) | 1 << (23-man_bits);
+          uint32_t min_num = ((uint32_t)(min_exponent_store << 23) | 1 << (23-man_bits));
           uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23 | 1 << (23-man_bits));
           if ((old_num & 0x7FFFFFFF) > middle_num){
             return quantized_num = old_sign | min_num;
           } else {
-            return quantized_num = 0;
+            quantized_num = 0;
           }
       }
     }
     return quantized_num;
-}
+  }
 
 __device__ float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
 
@@ -496,22 +493,6 @@ void binary8_signed_nearest(int kernel_num, float *o, float *a, int N, int P, co
 int main(int argc, const char **argv)
 {
     setup_main();
-
-    // // Get signed or unsigned from user input
-    // bool is_signed;
-    // std::cout << "signed or unsigned, enter true (1) for signed, false (0) for unsigned: ";
-    // int is_signed_input;
-    // std::cin >> is_signed_input;
-    // is_signed = static_cast<bool>(is_signed_input);
-
-    // // Get subnormals from user input
-    // bool subnormals;
-    // std::cout << "subnormals or not, enter true (1) for subnormals, false (0) for not: ";
-    // int subnormals_input;
-    // std::cin >> subnormals_input;
-    // subnormals = static_cast<bool>(subnormals_input);
-
-    // SaturateMode saturation_mode = SaturateMode::SATURATE;
 
     OverflowPolicy overflow_policy = OverflowPolicy::SATURATE_ER;
     bool subnormals = true;

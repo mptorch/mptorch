@@ -162,6 +162,8 @@ def test_no_subnormal_case():
     assert_quant(float(2.67E-5), float(2.670288086E-5), quant)
     assert_quant(float(9.7E-6), float(1.907348633E-5), quant) # minimum normalized value
     assert_quant(float(9.5E-6), float(0), quant) # to 0
+    assert_quant(float(1.5258789E-5), float(1.907348633E-5), quant)
+    assert_quant(float(2.288818359375E-5), float(2.288818359E-5), quant)
 
 def test_binary8_signed_nearest():
     if no_cuda():
