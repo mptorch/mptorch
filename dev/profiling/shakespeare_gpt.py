@@ -119,6 +119,12 @@ parser.add_argument(
 parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
 )
+parser.add_argument(
+    "--profile",
+    action="store_true",
+    default=False,
+    help="profile the training and show summary table",
+)
 
 args = parser.parse_args()
 
@@ -406,35 +412,41 @@ tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
 
-# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-for iter in range(args.max_iters):
-    # every once in a while evaluate the loss on train and val sets
-    tq.update(args.batch_size)
-    tq.set_postfix(
-        train_loss="{:.5f}".format(losses["train"]),
-        val_loss="{:.5f}".format(losses["val"]),
-        epoch="{:d}".format(int(iter * args.batch_size / n)),
-        scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
-    )
-    if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
-        losses = estimate_loss()
+def train():
+    for iter in range(args.max_iters):
+        # every once in a while evaluate the loss on train and val sets
+        tq.update(args.batch_size)
+        tq.set_postfix(
+            train_loss="{:.5f}".format(losses["train"]),
+            val_loss="{:.5f}".format(losses["val"]),
+            epoch="{:d}".format(int(iter * args.batch_size / n)),
+            scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
+        )
+        if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
+            losses = estimate_loss()
 
-    # sample a batch of data
-    xb, yb = get_batch("train")
+        # sample a batch of data
+        xb, yb = get_batch("train")
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    if scaler is None:
-        loss.backward()
-    else:
-        scaler.scale(loss).backward()
+        # evaluate the loss
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        if scaler is None:
+            loss.backward()
+        else:
+            scaler.scale(loss).backward()
 
-    if scaler is None:
-        optimizer.step()
-    else:
-        scaler.step(optimizer)
-        scaler.update()
+        if scaler is None:
+            optimizer.step()
+        else:
+            scaler.step(optimizer)
+            scaler.update()
+
+if args.profile:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        train()
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+else:
+    train()
+
 tq.close()
-
-# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
