@@ -27,14 +27,14 @@ from mptorch.quant import float_quantize
 def make_float(man, exp, subnormals):
     if man is None or exp is None:
         return None
-    return FloatingPoint(exp=exp, man=man, subnormals=subnormals, saturate=False)
+    return FloatingPoint(exp=exp, man=man, subnormals=subnormals, saturate=True)
 
 def make_quant(man, exp, subnormals):
     if man is None or exp is None:
         return lambda x: x
     else:
         return lambda x: float_quantize(x, exp, man, rounding="nearest",
-                                    subnormals=subnormals, saturate=False)
+                                    subnormals=subnormals, saturate=True)
 def make_affine_formats(config):
     return QAffineFormats(
         fwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals),
@@ -81,8 +81,14 @@ class CausalSelfAttention(nn.Module):
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                     .view(1, 1, config.block_size, config.block_size))
-        self.softmax_input_q = make_quant(config.man_softmax_input, config.exp_softmax_input, config.subnormals)
-        self.softmax_output_q = make_quant(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
+        # self.softmax_input_q = make_quant(config.man_softmax_input, config.exp_softmax_input, config.subnormals)
+        # self.softmax_output_q = make_quant(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
+        self.softmax_input_q = Quantizer(
+            forward_number=make_float(config.man_softmax_input, config.exp_softmax_input, config.subnormals),
+        )
+        self.softmax_output_q = Quantizer(
+            forward_number=make_float(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
+        )
         self.affine_formats = make_affine_formats(config)
 
     def forward(self, x):
@@ -169,7 +175,8 @@ class QGPTConfig:
     exp_softmax_input: int | None = None
     man_softmax_output: int | None = None
     exp_softmax_output: int | None = None
-    subnormals: bool = False
+    subnormals: bool = True
+    saturate: bool = False
 
 class QGPT(nn.Module):
 

@@ -72,6 +72,7 @@ man_param, exp_param = None, None
 man_softmax_input, exp_softmax_input = None, None
 man_softmax_output, exp_softmax_output = None, None
 subnormals = True
+saturate = False
 use_cublas = False
 
 # -----------------------------------------------------------------------------
