@@ -24,28 +24,28 @@ from mptorch.quant import float_quantize
 
 
 # -----------------------------------------------------------------------------
-def make_float(man, exp, subnormals):
+def make_float(man, exp, subnormals, saturate):
     if man is None or exp is None:
         return None
-    return FloatingPoint(exp=exp, man=man, subnormals=subnormals, saturate=True)
+    return FloatingPoint(exp=exp, man=man, subnormals=subnormals, saturate=saturate)
 
-def make_quant(man, exp, subnormals):
+def make_quant(man, exp, subnormals, saturate):
     if man is None or exp is None:
         return lambda x: x
     else:
         return lambda x: float_quantize(x, exp, man, rounding="nearest",
-                                    subnormals=subnormals, saturate=True)
+                                    subnormals=subnormals, saturate=saturate)
 def make_affine_formats(config):
     return QAffineFormats(
-        fwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals),
-        bwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals),
+        fwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals, config.saturate),
+        bwd_mac=make_float(config.man_mac, config.exp_mac, config.subnormals, config.saturate),
         fwd_rnd="nearest",
         bwd_rnd="nearest",
-        weight_quant=make_quant(config.man_param, config.exp_param, config.subnormals),
-        bias_quant=make_quant(config.man_param, config.exp_param, config.subnormals),
-        input_quant=make_quant(config.man_affine_input, config.exp_affine_input, config.subnormals),
-        output_quant=make_quant(config.man_affine_output, config.exp_affine_output, config.subnormals),
-        grad_quant=make_quant(config.man_affine_grad, config.exp_affine_grad, config.subnormals)
+        weight_quant=make_quant(config.man_param, config.exp_param, config.subnormals, config.saturate),
+        bias_quant=make_quant(config.man_param, config.exp_param, config.subnormals, config.saturate),
+        input_quant=make_quant(config.man_affine_input, config.exp_affine_input, config.subnormals, config.saturate),
+        output_quant=make_quant(config.man_affine_output, config.exp_affine_output, config.subnormals, config.saturate),
+        grad_quant=make_quant(config.man_affine_grad, config.exp_affine_grad, config.subnormals, config.saturate)
     )
 # -----------------------------------------------------------------------------
 
@@ -84,10 +84,10 @@ class CausalSelfAttention(nn.Module):
         # self.softmax_input_q = make_quant(config.man_softmax_input, config.exp_softmax_input, config.subnormals)
         # self.softmax_output_q = make_quant(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
         self.softmax_input_q = Quantizer(
-            forward_number=make_float(config.man_softmax_input, config.exp_softmax_input, config.subnormals),
+            forward_number=make_float(config.man_softmax_input, config.exp_softmax_input, config.subnormals, config.saturate),
         )
         self.softmax_output_q = Quantizer(
-            forward_number=make_float(config.man_softmax_output, config.exp_softmax_output, config.subnormals)
+            forward_number=make_float(config.man_softmax_output, config.exp_softmax_output, config.subnormals, config.saturate)
         )
         self.affine_formats = make_affine_formats(config)
 

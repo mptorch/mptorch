@@ -150,7 +150,8 @@ model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=bloc
                   exp_softmax_input=exp_softmax_input,
                   man_softmax_output=man_softmax_output,
                   exp_softmax_output=exp_softmax_output,
-                  subnormals=subnormals)
+                  subnormals=subnormals,
+                  saturate=saturate)
 
 if init_from == 'scratch':
     # init a new model from scratch
