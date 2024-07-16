@@ -10,7 +10,6 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 import math
 import inspect
 from dataclasses import dataclass
-from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -20,6 +19,36 @@ from mptorch.quant import qmatmul
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
 from mptorch.quant import QAffineFormats
+from mptorch import FloatingPoint
+from mptorch.quant import float_quantize
+
+
+# -----------------------------------------------------------------------------
+def make_float(man, exp):
+    if man is None or exp is None:
+        return None
+    return FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+
+def make_fp_quant(man, exp):
+    if man is None or exp is None:
+        return lambda x: x
+    else:
+        print("Using float_quantize", exp, man)
+        return lambda x: float_quantize(x, exp, man, rounding="nearest",
+                                    subnormals=True, saturate=False)
+def make_affine_formats(config):
+    return QAffineFormats(
+        fwd_mac=make_float(config.man_mac, config.exp_mac),
+        bwd_mac=make_float(config.man_mac, config.exp_mac),
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=make_fp_quant(config.man_param, config.exp_param),
+        bias_quant=make_fp_quant(config.man_param, config.exp_param),
+        input_quant=make_fp_quant(config.man_affine_input, config.exp_affine_input),
+        output_quant=make_fp_quant(config.man_affine_output, config.exp_affine_output),
+        grad_quant=make_fp_quant(config.man_affine_grad, config.exp_affine_grad)
+    )
+# -----------------------------------------------------------------------------
 
 
 class LayerNorm(nn.Module):
@@ -40,10 +69,10 @@ class CausalSelfAttention(nn.Module):
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
         self.c_attn = QLinear(config.n_embd, 3 * config.n_embd, bias=config.bias,
-                              formats=config.affine_formats) # quantization
+                              formats=make_affine_formats(config)) # quantization
         # output projection
         self.c_proj = QLinear(config.n_embd, config.n_embd, bias=config.bias,
-                              formats=config.affine_formats) # quantization
+                              formats=make_affine_formats(config)) # quantization
         # regularization
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
@@ -53,9 +82,9 @@ class CausalSelfAttention(nn.Module):
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                     .view(1, 1, config.block_size, config.block_size))
-        self.softmax_input_q = config.softmax_input_quant
-        self.softmax_output_q = config.softmax_output_quant
-        self.affine_formats = config.affine_formats
+        self.softmax_input_q = make_fp_quant(config.man_softmax_input, config.exp_softmax_input)
+        self.softmax_output_q = make_fp_quant(config.man_softmax_output, config.exp_softmax_output)
+        self.affine_formats = make_affine_formats(config)
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -91,10 +120,10 @@ class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias,
-                               formats=config.affine_formats) # quantization
+                               formats=make_affine_formats(config)) # quantization
         self.gelu    = nn.GELU()
         self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias,
-                               formats=config.affine_formats) # quantization
+                               formats=make_affine_formats(config)) # quantization
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
@@ -127,9 +156,20 @@ class QGPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    affine_formats: QAffineFormats = QAffineFormats()
-    softmax_input_quant: Callable[[torch.Tensor], torch.Tensor] = lambda x: x
-    softmax_output_quant: Callable[[torch.Tensor], torch.Tensor] = lambda x: x
+    man_mac: int | None = None
+    exp_mac: int | None = None
+    man_affine_input: int | None = None
+    exp_affine_input: int | None = None
+    man_affine_output: int | None = None
+    exp_affine_output: int | None = None
+    man_affine_grad: int | None = None
+    exp_affine_grad: int | None = None
+    man_param: int | None = None
+    exp_param: int | None = None
+    man_softmax_input: int | None = None
+    exp_softmax_input: int | None = None
+    man_softmax_output: int | None = None
+    exp_softmax_output: int | None = None
 
 class QGPT(nn.Module):
 

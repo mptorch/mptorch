@@ -74,51 +74,15 @@ man_softmax_output, exp_softmax_output = None, None
 use_cublas = False
 
 # -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str, type(None)))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
-# -----------------------------------------------------------------------------
-
-
-# -----------------------------------------------------------------------------
-def make_float(man, exp):
-    if man is None or exp is None:
-        return None
-    return FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-
-def make_fp_quant(man, exp):
-    if man is None or exp is None:
-        return lambda x: x
-    return lambda x: float_quantize(x, exp, man, rounding="nearest",
-                                    subnormals=True, saturate=False)
-
-softmax_input_quant = make_fp_quant(man_softmax_input, exp_softmax_input)
-softmax_output_quant = make_fp_quant(man_softmax_output, exp_softmax_output)
-affine_formats = QAffineFormats(
-    fwd_mac=make_float(man_mac, exp_mac),
-    bwd_mac=make_float(man_mac, exp_mac),
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=make_fp_quant(man_param, exp_param),
-    bias_quant=make_fp_quant(man_param, exp_param),
-    input_quant=make_fp_quant(man_affine_input, exp_affine_input),
-    output_quant=make_fp_quant(man_affine_output, exp_affine_output),
-    grad_quant=make_fp_quant(man_affine_grad, exp_affine_grad)
-)
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 cublas_acceleration.enabled = use_cublas
 # -----------------------------------------------------------------------------
 
-print("Softmax input format:", make_float(man_softmax_input, exp_softmax_input))
-print("Softmax output format:", make_float(man_softmax_output, exp_softmax_output))
-print("Affine formats:", affine_formats)
-print("Affine weight_quant:", make_float(man_param, exp_param))
-print("Affine bias_quant:", make_float(man_param, exp_param))
-print("Affine input_quant:", make_float(man_affine_input, exp_affine_input))
-print("Affine output_quant:", make_float(man_affine_output, exp_affine_output))
-print("Affine grad_quant:", make_float(man_affine_grad, exp_affine_grad))
 print("Use cublas:", cublas_acceleration.enabled)
 
 # we are running on a single gpu, and one process
@@ -170,9 +134,20 @@ if os.path.exists(meta_path):
 # start with model_args from command line
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout,
-                  affine_formats=affine_formats,
-                  softmax_input_quant=softmax_input_quant,
-                  softmax_output_quant=softmax_output_quant)
+                  man_mac=man_mac,
+                  exp_mac=exp_mac,
+                  man_affine_input=man_affine_input,
+                  exp_affine_input=exp_affine_input,
+                  man_affine_output=man_affine_output,
+                  exp_affine_output=exp_affine_output,
+                  man_affine_grad=man_affine_grad,
+                  exp_affine_grad=exp_affine_grad,
+                  man_param=man_param,
+                  exp_param=exp_param,
+                  man_softmax_input=man_softmax_input,
+                  exp_softmax_input=exp_softmax_input,
+                  man_softmax_output=man_softmax_output,
+                  exp_softmax_output=exp_softmax_output)
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -310,7 +285,7 @@ while True:
                     'config': config,
                 }
                 # print(f"saving checkpoint to {out_dir}")
-                # torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     if iter_num == 0 and eval_only:
         break
 
