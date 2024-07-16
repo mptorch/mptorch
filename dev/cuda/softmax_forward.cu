@@ -2,7 +2,7 @@
 Low-precision float softmax forward along any dimension.
 
 Compile example:
-nvcc -O3 softmax_forward.cu -o softmax_forward
+nvcc -O3 softmax_forward.cu -o softmax_forward -lcublas
 
 Simple implementation parallelizing over the rows to be softmaxed, one thread per row
 ./softmax_forward 1 [dim=-3..2]
