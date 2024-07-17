@@ -210,10 +210,3 @@ def test_binary8_signed_nearest():
             previous_fval = i_fval
             exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
             i_fval += 2**(-man_bits)*2**(exp_prev)
-
-def main():
-    test_binary8_to_gfloat()
-
-
-if __name__ == "__main__":
-    main()
