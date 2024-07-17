@@ -64,7 +64,8 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/quant.cu"),
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
-        extra_ldflags=extra_ldflags
+        extra_ldflags=extra_ldflags,
+        extra_cuda_cflags=["--extended-lambda"]
     )
 else:
     quant_cuda = quant_cpu
@@ -289,7 +290,6 @@ def mp_softmax_backward(output, grad_output, dim, formats):
 
 
 def float_softmax_forward(a, dim, formats):
-    assert not a.is_cuda, "CUDA softmax not implemented."
     exp_cfg, off_cfg, rnd = (
         formats.fwd_exp,
         formats.fwd_off,
@@ -301,11 +301,13 @@ def float_softmax_forward(a, dim, formats):
     subnormals = off_cfg.subnormals
     saturate = off_cfg.saturate
 
-    o = torch.zeros_like(a)
+    o = torch.zeros_like(a, device=a.device)
+
+    quant_module = get_module(a)
 
     if not formats.use_lse:
         acc_cfg, div_cfg = formats.fwd_acc, formats.fwd_div
-        quant_cpu.float_quantize_nearest_softmax_forward(
+        quant_module.float_quantize_nearest_softmax_forward(
             a, o, dim,
             exp_cfg.man, exp_cfg.exp,
             off_cfg.man, off_cfg.exp,
@@ -315,7 +317,7 @@ def float_softmax_forward(a, dim, formats):
         )
     else:
         lse_cfg = formats.fwd_lse
-        quant_cpu.float_quantize_nearest_softmax_lse_forward(
+        quant_module.float_quantize_nearest_softmax_lse_forward(
             a, o, dim,
             exp_cfg.man, exp_cfg.exp,
             off_cfg.man, off_cfg.exp,
@@ -324,9 +326,8 @@ def float_softmax_forward(a, dim, formats):
         )
     return o
 
-def float_softmax_backward(output, grad_output, dim, formats):
-    assert not output.is_cuda and not grad_output.is_cuda, \
-        "CUDA softmax not implemented."
+def float_softmax_backward(input, grad_output, dim, formats):
+    assert input.device == grad_output.device
     add_cfg, mul_cfg, div_cfg, rnd = (
         formats.bwd_add,
         formats.bwd_mul,
@@ -339,9 +340,11 @@ def float_softmax_backward(output, grad_output, dim, formats):
     subnormals = add_cfg.subnormals
     saturate = add_cfg.saturate
 
-    grad_input = torch.zeros_like(output)
-    quant_cpu.float_quantize_nearest_softmax_backward(
-        output, grad_output, grad_input, dim,
+    quant_module = get_module(input)
+
+    grad_input = torch.zeros_like(input)
+    quant_module.float_quantize_nearest_softmax_backward(
+        input, grad_output, grad_input, dim,
         add_cfg.man, add_cfg.exp,
         mul_cfg.man, mul_cfg.exp,
         div_cfg.man, div_cfg.exp,

@@ -6,7 +6,7 @@ from mptorch.quant import float_quantize
 from mptorch.quant import functional as Q
 from mptorch.quant import QSoftmax
 
-device = torch.device("cpu")
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 seed = 1234
 torch.manual_seed(seed)

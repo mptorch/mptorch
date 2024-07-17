@@ -414,3 +414,37 @@ void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                       CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
                       CUBLASComputeType compute_type, bool pedantic);
+
+
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
+void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate);
+
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * floating point formats for the intermediate computations.
+ */
+void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate);
