@@ -420,7 +420,6 @@ def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
 
 
 class qsoftmax_kernel(torch.autograd.Function):
-    # TODO: implement GPU-accelerated version of functional softmax
     @staticmethod
     def forward(ctx, a, dim, formats):
         ctx.formats = formats
