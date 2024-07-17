@@ -8,10 +8,11 @@ from mptorch.quant import cublas_acceleration
 import pytest
 
 
-no_cuda = not torch.cuda.is_available()
+requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(),
+                                   reason="No CUDA device found.")
 
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_mm_if32_of32_cf32_p():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -22,7 +23,7 @@ def test_mm_if32_of32_cf32_p():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_mm_if16_of16_cf16_p():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -33,7 +34,7 @@ def test_mm_if16_of16_cf16_p():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-2)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_mm_if16_of16_cf16vsf32_p():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -44,7 +45,7 @@ def test_mm_if16_of16_cf16vsf32_p():
     err_f32 = torch.max(torch.abs(res_f32 - ref) / torch.abs(ref)).item()
     assert err_f32 < err_f16
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_mm_if32_of32_ctf32():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -55,7 +56,7 @@ def test_mm_if32_of32_ctf32():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-3)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-3)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_2_2():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -67,7 +68,7 @@ def test_bmm_if32_of32_cf32_p_2_2():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_3_2():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
@@ -79,7 +80,7 @@ def test_bmm_if32_of32_cf32_p_3_2():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_3_3():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
@@ -91,7 +92,7 @@ def test_bmm_if32_of32_cf32_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_if16_of16_cf16_p_3_3():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
@@ -103,7 +104,7 @@ def test_bmm_if16_of16_cf16_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_ibf16_obf16_cf32_p_3_3():
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
@@ -115,7 +116,7 @@ def test_bmm_ibf16_obf16_cf32_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_4_4():
     a = torch.rand(9, 5, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(9, 5, 1501, 984, dtype=torch.float32, device="cuda")
@@ -127,21 +128,21 @@ def test_bmm_if32_of32_cf32_p_4_4():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_mm_type_error():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     with pytest.raises(RuntimeError):
         cublas_mm(a, b, mt.F32, mt.F32, ct.F16, True)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_bmm_type_error():
     a = torch.rand(8, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(8, 1501, 984, dtype=torch.float32, device="cuda")
     with pytest.raises(RuntimeError):
         cublas_bmm(a, b, mt.F32, mt.F32, ct.F16, True)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_cublas_config_for_format():
     assert match_mac_format_with_cublas_types(23, 8, 10, 5, "nearest", True, True, False) is None
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", False, True, False) is None
@@ -156,7 +157,7 @@ def test_cublas_config_for_format():
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False, "tf32") \
         == (mt.F32, mt.F32, ct.F32_FAST_TF32)
 
-@pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
+@requires_cuda
 def test_cublas_override():
     assert not cublas_acceleration.enabled
     cublas_acceleration.enable(True, "f16")
