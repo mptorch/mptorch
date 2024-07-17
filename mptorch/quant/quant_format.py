@@ -136,3 +136,31 @@ class QSoftmaxFormats:
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
+    
+    def __repr__(self) -> str:
+        out = []
+        if self.fwd_use_default_prec:
+            out.append("default_fwd")
+        elif self.use_lse:
+            out.append(f"fwd_off={self.fwd_off}")
+            out.append(f"fwd_exp={self.fwd_exp}")
+            out.append(f"fwd_lse={self.fwd_lse}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        else:
+            out.append(f"fwd_off={self.fwd_off}")
+            out.append(f"fwd_exp={self.fwd_exp}")
+            out.append(f"fwd_acc={self.fwd_acc}")
+            out.append(f"fwd_div={self.fwd_div}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        if self.bwd_use_default_prec:
+            out.append("default_bwd")
+        else:
+            out.append(f"bwd_add={self.bwd_add}")
+            out.append(f"bwd_mul={self.bwd_mul}")
+            out.append(f"bwd_div={self.bwd_div}")
+            out.append(f"bwd_rnd={self.bwd_rnd}")
+        sep = ", "
+        return f"QSoftmaxFormats ({sep.join(out)})"
+    
+    def __str__(self) -> str:
+        return self.__repr__()
