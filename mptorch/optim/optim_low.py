@@ -1,5 +1,5 @@
 import torch
-from torch.optim import Optimizer, SGD, Adam
+from torch.optim import Optimizer, SGD, Adam, AdamW
 
 __all__ = ["OptimMP", "KahanSGD"]
 
@@ -33,7 +33,7 @@ class OptimMP(Optimizer):
         momentum_quant=None,
         acc_quant=None,
     ):
-        assert isinstance(optim, SGD) or isinstance(optim, Adam)
+        assert isinstance(optim, SGD) or isinstance(optim, Adam) or isinstance(optim, AdamW)
         super(OptimMP, self).__init__(
             optim.param_groups, optim.defaults
         )  # place holder
@@ -52,11 +52,11 @@ class OptimMP(Optimizer):
 
         if isinstance(self.optim, SGD):
             self.momentum_keys = ["momentum_buffer"]
-        elif isinstance(self.optim, Adam):
+        elif isinstance(self.optim, Adam) or isinstance(self.optim, AdamW):
             # TODO: support amsgrad
             self.momentum_keys = ["exp_avg", "exp_avg_sq"]
         else:
-            raise NotImplementedError("Only supporting Adam and SGD for now. ")
+            raise NotImplementedError("Only supporting Adam, AdamW and SGD for now. ")
 
         if self.acc_quant != None:
             self.weight_acc = {}
