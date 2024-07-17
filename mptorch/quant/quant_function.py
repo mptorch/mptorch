@@ -301,7 +301,7 @@ def float_softmax_forward(a, dim, formats):
     subnormals = off_cfg.subnormals
     saturate = off_cfg.saturate
 
-    o = torch.zeros_like(a, device=a.device)
+    o = torch.zeros_like(a)
 
     quant_module = get_module(a)
 
