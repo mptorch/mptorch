@@ -18,9 +18,7 @@ import numpy as np
 import torch
 
 from model_mp import QGPTConfig, QGPT
-from mptorch import FloatingPoint
-from mptorch.quant import QAffineFormats
-from mptorch.quant import float_quantize, cublas_acceleration
+from mptorch.quant import cublas_acceleration
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -63,17 +61,13 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 # dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 dtype = 'float32'
-# quantization
-man_mac, exp_mac = None, None
-man_affine_input, exp_affine_input = None, None
-man_affine_output, exp_affine_output = None, None
-man_affine_grad, exp_affine_grad = None, None
-man_param, exp_param = None, None
-man_softmax_input, exp_softmax_input = None, None
-man_softmax_output, exp_softmax_output = None, None
-subnormals = True
-saturate = False
+# quantization with cublas
 use_cublas = False
+# model settings with quantization taken from default QGPTConfig values
+for field in QGPTConfig.__dataclass_fields__.values():
+    if not field.name in globals():
+        globals()[field.name] = field.default
+
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str, type(None)))]
@@ -134,24 +128,9 @@ if os.path.exists(meta_path):
 
 # model init
 # start with model_args from command line
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout,
-                  man_mac=man_mac,
-                  exp_mac=exp_mac,
-                  man_affine_input=man_affine_input,
-                  exp_affine_input=exp_affine_input,
-                  man_affine_output=man_affine_output,
-                  exp_affine_output=exp_affine_output,
-                  man_affine_grad=man_affine_grad,
-                  exp_affine_grad=exp_affine_grad,
-                  man_param=man_param,
-                  exp_param=exp_param,
-                  man_softmax_input=man_softmax_input,
-                  exp_softmax_input=exp_softmax_input,
-                  man_softmax_output=man_softmax_output,
-                  exp_softmax_output=exp_softmax_output,
-                  subnormals=subnormals,
-                  saturate=saturate)
+model_args = {
+    field.name: globals()[field.name] for field in QGPTConfig.__dataclass_fields__.values()
+}
 
 if init_from == 'scratch':
     # init a new model from scratch
