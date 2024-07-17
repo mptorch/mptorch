@@ -710,7 +710,7 @@ void softmax_forward_fp_nearest(float *a, float *o,
   cudaMemcpy(d_strides, &strides, sizeof(DimStrides), cudaMemcpyHostToDevice);
   int blocks = strides.outer_size * strides.inner_size; 
   int block_size = 64;
-  size_t shared_mem_size = block_size * sizeof(float);
+  size_t shared_mem_size = (block_size / 32) * sizeof(float);
   softmax_forward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, o, d_strides,
     [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate); },
@@ -733,7 +733,7 @@ void softmax_lse_forward_fp_nearest(float *a, float *o,
   cudaMemcpy(d_strides, &strides, sizeof(DimStrides), cudaMemcpyHostToDevice);
   int blocks = strides.outer_size * strides.inner_size; 
   int block_size = 64;
-  size_t shared_mem_size = block_size * sizeof(float);
+  size_t shared_mem_size = (block_size / 32) * sizeof(float);
   softmax_lse_forward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, o, d_strides,
     [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate); },
@@ -755,7 +755,7 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
   cudaMemcpy(d_strides, &strides, sizeof(DimStrides), cudaMemcpyHostToDevice);
   int blocks = strides.outer_size * strides.inner_size; 
   int block_size = 64;
-  size_t shared_mem_size = 2 * block_size * sizeof(float);
+  size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
   softmax_backward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, g, o, d_strides,
     [man_add, exp_add, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
