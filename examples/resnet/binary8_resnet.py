@@ -1,8 +1,8 @@
 import torch
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import OptimMP, KahanSGD
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -28,7 +28,7 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10,
+    default=10, 
     metavar="N",
     help="number of epochs to train (default: 10)",
 )
@@ -103,12 +103,12 @@ parser.add_argument(
 
 # subnormals
 parser.add_argument(
-    "--subnormals", action="store_true", default=False, help="subnormals or no subnormals"
+    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
 )
 
 # signed or unsigned
 parser.add_argument(
-    "--is_signed", action="store_true", default=False, help="signed or unsigned"
+    "--is_signed", action="store_true", default=True, help="signed or unsigned"
 )
 
 # prng_bits
@@ -116,6 +116,7 @@ parser.add_argument(
     "--prng_bits",
     type=int,
     metavar="N",
+    default=17,
     help="number of random bits used for adding in stochatic"
 )
 
@@ -130,18 +131,18 @@ parser.add_argument(
 
 # type of saturation mode
 parser.add_argument(
-    "--saturation_mode",
+    "--overflow_policy",
     type=str,
-    default="saturate",
+    default="saturate_er",
     metavar="N",
-    help="saturate, overflow, no_overflow"
+    help="saturate_infty, saturate_er, saturate_re"
 )
 
 # name of wandb project run will be in
 parser.add_argument(
     "--wandb_proj_name",
     type=str,
-    default="ResNet Tests",
+    default="ResNet Tests AdamW",
     metavar="N",
     help="name of the project where runs will be logged"
 )
@@ -221,7 +222,7 @@ param_q = lambda x: qpt.binary8_quantize(
     x,
     P = args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,      #args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -231,7 +232,7 @@ input_q = lambda x: qpt.binary8_quantize(
     x,
     P = args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -241,7 +242,7 @@ grad_q = lambda x: qpt.binary8_quantize(
     x,
     P = args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,      #args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -391,22 +392,37 @@ def resnet1202():
 
 net = resnet20()
 net = net.to(device)
-optimizer = SGD(
+
+# optimizer = SGD(
+#     net.parameters(),
+#     lr=args.lr_init,
+#     momentum=args.momentum,
+#     weight_decay=args.weight_decay,
+# )
+
+# optimizer = KahanSGD(
+#     net.parameters(),
+#     lr=args.lr_init,
+#     momentum=args.momentum,
+#     weight_decay=args.weight_decay,
+# )
+
+optimizer = AdamW(
     net.parameters(),
     lr=args.lr_init,
-    momentum=args.momentum,
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.binary8_quantize(
-    x,
-    P = args.P,
-    rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
-    is_signed=True,
-    subnormals=args.subnormals,
-    prng_bits=args.prng_bits,
-)
+# acc_q = lambda x: qpt.binary8_quantize(
+#     x,
+#     P = args.P,
+#     rounding=args.rounding,
+#     overflow_policy=args.overflow_policy,
+#     is_signed=True,
+#     subnormals=args.subnormals,
+#     prng_bits=args.prng_bits,
+# )
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
 
 optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
