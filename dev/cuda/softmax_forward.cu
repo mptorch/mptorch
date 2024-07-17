@@ -404,7 +404,7 @@ void softmax_forward_cuda2(float *input, float *output, const int *dims, int n_d
     // one block per row to be softmaxed
     int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
     // block_size must be multiple of 32
-    size_t shared_mem_size = block_size * sizeof(float);
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
     softmax_forward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
     cudaCheck(cudaFree(d_strides));
 }
@@ -543,7 +543,7 @@ void softmax_forward_cuda4(float *input, float *output, const int *dims, int n_d
     // one block per row to be softmaxed
     int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
     // block_size must be multiple of 32
-    size_t shared_mem_size = block_size * sizeof(float);
+    size_t shared_mem_size = (block_size / 32) * sizeof(float); // one slot per warp
     softmax_forward_kernel4<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
     cudaCheck(cudaFree(d_strides));
 }

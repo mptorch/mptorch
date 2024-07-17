@@ -335,7 +335,7 @@ void softmax_backward_cuda2(float *input, float *out_grad, float *output, const 
     // one block per row that was softmaxed
     int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
     // block_size must be multiple of 32
-    size_t shared_mem_size = 2 * block_size * sizeof(float);
+    size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
     softmax_backward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, out_grad, output, d_strides);
     cudaCheck(cudaFree(d_strides));
 }
