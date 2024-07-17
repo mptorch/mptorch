@@ -7,10 +7,9 @@ from mptorch.quant.quant_function import match_mac_format_with_cublas_types
 from mptorch.quant import cublas_acceleration
 import pytest
 
+
 no_cuda = not torch.cuda.is_available()
 
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
 
 @pytest.mark.skipif(no_cuda, reason="No CUDA device found.")
 def test_mm_if32_of32_cf32_p():

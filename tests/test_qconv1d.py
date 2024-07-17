@@ -4,10 +4,6 @@ import torch
 import torch.nn as nn
 from torch.testing import assert_close
 
-seed = 12345
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 23, 8

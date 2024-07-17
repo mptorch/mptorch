@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.testing import assert_close
 
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 12, 8
 signal_q = lambda x: qt.float_quantize(
