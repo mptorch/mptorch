@@ -282,10 +282,10 @@ def mp_softmax_forward(a, dim, formats):
         return float_softmax_forward(a, dim, formats)
     raise NotImplementedError("Unsupported float type.")
 
-def mp_softmax_backward(output, grad_output, dim, formats):
+def mp_softmax_backward(input, grad_output, dim, formats):
     add_cfg = formats.bwd_add
     if type(add_cfg) == FloatingPoint:
-        return float_softmax_backward(output, grad_output, dim, formats)
+        return float_softmax_backward(input, grad_output, dim, formats)
     raise NotImplementedError("Unsupported float type.")
 
 
