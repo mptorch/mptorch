@@ -129,6 +129,18 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
+void float_quantize_nearest_mm_compensated(Tensor a, Tensor b, Tensor c, int M, int N,
+                               int K, int man_mul, int exp_mul, int man_add,
+                               int exp_add, bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      float_quantize_nearest_mm_compensated_cuda(a, b, c, M, N, K, man_mul, exp_mul, man_add,
+                                     exp_add, subnormals, saturate);
+      return;
+}
+
 void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
                                 int K, int man_mul, int exp_mul, int man_add,
                                 int exp_add, bool subnormals, bool saturate)
@@ -381,6 +393,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
+      m.def("float_quantize_nearest_mm_compensated", &float_quantize_nearest_mm_compensated,
+            "Low-Bitwidth Floating Point Number GEMM Quantization with compensated summation (CUDA)");
+            
       m.def("float_quantize_nearest_bmm", &float_quantize_nearest_bmm,
             "Low-Bitwidth Floating Point Number BGEMM Quantization (CUDA)");
       m.def(
