@@ -355,6 +355,7 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
                                             bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
+      CHECK_INPUT(g);
       CHECK_INPUT(o);
       float_quantize_nearest_softmax_backward_cuda(
                               a, g, o, dim,
