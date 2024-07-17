@@ -186,10 +186,12 @@ if args.wandb:
             "n_head": args.n_head,
             "n_layer": args.n_layer,
             "dropout": dropout,
-            "fp_format_exp": args.expMac,
-            "fp_format_man": args.manMac,
-            "quant_fp_exp": args.expWeight,
-            "quant_fp_man": args.manWeight,
+            "fp_format_mac_exp": args.expMac,
+            "fp_format_mac_man": args.manMac,
+            "quant_fp_weight_exp": args.expWeight,
+            "quant_fp_weight_man": args.manWeight,
+            "fp_format_softmax_exp": args.expSoftmax,
+            "fp_format_softmax_man": args.manSoftmax,
         },
     )
 
