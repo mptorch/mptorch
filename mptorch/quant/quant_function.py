@@ -308,7 +308,7 @@ def float_softmax_forward(a, dim, formats):
     if not formats.use_lse:
         acc_cfg, div_cfg = formats.fwd_acc, formats.fwd_div
         quant_module.float_quantize_nearest_softmax_forward(
-            a, o, dim,
+            a.contiguous(), o, dim,
             exp_cfg.man, exp_cfg.exp,
             off_cfg.man, off_cfg.exp,
             acc_cfg.man, acc_cfg.exp,
@@ -318,7 +318,7 @@ def float_softmax_forward(a, dim, formats):
     else:
         lse_cfg = formats.fwd_lse
         quant_module.float_quantize_nearest_softmax_lse_forward(
-            a, o, dim,
+            a.contiguous(), o, dim,
             exp_cfg.man, exp_cfg.exp,
             off_cfg.man, off_cfg.exp,
             lse_cfg.man, lse_cfg.exp,
@@ -344,7 +344,9 @@ def float_softmax_backward(input, grad_output, dim, formats):
 
     grad_input = torch.zeros_like(input)
     quant_module.float_quantize_nearest_softmax_backward(
-        input, grad_output, grad_input, dim,
+        input.contiguous(),
+        grad_output.contiguous(),
+        grad_input, dim,
         add_cfg.man, add_cfg.exp,
         mul_cfg.man, mul_cfg.exp,
         div_cfg.man, div_cfg.exp,
