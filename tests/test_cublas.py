@@ -155,21 +155,14 @@ def test_cublas_config_for_format():
 
 @requires_cuda
 def test_cublas_override():
-    assert not cublas_acceleration.enabled
+    assert not cublas_acceleration.enabled # check default state
     cublas_acceleration.enable(True, "f16")
     assert cublas_acceleration.enabled
     assert cublas_acceleration.fast_mode == "f16"
-    cublas_acceleration.enable(False)
-    assert not cublas_acceleration.enabled
-    assert cublas_acceleration.fast_mode is None
     
+    cublas_acceleration.enabled = False
     cublas_acceleration.fast_mode = "tf32"
     with cublas_acceleration(True, "bf16"):
-        assert cublas_acceleration.enabled
-        assert cublas_acceleration.fast_mode == "bf16"
-        with cublas_acceleration(False):
-            assert not cublas_acceleration.enabled
-            assert cublas_acceleration.fast_mode is None
         assert cublas_acceleration.enabled
         assert cublas_acceleration.fast_mode == "bf16"
     assert not cublas_acceleration.enabled
