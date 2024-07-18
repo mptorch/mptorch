@@ -188,13 +188,13 @@ class Binary8(Number):
         - :attr: `P`: integer precision of the binary8 format
         - :attr: `signed`: boolean indicating whether the format is signed or unsigned
         - :attr: `subnormals`: allow the use of subnormal values
-        - :attr: `saturation_mode`: string indicating the saturation mode (dictates the max float) 
-                                    - saturate : clamp values instead of using infinities in case of overflow
-                                    - overflow : use infinity
-                                    - no_overflow : don't have infinity encoded have +1 normal value possible
+        - :attr: `overflow_policy`: string indicating the overflow policy (dictates the max float) 
+                                    - saturate_re : no infinity and +1 normalized value
+                                    - saturate_er : use infinity
+                                    - saturate_infty : use infinity
     """
 
-    def __init__(self, P, signed=True, subnormals=True, overflow_policy="saturate"):
+    def __init__(self, P, signed=True, subnormals=True, overflow_policy="saturate_re"):
         assert type(P) == input and 8 > P > 0, "invalid input for precision: {}".format(P)  # is P = 8 valid?
         assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(type(signed))
         assert type(subnormals) == bool, "invalid type for allowing subnormals or not: {}".format(type(subnormals))
