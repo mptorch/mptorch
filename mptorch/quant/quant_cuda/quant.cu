@@ -334,17 +334,6 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
   return;
 }
 
-void float_quantize_nearest_mm_compensated_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
-                                    int K, int man_add, int exp_add,
-                                    int man_mul, int exp_mul, bool subnormals,
-                                    bool saturate)
-{
-  mm_fp_nearest_compensated(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals,
-                saturate);
-  return;
-}
-
 void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int man_fma, int exp_fma,
                                         bool subnormals, bool saturate)

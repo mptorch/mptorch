@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD, AdamW
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP, KahanSGD
+from mptorch.optim import OptimMP
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -394,13 +394,6 @@ net = resnet20()
 net = net.to(device)
 
 # optimizer = SGD(
-#     net.parameters(),
-#     lr=args.lr_init,
-#     momentum=args.momentum,
-#     weight_decay=args.weight_decay,
-# )
-
-# optimizer = KahanSGD(
 #     net.parameters(),
 #     lr=args.lr_init,
 #     momentum=args.momentum,

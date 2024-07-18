@@ -79,10 +79,6 @@ void mm_fp_nearest(float *a, float *b, float *c, int M, int K, int N,
                    int man_add, int exp_add, int man_mul, int exp_mul,
                    bool subnormals, bool saturate);
 
-void mm_fp_nearest_compensated(float *a, float *b, float *c, int M, int K, int N,
-                   int man_add, int exp_add, int man_mul, int exp_mul,
-                   bool subnormals, bool saturate);
-
 void mm_fp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
                        int man_fma, int exp_fma, bool subnormals,
                        bool saturate);
