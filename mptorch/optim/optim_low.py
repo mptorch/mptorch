@@ -1,7 +1,7 @@
 import torch
-from torch.optim import Optimizer, SGD, Adam, AdamW
+from torch.optim import Optimizer, SGD, Adam
 
-__all__ = ["OptimMP", "KahanSGD"]
+__all__ = ["OptimMP"]
 
 
 class OptimMP(Optimizer):
@@ -33,7 +33,7 @@ class OptimMP(Optimizer):
         momentum_quant=None,
         acc_quant=None,
     ):
-        assert isinstance(optim, SGD) or isinstance(optim, Adam) or isinstance(optim, AdamW)
+        assert isinstance(optim, SGD) or isinstance(optim, Adam)
         super(OptimMP, self).__init__(
             optim.param_groups, optim.defaults
         )  # place holder
@@ -52,7 +52,7 @@ class OptimMP(Optimizer):
 
         if isinstance(self.optim, SGD):
             self.momentum_keys = ["momentum_buffer"]
-        elif isinstance(self.optim, Adam) or isinstance(self.optim, AdamW):
+        elif isinstance(self.optim, Adam):
             # TODO: support amsgrad
             self.momentum_keys = ["exp_avg", "exp_avg_sq"]
         else:
@@ -118,58 +118,3 @@ class OptimMP(Optimizer):
 
     def __str__(self):
         return "MP Optimizer: {}".format(self.optim.__str__())
-
-
-class KahanSGD(SGD):
-    def __init__(self, params, lr=0.1, momentum=0, weight_decay=0, dampening=0, nesterov=False):
-        super().__init__(params, lr, momentum, weight_decay, dampening, nesterov)
-        self.c = []
-
-        for group in self.param_groups:
-            for p in group['params']:
-                if p.requires_grad:
-                    self.c.append(torch.zeros_like(p.data))
-                    
-
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            loss = closure()
-
-        k = 0
-        for i, group in enumerate(self.param_groups):
-            weight_decay = group['weight_decay']
-            momentum = group['momentum']
-            dampening = group['dampening']
-            nesterov = group['nesterov']
-            lr = group['lr']
-
-            for j, p in enumerate(group['params']):
-                if p.grad is None:
-                    continue
-                d_p = p.grad.data
-
-                if weight_decay != 0:
-                    d_p.add_(weight_decay, p.data)
-                if momentum != 0:
-                    param_state = self.state[p]
-                    if 'momentum_buffer' not in param_state:
-                        buf = param_state['momentum_buffer'] = torch.clone(d_p).detach()
-                    else:
-                        buf = param_state['momentum_buffer']
-                        buf.mul_(momentum).add_(d_p, alpha=(1 - dampening))
-                    if nesterov:
-                        d_p = d_p.add(momentum, buf)
-                    else:
-                        d_p = buf
-
-                update = -lr * d_p
-
-                t = update - self.c[k]
-                temp = p.data + t
-                self.c[k] = (temp - p.data) - t
-                p.data = temp
-
-                k += 1
-
-        return loss

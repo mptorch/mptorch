@@ -197,110 +197,6 @@ __global__ void mm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE>
-__global__ void mm_fp_nearest_compensated_impl(float *__restrict__ a, float *__restrict__ b,
-                                   float *__restrict__ c, int M, int K, int N,
-                                   int man_add, int exp_add, int man_mul,
-                                   int exp_mul, bool subnormals,
-                                   bool saturate) {
-
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float sum = 0.0f;
-  float compensated = 0.0f; // compensation variable for Kahan summation
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      float product = cast_fp_nearest(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx],
-                                      man_mul, exp_mul, subnormals, saturate);
-
-      float y = cast_fp_nearest(product - compensated, man_add, exp_add, subnormals, saturate);
-      float t = cast_fp_nearest(sum + y, man_add, exp_add, subnormals, saturate);
-      compensated = cast_fp_nearest((t - sum) - y, man_add, exp_add, subnormals, saturate);
-      sum = t;
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = sum;
-}
-
-// template <size_t SHMEM_SIZE>
-// __global__ void mm_binary8_nearest_compensated_impl(float *__restrict__ a, float *__restrict__ b,
-//                                    float *__restrict__ c, int M, int K, int N,
-//                                    int p_add, int p_mul, bool subnormals,
-//                                    OverflowPolicy OverflowPolicy) {
-
-
-//   // declare shared memory matrices for A and B matrices
-//   __shared__ float s_a[SHMEM_SIZE];
-//   __shared__ float s_b[SHMEM_SIZE];
-
-//   int tx = threadIdx.x;
-//   int ty = threadIdx.y;
-//   int col = blockIdx.x * blockDim.x + threadIdx.x;
-//   int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-//   float sum = 0.0f;
-//   float compensated = 0.0f; // compensation variable for Kahan summation
-
-//   // sweep tile across matrix
-//   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-//     // load in elements for this tile
-//     s_a[ty * blockDim.x + tx] =
-//         (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-//     s_b[ty * blockDim.x + tx] =
-//         (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-//     // wait for both tiles to be loaded in before doing computation
-//     __syncthreads();
-
-//     // do matrix multiplication on the small matrices
-//     for (int j = 0; j < blockDim.x; j++) {
-//       float product = cast_binary8_signed_nearest(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx],
-//                                       p_mul, OverflowPolicy::OverflowPolicy, subnormals);
-
-//       float y = cast_binary8_signed_nearest(product - compensated, p_add, OverflowPolicy::OverflowPolicy, subnormals);
-//       float t = cast_binary8_signed_nearest(sum + y, p_add, OverflowPolicy::OverflowPolicy, subnormals);
-//       compensated = cast_binary8_signed_nearest((t - sum) - y, p_add, OverflowPolicy::OverflowPolicy, subnormals);
-//       sum = t;
-//     }
-
-//     // wait for all threads to finish using current tiles
-//     // before loading in new ones
-//     __syncthreads();
-//   }
-
-//   // write back results
-//   if (row < M && col < N)
-//     c[row * N + col] = sum;
-// }
-
-
-template <size_t SHMEM_SIZE>
 __global__ void
 bmm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
                     float *__restrict__ c, int M, int K, int N, int man_add,
@@ -688,22 +584,6 @@ void mm_fp_nearest(float *a, float *b, float *c, int M, int K, int N,
       (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   mm_fp_nearest_impl<SHMEM_SIZE>
-      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
-                                  exp_mul, subnormals, saturate);
-}
-
-void mm_fp_nearest_compensated(float *a, float *b, float *c, int M, int K, int N,
-                   int man_add, int exp_add, int man_mul, int exp_mul,
-                   bool subnormals, bool saturate) {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  mm_fp_nearest_compensated_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
                                   exp_mul, subnormals, saturate);
 }

@@ -433,7 +433,6 @@ def float_mm(
     fma=True,
     subnormals=True,
     saturate=True,
-    compensated=False,
 ):
     """
     Mixed-precision floating-point GEMM with customized formats for the multipliers and accumulators
@@ -448,7 +447,6 @@ def float_mm(
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `subnormals` (bool): allow the use of subnormal values
         - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable in the format instead of outputting infinities)
-        - :attr: `compensated` (bool): use compensated summation to compute matrix multiply
     Returns:
         - the result of GEMM (torch.Tensor)
     """
@@ -483,23 +481,7 @@ def float_mm(
     quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
-        if compensated:
-            print("compensated")
-            quant_module.float_quantize_nearest_mm_compensated(
-                a.contiguous(),
-                b.contiguous(),
-                c.contiguous(),
-                a.shape[0],
-                b.shape[1],
-                a.shape[1],
-                man_add,
-                exp_add,
-                man_mul,
-                exp_mul,
-                subnormals,
-                saturate,
-            )
-        elif not fma:
+        if not fma:
             print("basic")
             quant_module.float_quantize_nearest_mm(
                 a.contiguous(),

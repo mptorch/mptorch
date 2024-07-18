@@ -145,18 +145,6 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                     bool saturate);
 
 /**
- * perform matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision floating-point compute; input tensors a
- * (size M x K) and b (size K x N) are multiplied with the result stored
- * in the output tensor c (size M x N).
- * Nearest Rounding.
- **/
-void float_quantize_nearest_mm_compensated_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
-                                    int K, int man_add, int exp_add,
-                                    int man_mul, int exp_mul, bool subnormals,
-                                    bool saturate);
-
-/**
  * perform batch matrix multiplication with quantized addition and multiplication
  * operations that simulate low-precision floating-point compute; input tensors a
  * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
