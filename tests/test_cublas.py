@@ -5,12 +5,8 @@ from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 from mptorch.quant import float_mm, float_bmm
 from mptorch.quant.quant_function import match_mac_format_with_cublas_types
 from mptorch.quant import cublas_acceleration
+from tests.markers import requires_cuda
 import pytest
-
-
-requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(),
-                                   reason="No CUDA device found.")
-
 
 @requires_cuda
 def test_mm_if32_of32_cf32_p():
