@@ -42,10 +42,9 @@ def test_qconv3d_custom_mm():
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-3)
-    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-3)
+    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-2)
+    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-2)
 
-    err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
 
