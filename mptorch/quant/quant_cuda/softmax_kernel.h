@@ -2,6 +2,24 @@
 
 #include "quant_kernel.h"
 
+template<class T, class F>
+__device__ T warp_reduce(T acc, F fn) {
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
+        T other = __shfl_down_sync(0xFFFFFFFF, acc, offset);
+        acc = fn(acc, other);
+    }
+    return acc;
+}
+
+template<class T, class F>
+__device__ T shared_reduce(F fn, T *shared, int size) {
+    T acc = shared[0];
+    for (int i = 1; i < size; i++) {
+        acc = fn(acc, shared[i]);
+    }
+    return acc;
+}
+
 template<class Qexp, class Qoff, class Qacc, class Qdiv>
 __global__ void softmax_forward_impl(
     const float* __restrict__ input_array, float *output_array, const DimStrides *strides,
@@ -24,9 +42,9 @@ __global__ void softmax_forward_impl(
 
     // compute the maximum value of the row
     
-    float max = -INFINITY;
     // each thread computes part of the maximum by iterating over its corresponding
     // position along the row, as many times as required to cover all the row
+    float max = -INFINITY;
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
         max = fmaxf(max, input[idx]);
@@ -34,10 +52,7 @@ __global__ void softmax_forward_impl(
     // intra-warp maximum reduction
     // each thread now contains part of the maximum of the row, we combine these maximums
     // into a per-warp maximum, stored in the 0th thread of the warp (lane = 0)
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        float other_max = __shfl_down_sync(0xFFFFFFFF, max, offset);
-        max = fmaxf(max, other_max);
-    }
+    max = warp_reduce(max, fmaxf);
     // store the warp-level maximum in shared memory
     if (lane == 0) {
         shared[warp] = max;
@@ -45,16 +60,11 @@ __global__ void softmax_forward_impl(
     __syncthreads();
     // reduce the maximum of each warp into the 0th thread of the block (warp 0, lane 0)
     if(tid == 0) {
-        max = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
-            max = fmaxf(max, shared[i]);
-        }
         // store the block's maximum (i.e row's maximum) in a fixed shared location
-        shared[0] = max;
+        shared[0] = shared_reduce(fmaxf, shared, warpsPerBlock);
     }
     __syncthreads();
-    // each thread reads the row's maximum
-    max = shared[0];
+    max = shared[0]; // each thread reads the row's maximum
 
     // each thread computes its exp(x[i] - max)
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
@@ -68,21 +78,16 @@ __global__ void softmax_forward_impl(
     float sum = 0.f;
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        sum = quant_acc(sum + output[idx]); // we sum the previously computed exponentials
+        sum = quant_acc(sum + output[idx]); // sum the previously computed exponentials
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        sum = quant_acc(sum + __shfl_down_sync(0xFFFFFFFF, sum, offset));
-    }
+    auto qadd = [&quant_acc] __device__(float a, float b) { return quant_acc(a + b); };
+    sum = warp_reduce(sum, qadd);
     if (lane == 0) {
         shared[warp] = sum;
     }
     __syncthreads();
     if(tid == 0) {
-        sum = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
-            sum = quant_acc(sum + shared[i]);
-        }
-        shared[0] = sum;
+        shared[0] = shared_reduce(qadd, shared, warpsPerBlock);
     }
     __syncthreads();
     sum = shared[0];
@@ -123,10 +128,7 @@ __global__ void softmax_lse_forward_impl(
         max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        float other_max = __shfl_down_sync(0xFFFFFFFF, max, offset);
-        max = fmaxf(max, other_max);
-    }
+    max = warp_reduce(max, fmaxf);
     // store the warp-level maximum in shared memory
     if (lane == 0) {
         shared[warp] = max;
@@ -134,16 +136,10 @@ __global__ void softmax_lse_forward_impl(
     __syncthreads();
     // reduce the maximum of each warp into the 0th thread of the block (warp 0, lane 0)
     if(tid == 0) {
-        max = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
-            max = fmaxf(max, shared[i]);
-        }
-        // store the block's maximum (i.e row's maximum) in a fixed shared location
-        shared[0] = max;
+        shared[0] = shared_reduce(fmaxf, shared, warpsPerBlock);
     }
     __syncthreads();
-    // each thread reads the row's maximum
-    max = shared[0];
+    max = shared[0]; // each thread reads the row's maximum
 
     // compute log(exp(x[i] - max) + ...) using LogSumExp iterations
     float lgs = -INFINITY;
@@ -153,20 +149,16 @@ __global__ void softmax_lse_forward_impl(
         output[idx] = x;
         lgs = quant_lse(logf(expf(lgs) + expf(x)));
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        float other_lgs = __shfl_down_sync(0xFFFFFFFF, lgs, offset);
-        lgs = quant_lse(logf(expf(lgs) + expf(other_lgs)));
-    }
+    auto qlse = [&quant_lse] __device__ (float a, float b) {
+        return quant_lse(logf(expf(a) + expf(b)));
+    };
+    lgs = warp_reduce(lgs, qlse);
     if (lane == 0) {
         shared[warp] = lgs;
     }
     __syncthreads();
     if(tid == 0) {
-        lgs = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
-            lgs = quant_lse(logf(expf(lgs) + expf(shared[i])));
-        }
-        shared[0] = lgs;
+        shared[0] = shared_reduce(qlse, shared, warpsPerBlock);
     }
     __syncthreads();
     lgs = shared[0];
@@ -213,30 +205,24 @@ __global__ void softmax_backward_impl(
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        input_sum = quant_add(input_sum + __shfl_down_sync(0xFFFFFFFF, input_sum, offset));
-        weighted_grad_sum = quant_add(weighted_grad_sum + __shfl_down_sync(0xFFFFFFFF, weighted_grad_sum, offset));
-    }
+
+    auto qadd = [&quant_add] __device__(float a, float b) { return quant_add(a + b); };
+    input_sum = warp_reduce(input_sum, qadd);
+    weighted_grad_sum = warp_reduce(weighted_grad_sum, qadd);
     if (lane == 0) {
         shared_input_sum[warp] = input_sum;
         shared_weighted_grad_sum[warp] = weighted_grad_sum;
     }
     __syncthreads();
     if(tid == 0) {
-        input_sum = shared_input_sum[0];
-        weighted_grad_sum = shared_weighted_grad_sum[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
-            input_sum = quant_add(input_sum + shared_input_sum[i]);
-            weighted_grad_sum = quant_add(weighted_grad_sum + shared_weighted_grad_sum[i]);
-        }
-        shared_input_sum[0] = input_sum;
-        shared_weighted_grad_sum[0] = weighted_grad_sum;
+        shared_input_sum[0] = shared_reduce(qadd, shared_input_sum, warpsPerBlock);
+        shared_weighted_grad_sum[0] = shared_reduce(qadd, shared_weighted_grad_sum, warpsPerBlock);
     }
     __syncthreads();
     input_sum = shared_input_sum[0];
     weighted_grad_sum = shared_weighted_grad_sum[0];
 
-    // Last step, subsrtact the weighted sum from the gradient, and divide by input sum
+    // Last step, subtract the weighted sum from the gradient, and divide by input sum
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
         float a = quant_add(grad[idx] - weighted_grad_sum);
