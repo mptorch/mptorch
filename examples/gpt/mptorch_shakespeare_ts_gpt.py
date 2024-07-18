@@ -13,7 +13,7 @@ import numpy as np
 import argparse
 import wandb
 
-# cublas_acceleration.enabled = True
+cublas_acceleration.enabled = True
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
 # how many independent sequences will we process in parallel?

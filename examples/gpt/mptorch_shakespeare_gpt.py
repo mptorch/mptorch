@@ -4,12 +4,15 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
+from mptorch.quant import cublas_acceleration
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
 import random
 import numpy as np
 import argparse
 import wandb
+
+cublas_acceleration.enabled = True
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
 # how many independent sequences will we process in parallel?

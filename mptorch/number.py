@@ -98,8 +98,8 @@ class FloatingPoint(Number):
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
-        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man)
-        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man))
+        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man) if subnormals else None
+        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man)) if subnormals else None
         self.normal_max    = 2.0**(2**(self.exp-1)-1) * (2.0 - 2.0**(-self.man))
         self.normal_min    = 2.0**(2 - 2**(self.exp-1))
 
@@ -144,6 +144,15 @@ class SuperNormalFloat(Number):
         self.man = man
         self.binades = binades
         self.saturate = saturate
+
+        min_exp = 1 - 2**exp + (binades - 1)
+        max_exp = 2**(exp-1) - 2 - (binades - 1)
+        self.subnormal_min = 2**(min_exp - binades * (2**man) + 2)
+        self.subnormal_max = 2**(min_exp - 1)
+        self.normal_min = 2**min_exp
+        self.normal_max = 2**max_exp
+        self.supernormal_min = 2**(max_exp + 1)
+        self.supernormal_max = 2**(max_exp + binades * (2**man) - 1 + int(saturate))
 
     def __str__(self):
         return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)

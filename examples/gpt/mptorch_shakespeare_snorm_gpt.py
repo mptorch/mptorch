@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint, SuperNormalFloat
+from mptorch.quant import cublas_acceleration
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
