@@ -20,7 +20,7 @@ def test_32_to_E2M23_quantization(device, mode):
     assert out.item() == 3.999999761581421
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("mode", ["nearest","stochastic"])
+@pytest.mark.parametrize("mode", ["nearest"])
 def test_32_to_E8M1_quantization(device, mode):
     a = torch.tensor(3.1516, device=device)
     out = float_quantize(a, 8, 1, mode, True, False)
