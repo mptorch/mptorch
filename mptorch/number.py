@@ -198,7 +198,7 @@ class Binary8(Number):
         assert type(P) == input and 8 > P > 0, "invalid input for precision: {}".format(P)  # is P = 8 valid?
         assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(type(signed))
         assert type(subnormals) == bool, "invalid type for allowing subnormals or not: {}".format(type(subnormals))
-        assert type(overflow_policy) == str and overflow_policy in ["saturate_infty", "saturate_er", "saturate_re"], "invalid input for saturation mode: {}".format(overflow_policy)
+        assert type(overflow_policy) == str and overflow_policy in ["saturate", "overflow", "no_overflow"], "invalid input for saturation mode: {}".format(overflow_policy)
 
         self.P = P
         spec_exp = P == 1
@@ -214,8 +214,8 @@ class Binary8(Number):
             self.subnormal_min = (2**-self.man) * (2**min_exp)   # this is good
             self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)   # this is also good
         else:
-            self.subnormal_min = "no subnormals"
-            self.subnormal_max = "no subnormals"
+            self.subnormal_min = None
+            self.subnormal_max = None
 
         # no subnormal case
         if subnormals == True or self.man == 1:
@@ -224,7 +224,7 @@ class Binary8(Number):
             self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
     
         if signed:
-            if overflow_policy == "saturate_re":    # no inf case, so max is FF not FE
+            if overflow_policy == "no_overflow":    # no inf case, so max is FF not FE
                 if self.man > 0:
                     self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
@@ -235,7 +235,7 @@ class Binary8(Number):
                 else:
                     self.normal_max = 2**max_exp    # 0 mantissa case
         else:   # unsigned case
-            if overflow_policy == "saturate_re":    # no inf case, so max is FE not FD
+            if overflow_policy == "no_overflow":    # no inf case, so max is FE not FD
                 if self.man > 0:
                     self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
