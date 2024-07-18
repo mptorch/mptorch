@@ -3,31 +3,28 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 from torch.testing import assert_close
+import pytest
 
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 23, 8
 signal_q = lambda x: qt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-formats_q = qt.QAffineFormats(
-    fwd_mac=mac_format,
-    bwd_mac=mac_format,
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=signal_q,
-    grad_quant=signal_q,
-    output_quant=signal_q,
-    input_quant=signal_q,
-    bias_quant=signal_q,
-)
 
-groups = 2
-
-
-def test_qconv2d_custom_mm():
-
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("groups", [2, 4])
+def test_qconv2d_custom_mm(groups, device):
+    formats_q = qt.QAffineFormats(
+        fwd_mac=mac_format,
+        bwd_mac=mac_format,
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=signal_q,
+        grad_quant=signal_q,
+        output_quant=signal_q,
+        input_quant=signal_q,
+        bias_quant=signal_q,
+    )
     x = torch.randn(1, 4, 100, 100)
     m = nn.Conv2d(4, 4, (12, 12), groups=groups, bias=True)
     qm = qt.QConv2d(4, 4, (12, 12), formats=formats_q, groups=groups, bias=True)
@@ -49,8 +46,9 @@ def test_qconv2d_custom_mm():
     res_qm = qm(qx)
     assert_close(res_m, res_qm, atol=0.0, rtol=2e-2)
 
-
-def test_qconv2d_default_mm():
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("groups", [2, 4])
+def test_qconv2d_default_mm(groups, device):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

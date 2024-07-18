@@ -3,29 +3,27 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 from torch.testing import assert_close
+import pytest
 
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 12, 8
 signal_q = lambda x: qt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-formats_q = qt.QAffineFormats(
-    fwd_mac=(mac_format, mac_format),
-    bwd_mac=(mac_format, mac_format),
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=signal_q,
-    grad_quant=signal_q,
-    output_quant=signal_q,
-    input_quant=signal_q,
-    bias_quant=signal_q,
-)
 
-
-def test_qlinear_custom_mm():
-
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+def test_qlinear_custom_mm(device):
+    formats_q = qt.QAffineFormats(
+        fwd_mac=(mac_format, mac_format),
+        bwd_mac=(mac_format, mac_format),
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=signal_q,
+        grad_quant=signal_q,
+        output_quant=signal_q,
+        input_quant=signal_q,
+        bias_quant=signal_q,
+    )
     x = torch.randn(11, 1034)
     m = torch.nn.Linear(1034, 542, bias=True)
     qm = qt.QLinear(1034, 542, formats=formats_q, bias=True)
@@ -47,8 +45,8 @@ def test_qlinear_custom_mm():
     assert_close(m.bias.grad, qm.bias.grad, atol=1e-3, rtol=0.0)
     assert_close(m.weight.grad, qm.weight.grad, atol=1e-3, rtol=0.0)
 
-
-def test_qlinear_default_mm():
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+def test_qlinear_default_mm(device):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

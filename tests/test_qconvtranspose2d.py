@@ -3,34 +3,31 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 from torch.testing import assert_close
+import pytest
 
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 23, 8
 signal_q = lambda x: qt.float_quantize(
     x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-formats_q = qt.QAffineFormats(
-    fwd_mac=mac_format,
-    bwd_mac=mac_format,
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=signal_q,
-    grad_quant=signal_q,
-    output_quant=signal_q,
-    input_quant=signal_q,
-    bias_quant=signal_q,
-)
 
-groups = 4
-dilation = 2
-stride = 4
-out_padding = 0
-
-
-def test_qconvtranspose2d_custom_mm():
-
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("groups", [4])
+@pytest.mark.parametrize("dilation", [2])
+@pytest.mark.parametrize("stride", [4])
+@pytest.mark.parametrize("out_padding", [0])
+def test_qconvtranspose2d_custom_mm(groups, device, dilation, stride, out_padding):
+    formats_q = qt.QAffineFormats(
+        fwd_mac=mac_format,
+        bwd_mac=mac_format,
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=signal_q,
+        grad_quant=signal_q,
+        output_quant=signal_q,
+        input_quant=signal_q,
+        bias_quant=signal_q,
+    )
     x = torch.randn(1, 4, 60, 60)
     m = nn.ConvTranspose2d(
         4,
@@ -72,8 +69,12 @@ def test_qconvtranspose2d_custom_mm():
     assert res_m.shape == res_qm.shape
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
-
-def test_qconvtranspose2d_default_mm():
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("groups", [4])
+@pytest.mark.parametrize("dilation", [2])
+@pytest.mark.parametrize("stride", [4])
+@pytest.mark.parametrize("out_padding", [0])
+def test_qconvtranspose2d_default_mm(groups, device, dilation, stride, out_padding):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,

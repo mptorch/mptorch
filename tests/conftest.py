@@ -1,7 +1,7 @@
 import torch
 import pytest
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def determinism():
     seed = 1234
     torch.manual_seed(seed)
