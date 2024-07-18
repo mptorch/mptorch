@@ -3,38 +3,38 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 from torch.testing import assert_close
+import pytest
+from tests.markers import available_devices
 
-seed = 1234
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
+@pytest.fixture
+def signal_q():
+    man, exp = 23, 8
+    return lambda x: qt.float_quantize(
+        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+    )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-man, exp = 23, 8
-signal_q = lambda x: qt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
-)
-mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-formats_q = qt.QAffineFormats(
-    fwd_mac=mac_format,
-    bwd_mac=mac_format,
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=signal_q,
-    grad_quant=signal_q,
-    output_quant=signal_q,
-    input_quant=signal_q,
-    bias_quant=signal_q,
-)
+@pytest.fixture
+def mac_format():
+    man, exp = 23, 8
+    return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
-groups = 2
-dilation = 2
-stride = 1
-out_padding = 0
-
-
-def test_qconvtranspose3d_custom_mm():
-
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("groups", [2])
+@pytest.mark.parametrize("dilation", [2])
+@pytest.mark.parametrize("stride", [1])
+@pytest.mark.parametrize("out_padding", [0])
+def test_qconvtranspose3d_custom_mm(groups, device, dilation, stride, out_padding, mac_format, signal_q):
+    formats_q = qt.QAffineFormats(
+        fwd_mac=mac_format,
+        bwd_mac=mac_format,
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=signal_q,
+        grad_quant=signal_q,
+        output_quant=signal_q,
+        input_quant=signal_q,
+        bias_quant=signal_q,
+    )
     x = torch.randn(1, 4, 12, 12, 12)
     m = nn.ConvTranspose3d(
         4,
@@ -76,8 +76,12 @@ def test_qconvtranspose3d_custom_mm():
     assert res_m.shape == res_qm.shape
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
-
-def test_qconvtranspose3d_default_mm():
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("groups", [2])
+@pytest.mark.parametrize("dilation", [2])
+@pytest.mark.parametrize("stride", [1])
+@pytest.mark.parametrize("out_padding", [0])
+def test_qconvtranspose3d_default_mm(groups, device, dilation, stride, out_padding, signal_q):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,
