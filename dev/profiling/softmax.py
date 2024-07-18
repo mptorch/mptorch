@@ -48,12 +48,12 @@ if torch.cuda.is_available():
     activities.append(ProfilerActivity.CUDA)
 
 with profile(activities=activities, record_shapes=True) as prof:
-        if not args.pytorch:
-            with record_function("float_softmax_forward"):
-                out = float_softmax_forward(a, dim, qsoftmax_formats)
-        else:
-            with record_function("torch.softmax"):
-                out = torch.nn.functional.softmax(a, dim=dim)
+    if not args.pytorch:
+        with record_function("float_softmax_forward"):
+            out = float_softmax_forward(a, dim, qsoftmax_formats)
+    else:
+        with record_function("torch.softmax"):
+            out = torch.nn.functional.softmax(a, dim=dim)
 if not args.no_table:
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
