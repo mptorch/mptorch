@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.testing import assert_close
 import pytest
+from tests.markers import available_devices
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 man, exp = 23, 8
@@ -12,7 +13,7 @@ signal_q = lambda x: qt.float_quantize(
 )
 mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2])
 @pytest.mark.parametrize("dilation", [2])
 @pytest.mark.parametrize("stride", [1])
@@ -70,7 +71,7 @@ def test_qconvtranspose3d_custom_mm(groups, device, dilation, stride, out_paddin
     assert res_m.shape == res_qm.shape
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
-@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='No CUDA-capable device found.'))])
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2])
 @pytest.mark.parametrize("dilation", [2])
 @pytest.mark.parametrize("stride", [1])
