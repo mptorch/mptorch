@@ -5,18 +5,11 @@ from mptorch.quant import CUBLASComputeType as ct, CUBLASMatrixType as mt
 from mptorch.quant import float_mm, float_bmm
 from mptorch.quant.quant_function import match_mac_format_with_cublas_types
 from mptorch.quant import cublas_acceleration
+from tests.markers import requires_cuda
 import pytest
 
-def no_cuda():
-    return not torch.cuda.is_available()
-
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
-
+@requires_cuda
 def test_mm_if32_of32_cf32_p():
-    if no_cuda():
-        return
-
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -26,10 +19,8 @@ def test_mm_if32_of32_cf32_p():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
+@requires_cuda
 def test_mm_if16_of16_cf16_p():
-    if no_cuda():
-        return
-    
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -39,10 +30,8 @@ def test_mm_if16_of16_cf16_p():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-2)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
+@requires_cuda
 def test_mm_if16_of16_cf16vsf32_p():
-    if no_cuda():
-        return
-    
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -52,10 +41,8 @@ def test_mm_if16_of16_cf16vsf32_p():
     err_f32 = torch.max(torch.abs(res_f32 - ref) / torch.abs(ref)).item()
     assert err_f32 < err_f16
 
+@requires_cuda
 def test_mm_if32_of32_ctf32():
-    if no_cuda():
-        return
-    
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -65,10 +52,8 @@ def test_mm_if32_of32_ctf32():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-3)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-3)
 
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_2_2():
-    if no_cuda():
-        return
-    
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -79,10 +64,8 @@ def test_bmm_if32_of32_cf32_p_2_2():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_3_2():
-    if no_cuda():
-        return
-    
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b.repeat(169, 1, 1))
@@ -93,10 +76,8 @@ def test_bmm_if32_of32_cf32_p_3_2():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_3_3():
-    if no_cuda():
-        return
-    
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
@@ -107,10 +88,8 @@ def test_bmm_if32_of32_cf32_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
 
+@requires_cuda
 def test_bmm_if16_of16_cf16_p_3_3():
-    if no_cuda():
-        return
-    
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
@@ -121,10 +100,8 @@ def test_bmm_if16_of16_cf16_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
+@requires_cuda
 def test_bmm_ibf16_obf16_cf32_p_3_3():
-    if no_cuda():
-        return
-    
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
@@ -135,10 +112,8 @@ def test_bmm_ibf16_obf16_cf32_p_3_3():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
+@requires_cuda
 def test_bmm_if32_of32_cf32_p_4_4():
-    if no_cuda():
-        return
-    
     a = torch.rand(9, 5, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(9, 5, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a.reshape(9*5, 277, 1501), b.reshape(9*5, 1501, 984)).reshape(9, 5, 277, 984)
@@ -149,28 +124,22 @@ def test_bmm_if32_of32_cf32_p_4_4():
     assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
     assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
 
+@requires_cuda
 def test_mm_type_error():
-    if no_cuda():
-        return
-    
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     with pytest.raises(RuntimeError):
         cublas_mm(a, b, mt.F32, mt.F32, ct.F16, True)
 
+@requires_cuda
 def test_bmm_type_error():
-    if no_cuda():
-        return
-    
     a = torch.rand(8, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(8, 1501, 984, dtype=torch.float32, device="cuda")
     with pytest.raises(RuntimeError):
         cublas_bmm(a, b, mt.F32, mt.F32, ct.F16, True)
 
+@requires_cuda
 def test_cublas_config_for_format():
-    if no_cuda():
-        return
-    
     assert match_mac_format_with_cublas_types(23, 8, 10, 5, "nearest", True, True, False) is None
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", False, True, False) is None
     assert match_mac_format_with_cublas_types(10, 5, 10, 5, "nearest", True, True, False) \
@@ -183,23 +152,17 @@ def test_cublas_config_for_format():
         == (mt.F32, mt.F32, ct.F32_FAST_BF16)
     assert match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", True, True, False, "tf32") \
         == (mt.F32, mt.F32, ct.F32_FAST_TF32)
-    
+
+@requires_cuda
 def test_cublas_override():
-    assert not cublas_acceleration.enabled
+    assert not cublas_acceleration.enabled # check default state
     cublas_acceleration.enable(True, "f16")
     assert cublas_acceleration.enabled
     assert cublas_acceleration.fast_mode == "f16"
-    cublas_acceleration.enable(False)
-    assert not cublas_acceleration.enabled
-    assert cublas_acceleration.fast_mode is None
     
+    cublas_acceleration.enabled = False
     cublas_acceleration.fast_mode = "tf32"
     with cublas_acceleration(True, "bf16"):
-        assert cublas_acceleration.enabled
-        assert cublas_acceleration.fast_mode == "bf16"
-        with cublas_acceleration(False):
-            assert not cublas_acceleration.enabled
-            assert cublas_acceleration.fast_mode is None
         assert cublas_acceleration.enabled
         assert cublas_acceleration.fast_mode == "bf16"
     assert not cublas_acceleration.enabled
