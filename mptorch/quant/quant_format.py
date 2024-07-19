@@ -75,10 +75,10 @@ class QAffineFormats:
             if not isinstance(bwd_mac, tuple):
                 bwd_mac = (bwd_mac,)
             if len(bwd_mac) > 1:
-                (self.bwd_add, self.bwd_mul) = fwd_mac
+                (self.bwd_add, self.bwd_mul) = bwd_mac
                 self.bwd_fma = False
-            elif len(fwd_mac) == 1:
-                self.bwd_add = self.bwd_mul = fwd_mac[0]
+            elif len(bwd_mac) == 1:
+                self.bwd_add = self.bwd_mul = bwd_mac[0]
                 self.bwd_fma = True
             else:
                 self.bwd_add = self.bwd_mul = None

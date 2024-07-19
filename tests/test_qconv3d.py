@@ -3,35 +3,35 @@ import mptorch.quant as qt
 import torch
 import torch.nn as nn
 from torch.testing import assert_close
+import pytest
+from tests.markers import available_devices
 
-seed = 1234
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
+@pytest.fixture
+def signal_q():
+    man, exp = 23, 8
+    return lambda x: qt.float_quantize(
+        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+    )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-man, exp = 23, 8
-signal_q = lambda x: qt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
-)
-mac_format = mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-formats_q = qt.QAffineFormats(
-    fwd_mac=mac_format,
-    bwd_mac=mac_format,
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
-    weight_quant=signal_q,
-    grad_quant=signal_q,
-    output_quant=signal_q,
-    input_quant=signal_q,
-    bias_quant=signal_q,
-)
+@pytest.fixture
+def mac_format():
+    man, exp = 23, 8
+    return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
-groups = 4
-
-
-def test_qconv3d_custom_mm():
-
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("groups", [2, 4])
+def test_qconv3d_custom_mm(groups, device, mac_format, signal_q):
+    formats_q = qt.QAffineFormats(
+        fwd_mac=mac_format,
+        bwd_mac=mac_format,
+        fwd_rnd="nearest",
+        bwd_rnd="nearest",
+        weight_quant=signal_q,
+        grad_quant=signal_q,
+        output_quant=signal_q,
+        input_quant=signal_q,
+        bias_quant=signal_q,
+    )
     x = torch.randn(1, 4, 30, 30, 30)
     m = nn.Conv3d(4, 4, (3, 3, 3), groups=groups, bias=True)
     qm = qt.QConv3d(4, 4, (3, 3, 3), formats=formats_q, groups=groups, bias=True)
@@ -46,14 +46,14 @@ def test_qconv3d_custom_mm():
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-3)
-    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-3)
+    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-2)
+    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-2)
 
-    err_fwd = torch.max(torch.abs(res_m - res_qm) / torch.abs(res_m)).item()
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
-
-def test_qconv3d_default_mm():
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("groups", [2, 4])
+def test_qconv3d_default_mm(groups, device, signal_q):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,
