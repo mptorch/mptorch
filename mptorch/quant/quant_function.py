@@ -286,7 +286,7 @@ def mp_mm(a, b, formats, use_forward=True):
             formats.bwd_fma,
             formats.bwd_rnd,
         )
-    if type(formats.fwd_add) == FloatingPoint:
+    if type(add_cfg) == FloatingPoint:
         return float_mm(
             a,
             b,
@@ -299,7 +299,7 @@ def mp_mm(a, b, formats, use_forward=True):
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
         )
-    elif type(formats.fwd_add) == SuperNormalFloat:
+    elif type(add_cfg) == SuperNormalFloat:
         return superfp_mm(
             a,
             b,
