@@ -91,7 +91,9 @@ def test_softmax_forward_backward(device, shape, dim, fmt, formats_div, formats_
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=0)
 
 @pytest.mark.parametrize("device", available_devices)
-def test_softmax_layer_forward_backward(device):
+@pytest.mark.parametrize("shape", [(20, 30, 40)])
+@pytest.mark.parametrize("dim", [2])
+def test_softmax_layer_forward_backward(device, shape, dim):
     man, exp = 12, 8
     quant_fp = lambda x: Q.float_quantize(
         x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
@@ -111,11 +113,10 @@ def test_softmax_layer_forward_backward(device):
         input_quant=quant_fp,
         grad_quant=quant_fp,
     )
-    dim = 2
     layer = torch.nn.Softmax(dim)
     qlayer = QSoftmax(dim, formats)
 
-    x_ref = torch.rand(10, 30, 40, 20, device=device, requires_grad=True)
+    x_ref = torch.rand(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
     x_res.requires_grad_(True)
 
@@ -123,7 +124,7 @@ def test_softmax_layer_forward_backward(device):
     y_res = qlayer.forward(x_res)
     torch.testing.assert_close(y_res, y_ref, atol=1e-3, rtol=0)
 
-    grad = torch.rand(10, 30, 40, 20, device=device)
+    grad = torch.rand(*shape, device=device)
     y_ref.backward(grad)
     y_res.backward(grad)
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-3, rtol=0)
