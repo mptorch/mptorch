@@ -18,7 +18,8 @@ from torch.nn import functional as F
 from mptorch.quant import qmatmul
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
-from mptorch.quant import QAffineFormats
+from mptorch.quant import QAffineFormats, QSoftmaxFormats
+import mptorch.quant.functional as Q
 from mptorch import FloatingPoint
 from mptorch.quant import float_quantize
 
@@ -36,8 +37,8 @@ class QGPTConfig:
     subnormals: bool = True
     saturate: bool = False
     rounding: str = "nearest"
-    mac_fwd_fmt: tuple[int, int] | None = None # (exp, man)
-    mac_bwd_fmt: tuple[int, int] | None = None
+    fwd_mac: tuple[int, int] | None = None # (exp, man)
+    bwd_mac: tuple[int, int] | None = None
     affine_input_fmt: tuple[int, int] | None = None
     affine_output_fmt: tuple[int, int] | None = None
     affine_grad_fmt: tuple[int, int] | None = None
@@ -45,6 +46,15 @@ class QGPTConfig:
     bias_fmt: tuple[int, int] | None = None
     softmax_input_fmt: tuple[int, int] | None = None
     softmax_output_fmt: tuple[int, int] | None = None
+    softmax_grad_fmt: tuple[int, int] | None = None
+    softmax_fwd_off: tuple[int, int] | None = None
+    softmax_fwd_exp: tuple[int, int] | None = None
+    softmax_fwd_acc: tuple[int, int] | None = None
+    softmax_fwd_div: tuple[int, int] | None = None
+    softmax_fwd_lse: tuple[int, int] | None = None
+    softmax_bwd_add: tuple[int, int] | None = None
+    softmax_bwd_mul: tuple[int, int] | None = None
+    softmax_bwd_div: tuple[int, int] | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -67,8 +77,8 @@ def make_quant(config, fmt_name):
                                     saturate=config.saturate)
 def make_affine_formats(config):
     return QAffineFormats(
-        fwd_mac=make_float(config, "mac_fwd_fmt"),
-        bwd_mac=make_float(config, "mac_bwd_fmt"),
+        fwd_mac=make_float(config, "fwd_mac"),
+        bwd_mac=make_float(config, "bwd_mac"),
         fwd_rnd=config.rounding,
         bwd_rnd=config.rounding,
         weight_quant=make_quant(config, "weight_fmt"),
@@ -76,6 +86,23 @@ def make_affine_formats(config):
         input_quant=make_quant(config, "affine_input_fmt"),
         output_quant=make_quant(config, "affine_output_fmt"),
         grad_quant=make_quant(config, "affine_grad_fmt")
+    )
+
+def make_softmax_formats(config):
+    return QSoftmaxFormats(
+        fwd_off = make_float(config, "softmax_fwd_off"),
+        fwd_exp = make_float(config, "softmax_fwd_exp"),
+        fwd_acc = make_float(config, "softmax_fwd_acc"),
+        fwd_div = make_float(config, "softmax_fwd_div"),
+        fwd_lse = make_float(config, "softmax_fwd_lse"),
+        bwd_add = make_float(config, "softmax_bwd_add"),
+        bwd_mul = make_float(config, "softmax_bwd_mul"),
+        bwd_div = make_float(config, "softmax_bwd_div"),
+        fwd_rnd = config.rounding,
+        bwd_rnd = config.rounding,
+        input_quant=make_quant(config, "softmax_input_fmt"),
+        output_quant=make_quant(config, "softmax_output_fmt"),
+        grad_quant=make_quant(config, "softmax_grad_fmt"),
     )
 # -----------------------------------------------------------------------------
 
@@ -95,12 +122,14 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+        self.softmax_formats = make_softmax_formats(config)
+        self.affine_formats = make_affine_formats(config)
         # key, query, value projections for all heads, but in a batch
         self.c_attn = QLinear(config.n_embd, 3 * config.n_embd, bias=config.bias,
-                              formats=make_affine_formats(config)) # quantization
+                              formats=self.affine_formats) # quantization
         # output projection
         self.c_proj = QLinear(config.n_embd, config.n_embd, bias=config.bias,
-                              formats=make_affine_formats(config)) # quantization
+                              formats=self.affine_formats) # quantization
         # regularization
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
@@ -110,9 +139,6 @@ class CausalSelfAttention(nn.Module):
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                     .view(1, 1, config.block_size, config.block_size))
-        self.softmax_input_q = Quantizer(forward_number=make_float(config, "softmax_input_fmt"))
-        self.softmax_output_q = Quantizer(forward_number=make_float(config, "softmax_output_fmt"))
-        self.affine_formats = make_affine_formats(config)
 
     def forward(self, x):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -128,11 +154,7 @@ class CausalSelfAttention(nn.Module):
         # quantization
         att = qmatmul(q, k.transpose(-2, -1), formats=self.affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        
-        att = self.softmax_input_q(att) # quantization
-        att = F.softmax(att, dim=-1)
-        att = self.softmax_output_q(att) # quantization
-        
+        att = Q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
         att = self.attn_dropout(att)
         # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         # quantization
