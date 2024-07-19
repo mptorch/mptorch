@@ -124,28 +124,16 @@ fma_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, sa
 w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
 i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
-quant_g = lambda x: qpt.float_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, subnormals=True, saturate=False
-)
-quant_w = lambda x: qpt.float_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, subnormals=True, saturate=False
-)
-quant_b = lambda x: qpt.float_quantize(
-    x, exp=fma_format.exp, man=fma_format.man, rounding=rounding, subnormals=True, saturate=False
-)
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=fma_format,
     fwd_rnd=rounding,
     bwd_mac=fma_format,
     bwd_rnd=rounding,
-    weight_quant=quant_w,
-    input_quant=quant_w,
-    grad_quant=quant_g,
-    bias_quant=quant_b,
-    weight_scaled_format=w_format,
-    grad_scaled_format=g_format,
-    input_scaled_format=i_format,
+    weight_quant=(w_format, rounding),
+    input_quant=(i_format, rounding),
+    grad_quant=(g_format, rounding),
+    bias_quant=(fma_format, rounding)
 )
 
 # hyperparameters
