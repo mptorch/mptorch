@@ -1,5 +1,6 @@
 #include <ATen/ATen.h>
 #include <tuple>
+#include <vector>
 
 using namespace at;
 
@@ -47,3 +48,5 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subn
 Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
 
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);
+
+Tensor float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias, float eps, std::vector<int> &dims);

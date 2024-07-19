@@ -5,6 +5,7 @@
 #include <tuple>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 using namespace at;
 
@@ -434,89 +435,6 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
             N, man_fma, exp_fma, subnormals, saturate);
 }
 
-void float_quantize_layernorm_forward(float* out, float* mean, float* rstd,
-                                      float* inp, float* weight, float* bias,
-                                      float eps, int B, int T, int C){
-  for (int b = 0; b < B; b++){
-    for (int t = 0; t < T; t++){
-      // seeking to input pos
-      float* x = inp + b * T * C + t * C;
-
-      // calculate mean
-      float m = 0.0f;
-      for (int i = 0; i < C; i ++){
-        m += x[i];
-      }
-      m /= C;
-
-      // calculate varience (no bias correction)
-      float v = 0.0f;
-      for (int i = 0; i < C; i++){
-        float xshift = x[i] - m;
-        v += xshift * xshift;
-      }
-      v /= C;
-
-      // calculate rstd
-      float r = 1.0f / sqrtf(v + eps);
-
-      // seek to output pos
-      float* out-bt = out + b * T * C + t * C;
-      for (int i = 0; i < C; i++){
-        float out = (s * (x[i] - m)); //normalized output
-        out = out * weight[i] + bias[i]; // scale and shift
-        out_bt[i] = out;
-      }
-      // cache mean and rstd for backward
-      mean[b * T + t] = m;
-      rstd[b * t + t] = r;
-    }
-  }
-}
-
-void float_quantize_layernorm_backward(float* dinp, float* dweight, float* dbias, float* dout, 
-                                       float* inp, float* weight, float* mean, float* rstd,
-                                       int B, int T, int C){
-  for (int b = 0; b < B; b++){
-    for (int t = 0; t < T; t++){
-      float* dout_bt = dout + b * T * C + t * C;
-      float* inp_bt = inp + b * T * C + t * C;
-      float* dinp_bt = dinp + b * T * C + t * C;
-      float mean_bt = mean[b * T + t];
-      float rstd_bt = rstd[b * T + t];
-
-      // two reduce operations
-      float dnorm_mean = 0.0f;
-      float dnorm_norm_mean = 0.0f;
-      for (int i = 0; i < C; i++){
-        float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
-        float dnorm_i = weight[i] * dout_bt[i];
-        dnorm_mean += dnorm_i;
-        dnorm_norm_mean += dnorm_i * norm_bti;
-      }
-      dnorm_mean /= C;
-      dnorm_norm_mean /= C;
-
-      // iterate again to accumulate all gradients
-      for (int i = 0; i < C; i++){
-        float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
-        float dnorm_i = weight[i] * dout_bt[i];
-        // gradient contribution to bias
-        dbias[i] += dout_bt[i];
-        // gradient contribution to weight
-        dweight[i] += norm_bti * dout_bt[i];
-        // gradient contribution to input
-        float dval = 0.0f;
-        dval += dnorm_i; // term 1
-        dval -= dnorm_mean; // term 2
-        dval -= norm_bti * dnorm_norm_mean; // term 3
-        dval *= rstd_bt; // final scale
-        dinp_bt[i] += dval;
-      }
-    }
-  }
-}
-
 Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                  bool subnormals, bool saturate) {
   return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals,
@@ -532,3 +450,111 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
                               bool saturate) {
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
+
+Tensor float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
+                                      float eps, std::vector<int> &dims){
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+
+  auto w_array = weight.data_ptr<float>();
+  auto b_array = bias.data_ptr<float>();
+
+  std::vector<int> real_dims(dims.size());
+  for (int i = 0; i < dims.size(); i++){
+    real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
+  }
+
+  int dim_size = 1;
+  for (int dim : real_dims){
+    dim_size *= a.size(dim);
+  }
+
+  int min_dim = real_dims.back();
+  int max_dim = real_dims.front();
+
+  int B = 1;
+  for (int i = 0; i < min_dim; i++){
+    B *= a.size(i);
+  }
+
+  int T = 1;
+  for (int i = max_dim + 1; i < a.dim(); i++){
+    T *= a.size(i);
+  }
+
+  int outer_stride = dim_size * T;
+
+  for (int i = 0; i < B * T; i++){
+    int b = i / T;
+    int t = i % T;
+
+    int base_index = (b*outer_stride) + t;
+    float* input = a_array + base_index;
+    float* output = o_array + base_index;
+
+    float mean = 0.0f;
+    float mean_2 = 0.0f;
+    for (int k = 0; k < dim_size; k++){
+      int idx = k*T;
+      mean += input[idx];
+      mean_2 += input[idx] * input[idx];
+    }
+    mean /= dim_size;
+    mean_2 /= dim_size;
+
+    float variance = mean_2 - (mean * mean);
+
+    float std = sqrtf(variance + eps);
+    for (int k = 0; k < dim_size; k++){
+      int idx = k*T;
+      float norm = (input[idx] - mean) / std;
+      output[idx] = w_array[k] * norm + b_array[k];
+    }
+  }
+
+  return o;
+}
+
+// void float_quantize_layernorm_backward(float* dinp, float* dweight, float* dbias, float* dout, 
+//                                        float* inp, float* weight, float* mean, float* rstd,
+//                                        int B, int T, int C){
+//   for (int b = 0; b < B; b++){
+//     for (int t = 0; t < T; t++){
+//       float* dout_bt = dout + b * T * C + t * C;
+//       float* inp_bt = inp + b * T * C + t * C;
+//       float* dinp_bt = dinp + b * T * C + t * C;
+//       float mean_bt = mean[b * T + t];
+//       float rstd_bt = rstd[b * T + t];
+
+//       // two reduce operations
+//       float dnorm_mean = 0.0f;
+//       float dnorm_norm_mean = 0.0f;
+//       for (int i = 0; i < C; i++){
+//         float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
+//         float dnorm_i = weight[i] * dout_bt[i];
+//         dnorm_mean += dnorm_i;
+//         dnorm_norm_mean += dnorm_i * norm_bti;
+//       }
+//       dnorm_mean /= C;
+//       dnorm_norm_mean /= C;
+
+//       // iterate again to accumulate all gradients
+//       for (int i = 0; i < C; i++){
+//         float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
+//         float dnorm_i = weight[i] * dout_bt[i];
+//         // gradient contribution to bias
+//         dbias[i] += dout_bt[i];
+//         // gradient contribution to weight
+//         dweight[i] += norm_bti * dout_bt[i];
+//         // gradient contribution to input
+//         float dval = 0.0f;
+//         dval += dnorm_i; // term 1
+//         dval -= dnorm_mean; // term 2
+//         dval -= norm_bti * dnorm_norm_mean; // term 3
+//         dval *= rstd_bt; // final scale
+//         dinp_bt[i] += dval;
+//       }
+//     }
+//   }
+// }

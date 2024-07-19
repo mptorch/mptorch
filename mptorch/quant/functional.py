@@ -366,8 +366,8 @@ class qsum_kernel(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-def qsum(x, dim, quant=lambda x: x):
-    return qsum_kernel.apply(x, quant, dim)
+def qsum(x, dim, keepdim=False, quant=lambda x: x):
+    return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
@@ -411,12 +411,42 @@ class qmean(torch.autograd.Function):
 
 
 class qlayernorm_kernel(torch.autograd.Function):
-    # TODO: implement GPU-accelerated version of functional layernorm
-    pass
+    @staticmethod
+    def forward(ctx, x, normalized_shape, weight, bias, eps, formats):
+        ctx.formats = formats
+        qinput = formats.input_quant(x)
+
+        if weight is not None:
+            qweight = formats.weight_quant(weight)
+        else:
+            qweight = torch.ones(normalized_shape, device=x.device)
+
+        if bias is not None:
+            qbias = formats.bias_quant(bias)
+        else:
+            qbias = torch.zeros(normalized_shape, device=x.device)
+
+        if isinstance(normalized_shape, int):
+            normalized_shape = torch.Size([normalized_shape])
+        elif isinstance(normalized_shape, list):
+            normalized_shape = torch.Size(normalized_shape)
+        assert isinstance(normalized_shape, torch.Size)
+
+        assert normalized_shape == x.shape[-len(normalized_shape):]
+        dims = [-(i + 1) for i in range(len(normalized_shape))]
+
+        output = mp_layernorm_forward(qinput, qweight, qbias, eps, dims)
+        qoutput = formats.output_quant(output)
+
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        pass
 
 
-def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
-    pass
+def qlayernorm(x, normalized_shape, weight, bias, eps, formats):
+    return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 
 
 class qsoftmax_kernel(torch.autograd.Function):
