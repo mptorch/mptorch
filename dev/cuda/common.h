@@ -123,7 +123,7 @@ void setup_main() {
 
 template<class D, class T>
 void validate_result(D* device_result, const T* cpu_reference, const char* name, 
-                std::size_t num_elements, T tolerance=1e-4) {
+                std::size_t num_elements, T tolerance=1e-4, T relative_tolerance=0.0f) {
 
     D* out_gpu = (D*)malloc(num_elements * sizeof(D));
     cudaCheck(cudaMemcpy(out_gpu, device_result, num_elements * sizeof(D), cudaMemcpyDeviceToHost));
@@ -143,7 +143,8 @@ void validate_result(D* device_result, const T* cpu_reference, const char* name,
 
         // actual tolerance is based on expected rounding error (epsilon),
         // plus any specified additional tolerance
-        float t_eff = tolerance + fabs(cpu_reference[i]) * epsilon;
+        float abs_ref = fabs(cpu_reference[i]);
+        float t_eff = (tolerance + abs_ref * relative_tolerance) + abs_ref * epsilon;
         // ensure correctness for all elements
         if (fabs(cpu_reference[i] - (T)out_gpu[i]) > t_eff) {
             printf("Mismatch of %s at %d: CPU_ref: %f vs GPU: %f\n", name, i, cpu_reference[i], (T)out_gpu[i]);

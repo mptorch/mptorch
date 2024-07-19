@@ -314,6 +314,57 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       return;
 }
 
+void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_forward_cuda(
+                              a, o, dim,
+                              man_expf, exp_expf,
+                              man_off, exp_off,
+                              man_acc, exp_acc,
+                              man_div, exp_div,
+                              subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_lse_forward_cuda(
+                              a, o, dim,
+                              man_expf, exp_expf,
+                              man_off, exp_off,
+                              man_lse, exp_lse,
+                              subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(g);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_backward_cuda(
+                              a, g, o, dim,
+                              man_add, exp_add,
+                              man_mul, exp_mul,
+                              man_div, exp_div,
+                              subnormals, saturate);
+}
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
@@ -415,4 +466,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &floating_point_bmm_cublas,
             "cuBLAS accelerated batched matrix multiply, using the specified precision "
             "and compute mode (CUDA)");
+      
+      m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward,
+            "Low-Bitwidth Floating Point Softmax Forward using division. (CUDA)");
+      m.def("float_quantize_nearest_softmax_lse_forward", &float_quantize_nearest_softmax_lse_forward,
+            "Low-Bitwidth Floating Point Softmax Forward using LogSumExp. (CUDA)");
+      m.def("float_quantize_nearest_softmax_backward", &float_quantize_nearest_softmax_backward,
+            "Low-Bitwidth Floating Point Softmax Backward. (CUDA)");
 }

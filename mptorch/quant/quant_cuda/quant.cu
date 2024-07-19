@@ -542,3 +542,67 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                            t_min_fma, t_max_fma);
   return;
 }
+
+
+
+static void dim_striding(Tensor a, int dim, DimStrides &strides) {
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
+  strides.outer_size = 1;
+  strides.dim_size = a.size(real_dim);
+  strides.inner_size = 1;
+  for (int i = 0; i < real_dim; ++i) {
+    strides.outer_size *= a.size(i);
+  }
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
+    strides.inner_size *= a.size(i);
+  }
+  strides.dim_stride = strides.inner_size;
+  strides.outer_stride = strides.dim_size * strides.dim_stride;
+}
+
+void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate)
+{
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+  softmax_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), strides,
+                             man_expf, exp_expf,
+                             man_off, exp_off,
+                             man_acc, exp_acc,
+                             man_div, exp_div,
+                             subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate)
+{
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+  softmax_lse_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), strides,
+                             man_expf, exp_expf,
+                             man_off, exp_off,
+                             man_lse, exp_lse,
+                             subnormals, saturate); 
+}
+
+void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate)
+{
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+  softmax_backward_fp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), strides,
+                             man_add, exp_add,
+                             man_mul, exp_mul,
+                             man_div, exp_div,
+                             subnormals, saturate);
+}

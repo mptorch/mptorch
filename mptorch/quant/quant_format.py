@@ -2,7 +2,7 @@ from typing import Optional
 from ..number import Number
 from typing import Union, Optional, Tuple
 
-__all__ = ["QAffineFormats"]
+__all__ = ["QAffineFormats", "QSoftmaxFormats"]
 
 id_quant = lambda x: x
 
@@ -59,7 +59,7 @@ class QAffineFormats:
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
-    
+
     def __repr__(self) -> str:
         out = []
         if self.fwd_use_default_prec:
@@ -82,6 +82,85 @@ class QAffineFormats:
             out.append(f"bwd_rnd={self.bwd_rnd}")
         sep = ", "
         return f"QAffineFormats ({sep.join(out)})"
+    
+    def __str__(self) -> str:
+        return self.__repr__()
+
+class QSoftmaxFormats:
+    def __init__(
+        self,
+        fwd_off: Optional[Number] = None,
+        fwd_exp: Optional[Number] = None,
+        fwd_acc: Optional[Number] = None,
+        fwd_div: Optional[Number] = None,
+        fwd_lse: Optional[Number] = None,
+
+        bwd_add: Optional[Number] = None,
+        bwd_mul: Optional[Number] = None,
+        bwd_div: Optional[Number] = None,
+        
+        fwd_rnd: Optional[str] = "nearest",
+        bwd_rnd: Optional[str] = "nearest",
+        
+        input_quant=id_quant,
+        output_quant=id_quant,
+        grad_quant=id_quant,
+    ) -> None:
+        if fwd_off is not None and fwd_exp is not None:
+            self.fwd_off = fwd_off
+            self.fwd_exp = fwd_exp
+            if fwd_acc is not None and fwd_div is not None:
+                self.fwd_acc = fwd_acc
+                self.fwd_div = fwd_div
+                self.use_lse = False
+            elif fwd_lse is not None:
+                self.fwd_lse = fwd_lse
+                self.use_lse = True
+            else:
+                raise ValueError("Incomplete softmax format, "
+                                 "missing fwd_acc/fwd_div or fwd_lse.")
+            self.fwd_use_default_prec = False
+        else:
+            self.fwd_use_default_prec = True
+        
+        if bwd_add is not None and bwd_mul is not None and bwd_div is not None:
+            self.bwd_add = bwd_add
+            self.bwd_mul = bwd_mul
+            self.bwd_div = bwd_div
+            self.bwd_use_default_prec = False
+        else:
+            self.bwd_use_default_prec = True
+
+        self.fwd_rnd = fwd_rnd
+        self.bwd_rnd = bwd_rnd
+        self.input_quant = input_quant
+        self.output_quant = output_quant
+        self.grad_quant = grad_quant
+    
+    def __repr__(self) -> str:
+        out = []
+        if self.fwd_use_default_prec:
+            out.append("default_fwd")
+        elif self.use_lse:
+            out.append(f"fwd_off={self.fwd_off}")
+            out.append(f"fwd_exp={self.fwd_exp}")
+            out.append(f"fwd_lse={self.fwd_lse}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        else:
+            out.append(f"fwd_off={self.fwd_off}")
+            out.append(f"fwd_exp={self.fwd_exp}")
+            out.append(f"fwd_acc={self.fwd_acc}")
+            out.append(f"fwd_div={self.fwd_div}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+        if self.bwd_use_default_prec:
+            out.append("default_bwd")
+        else:
+            out.append(f"bwd_add={self.bwd_add}")
+            out.append(f"bwd_mul={self.bwd_mul}")
+            out.append(f"bwd_div={self.bwd_div}")
+            out.append(f"bwd_rnd={self.bwd_rnd}")
+        sep = ", "
+        return f"QSoftmaxFormats ({sep.join(out)})"
     
     def __str__(self) -> str:
         return self.__repr__()

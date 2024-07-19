@@ -449,3 +449,156 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
                               bool saturate) {
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
+
+// Uses the standard softmax formula e^xi/sum(e^xj)
+// Returns ouput tensor of softmaxxed and quantized values
+void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                            int man_expf, int exp_expf,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            int man_div, int exp_div,
+                                            bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o_array = o.data_ptr<float>();
+
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+
+  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
+    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
+  };
+
+  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
+    int outer_idx = i / strides.inner_size;
+    int inner_idx = i % strides.inner_size;
+
+    // Get beginning pointers to the row being softmaxed
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* output = o_array + base_index;
+  
+    // Get the maximum of the current row being softmaxed.
+    // This ensures no overflow and more stable exponentials.
+    float max = input[0];
+    for (int k = 1; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      max = fmaxf(max, input[idx]);
+    }
+
+    // Calculate the sum and store quantized values of exp(input) into output
+    float sum = 0.0f;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      float x = quant(input[idx] - max, man_off, exp_off);
+      float e_x = quant(expf(x), man_expf, exp_expf);
+      output[idx] = e_x;
+      sum = quant(sum + e_x, man_acc, exp_acc);
+    }
+    // Divide all outputs by the current sum
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      output[idx] = quant(output[idx] / sum, man_div, exp_div);
+    }
+  }
+}
+
+// Uses the LogSumExp formula to compute softmax without divisions
+// Returns ouput tensor of softmaxxed and quantized values
+void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                                int man_expf, int exp_expf,
+                                                int man_off, int exp_off,
+                                                int man_lse, int exp_lse,
+                                                bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o_array = o.data_ptr<float>();
+
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+
+  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
+    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
+  };
+
+  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
+    int outer_idx = i / strides.inner_size;
+    int inner_idx = i % strides.inner_size;
+
+    // Get beginning pointers to the row being softmaxed
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* output = o_array + base_index;
+
+    // Get the maximum of the current row being softmaxed.
+    // This ensures no overflow and more stable exponentials.
+    // Index of maximum is saved for later.;
+    float max = input[0];
+    for (int k = 1; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      max = fmaxf(max, input[idx]);
+    }
+
+    // Calculate LogSumExp
+    float x0 = quant(input[0] - max, man_off, exp_off);
+    output[0] = x0;
+    float lgs = x0; // = log(exp(x[0] - max))
+    for (int k = 1; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      float x = quant(input[idx] - max, man_off, exp_off);
+      output[idx] = x;
+      lgs = quant(logf(expf(lgs) + expf(x)), man_lse, exp_lse);
+    }
+    // Compute output tensor elements
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      float x = quant(output[idx] - lgs, man_off, exp_off);
+      output[idx] = quant(expf(x), man_expf, exp_expf);
+    }
+  }
+}
+
+
+void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                             int man_add, int exp_add,
+                                             int man_mul, int exp_mul,
+                                             int man_div, int exp_div,
+                                             bool subnormals, bool saturate)
+{
+  auto g_array = g.data_ptr<float>();
+  auto a_array = a.data_ptr<float>();
+  auto o_array = o.data_ptr<float>();
+
+  DimStrides strides;
+  dim_striding(a, dim, strides);
+
+  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
+    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
+  };
+
+  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
+    int outer_idx = i / strides.inner_size;
+    int inner_idx = i % strides.inner_size;
+
+    int base_index = outer_idx * strides.outer_stride + inner_idx;
+    float* input = a_array + base_index;
+    float* grad = g_array + base_index;
+    float* output = o_array + base_index;
+
+    float input_sum = 0.f;
+    float weighted_grad_sum = 0.f;
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      input_sum = quant(input_sum + input[idx], man_add, exp_add);
+      float prod = quant(input[idx] * grad[idx], man_mul, exp_mul);
+      weighted_grad_sum = quant(weighted_grad_sum + prod, man_add, exp_add);
+    }
+
+    for (int k = 0; k < strides.dim_size; ++k) {
+      int idx = k * strides.dim_stride;
+      float a = quant(grad[idx] - weighted_grad_sum, man_add, exp_add);
+      float b = quant(a * input[idx], man_mul, exp_mul);
+      output[idx] = quant(b / input_sum, man_div, exp_div);
+    }
+  }
+}
