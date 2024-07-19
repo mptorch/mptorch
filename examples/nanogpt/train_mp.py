@@ -70,7 +70,8 @@ for field in QGPTConfig.__dataclass_fields__.values():
 
 
 # -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str, type(None)))]
+_allowed_types = (int, float, bool, str, type(None), tuple)
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, _allowed_types)]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------

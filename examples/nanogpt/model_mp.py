@@ -23,39 +23,61 @@ from mptorch import FloatingPoint
 from mptorch.quant import float_quantize
 
 
+@dataclass
+class QGPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    # quantization
+    subnormals: bool = True
+    saturate: bool = False
+    rounding: str = "nearest"
+    mac_fwd_fmt: tuple[int, int] | None = None # (exp, man)
+    mac_bwd_fmt: tuple[int, int] | None = None
+    affine_input_fmt: tuple[int, int] | None = None
+    affine_output_fmt: tuple[int, int] | None = None
+    affine_grad_fmt: tuple[int, int] | None = None
+    weight_fmt: tuple[int, int] | None = None
+    bias_fmt: tuple[int, int] | None = None
+    softmax_input_fmt: tuple[int, int] | None = None
+    softmax_output_fmt: tuple[int, int] | None = None
+
+
 # -----------------------------------------------------------------------------
 def make_float(config, fmt_name):
-    man = config.__dict__[f"man_{fmt_name}"]
-    exp = config.__dict__[f"exp_{fmt_name}"]
-    if man is None or exp is None:
+    fmt = config.__dict__[fmt_name]
+    if fmt is None:
         return None
+    exp, man = fmt
     return FloatingPoint(exp=exp, man=man,
                          subnormals=config.subnormals,
                          saturate=config.saturate)
 
 def make_quant(config, fmt_name):
-    man = config.__dict__[f"man_{fmt_name}"]
-    exp = config.__dict__[f"exp_{fmt_name}"]
-    if man is None or exp is None:
+    fmt = config.__dict__[fmt_name]
+    if fmt is None:
         return lambda x: x
-    else:
-        return lambda x: float_quantize(x, exp, man, rounding="nearest",
-                                        subnormals=config.subnormals,
-                                        saturate=config.saturate)
+    exp, man = fmt
+    return lambda x: float_quantize(x, exp, man, rounding=config.rounding,
+                                    subnormals=config.subnormals,
+                                    saturate=config.saturate)
 def make_affine_formats(config):
     return QAffineFormats(
-        fwd_mac=make_float(config, "mac"),
-        bwd_mac=make_float(config, "mac"),
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
-        weight_quant=make_quant(config, "param"),
-        bias_quant=make_quant(config, "param"),
-        input_quant=make_quant(config, "affine_input"),
-        output_quant=make_quant(config, "affine_output"),
-        grad_quant=make_quant(config, "affine_grad")
+        fwd_mac=make_float(config, "mac_fwd_fmt"),
+        bwd_mac=make_float(config, "mac_bwd_fmt"),
+        fwd_rnd=config.rounding,
+        bwd_rnd=config.rounding,
+        weight_quant=make_quant(config, "weight_fmt"),
+        bias_quant=make_quant(config, "bias_fmt"),
+        input_quant=make_quant(config, "affine_input_fmt"),
+        output_quant=make_quant(config, "affine_output_fmt"),
+        grad_quant=make_quant(config, "affine_grad_fmt")
     )
 # -----------------------------------------------------------------------------
-
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -88,8 +110,8 @@ class CausalSelfAttention(nn.Module):
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                     .view(1, 1, config.block_size, config.block_size))
-        self.softmax_input_q = Quantizer(forward_number=make_float(config, "softmax_input"))
-        self.softmax_output_q = Quantizer(forward_number=make_float(config, "softmax_output"))
+        self.softmax_input_q = Quantizer(forward_number=make_float(config, "softmax_input_fmt"))
+        self.softmax_output_q = Quantizer(forward_number=make_float(config, "softmax_output_fmt"))
         self.affine_formats = make_affine_formats(config)
 
     def forward(self, x):
@@ -152,32 +174,6 @@ class Block(nn.Module):
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
-
-@dataclass
-class QGPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    man_mac: int | None = None
-    exp_mac: int | None = None
-    man_affine_input: int | None = None
-    exp_affine_input: int | None = None
-    man_affine_output: int | None = None
-    exp_affine_output: int | None = None
-    man_affine_grad: int | None = None
-    exp_affine_grad: int | None = None
-    man_param: int | None = None
-    exp_param: int | None = None
-    man_softmax_input: int | None = None
-    exp_softmax_input: int | None = None
-    man_softmax_output: int | None = None
-    exp_softmax_output: int | None = None
-    subnormals: bool = True
-    saturate: bool = False
 
 class QGPT(nn.Module):
 
