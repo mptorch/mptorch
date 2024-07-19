@@ -19,10 +19,11 @@ def mac_format():
     return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
 @pytest.mark.parametrize("device", available_devices)
-def test_qlinear_custom_mm(device, mac_format, signal_q):
+@pytest.mark.parametrize("quant_fwd,quant_bwd", [(True, True), (False, True), (True, False)])
+def test_qlinear_custom_mm(device, mac_format, signal_q, quant_fwd, quant_bwd):
     formats_q = qt.QAffineFormats(
-        fwd_mac=(mac_format, mac_format),
-        bwd_mac=(mac_format, mac_format),
+        fwd_mac=(mac_format, mac_format) if quant_fwd else None,
+        bwd_mac=(mac_format, mac_format) if quant_bwd else None,
         fwd_rnd="nearest",
         bwd_rnd="nearest",
         weight_quant=signal_q,
