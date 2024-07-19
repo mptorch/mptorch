@@ -118,8 +118,8 @@ args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 
-rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
+rounding = "nearest"
 fma_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, saturate=False)
 w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
