@@ -9,29 +9,23 @@ from tests.markers import requires_cuda
 import pytest
 
 @requires_cuda
-def test_mm_if32_of32_cf32_p():
+@pytest.mark.parametrize("mac_format,cublas_types,rtol_ref,rtol_mp", [
+    ((23, 8, 23, 8), (mt.F32, mt.F32, ct.F32), 1e-7, 1e-5),
+    ((10, 5, 10, 5), (mt.F16, mt.F16, ct.F16), 1e-2, 1e-1),
+    ((23, 8, 10, 8), (mt.F32, mt.F32, ct.F32_FAST_TF32), 1e-3, 1e-3),
+])
+def test_cublas_mm(mac_format, cublas_types, rtol_ref, rtol_mp):
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
-    res_cublas = cublas_mm(a, b, mt.F32, mt.F32, ct.F32, True)
-    res_mp = float_mm(a, b, 23, 8, 23, 8)
+    res_cublas = cublas_mm(a, b, *cublas_types, True)
+    res_mp = float_mm(a, b, *mac_format)
     assert res_cublas.dtype == torch.float32
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
+    assert_close(res_cublas, ref, atol=0.0, rtol=rtol_ref)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=rtol_mp)
 
 @requires_cuda
-def test_mm_if16_of16_cf16_p():
-    a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
-    b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
-    ref = torch.mm(a, b)
-    res_cublas = cublas_mm(a, b, mt.F16, mt.F16, ct.F16, True)
-    res_mp = float_mm(a, b, 10, 5, 10, 5)
-    assert res_cublas.dtype == torch.float32
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-2)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
-
-@requires_cuda
-def test_mm_if16_of16_cf16vsf32_p():
+def test_cublas_mm_if16_of16_cf16vsf32():
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
@@ -42,87 +36,68 @@ def test_mm_if16_of16_cf16vsf32_p():
     assert err_f32 < err_f16
 
 @requires_cuda
-def test_mm_if32_of32_ctf32():
+@pytest.mark.parametrize("mac_format,cublas_types,rtol_ref,rtol_mp", [
+    ((23, 8, 23, 8), (mt.F32, mt.F32, ct.F32), 1e-7, 1e-5),
+    ((10, 5, 10, 5), (mt.F16, mt.F16, ct.F16), 1e-1, 1e-1),
+])
+def test_cublas_bmm_2_2(mac_format, cublas_types, rtol_ref, rtol_mp):
     a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.mm(a, b)
-    res_cublas = cublas_mm(a, b, mt.F32, mt.F32, ct.F32_FAST_TF32, False)
-    res_mp = float_mm(a, b, 23, 8, 10, 8)
-    assert res_cublas.dtype == torch.float32
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-3)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-3)
-
-@requires_cuda
-def test_bmm_if32_of32_cf32_p_2_2():
-    a = torch.rand(277, 1501, dtype=torch.float32, device="cuda")
-    b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
-    ref = torch.mm(a, b)
-    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_cublas = cublas_bmm(a, b, *cublas_types, True)
+    res_mp = float_bmm(a, b, *mac_format)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
+    assert_close(res_cublas, ref, atol=0.0, rtol=rtol_ref)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=rtol_mp)
 
 @requires_cuda
-def test_bmm_if32_of32_cf32_p_3_2():
+@pytest.mark.parametrize("mac_format,cublas_types,rtol_ref,rtol_mp", [
+    ((23, 8, 23, 8), (mt.F32, mt.F32, ct.F32), 1e-7, 1e-5),
+    ((10, 5, 10, 5), (mt.F16, mt.F16, ct.F16), 1e-1, 1e-1),
+])
+def test_cublas_bmm_3_2(mac_format, cublas_types, rtol_ref, rtol_mp):
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b.repeat(169, 1, 1))
-    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_cublas = cublas_bmm(a, b, *cublas_types, True)
+    res_mp = float_bmm(a, b, *mac_format)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
+    assert_close(res_cublas, ref, atol=0.0, rtol=rtol_ref)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=rtol_mp)
 
 @requires_cuda
-def test_bmm_if32_of32_cf32_p_3_3():
+@pytest.mark.parametrize("mac_format,cublas_types,rtol_ref,rtol_mp", [
+    ((23, 8, 23, 8), (mt.F32, mt.F32, ct.F32), 1e-7, 1e-5),
+    ((10, 5, 10, 5), (mt.F16, mt.F16, ct.F16), 1e-1, 1e-1),
+])
+def test_cublas_bmm_3_3(mac_format, cublas_types, rtol_ref, rtol_mp):
     a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a, b)
-    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_cublas = cublas_bmm(a, b, *cublas_types, True)
+    res_mp = float_bmm(a, b, *mac_format)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-7)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-5)
+    assert_close(res_cublas, ref, atol=0.0, rtol=rtol_ref)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=rtol_mp)
 
 @requires_cuda
-def test_bmm_if16_of16_cf16_p_3_3():
-    a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
-    b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
-    ref = torch.bmm(a, b)
-    res_cublas = cublas_bmm(a, b, mt.F16, mt.F16, ct.F16, True)
-    res_mp = float_bmm(a, b, 10, 5, 10, 5)
-    assert res_cublas.dtype == torch.float32
-    assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
-
-@requires_cuda
-def test_bmm_ibf16_obf16_cf32_p_3_3():
-    a = torch.rand(169, 277, 1501, dtype=torch.float32, device="cuda")
-    b = torch.rand(169, 1501, 984, dtype=torch.float32, device="cuda")
-    ref = torch.bmm(a, b)
-    res_cublas = cublas_bmm(a, b, mt.BF16, mt.BF16, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 7, 8)
-    assert res_cublas.dtype == torch.float32
-    assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
-
-@requires_cuda
-def test_bmm_if32_of32_cf32_p_4_4():
+@pytest.mark.parametrize("mac_format,cublas_types,rtol_ref,rtol_mp", [
+    ((23, 8, 23, 8), (mt.F32, mt.F32, ct.F32), 1e-7, 1e-5),
+    ((10, 5, 10, 5), (mt.F16, mt.F16, ct.F16), 1e-1, 1e-1),
+])
+def test_cublas_bmm_4_4(mac_format, cublas_types, rtol_ref, rtol_mp):
     a = torch.rand(9, 5, 277, 1501, dtype=torch.float32, device="cuda")
     b = torch.rand(9, 5, 1501, 984, dtype=torch.float32, device="cuda")
     ref = torch.bmm(a.reshape(9*5, 277, 1501), b.reshape(9*5, 1501, 984)).reshape(9, 5, 277, 984)
-    res_cublas = cublas_bmm(a, b, mt.F32, mt.F32, ct.F32, True)
-    res_mp = float_bmm(a, b, 23, 8, 23, 8)
+    res_cublas = cublas_bmm(a, b, *cublas_types, True)
+    res_mp = float_bmm(a, b, *mac_format)
     assert res_cublas.dtype == torch.float32
     assert res_cublas.shape == ref.shape
-    assert_close(res_cublas, ref, atol=0.0, rtol=1e-1)
-    assert_close(res_cublas, res_mp, atol=0.0, rtol=1e-1)
+    assert_close(res_cublas, ref, atol=0.0, rtol=rtol_ref)
+    assert_close(res_cublas, res_mp, atol=0.0, rtol=rtol_mp)
 
 @requires_cuda
 def test_mm_type_error():
