@@ -11,55 +11,134 @@ nvcc -O3 nv_bfloat16.cu -o nv_bfloat16 -std=c++17 -lcublas
 #include <cuda_bf16.h>
 #include "common.h"
 
-__host__ __device__ float cast_bfloat16_nearest(float origin_float) {
-    uint32_t bits;
+// ---------------------------------------------------------------------------------------
+// CPU + GPU kernels
+__host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, int man_bits)
+{
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    uint32_t machine_eps = 1 << (22 - man_bits);
+    // tie breaking rule offset
+    int offset = (down == machine_eps);
+    uint32_t add_r = target + machine_eps;
+    // apply the mask
+    // this is the analogue of how you would do round
+    // to nearest integer using the floor function:
+    // round(x) = floor(x + 0.5)
+    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+}
 
-    bits = FLOAT_TO_BITS(&origin_float);
-    
-    int32_t exp = ((bits >> 23) & 0xFF) - 127;  // unbiased exponent
-    uint32_t sign = (bits >> 31) & 1;           // sign bit
-    uint32_t mant = (bits & 0x7FFFFF);          // mantissa
-    
-    uint32_t outbits;
-    
-    float out;
-    
-    if(exp == 128) { // infinity or NaN, 128 is inf/nan, 2^(8-1) -1 = 127 is emax for IEEE 754
-        // return the input unchanged
-        return origin_float;
+__host__ __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
+                                                        uint32_t quantized_num, bool saturate = false)
+{
+    if (quantized_num == 0)
+        return quantized_num;
+
+    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) - man_bits + 127;
+
+    uint32_t old_sign = old_num >> 31 << 31;
+    // underflow or round to smallest non zero subnormal value
+    if (quantized_exponent_store < min_exponent_store)
+    {
+        int offset = (quantized_exponent_store == (min_exponent_store - 1));
+        quantized_num += offset * (1u << 23);
+        quantized_num = quantized_num | old_sign;
+        quantized_num = offset * quantized_num;
     }
-    
-    if((mant & 0x1FFFF) == 0x8000) { // round to nearest even tie round down, 1ffff is bottom 23 - 7 + 1 = 17 bits of the mantissa, 8000 is the tie point
-    
-        mant = mant & 0x7F0000; // truncate mantissa, 7f0000 is top 7 bits of mantissa
-        exp = exp + 127;        // add bias
-        outbits = (sign << 31 | exp << 23 | mant);
-        out = BITS_TO_FLOAT(&outbits);
-        return out;
+    return quantized_num;
+}
+
+__host__ __device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
+                                                           uint32_t quantized_num, bool saturate = false)
+{
+    if (quantized_num == 0)
+        return quantized_num;
+
+    int old_exponent_store = old_num << 1 >> 24;
+    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
+    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
+
+    uint32_t old_sign = old_num >> 31 << 31;
+    // saturate or overflow
+    if (quantized_exponent_store > max_exponent_store)
+    {
+        if (saturate)
+        {
+            uint32_t max_man =
+                (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+            uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
+            quantized_num = old_sign | max_num;
+        }
+        else
+        {
+            quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
+            quantized_num = quantized_num | old_sign;
+        }
+    } // underflow or round to smallest nonzero normal value
+    else if (old_exponent_store < min_exponent_store)
+    {
+        uint32_t offset = (old_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > 0);
+        quantized_num = offset * (min_exponent_store << 23);
+        quantized_num |= old_sign;
+    }
+    return quantized_num;
+}
+
+__host__ __device__ float cast_fp_nearest_impl1(float origin_float, int man_bits, int exp_bits,
+                                       bool subnormal_support = true,
+                                       bool saturate = false)
+{
+    uint32_t target, quantize_bits;
+    target = FLOAT_TO_BITS(&origin_float);
+    float quantized;
+
+    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int min_exp = -((1 << (exp_bits - 1)) - 2);
+    bool subnormal = (target_exp < min_exp);
+    bool noquantize = (man_bits >= 23);
+
+    if (noquantize)
+    {
+        quantized = origin_float;
+    }
+    else
+    {
+        // handle subnormal inputs (if subnormal mode is active)
+        if (subnormal && subnormal_support)
+        {
+            int exp_diff = man_bits - (min_exp - target_exp);
+            int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+            quantize_bits = not_uflow * round_bitwise_nearest_impl(target, exp_diff);
+            quantize_bits =
+                clip_subnormal_range_exponent_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = BITS_TO_FLOAT(&quantize_bits);
+        }
+        // handle NaN/inf inputs
+        else if (target_exp == 128)
+        {
+            quantized = origin_float;
+        }
+        // normal value range or overflow
+        else
+        {
+            quantize_bits = round_bitwise_nearest_impl(target, man_bits);
+            quantize_bits =
+                clip_normal_range_exponent_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = BITS_TO_FLOAT(&quantize_bits);
+        }
     }
 
-    mant = mant + (1 << (23 - 1 - 7)); // round to nearest
-
-    if((mant >> 23) == 1) { // if overflow through rounding
-        mant = 0;      // truncate mantissa
-        exp = exp + 1; // add bias
-    }
-    mant = mant & 0x7F0000; // truncate mantissa
-
-    exp = exp + 127; // add bias
-    outbits = (sign << 31 | exp << 23 | mant);
-    out = BITS_TO_FLOAT(&outbits);
-    return out;
+    return quantized;
 }
 
 // ---------------------------------------------------------------------------------------
 // CPU reference
 void quantize_bfloat16_custom_cpu(const float *input, float *output, int N) {
     for (int i = 0; i < N; i++) {
-        output[i] = cast_bfloat16_nearest(input[i]);
+        output[i] = cast_fp_nearest_impl1(input[i], 7, 8, true, false);
     }
 }
-
 
 // ---------------------------------------------------------------------------------------
 // CUDA kernels
@@ -68,7 +147,7 @@ void quantize_bfloat16_custom_cpu(const float *input, float *output, int N) {
 __global__ void quantize_bfloat16_custom_kernel(const float *input, float *output, int N) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if(i >= N) return;
-    output[i] = cast_bfloat16_nearest(input[i]);
+    output[i] = cast_fp_nearest_impl1(input[i], 7, 8, true, false);
 }
 
 void quantize_bfloat16_custom_cuda(const float *input, float *output, int N, int block_size) {
@@ -94,9 +173,6 @@ __global__ void quantize_bfloat16_2_nvidia_kernel(const float *input, float *out
     if(2*i >= N) return;
     if(2*i < N-1) {
         __nv_bfloat162 bf2 = __floats2bfloat162_rn(input[2*i], input[2*i+1]);
-        // float2 f2 = __bfloat1622float2(bf2); // not found by compiler but exists in documentation?
-        // output[2*i] = f2.x;
-        // output[2*i+1] = f2.y;
         output[2*i] = __bfloat162float(bf2.x);
         output[2*i+1] = __bfloat162float(bf2.y);
     } else {
