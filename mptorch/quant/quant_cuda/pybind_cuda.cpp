@@ -105,18 +105,6 @@ Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy
       return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
-Tensor bfloat16_quantize_nearest(Tensor a)
-{
-      CHECK_INPUT(a);
-      return bfloat16_quantize_nearest_cuda(a);
-}
-
-Tensor bfloat16_quantize_stochastic(Tensor a, int prng_bits)
-{
-      CHECK_INPUT(a);
-      return bfloat16_quantize_stochastic_cuda(a, prng_bits);
-}
-
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_mul, int exp_mul, int man_add,
                                int exp_add, bool subnormals, bool saturate)
@@ -367,12 +355,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "(CUDA)");
       m.def("binary8_quantize_nearest", &binary8_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
-
-      m.def("bfloat16_quantize_nearest", &bfloat16_quantize_nearest,
-            "Bfloat16 Floating-Point Number Nearest Quantization (CUDA)");
-
-      m.def("bfloat16_quantize_stochastic", &bfloat16_quantize_stochastic,
-            "Bfloat16 Floating-Point Number Stochastic Quantization (CUDA)");
 
       py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
             .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)

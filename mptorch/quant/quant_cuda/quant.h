@@ -105,18 +105,6 @@ Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPo
 
 
 /**
- * quantize a FloatTensor into a bfloat16-compliant floating point Tensor.
- */
-Tensor bfloat16_quantize_nearest_cuda(Tensor a);
-
-/**
- * quantize a FloatTensor into a bfloat16-compliant floating point Tensor.
- * Stochastic Rounding.
- */
-Tensor bfloat16_quantize_stochastic_cuda(Tensor a, int prng_bits);
-
-
-/**
  * quantize a FloatTensor into a P3109-compliant floating point
  * Tensor (signed or unsigned version, with or without subnormal support)
  * with [P] precision bits.

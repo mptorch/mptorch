@@ -54,11 +54,6 @@ __global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, 
 __global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
                                                  int P, OverflowPolicy overflow_policy, bool subnormals);
 
-__global__ void bfloat16_kernel_nearest(float *__restrict__ a, float *o, int size);
-
-__global__ void bfloat16_kernel_stochastic(float *__restrict__ a, int *__restrict__ r,
-                                           float *o, int size, int prng_bits);
-
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
                                         float *__restrict__ max_entry,

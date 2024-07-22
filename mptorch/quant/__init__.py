@@ -9,7 +9,6 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "binary8_quantize",
-    "bfloat16_quantize",
     "superfp_quantize",
     "quantizer",
     "QAvgPool2d",

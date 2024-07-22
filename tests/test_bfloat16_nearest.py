@@ -1,5 +1,5 @@
 import torch
-from mptorch.quant import bfloat16_quantize
+from mptorch.quant import float_quantize
 import struct
 import numpy as np
 import random
@@ -25,7 +25,7 @@ def test_bfloat16():
     if no_cuda():
         return
     
-    quant = lambda x: bfloat16_quantize(x, "nearest")
+    quant = lambda x: float_quantize(x, 8, 7, "nearest", True, False)
     # normal
     assert_quant([[20.0625,20.06251],[20.0625,20.06251]], [[20.0,20.125],[20.0,20.125]], quant)
 
@@ -37,6 +37,7 @@ def test_bfloat16():
     # assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
     # assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
     # assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
+
     assert_quant([float('inf')], [float('inf')], quant)
     assert_quant([-float('inf')], [-float('inf')], quant)
 
