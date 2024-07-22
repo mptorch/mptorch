@@ -196,14 +196,6 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
     }
   } 
 
-  // if(exp_bits == 8 && overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=1
-  //     special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
-  // }else if (exp_bits == 7 &&  man_bits == 1 && overflow_policy == OverflowPolicy::OVERFLOW_INFTY){ // unsigned and p=2 
-  //     special_unsigned_exp = 1; // 1 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 1 
-  // }else if(exp_bits + man_bits == 8){ // unsigned
-  //     max_man = ((1u << man_bits) - 3u) << (23 - man_bits); // 2+ bit of mantissa so the max value is 0xfd = max_exp | max_mantissa - 1 
-  // }
-
   // Special because in unsigned we want our min to be 1 less because the space is taken by the Nan
   int quantized_exponent_store = (quantized_num << 1 >> 24);
   int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127 - special_unsigned_exp; 

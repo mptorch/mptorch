@@ -55,8 +55,7 @@ class QLinear(nn.Linear):
     ) -> None:
         super(QLinear, self).__init__(in_features, out_features, bias)
         self.formats = formats
-        # self.quant_parameters()
-        self.params_are_quantized = False
+        self.quant_parameters()
         self.reset_quant_function()
 
     def reset_quant_function(self):
@@ -87,16 +86,12 @@ class QLinear(nn.Linear):
         return round.apply
 
     def forward(self, input):
-        if not self.params_are_quantized: # nazar
-            self.quant_parameters()
-            self.params_are_quantized = True
         if self.formats.fwd_use_default_prec and self.formats.bwd_use_default_prec:
             return self.Qo(
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )
         else:
             return qlinear(input, self.weight, self.bias, self.formats)
-
 
 class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
     r"""A linear module where `in_features` is inferred.
