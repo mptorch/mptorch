@@ -133,9 +133,9 @@ parser.add_argument(
 parser.add_argument(
     "--overflow_policy",
     type=str,
-    default="saturate_er",
+    default="saturate_maxfloat",
     metavar="N",
-    help="saturate_infty, saturate_er, saturate_re"
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
 )
 
 # name of wandb project run will be in

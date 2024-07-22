@@ -43,7 +43,7 @@ def test_binary8_to_gfloat():
         while i_uival <= max_val_uival:
             i_fval = bits_to_float(i_uival)
 
-            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate_er", True, True)
+            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate_maxfloat", True, True)
             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
             result1 = result1.cpu() 
 
@@ -52,11 +52,11 @@ def test_binary8_to_gfloat():
             assert result1.equal(expected) or np.isnan(result1)
             i_uival += 16384 #8192
 
-def test_binary8p1_saturate_er():
+def test_binary8p1_saturate_maxfloat():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate_er", True, True)
+    quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate_maxfloat", True, True)
     # normal
     assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]], quant)
 
@@ -71,11 +71,11 @@ def test_binary8p1_saturate_er():
     assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant)
     assert_quant([-float('inf')], b2f(0b11011111000000000000000000000000), quant)
 
-def test_binary8p2_saturate_er():
+def test_binary8p2_saturate_maxfloat():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate_er", True, True)
+    quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate_maxfloat", True, True)
     # normal
     assert_quant([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]], [[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]], quant)
 
@@ -91,11 +91,11 @@ def test_binary8p2_saturate_er():
     assert_quant([float('inf')], b2f(0b01001111000000000000000000000000), quant)
     assert_quant([-float('inf')], b2f(0b11001111000000000000000000000000), quant) 
 
-def test_binary8p3_saturate_er():
+def test_binary8p3_saturate_maxfloat():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_er", True, True)
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat", True, True)
     # normal
     assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
 
@@ -111,11 +111,11 @@ def test_binary8p3_saturate_er():
     assert_quant([float('inf')], b2f(0b01000111010000000000000000000000), quant)
     assert_quant([-float('inf')], b2f(0b11000111010000000000000000000000), quant) 
 
-def test_binary8p3_saturate_re():
+def test_binary8p3_saturate_maxfloat2():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_re", True, True)
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat2", True, True)
     # normal
     assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
 
@@ -155,7 +155,7 @@ def test_no_subnormal_case():
     if no_cuda():
         return
 
-    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_er", True, False)
+    quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat", True, False)
 
     assert_quant(float(1.9E-5), float(1.907348633E-5), quant)
     assert_quant(float(2.3E-5), float(2.288818359E-5), quant)
@@ -198,7 +198,7 @@ def test_binary8_signed_nearest():
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
                 num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
-                result = binary8_quantize(num_tensor, P, "nearest", "saturate_er", True, True)
+                result = binary8_quantize(num_tensor, P, "nearest", "saturate_maxfloat", True, True)
                 result1 = result.cpu() 
 
                 distance = (random_float - previous_fval) / (i_fval - previous_fval)

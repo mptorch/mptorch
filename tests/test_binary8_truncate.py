@@ -22,7 +22,7 @@ def test_binary8p1():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 1, "truncate", "saturate_er", True, True)
+    quant = lambda x: binary8_quantize(x, 1, "truncate", "saturate_maxfloat", True, True)
     # normal
     assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[1.0,2.2737368E-13],[6.7108864e+07,-4.7683716e-07]], quant)
 
@@ -42,7 +42,7 @@ def test_binary8p4():
     if no_cuda():
         return
     
-    quant = lambda x: binary8_quantize(x, 4, "truncate", "saturate_er", True, True)
+    quant = lambda x: binary8_quantize(x, 4, "truncate", "saturate_maxfloat", True, True)
     # normal
     assert_quant([[1.5,165.65200],[0.0550651,-0.0685105]], [[1.5,160.0],[0.0546875,-0.0625]], quant)
 

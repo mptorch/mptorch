@@ -27,7 +27,7 @@ def test_binary8_signed_stochastic():
     num = 2.1
 
     num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
-    result = binary8_quantize(num_tensor, P, "stochastic", "saturate_er", True, True, prng_bits)
+    result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
     for x in range(result.numel()):
         if result[x].item() == 2.5:
@@ -61,7 +61,7 @@ def test_binary8_signed_stochastic_subnormal():
     print(num)
 
     num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
-    result = binary8_quantize(num_tensor, P, "stochastic", "saturate_er", True, True, prng_bits)
+    result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
     for x in range(result.numel()):
         print(result[x].item())
@@ -116,7 +116,7 @@ def test_binary8_signed_constant():
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
                 num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
-                result = binary8_quantize(num_tensor, P, "stochastic", "saturate_er", True, True, prng_bits)
+                result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
                 result1 = result.cpu() 
 
                 rnd_up = 0
@@ -149,7 +149,7 @@ def test_binary8_signed_stochastic_constant():
     prng_bits = 23 - (P - 1)
     for i in values:
         num_tensor = torch.full((iterations,), i, dtype=torch.float32, device="cuda")
-        result = binary8_quantize(num_tensor, P, "stochastic", "saturate_er", True, True, prng_bits)
+        result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
         for x in range(result.numel()):
             # print(result[x].item())
@@ -182,7 +182,7 @@ def test_binary8_signed_stochastic_all_vals():
             # prob_down = (rand - values[i])/(values[i+1] - values[i])
 
             num_tensor = torch.full((iterations,), rand, dtype=torch.float32, device="cuda")
-            result = binary8_quantize(num_tensor, P, "stochastic", "saturate_er", True, True, prng_bits)
+            result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
             print("Lower: " + str(values[i]) + " | Rand Val: " + str(rand) + " | Upper: " + str(values[i+1]))
             for x in range(result.numel()):
                 # print("Num:" + str(result[x].item()))

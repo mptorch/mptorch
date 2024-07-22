@@ -24,8 +24,8 @@ maintaining readability; bit shifts and masking are used aplenty
 
 enum class OverflowPolicy {
     SATURATE_INFTY,
-    SATURATE_ER,
-    SATURATE_RE
+    SATURATE_MAXFLOAT,
+    SATURATE_MAXFLOAT2
 };
 
 // --------------------------------------------------------------------------------------
@@ -54,11 +54,11 @@ uint32_t binary8_clip_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
 
   max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits); // max mantissa = 0xfe in the normal case
 
-  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
+  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_MAXFLOAT2){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
   
-  if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
+  if(overflow_policy != OverflowPolicy::SATURATE_MAXFLOAT2){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
     }else if (exp_bits == 7 && man_bits == 1){ // unsigned and p=2 
@@ -243,11 +243,11 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
   max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits); // max mantissa = 0xfe in the normal case
 
-  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
+  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_MAXFLOAT2){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
   
-  if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
+  if(overflow_policy != OverflowPolicy::SATURATE_MAXFLOAT2){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
     }else if (exp_bits == 7 && man_bits == 1){ // unsigned and p=2 
@@ -464,7 +464,7 @@ int main(int argc, const char **argv)
     int P = 3;
     int prng_bits = 20;
     bool subnormals = true;
-    OverflowPolicy overflow_policy = OverflowPolicy::SATURATE_ER;
+    OverflowPolicy overflow_policy = OverflowPolicy::SATURATE_MAXFLOAT;
 
     float *x = (float*)malloc(1000 * sizeof(float));
     int *r = (int *)malloc(1000 * sizeof(int)); // numbers added to round

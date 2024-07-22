@@ -1815,7 +1815,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_er", is_signed=True, subnormals=True, prng_bits=0):
+def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloat", is_signed=True, subnormals=True, prng_bits=0):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -1831,9 +1831,9 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_er", is
     Overflow Policies:
         - "saturate_infty": Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float.
                             Infinite inputs will still map to infinities in this mode.
-        - "saturate_er": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+        - "saturate_maxfloat": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
                                          to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
-        - "saturate_re": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+        - "saturate_maxfloat2": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
                                          to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
 
 
@@ -1846,14 +1846,14 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_er", is
     assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
         rounding
     )
-    assert overflow_policy in ["saturate_infty", "saturate_er", "saturate_re"], "invalid overflow policy, {}".format(
+    assert overflow_policy in ["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"], "invalid overflow policy, {}".format(
         overflow_policy
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
     saturation_enum = {
         "saturate_infty": OverflowPolicy.SATURATE_INFTY,
-        "saturate_er": OverflowPolicy.SATURATE_ER,
-        "saturate_re": OverflowPolicy.SATURATE_RE,
+        "saturate_maxfloat": OverflowPolicy.SATURATE_MAXFLOAT,
+        "saturate_maxfloat2": OverflowPolicy.SATURATE_MAXFLOAT2,
     }[overflow_policy]
 
     quant_module = get_module(x)

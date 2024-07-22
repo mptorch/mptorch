@@ -181,11 +181,11 @@ binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t qua
 
   max_man = (((1u << man_bits) - 1u) & ~1u) << (23 - man_bits); // max mantissa = 0xfe in the normal case
 
-  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_RE){  // if signed and policy maxfloat_real then max mantissa = 0xff   
+  if (exp_bits + man_bits == 7 && overflow_policy == OverflowPolicy::SATURATE_MAXFLOAT2){  // if signed and policy maxfloat_real then max mantissa = 0xff   
     max_man = ((1u << man_bits) - 1u) << (23 - man_bits);
   }
   
-  if(overflow_policy != OverflowPolicy::SATURATE_RE){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
+  if(overflow_policy != OverflowPolicy::SATURATE_MAXFLOAT2){ // if we are not in OVERFLOW_MAXFLOAT_REALS policy :
     if(exp_bits == 8){ // unsigned and p=1
         special_unsigned_exp = 1; // 0 bit of mantissa so the max value 0xfd = max_exp - 1 | mantissa = 0
     }else if (exp_bits == 7 && man_bits == 1){ // unsigned and p=2 
