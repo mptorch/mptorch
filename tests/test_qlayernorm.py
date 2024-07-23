@@ -2,7 +2,7 @@ import torch
 import pytest
 from torch.nn import functional as F
 from mptorch import FloatingPoint
-from mptorch.quant import QAffineFormats
+from mptorch.quant import QLayerNormFormats
 from mptorch.quant import float_quantize
 from mptorch.quant import functional as Q 
 
@@ -19,16 +19,21 @@ quant_fp = lambda x: float_quantize(
     saturate=False,
 )
 
-layer_formats = QAffineFormats(
-    fwd_mac=(fp_format),
-    fwd_rnd="nearest",
-    bwd_mac=(fp_format),
-    bwd_rnd="nearest",
-    weight_quant=quant_fp,
-    input_quant=quant_fp,
-    output_quant=quant_fp,
-    grad_quant=quant_fp,
-    bias_quant=quant_fp,
+layer_formats = QLayerNormFormats(
+    fwd_acc = fp_format,
+    fwd_mul = fp_format,
+    fwd_div = fp_format,
+    fwd_sqrt = fp_format,
+
+    bwd_acc = fp_format,
+    bwd_mul = fp_format,
+    bwd_div = fp_format,
+
+    input_quant = quant_fp,
+    output_quant = quant_fp,
+    grad_quant = quant_fp,
+    weight_quant = quant_fp,
+    bias_quant = quant_fp,
 )
 
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])

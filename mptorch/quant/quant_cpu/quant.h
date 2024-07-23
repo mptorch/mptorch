@@ -147,9 +147,18 @@ Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_s
 Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
 
 void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
-                                      Tensor o, Tensor mean, Tensor rstd, 
-                                      float eps, std::vector<int> &dims);
+                                      Tensor o, Tensor mean, Tensor rstd,
+                                      float eps, std::vector<int> &dims,
+                                      int man_acc, int exp_acc,
+                                      int man_mul, int exp_mul,
+                                      int man_div, int exp_div,
+                                      int man_sqrt, int exp_sqrt,                                      
+                                      bool subnormals, bool saturate);
 
-Tensor float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor bias,
-                                         Tensor mean, Tensor rstd,
-                                         std::vector<int> &dims);
+void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor bias,
+                                         Tensor o, Tensor mean, Tensor rstd,
+                                         std::vector<int> &dims,
+                                         int man_acc, int exp_acc,
+                                         int man_mul, int exp_mul,
+                                         int man_div, int exp_div,
+                                         bool subnormals, bool saturate);

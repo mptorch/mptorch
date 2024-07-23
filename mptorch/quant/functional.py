@@ -444,7 +444,7 @@ class qlayernorm_kernel(torch.autograd.Function):
         mean = torch.zeros(reduced_shape)
         rstd = torch.zeros(reduced_shape)
 
-        mp_qlayernorm_forward(qinput, qweight, qbias, output, mean, rstd, eps, dims)
+        mp_qlayernorm_forward(qinput, qweight, qbias, output, mean, rstd, eps, dims, formats)
         qoutput = formats.output_quant(output)
 
         ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)
@@ -461,7 +461,7 @@ class qlayernorm_kernel(torch.autograd.Function):
         qrstd = formats.input_quant(rstd)
         qgrad_output = formats.grad_quant(grad_output)
 
-        grad_input = mp_qlayernorm_backward(qinput, qgrad_output, qweight, qbias, qmeans, qrstd, dims)
+        grad_input = mp_qlayernorm_backward(qinput, qgrad_output, qweight, qbias, qmeans, qrstd, dims, formats)
         qgrad_input = formats.grad_quant(grad_input)
 
         return qgrad_input, None, None, None, None, None

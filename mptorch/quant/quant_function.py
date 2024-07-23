@@ -90,11 +90,64 @@ if torch.cuda.is_available():
 else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
-def mp_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims):
-    return quant_cpu.float_quantize_layernorm_forward(a, weight, bias, o, mean, rstd, eps, dims)
+def mp_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats):
+    acc_cfg = formats.fwd_acc
+    if type(acc_cfg) == FloatingPoint:
+        return float_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats)
+    raise NotImplementedError("Unsupported float type.")
 
-def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims):
-    return quant_cpu.float_quantize_layernorm_backward(a, g, weight, bias, mean, rstd, dims)
+def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
+    acc_cfg = formats.bwd_acc
+    if type(acc_cfg) == FloatingPoint:
+        return float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats)
+    raise NotImplementedError("Unsupported float type.")
+
+def float_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats):
+    acc_cfg, mul_cfg, div_cfg, sqrt_cfg, rnd = (
+        formats.fwd_acc,
+        formats.fwd_mul,
+        formats.fwd_div,
+        formats.fwd_sqrt,
+        formats.fwd_rnd
+    )
+
+    subnormals = acc_cfg.subnormals
+    saturate = acc_cfg.saturate
+
+    quant_module = get_module(a)
+
+    quant_module.float_quantize_layernorm_forward(a, weight, bias, 
+                                                  o, mean, rstd, 
+                                                  eps, dims,
+                                                  acc_cfg.man, acc_cfg.exp,
+                                                  mul_cfg.man, mul_cfg.exp,
+                                                  div_cfg.man, div_cfg.exp,
+                                                  sqrt_cfg.man, sqrt_cfg.exp,
+                                                  subnormals, saturate)
+    return o, mean, rstd
+
+def float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
+    acc_cfg, mul_cfg, div_cfg, rnd = (
+        formats.bwd_acc,
+        formats.bwd_mul,
+        formats.bwd_div,
+        formats.bwd_rnd
+    )
+
+    subnormals = acc_cfg.subnormals
+    saturate = acc_cfg.saturate
+
+    quant_module = get_module(a)
+
+    o = torch.zeros_like(a)
+
+    quant_module.float_quantize_layernorm_backward(a, g, weight, bias, 
+                                                   o, mean, rstd, dims,
+                                                   acc_cfg.man, acc_cfg.exp,
+                                                   mul_cfg.man, mul_cfg.exp,
+                                                   div_cfg.man, div_cfg.exp,
+                                                   subnormals, saturate)
+    return o
 
 def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     """
