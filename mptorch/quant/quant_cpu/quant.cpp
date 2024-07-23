@@ -1,4 +1,6 @@
 #include "quant.h"
+#include "bit_helper.h"
+#include "binary8.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -165,17 +167,6 @@ uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding) {
   uint32_t quantized = add_r & ~mask;
 
   return quantized;
-}
-
-uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
-    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    int offset = (down == (1u << (22u - man_bits)));
-    uint32_t mask = (1 << (23 - man_bits + offset)) - 1;
-    uint32_t rand_prob = 1 << (23 - man_bits - 1);
-    // unsigned int rand_prob = rn_prob[man_bits];
-    uint32_t add_r = target + rand_prob;
-    uint32_t quantized = add_r & ~mask;
-    return quantized;
 }
 
 void block_quantize_helper(float *input, float *output, float *max_elem, int wl,
@@ -448,4 +439,54 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades,
                               bool saturate) {
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
+}
+
+Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  // generate random number on the GPU for the SR operation
+  auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
 }

@@ -6,6 +6,13 @@ enum class OverflowPolicy {
     SATURATE_MAXFLOAT2
 };
 
+void binary8_signed_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_unsigned_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_signed_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_unsigned_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_signed_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_unsigned_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals);
+
 /*
 SATURATE_INFTY: 
 Finite binary32 input values that exceed the maximum float value of the current binary8 format will map to infinity.

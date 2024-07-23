@@ -16,7 +16,6 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "binary8_quantize",
-    "OverflowPolicy",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -39,9 +38,10 @@ quant_cpu = load(
     name="quant_cpu",
     sources=[
         os.path.join(current_path, "quant_cpu/pybind_cpu.cpp"),
+        os.path.join(current_path, "quant_cpu/binary8.cpp"),
         os.path.join(current_path, "quant_cpu/quant.cpp"),
-        os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
         os.path.join(current_path, "quant_cpu/sim_helper.cpp"),
+        os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
     ],
 )
 
@@ -80,11 +80,6 @@ def get_module(x):
     else:
         quant_module = quant_cpu
     return quant_module
-
-if torch.cuda.is_available():
-    OverflowPolicy  = quant_cuda.OverflowPolicy
-else:
-    OverflowPolicy = None
 
 
 if torch.cuda.is_available():
@@ -1850,13 +1845,13 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
         overflow_policy
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
-    saturation_enum = {
-        "saturate_infty": OverflowPolicy.SATURATE_INFTY,
-        "saturate_maxfloat": OverflowPolicy.SATURATE_MAXFLOAT,
-        "saturate_maxfloat2": OverflowPolicy.SATURATE_MAXFLOAT2,
-    }[overflow_policy]
 
     quant_module = get_module(x)
+    saturation_enum = {
+        "saturate_infty": quant_module.OverflowPolicy.SATURATE_INFTY,
+        "saturate_maxfloat": quant_module.OverflowPolicy.SATURATE_MAXFLOAT,
+        "saturate_maxfloat2": quant_module.OverflowPolicy.SATURATE_MAXFLOAT2,
+    }[overflow_policy]
     if rounding == "nearest":
         out = quant_module.binary8_quantize_nearest(
             x.contiguous(), P, is_signed, saturation_enum, subnormals

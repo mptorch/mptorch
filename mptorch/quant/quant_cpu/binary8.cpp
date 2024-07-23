@@ -1,8 +1,7 @@
-#include "bit_helper.cpp"
-#include "quant_kernel.h"
-#include "sim_helper.cpp"
+#include "bit_helper.h"
+#include "quant.h"
 #include <cmath>
-#include "binary8_kernel.h"
+#include "binary8.h"
 
 float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
     const int exp_bits = 8 - P;
@@ -217,37 +216,37 @@ float cast_binary8_unsigned_truncate(float origin_float, int P, OverflowPolicy o
     return BITS_TO_FLOAT(&uval8);
 }
 
-void binary8_signed_kernel_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_signed_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_signed_nearest(a[idx], P, overflow_policy, subnormals);
     }
 }
 
-void binary8_unsigned_kernel_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_unsigned_nearest(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_unsigned_nearest(a[idx], P, overflow_policy, subnormals);
     }
 }
 
-void binary8_signed_kernel_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_signed_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_signed_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, overflow_policy, subnormals);
     }
 }
 
-void binary8_unsigned_kernel_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_unsigned_stochastic(float *a, int *r, float *o, int size, int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_unsigned_stochastic(a[idx], P, (uint32_t)r[idx], prng_bits, overflow_policy, subnormals);
     }
 }
 
-void binary8_signed_kernel_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_signed_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_signed_truncate(a[idx], P, overflow_policy, subnormals);
     }
 }
 
-void binary8_unsigned_kernel_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
+void binary8_unsigned_truncate(float *a, float *o, int size, int P, OverflowPolicy overflow_policy, bool subnormals) {
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_unsigned_truncate(a[idx], P, overflow_policy, subnormals);
     }

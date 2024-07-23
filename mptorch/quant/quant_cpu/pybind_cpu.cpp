@@ -1,18 +1,42 @@
 #include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
-#include "binary8_kernel.h"
+#include "binary8.h"
+
+#define CHECK_CUDA(x) TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")
+#define CHECK_CONTIGUOUS(x) \
+      TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
+#define CHECK_INPUT(x) \
+      CHECK_CUDA(x);   \
+      CHECK_CONTIGUOUS(x)
+
+Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+      CHECK_INPUT(a);
+      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, overflow_policy, subnormals);
+}
+
+Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+      CHECK_INPUT(a);
+      return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
+}
+
+Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+      CHECK_INPUT(a);
+      return binary8_quantize_nearest_cuda(a, P, is_signed, overflow_policy, subnormals);
+}
+
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("fixed_point_quantize_stochastic", &fixed_point_quantize_stochastic,
+      m.def("fixed_point_quantize_stochastic", &fixed_point_quantize_stochastic,
             "Fixed Point Number Stochastic Quantization (CUDA)");
       m.def("fixed_point_quantize_stochastic_mask",
             &fixed_point_quantize_stochastic_mask,
             "Fixed Point Number Stochastic Quantization (CUDA)");
       m.def("block_quantize_stochastic", &block_quantize_stochastic,
-            "Block Floating Point Number Stochastic Quantization (CUDA)");
-      m.def("block_quantize_sim_stochastic", &block_quantize_sim_stochastic,
             "Block Floating Point Number Stochastic Quantization (CUDA)");
       m.def("float_quantize_stochastic", &float_quantize_stochastic,
             "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
@@ -26,8 +50,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "Fixed Point Number Nearest Neighbor Quantization (CUDA)");
       m.def("block_quantize_nearest", &block_quantize_nearest,
             "Block Floating Point Number Nearest Neighbor Quantization (CUDA)");
-      m.def("block_quantize_sim_nearest", &block_quantize_sim_nearest,
-            "Block Floating Point Number Stochastic Quantization (CUDA)");
       m.def("float_quantize_nearest", &float_quantize_nearest,
             "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization "
             "(CUDA)");
@@ -37,54 +59,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       m.def("binary8_quantize_nearest", &binary8_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
 
-      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
+      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic(), py::module_local())
             .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
             .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
             .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);
             
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");          
-      m.def("float_quantize_nearest_bmm", &float_quantize_nearest_bmm,
-            "Low-Bitwidth Floating Point Number BGEMM Quantization (CUDA)");
       m.def(
           "float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
           "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CUDA)");
-      m.def(
-          "float_quantize_nearest_bmm_fma", &float_quantize_nearest_bmm_fma,
-          "Low-Bitwidth Floating Point Number FMA-based BGEMM Quantization (CUDA)");
-      m.def("superfp_quantize_nearest_mm", &superfp_quantize_nearest_mm,
-            "Low-Bitwidth SuperNormal Floating Point Number GEMM Quantization (CUDA)");
-      m.def("superfp_quantize_nearest_bmm", &superfp_quantize_nearest_bmm,
-            "Low-Bitwidth SuperNormal Floating Point Number BGEMM Quantization (CUDA)");
-      m.def(
-          "superfp_quantize_nearest_mm_fma", &superfp_quantize_nearest_mm_fma,
-          "Low-Bitwidth SuperNormal Floating Point Number FMA-based GEMM Quantization (CUDA)");
-      m.def(
-          "superfp_quantize_nearest_bmm_fma", &superfp_quantize_nearest_bmm_fma,
-          "Low-Bitwidth SuperNormal Floating Point Number FMA-based BGEMM Quantization (CUDA)");
-      m.def("float_quantize_stochastic_mm", &float_quantize_stochastic_mm,
-            "Low-Bitwidth Floating Point Number GEMM with Stochastic Quantization "
-            "(CUDA)");
-      m.def("float_quantize_stochastic_bmm", &float_quantize_stochastic_bmm,
-            "Low-Bitwidth Floating Point Number BGEMM with Stochastic Quantization "
-            "(CUDA)");
-      m.def("float_quantize_stochastic_mm_fma", &float_quantize_stochastic_mm_fma,
-            "Low-Bitwidth Floating Point Number FMA-based GEMM with Stochastic "
-            "Quantization (CUDA)");
-      m.def("float_quantize_stochastic_bmm_fma", &float_quantize_stochastic_bmm_fma,
-            "Low-Bitwidth Floating Point Number FMA-based BGEMM with Stochastic "
-            "Quantization (CUDA)");
-      m.def("fixed_point_quantize_nearest_mm", &fixed_point_quantize_nearest_mm,
-            "Low-Bitwidth Fixed Point Number GEMM Quantization (CUDA)");
-      m.def("fixed_point_quantize_nearest_mm_fma",
-            &fixed_point_quantize_nearest_mm_fma,
-            "Low-Bitwidth Fixed Point Number FMA-based GEMM Quantization (CUDA)");
-      m.def("fixed_point_quantize_stochastic_mm",
-            &fixed_point_quantize_stochastic_mm,
-            "Low-Bitwidth Fixed Point Number GEMM with Stochastic Quantization "
-            "(CUDA)");
-      m.def("fixed_point_quantize_stochastic_mm_fma",
-            &fixed_point_quantize_stochastic_mm_fma,
-            "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic "
-            "Quantization (CUDA)");
 }

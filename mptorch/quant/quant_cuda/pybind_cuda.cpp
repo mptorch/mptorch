@@ -356,7 +356,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("binary8_quantize_nearest", &binary8_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
 
-      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic())
+      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic(), py::module_local())
             .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
             .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
             .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);

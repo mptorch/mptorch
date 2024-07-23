@@ -1,6 +1,6 @@
-#include "quant_kernel.h"
 #include <cmath>
 #include <cstdint>
+#include "quant.h"
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {
@@ -19,16 +19,6 @@ float round_helper(float a, float r) {
 float round(float a, float r, int sigma) {
   a = ldexp(a, -sigma);
   a = round_helper(a, r);
-  a = ldexp(a, sigma);
-  return a;
-}
-
-float nearest_round(float a, int sigma) {
-  a = ldexp(a, -sigma);
-  // a = nearbyint(a);
-  a = round(a);
-  // a = floor(a+0.5);
-  // a = ceil(a-0.5);
   a = ldexp(a, sigma);
   return a;
 }

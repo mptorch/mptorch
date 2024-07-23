@@ -1,9 +1,15 @@
-#include "binary8_kernel.h"
+#include "binary8.h"
+#include "bit_helper.h"
 #include <cmath>
 #include <cstdint>
 
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
+
+template <typename T>
+T my_min(T a, T b) {
+    return (a < b) ? a : b;
+}
 
 uint32_t extract_exponent(float *a) {
   uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
@@ -33,7 +39,7 @@ uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
   // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
+  return add_r & ~((1 << my_min((23 - man_bits + offset),23)) - 1);
 }
 
 uint32_t round_bitwise_up(uint32_t target, int man_bits) {
@@ -104,7 +110,7 @@ uint32_t clip_max_exponent(int man_bits, uint32_t max_exponent,  uint32_t quanti
 }
 
 uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                  uint32_t quantized_num, bool saturate = false)
+                                                  uint32_t quantized_num, bool saturate)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -125,7 +131,7 @@ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_
 }
 
 uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                    uint32_t quantized_num, bool saturate = false)
+                                                    uint32_t quantized_num, bool saturate)
 {
     if (quantized_num == 0)
         return quantized_num;
