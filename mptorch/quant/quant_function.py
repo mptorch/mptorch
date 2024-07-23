@@ -476,7 +476,6 @@ def float_mm(
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
     if rounding == "nearest":
         if not fma:
-            print("basic")
             quant_module.float_quantize_nearest_mm(
                 a.contiguous(),
                 b.contiguous(),
