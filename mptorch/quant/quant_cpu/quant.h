@@ -107,6 +107,40 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnorm
  **/
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);
 
+
+/**
+ * Quantizes a tensor to binary8 format using nearest rounding.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
 Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
+/**
+ * Quantizes a tensor to binary8 format using stochastic rounding.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param prng_bits        The number of bits used for the pseudo-random number generator.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
 Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
+/**
+ * Quantizes a tensor to binary8 format using truncation.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
 Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
