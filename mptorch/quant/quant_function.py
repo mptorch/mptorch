@@ -1846,6 +1846,10 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
     )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
 
+    # may be uneeded?
+    if torch.cuda.is_available():
+        x = x.cuda()
+
     quant_module = get_module(x)
     saturation_enum = {
         "saturate_infty": quant_module.OverflowPolicy.SATURATE_INFTY,
