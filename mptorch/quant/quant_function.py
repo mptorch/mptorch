@@ -15,6 +15,7 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
+    "binary8_quantize",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -41,9 +42,10 @@ quant_cpu = load(
     name="quant_cpu",
     sources=[
         os.path.join(current_path, "quant_cpu/pybind_cpu.cpp"),
+        os.path.join(current_path, "quant_cpu/binary8.cpp"),
         os.path.join(current_path, "quant_cpu/quant.cpp"),
-        os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
         os.path.join(current_path, "quant_cpu/sim_helper.cpp"),
+        os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
     ],
 )
 
@@ -62,6 +64,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
             os.path.join(current_path, "quant_cuda/quant.cu"),
+            os.path.join(current_path, "quant_cuda/binary8_kernel.cu"),
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
         extra_ldflags=extra_ldflags,
@@ -82,7 +85,6 @@ def get_module(x):
     else:
         quant_module = quant_cpu
     return quant_module
-
 
 
 if torch.cuda.is_available():
@@ -522,8 +524,7 @@ def float_mm(
         - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `subnormals` (bool): allow the use of subnormal values
-        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
-        in the format instead of outputting infinities)
+        - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable in the format instead of outputting infinities)
     Returns:
         - the result of GEMM (torch.Tensor)
     """
@@ -1892,6 +1893,61 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
+def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloat", is_signed=True, subnormals=True, prng_bits=0):
+    """
+    Quantize a single precision Floating Point into low-precision Floating Point
+
+    Args:
+        - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
+        - :attr: `P` (int) : number of bits allocated for precision
+        - :attr: `is_signed` (bool): if subnormals are supported or not
+        - :attr: `rouding` (string): change the mode of rounding
+        - :attr: `overflow_policy` (string): change the overflow policy
+        - :attr: `subnormals` (bool): saturate on overflow or use infinities
+        - :attr: `prng_bits` (int): number of bits for the random generator
+
+    Overflow Policies:
+        - "saturate_infty": Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float.
+                            Infinite inputs will still map to infinities in this mode.
+        - "saturate_maxfloat": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+                                         to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
+        - "saturate_maxfloat2": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+                                         to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
+
+
+    Returns:
+        - a quantized low-precision floating point number (torch.Tensor)
+    """
+    assert isinstance(
+        x, torch.Tensor
+    ), "x is not a single precision Floating Point Tensor"
+    assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
+        rounding
+    )
+    assert overflow_policy in ["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"], "invalid overflow policy, {}".format(
+        overflow_policy
+    )
+    assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
+
+    quant_module = get_module(x)
+    saturation_enum = {
+        "saturate_infty": quant_module.OverflowPolicy.SATURATE_INFTY,
+        "saturate_maxfloat": quant_module.OverflowPolicy.SATURATE_MAXFLOAT,
+        "saturate_maxfloat2": quant_module.OverflowPolicy.SATURATE_MAXFLOAT2,
+    }[overflow_policy]
+    if rounding == "nearest":
+        out = quant_module.binary8_quantize_nearest(
+            x.contiguous(), P, is_signed, saturation_enum, subnormals
+        )
+    elif rounding == "stochastic":
+        out = quant_module.binary8_quantize_stochastic(
+            x.contiguous(), P, prng_bits, is_signed, saturation_enum, subnormals
+        )
+    elif rounding == "truncate":
+        out = quant_module.binary8_quantize_truncate(
+            x.contiguous(), P, is_signed, saturation_enum, subnormals
+        )
+    return out
 
 def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
     """

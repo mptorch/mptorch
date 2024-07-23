@@ -12,6 +12,9 @@
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
+#define MIN(a, b) ((a) < (b) ? a : b)
+#define MAX(a, b) ((a) > (b) ? a : b)
+
 #define NC "\e[0m"
 #define RED "\e[0;31m"
 #define GRN "\e[0;32m"

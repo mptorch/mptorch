@@ -3,6 +3,7 @@
 #include <curand.h>
 #include <curand_kernel.h>
 #include <cstdint>
+#include "binary8_kernel.h"
 
 __global__ void seed_init(uint32_t seed, curandState_t *state);
 
@@ -37,17 +38,23 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
                                         int man_bits, int exp_bits, int binades,
                                         bool saturate);
 
-__global__ void p3109_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                            int P, bool subnormals);
+__global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
+                                            int P, OverflowPolicy overflow_policy, bool subnormals);
 
-__global__ void p3109_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                              int P, bool subnormals);
+__global__ void binary8_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
+                                              int P, OverflowPolicy overflow_policy, bool subnormals);
 
-__global__ void p3109_signed_kernel_stochastic(float *__restrict__ a, float *o, int size,
-                                               int P, int prng_bits, bool subnormals);
+__global__ void binary8_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+                                               int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
 
-__global__ void p3109_unsigned_kernel_stochastic(float *__restrict__ a, float *o, int size,
-                                                 int P, int prng_bits, bool subnormals);
+__global__ void binary8_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+                                                 int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
+
+__global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, int size,
+                                               int P, OverflowPolicy overflow_policy, bool subnormals);
+
+__global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
+                                                 int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
