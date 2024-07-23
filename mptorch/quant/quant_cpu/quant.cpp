@@ -441,7 +441,7 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
-Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a
@@ -457,7 +457,7 @@ Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPo
   return o;
 }
 
-Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
   // generate random number on the GPU for the SR operation
@@ -475,7 +475,7 @@ Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_
   return o;
 }
 
-Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel(); // gets number of elements in tensor a

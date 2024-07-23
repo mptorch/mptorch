@@ -13,19 +13,19 @@
 Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, overflow_policy, subnormals);
+      return binary8_quantize_stochastic_cpu(a, P, prng_bits, is_signed, overflow_policy, subnormals);
 }
 
 Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
+      return binary8_quantize_truncate_cpu(a, P, is_signed, overflow_policy, subnormals);
 }
 
 Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return binary8_quantize_nearest_cuda(a, P, is_signed, overflow_policy, subnormals);
+      return binary8_quantize_nearest_cpu(a, P, is_signed, overflow_policy, subnormals);
 }
 
 
