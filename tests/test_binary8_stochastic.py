@@ -3,9 +3,8 @@ from mptorch.quant import binary8_quantize
 import numpy as np
 import struct
 import random
-
-def no_cuda():
-    return not torch.cuda.is_available()
+import pytest
+from tests.markers import available_devices
 
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
@@ -15,10 +14,8 @@ def float_to_bits(value):
     s = struct.pack('>f', value)
     return struct.unpack('>I', s)[0]
 
-def test_binary8_signed_stochastic():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_stochastic(device):
     rnd_up = 0
     rnd_down = 0
     P = 3
@@ -26,7 +23,7 @@ def test_binary8_signed_stochastic():
     iterations = 1000
     num = 2.1
 
-    num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
+    num_tensor = torch.full((iterations,), num, dtype=torch.float32, device=device)
     result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
     for x in range(result.numel()):
@@ -43,10 +40,8 @@ def test_binary8_signed_stochastic():
     # for i=1000 : 8, 1, 11, 27, 19, 16, 21, 5, 21, 1, 23, 7, 3 : avg = 12.54 = 1.254%
     # for i=10000 : 30, 78, 40, 58, 4, 25, 66, 7, 6, 75 : avg = 38.9 = 0.389%
 
-def test_binary8_signed_stochastic_subnormal():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_stochastic_subnormal(device):
     rnd_up = 0
     rnd_down = 0
     P = 3
@@ -60,7 +55,7 @@ def test_binary8_signed_stochastic_subnormal():
     # all round to 0         all round to min_val                    
     print(num)
 
-    num_tensor = torch.full((iterations,), num, dtype=torch.float32, device="cuda")
+    num_tensor = torch.full((iterations,), num, dtype=torch.float32, device=device)
     result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
     for x in range(result.numel()):
@@ -78,10 +73,8 @@ def test_binary8_signed_stochastic_subnormal():
     # for i=1000 : 4, 7, 31, 3, 6, 3, 22, 5, 3, 22, 15, 3, 27 : avg = 11.34 = 1.134%
     # for i=10000 : 18, 2, 39, 15, 15, 16, 91, 62, 30, 21 : avg = 30.9 = 0.309% 
 
-def test_binary8_signed_constant():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_constant(device):
     # parameters :
     iterations = 1000
     tolerance = 0.10*iterations # = 10%
@@ -115,7 +108,7 @@ def test_binary8_signed_constant():
         while i_fval <= max_val:
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
-                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
+                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device=device)
                 result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
                 result1 = result.cpu() 
 
@@ -135,31 +128,24 @@ def test_binary8_signed_constant():
             exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
             i_fval += 2**(-man_bits)*2**(exp_prev)
         
-
-def test_binary8_signed_stochastic_constant():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_stochastic_constant(device):
     P = 5
-
     values = [0]
     getting_values(values, P)
 
     iterations = 1000
     prng_bits = 23 - (P - 1)
     for i in values:
-        num_tensor = torch.full((iterations,), i, dtype=torch.float32, device="cuda")
+        num_tensor = torch.full((iterations,), i, dtype=torch.float32, device=device)
         result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
         for x in range(result.numel()):
             # print(result[x].item())
             assert result[x].item() == i
 
-def test_binary8_signed_stochastic_all_vals():
-    if no_cuda():
-        return
-    
-    # for P = 5
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_stochastic_all_vals(device):
     P = 5
     values = []
     getting_values(values, P)
@@ -181,7 +167,7 @@ def test_binary8_signed_stochastic_all_vals():
             # print("prob up:" + str(prob_up))
             # prob_down = (rand - values[i])/(values[i+1] - values[i])
 
-            num_tensor = torch.full((iterations,), rand, dtype=torch.float32, device="cuda")
+            num_tensor = torch.full((iterations,), rand, dtype=torch.float32, device=device)
             result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
             print("Lower: " + str(values[i]) + " | Rand Val: " + str(rand) + " | Upper: " + str(values[i+1]))
             for x in range(result.numel()):

@@ -3,14 +3,6 @@
 #include <cmath>
 #include <cstdint>
 
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
-
-template <typename T>
-T my_min(T a, T b) {
-    return (a < b) ? a : b;
-}
-
 uint32_t extract_exponent(float *a) {
   uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
   temp = (temp << 1 >> 24); // single precision, 1 sign bit, 23 mantissa bits

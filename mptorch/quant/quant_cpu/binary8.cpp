@@ -43,7 +43,6 @@ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_pr
     const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
-
     // Early return for inf/NaN case
     if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
         return origin_float;
