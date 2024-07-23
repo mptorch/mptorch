@@ -70,10 +70,67 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
+# new parser arguments for binary8 format and testing-----------------------
+# weights and biases
 parser.add_argument(
     "--wandb", action="store_true", default=False, help="wandb logging"
 )
 
+# Precision (P)
+parser.add_argument(
+    "--P",
+    type=int,
+    default=3,
+    metavar="N",
+    help="precision (1-7)"
+)
+
+# subnormals
+parser.add_argument(
+    "--subnormals", action="store_true", default=False, help="subnormals or no subnormals"
+)
+
+# signed or unsigned
+parser.add_argument(
+    "--is_signed", action="store_true", default=False, help="signed or unsigned"
+)
+
+# prng_bits
+parser.add_argument(
+    "--prng_bits",
+    type=int,
+    metavar="N",
+    help="number of random bits used for adding in stochastic",
+)
+
+# type of rounding
+parser.add_argument(
+    "--rounding",
+    type=str,
+    default="nearest",
+    metavar="N",
+    help="nearest, stochatic, truncate"
+)
+
+# type of saturation mode
+parser.add_argument(
+    "--saturation_mode",
+    type=str,
+    default="overflow",
+    metavar="N",
+    help="saturate, overflow, no_overflow"
+)
+
+# precision size for accumuluation
+parser.add_argument(
+    "--p_q",
+    type=int,
+    default=3,
+    metavar="N",
+    help="precision size for accumulation"
+)
+
+# name of wandb project run will be in
 parser.add_argument(
     "--wandb_proj_name",
     type=str,
@@ -90,15 +147,17 @@ parser.add_argument(
     metavar="N",
     help="name of group the run will reside in"
 )
-
+# ------------------------------------------------------------------
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 
+# weights and biases configuration----------------------------------
 if args.wandb:
     wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
     config = wandb.config.update(args)
+# ------------------------------------------------------------------
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
@@ -126,18 +185,17 @@ test_dataset = torchvision.datasets.MNIST(
 )
 test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
-rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
-fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
+fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=args.subnormals, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=args.exp, man=args.man, rounding=rounding, subnormals=True, saturate=False
+    x, exp=args.exp, man=args.man, rounding=args.rounding, subnormals=args.subnormals, saturate=False
 )
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
-    fwd_rnd=rounding,
+    fwd_rnd=args.rounding,
     bwd_mac=(fp_format, fp_format),
-    bwd_rnd=rounding,
+    bwd_rnd=args.rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
@@ -174,7 +232,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
+acc_q = lambda x: qpt.binary8_quantize(x, args.p_q, rounding=args.rounding, saturation_mode=args.saturation_mode)
 optimizer = OptimMP(
     optimizer,
     acc_quant=acc_q,

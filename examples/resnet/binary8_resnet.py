@@ -1,5 +1,5 @@
 import torch
-from torch.optim import SGD
+from torch.optim import SGD, AdamW
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
@@ -12,6 +12,7 @@ import random
 import numpy as np
 import argparse
 import wandb
+
 
 parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
 parser.add_argument(
@@ -27,35 +28,35 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10,
+    default=10, 
     metavar="N",
     help="number of epochs to train (default: 10)",
 )
 parser.add_argument(
     "--exp_mul",
     type=int,
-    default=3,
+    default=5,
     metavar="N",
     help="exponent size (default: 5)",
 )
 parser.add_argument(
     "--man_mul",
     type=int,
-    default=4,
+    default=2,
     metavar="N",
     help="mantissa size (default: 2)",
 )
 parser.add_argument(
     "--exp_acc",
     type=int,
-    default=6,
+    default=8,
     metavar="N",
     help="exponent size (default: 8)",
 )
 parser.add_argument(
     "--man_acc",
     type=int,
-    default=1,
+    default=7,
     metavar="N",
     help="mantissa size (default: 7)",
 )
@@ -85,15 +86,64 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
+# new parser arguments for binary8 format and testing-----------------------
+# weights and biases
 parser.add_argument(
     "--wandb", action="store_true", default=False, help="wandb logging"
+)
+
+# Precision (P)
+parser.add_argument(
+    "--P",
+    type=int,
+    default=3,
+    metavar="N",
+    help="precision (1-7)"
+)
+
+# subnormals
+parser.add_argument(
+    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
+)
+
+# signed or unsigned
+parser.add_argument(
+    "--is_signed", action="store_true", default=True, help="signed or unsigned"
+)
+
+# prng_bits
+parser.add_argument(
+    "--prng_bits",
+    type=int,
+    metavar="N",
+    default=17,
+    help="number of random bits used for adding in stochatic"
+)
+
+# type of rounding
+parser.add_argument(
+    "--rounding",
+    type=str,
+    default="nearest",
+    metavar="N",
+    help="nearest, stochastic, truncate"
+)
+
+# type of saturation mode
+parser.add_argument(
+    "--overflow_policy",
+    type=str,
+    default="saturate_maxfloat",
+    metavar="N",
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
 )
 
 # name of wandb project run will be in
 parser.add_argument(
     "--wandb_proj_name",
     type=str,
-    default="ResNet Tests",
+    default="ResNet Tests AdamW",
+    metavar="N",
     help="name of the project where runs will be logged"
 )
 
@@ -101,9 +151,11 @@ parser.add_argument(
 parser.add_argument(
     "--group_name",
     type=str,
-    default="P=3",
+    default="P=3_Binary8_Testing",
+    metavar="N",
     help="name of group the run will reside in"
 )
+# ------------------------------------------------------------------
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -122,10 +174,10 @@ random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
 fpmul = FloatingPoint(
-    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=False
+    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=True
 )
 fpacc = FloatingPoint(
-    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=False
+    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=True
 )
 
 transform_train = transforms.Compose(
@@ -162,46 +214,50 @@ test_loader = torch.utils.data.DataLoader(
 act_error_quant = lambda: qpt.Quantizer(
     forward_number=fpmul,
     backward_number=fpmul,
-    forward_rounding="stochastic",
-    backward_rounding="stochastic",
+    forward_rounding="nearest",
+    backward_rounding="nearest",
 )
 
-param_q = lambda x: qpt.float_quantize(
+param_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    overflow_policy=args.overflow_policy,
+    is_signed=True,      #args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
-input_q = lambda x: qpt.float_quantize(
+
+input_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    overflow_policy=args.overflow_policy,
+    is_signed=args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
-grad_q = lambda x: qpt.float_quantize(
+
+grad_q = lambda x: qpt.binary8_quantize(
     x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
+    P = args.P,
+    rounding=args.rounding,
+    overflow_policy=args.overflow_policy,
+    is_signed=True,      #args.is_signed,
+    subnormals=args.subnormals,
+    prng_bits=args.prng_bits,
 )
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fpacc, fpmul),
-    fwd_rnd="stochastic",
+    fwd_rnd="nearest",
     bwd_mac=(fpacc, fpmul),
-    bwd_rnd="stochastic",
+    bwd_rnd="nearest",
     weight_quant=param_q,
     bias_quant=param_q,
     input_quant=input_q,
     grad_quant=grad_q,
 )
-
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -210,7 +266,7 @@ class LambdaLayer(nn.Module):
 
     def forward(self, x):
         return self.lambd(x)
-
+# make sure i am not misapplying unsigned quant 
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -274,6 +330,8 @@ class BasicBlock(nn.Module):
         out = F.relu(out)
         return out
 
+# for first layer in network, should be signed input
+# change one at a time (nn.Linear -> Qlinear)
 
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
@@ -334,6 +392,7 @@ def resnet1202():
 
 net = resnet20()
 net = net.to(device)
+
 optimizer = SGD(
     net.parameters(),
     lr=args.lr_init,
@@ -341,9 +400,23 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="stochastic", subnormals=True
-)
+# optimizer = AdamW(
+#     net.parameters(),
+#     lr=args.lr_init,
+#     weight_decay=args.weight_decay,
+# )
+
+# acc_q = lambda x: qpt.binary8_quantize(
+#     x,
+#     P = args.P,
+#     rounding=args.rounding,
+#     overflow_policy=args.overflow_policy,
+#     is_signed=True,
+#     subnormals=args.subnormals,
+#     prng_bits=args.prng_bits,
+# )
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
+
 optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

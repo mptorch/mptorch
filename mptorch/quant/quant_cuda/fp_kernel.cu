@@ -5,6 +5,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <iostream>
+// #include "binary8_kernel.cu"
+// #include "binary8_kernel.h"
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                        bool subnormal_support = true,
@@ -88,8 +90,33 @@ __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob, int 
                                     bool subnormal_support = true,
                                     bool saturate = false) 
 {
-  // TODO
-  return 0.0f;
+  uint32_t target, quantize_bits;
+  target = FLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+
+  rand_prob = rand_prob << 9 >> 9;
+  rand_prob = rand_prob & ~(1 << (23 - man_bits - rand_bits) - 1);
+
+  if (subnormal && subnormal_support) {
+    float shift_float, val;
+    int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
+    shift_float = BITS_TO_FLOAT(&shift_bits);
+    val = origin_float + shift_float;
+    target = FLOAT_TO_BITS(&val);
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
+  } else {
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantize_bits =
+        clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+    quantized = BITS_TO_FLOAT(&quantize_bits);
+  }
+
+  return quantized;
 }
 
 
@@ -153,7 +180,7 @@ __global__ void mm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
       tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
+                                                  s_b[j * blockDim.x + tx],
                                                   man_mul, exp_mul, subnormals,
                                                   saturate),
                             man_add, exp_add, subnormals, saturate);

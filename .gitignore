@@ -141,3 +141,5 @@ cmake-build-debug/
 examples/testing/
 .idea/
 .vscode/
+
+.csv

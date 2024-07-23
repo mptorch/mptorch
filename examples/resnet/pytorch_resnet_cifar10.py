@@ -1,8 +1,5 @@
 import torch
 from torch.optim import SGD
-from mptorch import FloatingPoint
-import mptorch.quant as qpt
-from mptorch.optim import OptimMP
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -12,6 +9,7 @@ import random
 import numpy as np
 import argparse
 import os
+import wandb
 
 parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
 parser.add_argument(
@@ -27,9 +25,9 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10,
+    default=200,
     metavar="N",
-    help="number of epochs to train (default: 10)",
+    help="number of epochs to train (default: 200)",
 )
 
 parser.add_argument(
@@ -49,7 +47,7 @@ parser.add_argument(
 parser.add_argument(
     "--weight_decay",
     type=float,
-    default=5e-4,
+    default=1e-4,
     metavar="N",
     help="weight decay value to be used by the optimizer (default: 5e-4)",
 )
@@ -57,9 +55,8 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 parser.add_argument(
-    "--resume", "-r", action="store_true", default=False, help="resume from checkpoint"
+    "--wandb", action="store_true", default=False, help="wandb logging"
 )
-
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -76,14 +73,16 @@ transform_train = transforms.Compose(
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
     ]
 )
 
 transform_test = transforms.Compose(
     [
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
     ]
 )
 
@@ -91,16 +90,26 @@ train_set = torchvision.datasets.CIFAR10(
     root="./data", train=True, download=True, transform=transform_train
 )
 train_loader = torch.utils.data.DataLoader(
-    train_set, batch_size=args.batch_size, shuffle=True
+    train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True
 )
 
 test_set = torchvision.datasets.CIFAR10(
     root="./data", train=False, download=True, transform=transform_test
 )
 test_loader = torch.utils.data.DataLoader(
-    test_set, batch_size=args.batch_size, shuffle=False
+    test_set, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True
 )
 
+if args.wandb:
+    run = wandb.init(
+        # Set the project where this run will be logged
+        project="resnet20 torch",
+        # Track hyperparameters and run metadata
+        config={
+            "iterations": args.epochs,
+            "batch_size": args.batch_size,
+        },
+    )
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -228,16 +237,7 @@ def resnet1202():
 net = resnet20()
 net = net.to(device)
 
-if args.resume:
-    # load checkpoint
-    print("==> Resuming from checkpoint...")
-    assert os.path.isdir("checkpoint"), "Error: no checkpoint directory found!"
-    checkpoint = torch.load("./checkpoint/ckpt.pth")
-    net.load_state_dict(checkpoint["net"])
-    best_acc = checkpoint["acc"]
-    start_epoch = checkpoint["epoch"]
-else:
-    start_epoch = 0
+start_epoch = 0
 
 optimizer = SGD(
     net.parameters(),
@@ -246,7 +246,8 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                        milestones=[100, 150])
 
 trainer(
     net,
@@ -260,4 +261,5 @@ trainer(
     device=device,
     scheduler=scheduler,
     checkpoint=True,
+    log_wandb=args.wandb,
 )
