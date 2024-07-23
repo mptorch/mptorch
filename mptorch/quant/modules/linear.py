@@ -93,7 +93,6 @@ class QLinear(nn.Linear):
         else:
             return qlinear(input, self.weight, self.bias, self.formats)
 
-
 class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
     r"""A linear module where `in_features` is inferred.
 
