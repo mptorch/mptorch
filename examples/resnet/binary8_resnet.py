@@ -393,18 +393,18 @@ def resnet1202():
 net = resnet20()
 net = net.to(device)
 
-# optimizer = SGD(
-#     net.parameters(),
-#     lr=args.lr_init,
-#     momentum=args.momentum,
-#     weight_decay=args.weight_decay,
-# )
-
-optimizer = AdamW(
+optimizer = SGD(
     net.parameters(),
     lr=args.lr_init,
+    momentum=args.momentum,
     weight_decay=args.weight_decay,
 )
+
+# optimizer = AdamW(
+#     net.parameters(),
+#     lr=args.lr_init,
+#     weight_decay=args.weight_decay,
+# )
 
 # acc_q = lambda x: qpt.binary8_quantize(
 #     x,
