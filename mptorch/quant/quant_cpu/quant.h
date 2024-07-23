@@ -1,10 +1,7 @@
 #include <ATen/ATen.h>
 #include <tuple>
-<<<<<<< HEAD
 #include <vector>
-=======
 #include "binary8.h"
->>>>>>> develop
 
 using namespace at;
 
