@@ -56,7 +56,7 @@ class OptimMP(Optimizer):
             # TODO: support amsgrad
             self.momentum_keys = ["exp_avg", "exp_avg_sq"]
         else:
-            raise NotImplementedError("Only supporting Adam and SGD for now. ")
+            raise NotImplementedError("Only supporting Adam, AdamW and SGD for now. ")
 
         if self.acc_quant != None:
             self.weight_acc = {}

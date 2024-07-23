@@ -27,9 +27,9 @@ uint32_t test_inputs[] = {
 uint32_t test_outputs[] = {
     0b00111000100000000000000000000000,
     0b00000000000000000000000000000000,
-    0b00000000000000000000000000000000,
     0b00111000100000000000000000000000,
-    0b10000000000000000000000000000000};
+    0b00111000100000000000000000000000,
+    0b10111000100000000000000000000000};
 
 // ---------------------------------------------------------------------------------------
 // CPU reference code
@@ -47,7 +47,7 @@ uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits)
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-uint32_t clip_exponent_with_subnormals_cpu(int exp_bits, int man_bits, uint32_t old_num,
+uint32_t clip_subnormal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
                               uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
@@ -68,12 +68,13 @@ uint32_t clip_exponent_with_subnormals_cpu(int exp_bits, int man_bits, uint32_t 
     return quantized_num;
 }
 
-uint32_t clip_exponent_without_subnormals_cpu(int exp_bits, int man_bits, uint32_t old_num,
+uint32_t clip_normal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
                                  uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
 
+    int old_exponent_store = old_num << 1 >> 24;
     int quantized_exponent_store = quantized_num << 1 >> 24;
     int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
     int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
@@ -95,9 +96,9 @@ uint32_t clip_exponent_without_subnormals_cpu(int exp_bits, int man_bits, uint32
             quantized_num = quantized_num | old_sign;
         }
     } // underflow or round to smallest nonzero normal value
-    else if (quantized_exponent_store < min_exponent_store)
+    else if (old_exponent_store < min_exponent_store)
     {
-        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
+        uint32_t offset = (old_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > 0);
         quantized_num = offset * (min_exponent_store << 23);
         quantized_num |= old_sign;
     }
@@ -130,7 +131,7 @@ float cast_fp_nearest_cpu(float origin_float, int man_bits, int exp_bits,
             int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
             quantize_bits = not_uflow * round_bitwise_nearest_cpu(target, exp_diff);
             quantize_bits =
-                clip_exponent_with_subnormals_cpu(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_subnormal_range_exponent_cpu(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
         // handle NaN/inf inputs
@@ -143,7 +144,7 @@ float cast_fp_nearest_cpu(float origin_float, int man_bits, int exp_bits,
         {
             quantize_bits = round_bitwise_nearest_cpu(target, man_bits);
             quantize_bits =
-                clip_exponent_without_subnormals_cpu(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_normal_range_exponent_cpu(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
     }
@@ -172,7 +173,7 @@ __device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, 
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-__device__ uint32_t clip_exponent_with_subnormals_impl1(int exp_bits, int man_bits, uint32_t old_num,
+__device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
                                                         uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
@@ -193,12 +194,13 @@ __device__ uint32_t clip_exponent_with_subnormals_impl1(int exp_bits, int man_bi
     return quantized_num;
 }
 
-__device__ uint32_t clip_exponent_without_subnormals_impl1(int exp_bits, int man_bits, uint32_t old_num,
+__device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
                                                            uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
 
+    int old_exponent_store = old_num << 1 >> 24;
     int quantized_exponent_store = quantized_num << 1 >> 24;
     int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
     int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
@@ -220,9 +222,9 @@ __device__ uint32_t clip_exponent_without_subnormals_impl1(int exp_bits, int man
             quantized_num = quantized_num | old_sign;
         }
     } // underflow or round to smallest nonzero normal value
-    else if (quantized_exponent_store < min_exponent_store)
+    else if (old_exponent_store < min_exponent_store)
     {
-        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
+        uint32_t offset = (old_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > 0);
         quantized_num = offset * (min_exponent_store << 23);
         quantized_num |= old_sign;
     }
@@ -255,7 +257,7 @@ __device__ float cast_fp_nearest_impl1(float origin_float, int man_bits, int exp
             int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
             quantize_bits = not_uflow * round_bitwise_nearest_impl(target, exp_diff);
             quantize_bits =
-                clip_exponent_with_subnormals_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_subnormal_range_exponent_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
         // handle NaN/inf inputs
@@ -268,7 +270,7 @@ __device__ float cast_fp_nearest_impl1(float origin_float, int man_bits, int exp
         {
             quantize_bits = round_bitwise_nearest_impl(target, man_bits);
             quantize_bits =
-                clip_exponent_without_subnormals_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
+                clip_normal_range_exponent_impl1(exp_bits, man_bits, target, quantize_bits, saturate);
             quantized = BITS_TO_FLOAT(&quantize_bits);
         }
     }
@@ -340,7 +342,10 @@ int main(int argc, const char **argv)
         if (res != test_outputs[j])
         {
             printf("index = %d\n", j);
-            print_float(res);
+            printf("input = ");
+            print_uint32(test_inputs[j]); printf("\n");
+            printf("Outputs:\n");
+            print_uint32(res);
             printf("\nvs\n");
             print_uint32(test_outputs[j]);
             printf("\n");
@@ -358,7 +363,7 @@ int main(int argc, const char **argv)
         float fval = BITS_TO_FLOAT(&v);
         half hval = (half)fval;
         float fval1 = (float)hval;
-        float fval2 = cast_fp_nearest_cpu(fval, 10, 5);
+        float fval2 = cast_fp_nearest_cpu(fval, 10, 5, true, false);
         if ((fval1 != fval2))
         {
             if (!isnanf(fval1) or !isnanf(fval2))
