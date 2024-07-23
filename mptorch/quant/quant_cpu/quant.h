@@ -49,4 +49,10 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnorm
 
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);
 
-Tensor float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias, float eps, std::vector<int> &dims);
+void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
+                                      Tensor o, Tensor mean, Tensor rstd, 
+                                      float eps, std::vector<int> &dims);
+
+Tensor float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor bias,
+                                         Tensor mean, Tensor rstd,
+                                         std::vector<int> &dims);

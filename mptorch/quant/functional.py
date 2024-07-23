@@ -414,7 +414,9 @@ class qlayernorm_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, normalized_shape, weight, bias, eps, formats):
         ctx.formats = formats
+        ctx.eps = eps
         qinput = formats.input_quant(x)
+        output = torch.zeros_like(x)
 
         if weight is not None:
             qweight = formats.weight_quant(weight)
@@ -434,17 +436,37 @@ class qlayernorm_kernel(torch.autograd.Function):
 
         assert normalized_shape == x.shape[-len(normalized_shape):]
         dims = [-(i + 1) for i in range(len(normalized_shape))]
+        ctx.dims = dims
 
-        output = mp_layernorm_forward(qinput, qweight, qbias, eps, dims)
+        reduced_dim = list(range(x.dim() - len(dims)))
+        reduced_shape = [x.shape[i] for i in reduced_dim]
+
+        mean = torch.zeros(reduced_shape)
+        rstd = torch.zeros(reduced_shape)
+
+        mp_qlayernorm_forward(qinput, qweight, qbias, output, mean, rstd, eps, dims)
         qoutput = formats.output_quant(output)
+
+        ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)
 
         return qoutput
 
     @staticmethod
     def backward(ctx, grad_output):
-        pass
+        (qinput, qweight, qbias, mean, rstd, ) = ctx.saved_tensors
+        formats = ctx.formats
+        dims = ctx.dims
 
+        qmeans = formats.input_quant(mean)
+        qrstd = formats.input_quant(rstd)
+        qgrad_output = formats.grad_quant(grad_output)
 
+        grad_input = mp_qlayernorm_backward(qinput, qgrad_output, qweight, qbias, qmeans, qrstd, dims)
+        qgrad_input = formats.grad_quant(grad_input)
+
+        return qgrad_input, None, None, None, None, None
+
+        
 def qlayernorm(x, normalized_shape, weight, bias, eps, formats):
     return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 

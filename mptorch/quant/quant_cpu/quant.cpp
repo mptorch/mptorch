@@ -451,14 +451,16 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
-Tensor float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
+void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
+                                      Tensor o, Tensor mean, Tensor rstd,
                                       float eps, std::vector<int> &dims){
   auto a_array = a.data_ptr<float>();
-  auto o = zeros_like(a);
-  auto o_array = o.data_ptr<float>();
-
   auto w_array = weight.data_ptr<float>();
   auto b_array = bias.data_ptr<float>();
+
+  auto o_array = o.data_ptr<float>();
+  auto m_array = mean.data_ptr<float>();
+  auto r_array = rstd.data_ptr<float>();
 
   std::vector<int> real_dims(dims.size());
   for (int i = 0; i < dims.size(); i++){
@@ -493,68 +495,113 @@ Tensor float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     float* input = a_array + base_index;
     float* output = o_array + base_index;
 
-    float mean = 0.0f;
-    float mean_2 = 0.0f;
+    float m = 0.0f;
+    float m_2 = 0.0f;
     for (int k = 0; k < dim_size; k++){
       int idx = k*T;
-      mean += input[idx];
-      mean_2 += input[idx] * input[idx];
+      m += input[idx];
+      m_2 += input[idx] * input[idx];
     }
-    mean /= dim_size;
-    mean_2 /= dim_size;
+    m /= dim_size;
+    m_2 /= dim_size;
 
-    float variance = mean_2 - (mean * mean);
+    float variance = m_2 - (m * m);
 
     float std = sqrtf(variance + eps);
     for (int k = 0; k < dim_size; k++){
-      int idx = k*T;
-      float norm = (input[idx] - mean) / std;
+      int idx = k * T;
+      float norm = (input[idx] - m) / std;
       output[idx] = w_array[k] * norm + b_array[k];
     }
+    m_array[b * T + t] = m;
+    r_array[b * T + t] = 1.0f/std; 
   }
-
-  return o;
 }
 
-// void float_quantize_layernorm_backward(float* dinp, float* dweight, float* dbias, float* dout, 
-//                                        float* inp, float* weight, float* mean, float* rstd,
-//                                        int B, int T, int C){
-//   for (int b = 0; b < B; b++){
-//     for (int t = 0; t < T; t++){
-//       float* dout_bt = dout + b * T * C + t * C;
-//       float* inp_bt = inp + b * T * C + t * C;
-//       float* dinp_bt = dinp + b * T * C + t * C;
-//       float mean_bt = mean[b * T + t];
-//       float rstd_bt = rstd[b * T + t];
+Tensor float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor bias,
+                                         Tensor mean, Tensor rstd,
+                                         std::vector<int> &dims){
+  auto a_array = a.data_ptr<float>();
+  auto g_array = g.data_ptr<float>();
+  auto w_array = weight.data_ptr<float>();
+  auto b_array = bias.data_ptr<float>();
 
-//       // two reduce operations
-//       float dnorm_mean = 0.0f;
-//       float dnorm_norm_mean = 0.0f;
-//       for (int i = 0; i < C; i++){
-//         float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
-//         float dnorm_i = weight[i] * dout_bt[i];
-//         dnorm_mean += dnorm_i;
-//         dnorm_norm_mean += dnorm_i * norm_bti;
-//       }
-//       dnorm_mean /= C;
-//       dnorm_norm_mean /= C;
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  auto m_array = mean.data_ptr<float>();
+  auto r_array = rstd.data_ptr<float>();
 
-//       // iterate again to accumulate all gradients
-//       for (int i = 0; i < C; i++){
-//         float norm_bti = (inp_bt[i] - mean_bt) * rstd_bt;
-//         float dnorm_i = weight[i] * dout_bt[i];
-//         // gradient contribution to bias
-//         dbias[i] += dout_bt[i];
-//         // gradient contribution to weight
-//         dweight[i] += norm_bti * dout_bt[i];
-//         // gradient contribution to input
-//         float dval = 0.0f;
-//         dval += dnorm_i; // term 1
-//         dval -= dnorm_mean; // term 2
-//         dval -= norm_bti * dnorm_norm_mean; // term 3
-//         dval *= rstd_bt; // final scale
-//         dinp_bt[i] += dval;
-//       }
-//     }
-//   }
-// }
+  Tensor gamma = ones_like(weight);
+  Tensor beta = zeros_like(bias);
+  auto grad_gamma = gamma.data_ptr<float>();
+  auto grad_beta = beta.data_ptr<float>();
+
+  std::vector<int> real_dims(dims.size());
+  for (int i = 0; i < dims.size(); i++){
+    real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
+  }
+
+  int dim_size = 1;
+  for (int dim : real_dims){
+    dim_size *= a.size(dim);
+  }
+
+  int min_dim = real_dims.back();
+  int max_dim = real_dims.front();
+
+  int B = 1;
+  for (int i = 0; i < min_dim; i++){
+    B *= a.size(i);
+  }
+
+  int T = 1;
+  for (int i = max_dim + 1; i < a.dim(); i++){
+    T *= a.size(i);
+  }
+
+  int outer_stride = dim_size * T;
+
+  for (int i = 0; i < B * T; i++){
+    int b = i / T;
+    int t = i % T;
+
+    int base_index = (b*outer_stride) + t;
+    float* input = a_array + base_index;
+    float* gradient = g_array + base_index;
+    float* output = o_array + base_index;
+
+    float m = m_array[b * T + t];
+    float r = r_array[b * T + t];
+
+    // two reduce operations
+    float grad_sum = 0.0f;
+    float grad_sum_xhat = 0.0f;
+    for (int k = 0; k < dim_size; k++){
+      int idx = k * T;
+      float xhat = (input[idx] - m) * r;
+      float grad_xhat = w_array[k] * gradient[idx];
+      grad_sum += grad_xhat;
+      grad_sum_xhat += xhat * grad_xhat;
+    }
+    grad_sum /= dim_size;
+    grad_sum_xhat /= dim_size;
+
+    // iterate and accumulate 
+    for (int k = 0; k < dim_size; k++){
+      int idx = k * T;
+      float xhat = (input[idx] - m) * r;
+      float grad_xhat = w_array[k] * gradient[idx];
+
+      grad_beta[k] += gradient[idx];
+      grad_gamma[k] += xhat * gradient[idx];
+
+      float grad_input = grad_xhat;
+      grad_input -= grad_sum;
+      grad_input -= xhat * grad_sum_xhat;
+      grad_input *= r;
+
+      output[idx] = grad_input;
+    }
+  }
+  return o;
+}

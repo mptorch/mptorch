@@ -29,6 +29,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Low-Bitwidth GEMM (CPU)");
   m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
         "Low-Bitwidth Layer Normalization (CPU");
-  // m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
-  //       "Low-Bitwidth Layer Normalization Backward (CPU");
+  m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
+        "Low-Bitwidth Layer Normalization Backward (CPU");
 }

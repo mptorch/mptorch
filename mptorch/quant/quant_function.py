@@ -30,7 +30,8 @@ __all__ = [
     "CUBLASMatrixType",
     "CUBLASComputeType",
     "cublas_acceleration",
-    "mp_layernorm_forward"
+    "mp_qlayernorm_forward",
+    "mp_qlayernorm_backward"
 ]
 
 current_path = os.path.dirname(os.path.realpath(__file__))
@@ -87,11 +88,11 @@ if torch.cuda.is_available():
 else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
-def mp_layernorm_forward(a, weight, bias, eps, dims):
-    return quant_cpu.float_quantize_layernorm_forward(a, weight, bias, eps, dims)
+def mp_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims):
+    return quant_cpu.float_quantize_layernorm_forward(a, weight, bias, o, mean, rstd, eps, dims)
 
-def mp_layernorm_backward():
-    pass
+def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims):
+    return quant_cpu.float_quantize_layernorm_backward(a, g, weight, bias, mean, rstd, dims)
 
 def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     """
