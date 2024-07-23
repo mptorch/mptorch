@@ -1,11 +1,8 @@
 import torch
 from mptorch.quant import float_quantize
 import struct
-import numpy as np
-import random
-
-def no_cuda():
-    return not torch.cuda.is_available()
+import pytest
+from tests.markers import available_devices
 
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
@@ -15,19 +12,16 @@ def float_to_bits(value):
     s = struct.pack('>f', value)
     return struct.unpack('>I', s)[0]
 
-def assert_quant(x_arr, expected_arr, quant_fn):
-    x = torch.tensor(x_arr, dtype=torch.float32, device="cuda")
-    expected = torch.tensor(expected_arr, dtype=torch.float32, device="cuda")
+def assert_quant(x_arr, expected_arr, quant_fn, device):
+    x = torch.tensor(x_arr, dtype=torch.float32, device=device)
+    expected = torch.tensor(expected_arr, dtype=torch.float32, device=device)
     assert expected.equal(quant_fn(x))
 
-
-def test_bfloat16():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_bfloat16(device):
     quant = lambda x: float_quantize(x, 8, 7, "nearest", True, False)
     # normal
-    assert_quant([[20.0625,20.06251],[20.0625,20.06251]], [[20.0,20.125],[20.0,20.125]], quant)
+    assert_quant([[20.0625,20.06251],[20.0625,20.06251]], [[20.0,20.125],[20.0,20.125]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
@@ -38,13 +32,5 @@ def test_bfloat16():
     # assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
     # assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
 
-    assert_quant([float('inf')], [float('inf')], quant)
-    assert_quant([-float('inf')], [-float('inf')], quant)
-
-
-def main():
-    test_bfloat16()
-
-
-if __name__ == "__main__":
-    main()
+    assert_quant([float('inf')], [float('inf')], quant, device)
+    assert_quant([-float('inf')], [-float('inf')], quant, device)

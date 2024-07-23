@@ -39,7 +39,7 @@ uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
   // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << my_min((23 - man_bits + offset),23)) - 1);
+  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
 }
 
 uint32_t round_bitwise_up(uint32_t target, int man_bits) {

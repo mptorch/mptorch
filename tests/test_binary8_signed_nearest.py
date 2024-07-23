@@ -3,12 +3,10 @@ from mptorch.quant import binary8_quantize
 import struct
 import numpy as np
 import random
-
+import pytest
+from tests.markers import available_devices
 from gfloat import RoundMode, round_float
 from gfloat.formats import *
-
-def no_cuda():
-    return not torch.cuda.is_available()
 
 def bits_to_float(bits):
     s = struct.pack('>I', bits)
@@ -18,15 +16,13 @@ def float_to_bits(value):
     s = struct.pack('>f', value)
     return struct.unpack('>I', s)[0]
 
-def assert_quant(x_arr, expected_arr, quant_fn):
-    x = torch.tensor(x_arr, dtype=torch.float32, device="cuda")
-    expected = torch.tensor(expected_arr, dtype=torch.float32, device="cuda")
+def assert_quant(x_arr, expected_arr, quant_fn, device):
+    x = torch.tensor(x_arr, dtype=torch.float32, device=device)
+    expected = torch.tensor(expected_arr, dtype=torch.float32, device=device)
     assert expected.equal(quant_fn(x))
 
-def test_binary8_to_gfloat():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_to_gfloat(device): 
     for P in range(1, 8):
         fi = format_info_p3109(P)
         exp_bits = 8 - P
@@ -43,7 +39,7 @@ def test_binary8_to_gfloat():
         while i_uival <= max_val_uival:
             i_fval = bits_to_float(i_uival)
 
-            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device="cuda"), P, "nearest", "saturate_maxfloat", True, True)
+            result1 = binary8_quantize(torch.tensor(i_fval, dtype=torch.float32, device=device), P, "nearest", "saturate_maxfloat", True, True)
             result2 = round_float(fi, i_fval, RoundMode.TiesToEven, True)
             result1 = result1.cpu() 
 
@@ -52,123 +48,109 @@ def test_binary8_to_gfloat():
             assert result1.equal(expected) or np.isnan(result1)
             i_uival += 16384 #8192
 
-def test_binary8p1_saturate_maxfloat():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8p1_saturate_maxfloat(device):
     quant = lambda x: binary8_quantize(x, 1, "nearest", "saturate_maxfloat", True, True)
     # normal
-    assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]], quant)
+    assert_quant([[1.5,4.0E-13],[134210000.0,-9.0E-07]], [[2.0,4.5474735E-13],[134217728.0,-9.5367432E-07]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
-    assert_quant(b2f(0b00100000100000000000000000000000), b2f(0b00100000100000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00100000000000000000000000000000), [0.0], quant) # round to 0
-    assert_quant(b2f(0b00100000000000000000000000000001), b2f(0b00100000100000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant) # overflow
-    assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant) # underflow
-    assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant)
-    assert_quant([-float('inf')], b2f(0b11011111000000000000000000000000), quant)
+    assert_quant(b2f(0b00100000100000000000000000000000), b2f(0b00100000100000000000000000000000), quant, device) # min normal
+    assert_quant(b2f(0b00100000000000000000000000000000), [0.0], quant, device) # round to 0
+    assert_quant(b2f(0b00100000000000000000000000000001), b2f(0b00100000100000000000000000000000), quant, device) # round to min
+    assert_quant(b2f(0b01011111000000000000000000000000), b2f(0b01011111000000000000000000000000), quant, device) # max normal
+    assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01011111000000000000000000000000), quant, device) # overflow
+    assert_quant(b2f(0b00011111100000000000000000000000), [0.0], quant, device) # underflow
+    assert_quant([float('inf')], b2f(0b01011111000000000000000000000000), quant, device)
+    assert_quant([-float('inf')], b2f(0b11011111000000000000000000000000), quant, device)
 
-def test_binary8p2_saturate_maxfloat():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8p2_saturate_maxfloat(device):
     quant = lambda x: binary8_quantize(x, 2, "nearest", "saturate_maxfloat", True, True)
     # normal
-    assert_quant([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]], [[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]], quant)
+    assert_quant([[1.5,2.90E-08],[-1.1402E-05,-25000824.0]], [[1.5,2.9802322E-08],[-1.1444092E-05,-25165824.0]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
-    assert_quant(b2f(0b00110000000000000000000000000000), b2f(0b00110000000000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00101111100000000000000000000000), b2f(0b00101111100000000000000000000000), quant) # min subnormal
-    assert_quant(b2f(0b00101111000000000000000000000000), [0.0], quant)                                   # round to 0
-    assert_quant(b2f(0b00101111000000000000000000000001), b2f(0b00101111100000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b01001111000000000000000000000000), b2f(0b01001111000000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01001111000000000000000000000000), quant) # overflow
-    assert_quant(b2f(0b00101110100000000000000000000000), [0.0], quant)                                   # underflow
-    assert_quant([float('inf')], b2f(0b01001111000000000000000000000000), quant)
-    assert_quant([-float('inf')], b2f(0b11001111000000000000000000000000), quant) 
+    assert_quant(b2f(0b00110000000000000000000000000000), b2f(0b00110000000000000000000000000000), quant, device) # min normal
+    assert_quant(b2f(0b00101111100000000000000000000000), b2f(0b00101111100000000000000000000000), quant, device) # min subnormal
+    assert_quant(b2f(0b00101111000000000000000000000000), [0.0], quant, device)                                   # round to 0
+    assert_quant(b2f(0b00101111000000000000000000000001), b2f(0b00101111100000000000000000000000), quant, device) # round to min
+    assert_quant(b2f(0b01001111000000000000000000000000), b2f(0b01001111000000000000000000000000), quant, device) # max normal
+    assert_quant(b2f(0b01011111100000000000000000000000), b2f(0b01001111000000000000000000000000), quant, device) # overflow
+    assert_quant(b2f(0b00101110100000000000000000000000), [0.0], quant, device)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01001111000000000000000000000000), quant, device)
+    assert_quant([-float('inf')], b2f(0b11001111000000000000000000000000), quant, device) 
 
-def test_binary8p3_saturate_maxfloat():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8p3_saturate_maxfloat(device):
     quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat", True, True)
     # normal
-    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
-    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
-    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
-    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # overflow
-    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
-    assert_quant([float('inf')], b2f(0b01000111010000000000000000000000), quant)
-    assert_quant([-float('inf')], b2f(0b11000111010000000000000000000000), quant) 
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant, device) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant, device) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant, device)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant, device) # round to min
+    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant, device) # max normal
+    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111010000000000000000000000), quant, device) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant, device)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01000111010000000000000000000000), quant, device)
+    assert_quant([-float('inf')], b2f(0b11000111010000000000000000000000), quant, device) 
 
-def test_binary8p3_saturate_maxfloat2():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8p3_saturate_maxfloat2(device):
     quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat2", True, True)
     # normal
-    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
-    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
-    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
-    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111011000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01000111011100000000000000000000), b2f(0b01000111011000000000000000000000), quant) # overflow
-    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
-    assert_quant([float('inf')], b2f(0b01000111011000000000000000000000), quant)
-    assert_quant([-float('inf')], b2f(0b11000111011000000000000000000000), quant) 
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant, device) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant, device) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant, device)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant, device) # round to min
+    assert_quant(b2f(0b01000111011000000000000000000000), b2f(0b01000111011000000000000000000000), quant, device) # max normal
+    assert_quant(b2f(0b01000111011100000000000000000000), b2f(0b01000111011000000000000000000000), quant, device) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant, device)                                   # underflow
+    assert_quant([float('inf')], b2f(0b01000111011000000000000000000000), quant, device)
+    assert_quant([-float('inf')], b2f(0b11000111011000000000000000000000), quant, device) 
 
-def test_binary8p3_saturate_infty():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8p3_saturate_infty(device):
     quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_infty", True, True)
     # normal
-    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant)
+    assert_quant([[1.5,13.0],[13.000001,-13.0]], [[1.5,12.0],[14.0,-12]], quant, device)
 
     b2f = lambda b: [bits_to_float(b)]
 
-    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant) # min normal
-    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant) # min subnormal
-    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant)                                   # round to 0
-    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant) # round to min
-    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant) # max normal
-    assert_quant(b2f(0b01000111011000000000000000000000), [float('inf')], quant) # overflow
-    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant)                                   # underflow
-    assert_quant([float('inf')], [float('inf')], quant)
-    assert_quant([-float('inf')], [-float('inf')], quant) 
+    assert_quant(b2f(0b00111000000000000000000000000000), b2f(0b00111000000000000000000000000000), quant, device) # min normal
+    assert_quant(b2f(0b00110111000000000000000000000000), b2f(0b00110111000000000000000000000000), quant, device) # min subnormal
+    assert_quant(b2f(0b00110110100000000000000000000000), [0.0], quant, device)                                   # round to 0
+    assert_quant(b2f(0b00110110100000000000000000000001), b2f(0b00110111000000000000000000000000), quant, device) # round to min
+    assert_quant(b2f(0b01000111010000000000000000000000), b2f(0b01000111010000000000000000000000), quant, device) # max normal
+    assert_quant(b2f(0b01000111011000000000000000000000), [float('inf')], quant, device) # overflow
+    assert_quant(b2f(0b00110110000000000000000000000000), [0.0], quant, device)                                   # underflow
+    assert_quant([float('inf')], [float('inf')], quant, device)
+    assert_quant([-float('inf')], [-float('inf')], quant, device) 
 
-def test_no_subnormal_case():
-    if no_cuda():
-        return
-
+@pytest.mark.parametrize("device", available_devices)
+def test_no_subnormal_case(device):
     quant = lambda x: binary8_quantize(x, 3, "nearest", "saturate_maxfloat", True, False)
 
-    assert_quant(float(1.9E-5), float(1.907348633E-5), quant)
-    assert_quant(float(2.3E-5), float(2.288818359E-5), quant)
-    assert_quant(float(2.67E-5), float(2.670288086E-5), quant)
-    assert_quant(float(9.7E-6), float(1.907348633E-5), quant) # minimum normalized value
-    assert_quant(float(9.5E-6), float(0), quant) # to 0
-    assert_quant(float(1.5258789E-5), float(1.907348633E-5), quant)
-    assert_quant(float(2.288818359375E-5), float(2.288818359E-5), quant)
+    assert_quant(float(1.9E-5), float(1.907348633E-5), quant, device)
+    assert_quant(float(2.3E-5), float(2.288818359E-5), quant, device)
+    assert_quant(float(2.67E-5), float(2.670288086E-5), quant, device)
+    assert_quant(float(9.7E-6), float(1.907348633E-5), quant, device) # minimum normalized value
+    assert_quant(float(9.5E-6), float(0), quant, device) # to 0
+    assert_quant(float(1.5258789E-5), float(1.907348633E-5), quant, device)
+    assert_quant(float(2.288818359375E-5), float(2.288818359E-5), quant, device)
 
-def test_binary8_signed_nearest():
-    if no_cuda():
-        return
-    
+@pytest.mark.parametrize("device", available_devices)
+def test_binary8_signed_nearest(device):
     # parameters :
     iterations = 1
     
@@ -197,7 +179,7 @@ def test_binary8_signed_nearest():
         while i_fval <= max_val:
             for i in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
-                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device="cuda")
+                num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device=device)
                 result = binary8_quantize(num_tensor, P, "nearest", "saturate_maxfloat", True, True)
                 result1 = result.cpu() 
 
