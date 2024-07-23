@@ -712,7 +712,7 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
       grad_beta[k] = quant(grad_beta[k] + gradient[idx], man_acc, exp_acc);
       grad_gamma[k] = quant(grad_gamma[k] + xhat_gradient, man_acc, exp_acc);
 
-      float weighted_grad_sum = xhat * grad_sum_xhat;
+      float weighted_grad_sum = quant(xhat * grad_sum_xhat, man_mul, exp_mul);
       float grad_input = grad_xhat;
       grad_input = quant(grad_input - grad_sum, man_acc, exp_acc);
       grad_input = quant(grad_input - weighted_grad_sum, man_acc, exp_acc);
