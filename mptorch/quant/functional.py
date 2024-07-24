@@ -438,13 +438,7 @@ class qlayernorm_kernel(torch.autograd.Function):
         dims = [-(i + 1) for i in range(len(normalized_shape))]
         ctx.dims = dims
 
-        reduced_dim = list(range(x.dim() - len(dims)))
-        reduced_shape = [x.shape[i] for i in reduced_dim]
-
-        mean = torch.zeros(reduced_shape)
-        rstd = torch.zeros(reduced_shape)
-
-        mp_qlayernorm_forward(qinput, qweight, qbias, output, mean, rstd, eps, dims, formats)
+        output, mean, rstd = mp_qlayernorm_forward(qinput, qweight, qbias, eps, dims, formats)
         qoutput = formats.output_quant(output)
 
         ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)

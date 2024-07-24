@@ -41,7 +41,7 @@ def norm_formats(fp_format, quant_fp):
         bias_quant = quant_fp,
     )
 
-@pytest.mark.xfail
+@pytest.mark.xfail # TODO: Fix high precision error?
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])

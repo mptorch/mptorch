@@ -90,10 +90,10 @@ if torch.cuda.is_available():
 else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
-def mp_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats):
+def mp_qlayernorm_forward(a, weight, bias, eps, dims, formats):
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
-        return float_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats)
+        return float_qlayernorm_forward(a, weight, bias, eps, dims, formats)
     raise NotImplementedError("Unsupported float type.")
 
 def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
@@ -102,7 +102,7 @@ def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
         return float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats)
     raise NotImplementedError("Unsupported float type.")
 
-def float_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats):
+def float_qlayernorm_forward(a, weight, bias, eps, dims, formats):
     acc_cfg, mul_cfg, div_cfg, sqrt_cfg, rnd = (
         formats.fwd_acc,
         formats.fwd_mul,
@@ -115,6 +115,13 @@ def float_qlayernorm_forward(a, weight, bias, o, mean, rstd, eps, dims, formats)
     saturate = acc_cfg.saturate
 
     quant_module = get_module(a)
+
+    reduced_dim = list(range(x.dim() - len(dims)))
+    reduced_shape = [x.shape[i] for i in reduced_dim]
+
+    mean = torch.zeros(reduced_shape)
+    rstd = torch.zeros(reduced_shape)
+    o = torch.zeros_like(a)
 
     quant_module.float_quantize_layernorm_forward(a, weight, bias, 
                                                   o, mean, rstd, 
