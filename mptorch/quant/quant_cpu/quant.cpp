@@ -595,31 +595,31 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     float* input = a_array + base_index;
     float* output = o_array + base_index;
 
-    float m = 0.0f;
     float m_input = 0.0f;
+    float m_input_2 = 0.0f;
     for (int k = 0; k < dim_size; k++){
       int idx = k*T;
       float input_2 = quant(input[idx] * input[idx], man_mul, exp_mul);
 
-      m = quant(m + input[idx], man_acc, exp_acc);
-      m_input = quant(m_input + input_2, man_acc, exp_acc);
+      m_input = quant(m_input + input[idx], man_acc, exp_acc);
+      m_input_2 = quant(m_input_2 + input_2, man_acc, exp_acc);
     }
-    m = quant(m/dim_size, man_div, exp_div);
     m_input = quant(m_input/dim_size, man_div, exp_div);
+    m_input_2 = quant(m_input_2/dim_size, man_div, exp_div);
 
-    float M = quant(m*m, man_mul, exp_mul);
-    float variance = quant(m_input - M, man_acc, exp_acc);
+    float M = quant(m_input*m_input, man_mul, exp_mul);
+    float variance = quant(m_input_2 - M, man_acc, exp_acc);
 
     float rad = quant(variance + eps, man_acc, exp_acc);
     float std = quant(sqrtf(rad), man_sqrt, exp_sqrt);
     for (int k = 0; k < dim_size; k++){
       int idx = k * T;
-      float numer = quant(input[idx] - m, man_acc, exp_acc);
+      float numer = quant(input[idx] - m_input, man_acc, exp_acc);
       float norm = quant(numer/std, man_div, exp_div);
       float out = quant(w_array[k] * norm, man_mul, exp_mul);
       output[idx] = out + b_array[k];
     }
-    m_array[b * T + t] = m;
+    m_array[b * T + t] = m_input;
     r_array[b * T + t] = quant(1.0f/std, man_div, exp_div); 
   }
 }

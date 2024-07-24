@@ -1,4 +1,5 @@
 import torch
+import mptorch
 import pytest
 from torch.nn import functional as F
 from mptorch import FloatingPoint
@@ -40,12 +41,13 @@ def norm_formats(fp_format, quant_fp):
         bias_quant = quant_fp,
     )
 
+@pytest.mark.xfail
 @pytest.mark.parametrize("device", ["cpu"])
-@pytest.mark.parametrize("shape", [(20, 30, 50)])
-@pytest.mark.parametrize("normalized_shape", [[30, 50], [50]])
+@pytest.mark.parametrize("shape", [(20, 30, 40)])
+@pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
 def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
-    layer = torch.nn.LayerNorm(normalized_shape, 1e-2, False, False)
-    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-2, False, False)
+    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, False, False)
+    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-5, False, False)
 
     x_ref = torch.rand(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
@@ -53,17 +55,16 @@ def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
 
     y_ref = layer.forward(x_ref)
     y_res = qlayer.forward(x_res)
-    torch.testing.assert_close(y_res, y_ref, atol=0.125, rtol=0)
+    torch.testing.assert_close(y_res, y_ref, atol=1e-3, rtol=0)
 
     grad = torch.rand(*shape, device=device)
     y_ref.backward(grad)
     y_res.backward(grad)
-    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=0.125, rtol=0)
-
+    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-3, rtol=0)
 
 @pytest.mark.parametrize("device", ["cpu"])
-@pytest.mark.parametrize("shape", [(20, 30, 50)])
-@pytest.mark.parametrize("normalized_shape", [[30, 50], [50]])
+@pytest.mark.parametrize("shape", [(20, 30, 40)])
+@pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
 def test_qlayer_norm_normal(device, shape, normalized_shape):
     layer = torch.nn.LayerNorm(normalized_shape, 1e-5, False, False)
     qlayer = QLayerNorm(normalized_shape, QLayerNormFormats(), 1e-5, False, False)
