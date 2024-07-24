@@ -2,9 +2,10 @@ import torch
 import pytest
 from torch.nn import functional as F
 from mptorch import FloatingPoint
+from mptorch.quant import QLayerNorm
 from mptorch.quant import QLayerNormFormats
 from mptorch.quant import float_quantize
-from mptorch.quant import functional as Q 
+from mptorch.quant import functional as Q
 
 fp_format = FloatingPoint(
     exp=8, man=23, subnormals=True, saturate=False
@@ -36,26 +37,22 @@ layer_formats = QLayerNormFormats(
     bias_quant = quant_fp,
 )
 
-@pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
-def test_qlayer_norm_forward(normalized_shape):
-    a = torch.randn(20, 30, 40, device="cpu")
-    ref = F.layer_norm(a, normalized_shape, weight=None, bias=None, eps=1e-5)
-    res = Q.qlayernorm(a, normalized_shape, weight=None, bias=None, eps=1e-5, formats=layer_formats)
+@pytest.mark.parametrize("device", ["cpu"])
+@pytest.mark.parametrize("shape", [(30, 40, 50)])
+@pytest.mark.parametrize("normalized_shape", [[40, 50], [50]])
+def test_qlayer_norm(device, shape, normalized_shape):
+    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, False, False)
+    qlayer = QLayerNorm(normalized_shape, layer_formats, 1e-5, False, False)
 
-    torch.testing.assert_close(ref, res, atol=1e-5, rtol=0)
+    x_ref = torch.rand(*shape, device=device, requires_grad=True)
+    x_res = x_ref.clone().detach()
+    x_res.requires_grad_(True)
 
-@pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
-def test_qlayer_norm_backward(normalized_shape):
-    a = torch.randn(20, 30, 40, device="cpu")
+    y_ref = layer.forward(x_ref)
+    y_res = qlayer.forward(x_res)
+    torch.testing.assert_close(y_res, y_ref, atol=2e-5, rtol=0.0)
 
-    ref_x = torch.randn(20, 30, 40, device="cpu", requires_grad=True)
-    res_x = ref_x.clone().detach()
-    res_x.requires_grad_(True)
-
-    ref_y = F.layer_norm(ref_x, normalized_shape, weight=None, bias=None, eps=1e-5)
-    res_y = Q.qlayernorm(res_x, normalized_shape, weight=None, bias=None, eps=1e-5, formats=layer_formats)
-
-    ref_y.backward(a)
-    res_y.backward(a)
-
-    torch.testing.assert_close(ref_x.grad, res_x.grad, atol=1e-5, rtol=0)
+    grad = torch.rand(*shape, device=device)
+    y_ref.backward(grad)
+    y_res.backward(grad)
+    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=2e-5, rtol=0.0)

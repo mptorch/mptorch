@@ -1,6 +1,6 @@
 from .quant_function import *
 from .quant_module import *
-from .quant_format import QAffineFormats, QLayerNormFormats
+from .quant_format import *
 from .modules import *
 from .functional import qmatmul
 
@@ -13,5 +13,6 @@ __all__ = [
     "quantizer",
     "QAvgPool2d",
     "QAffineFormats",
+    "QLayerNormFormats",
     "qmatmul",
 ]
