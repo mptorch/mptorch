@@ -50,11 +50,9 @@ class QGPTConfig:
     softmax_fwd_off: tuple[int, int] | None = None
     softmax_fwd_exp: tuple[int, int] | None = None
     softmax_fwd_acc: tuple[int, int] | None = None
-    softmax_fwd_div: tuple[int, int] | None = None
     softmax_fwd_lse: tuple[int, int] | None = None
     softmax_bwd_add: tuple[int, int] | None = None
     softmax_bwd_mul: tuple[int, int] | None = None
-    softmax_bwd_div: tuple[int, int] | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -93,11 +91,9 @@ def make_softmax_formats(config):
         fwd_off=make_float(config, "softmax_fwd_off"),
         fwd_exp=make_float(config, "softmax_fwd_exp"),
         fwd_acc=make_float(config, "softmax_fwd_acc"),
-        fwd_div=make_float(config, "softmax_fwd_div"),
         fwd_lse=make_float(config, "softmax_fwd_lse"),
         bwd_add=make_float(config, "softmax_bwd_add"),
         bwd_mul=make_float(config, "softmax_bwd_mul"),
-        bwd_div=make_float(config, "softmax_bwd_div"),
         fwd_rnd=config.rounding,
         bwd_rnd=config.rounding,
         input_quant=make_quant(config, "softmax_input_fmt"),
