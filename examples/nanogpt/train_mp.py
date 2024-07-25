@@ -17,8 +17,28 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
-from model_mp import QGPTConfig, QGPT
 from mptorch.quant import cublas_acceleration
+
+import sys
+import importlib.util
+
+
+# -----------------------------------------------------------------------------
+# Load the model module
+try:
+    # Load the module specification
+    _module_spec = importlib.util.spec_from_file_location(sys.argv[1][:-3], sys.argv[1])
+    _model_module = importlib.util.module_from_spec(_module_spec)
+    _module_spec.loader.exec_module(_model_module)
+except IndexError:
+    print("Missing model module name as first argument.")
+    exit(1)
+except:
+    raise
+QGPTConfig = _model_module.QGPTConfig
+QGPT = _model_module.QGPT
+# -----------------------------------------------------------------------------
+
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -63,6 +83,7 @@ device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps'
 dtype = 'float32'
 # quantization with cublas
 use_cublas = False
+
 # model settings with quantization taken from default QGPTConfig values
 for field in QGPTConfig.__dataclass_fields__.values():
     if not field.name in globals():
