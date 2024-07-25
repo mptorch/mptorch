@@ -63,7 +63,7 @@ class qlinear_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
-                qgrad_input = torch.matmul(qgrad_output, qweight)
+                qgrad_input = torch.bmm(qgrad_output, qweight)
             else:
                 qgrad_input = mp_bmm(
                     qgrad_output,
@@ -75,7 +75,7 @@ class qlinear_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             if ctx.formats.bwd_use_default_prec:
-                qgrad_weight = torch.matmul(qgrad_output.transpose(-2, -1), qinput)
+                qgrad_weight = torch.bmm(qgrad_output.transpose(-2, -1), qinput)
             else:
                 qgrad_weight = mp_bmm(
                     qgrad_output.transpose(-2, -1),
@@ -172,7 +172,7 @@ class qmatmul_kernel(torch.autograd.Function):
         qother = formats.weight_quant(other)
 
         if formats.fwd_use_default_prec:
-            output = torch.matmul(qinput, qother)
+            output = torch.bmm(qinput, qother)
         else:
             output = mp_bmm(
                 qinput,
@@ -193,7 +193,7 @@ class qmatmul_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
-                grad_input = torch.matmul(qgrad_output, qother.transpose(-2, -1))
+                grad_input = torch.bmm(qgrad_output, qother.transpose(-2, -1))
             else:
                 grad_input = mp_bmm(
                     qgrad_output,
@@ -205,7 +205,7 @@ class qmatmul_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             if ctx.formats.bwd_use_default_prec:
-                grad_other = torch.matmul(qinput.transpose(-2, -1), qgrad_output)
+                grad_other = torch.bmm(qinput.transpose(-2, -1), qgrad_output)
             else:
                 grad_other = mp_bmm(
                     qinput.transpose(-2, -1),
@@ -426,3 +426,33 @@ class qsoftmax_kernel(torch.autograd.Function):
 
 def qsoftmax(x, dim, dtype, quant):
     pass
+
+
+class qgelu(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, formats):
+        ctx.formats = formats
+        qinput = formats.input_quant(input)
+
+        #compute GELU using the tanh approximation
+        gelu_output = 0.5 * qinput * (1 + torch.tanh(torch.sqrt(2 / torch.pi) * (qinput + 0.044715 * qinput ** 3)))
+
+        qoutput = formats.output_quant(gelu_output)
+        ctx.save_for_backward(qinput)
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        qinput, = ctx.saved_tensors
+        qgrad_output = ctx.formats.grad_quant(grad_output)
+
+        #compute the derivative of the GELU function
+        tanh_part = torch.tanh(torch.sqrt(2 / torch.pi) * (qinput + 0.044715 * qinput ** 3))
+        grad_input = 0.5 * (1 + tanh_part) + 0.5 * qinput * (1 - tanh_part ** 2) * (torch.sqrt(2 / torch.pi) * (1 + 3 * 0.044715 * qinput ** 2))
+        grad_input = grad_input * qgrad_output
+
+        qgrad_input = ctx.formats.grad_quant(grad_input)
+        return qgrad_input, None
+
+def qgelu(input, formats):
+    return qgelu.apply(input, formats)
