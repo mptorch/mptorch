@@ -194,11 +194,10 @@ class Binary8(Number):
                                     - saturate_infty : use infinity
     """
 
-    def __init__(self, P, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"):
-        assert type(P) == input and 8 > P > 0, "invalid input for precision: {}".format(P)  # is P = 8 valid?
-        assert type(signed) == bool, "invalid type for signed or unsigned choice: {}".format(type(signed))
-        assert type(subnormals) == bool, "invalid type for allowing subnormals or not: {}".format(type(subnormals))
-        assert type(overflow_policy) == str and overflow_policy in ["saturate", "overflow", "no_overflow"], "invalid input for saturation mode: {}".format(overflow_policy)
+    def __init__(self, P: int, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"):
+        assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
+        assert overflow_policy in ("saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"), \
+            "Invalid overflow policy: {}".format(overflow_policy)
 
         self.P = P
         spec_exp = P == 1
@@ -224,7 +223,7 @@ class Binary8(Number):
             self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
     
         if signed:
-            if overflow_policy == "no_overflow":    # no inf case, so max is FF not FE
+            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FF not FE
                 if self.man > 0:
                     self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
@@ -235,7 +234,7 @@ class Binary8(Number):
                 else:
                     self.normal_max = 2**max_exp    # 0 mantissa case
         else:   # unsigned case
-            if overflow_policy == "no_overflow":    # no inf case, so max is FE not FD
+            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FE not FD
                 if self.man > 0:
                     self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
                 else:
@@ -247,9 +246,14 @@ class Binary8(Number):
                     self.normal_max = 1.5 * (2**(max_exp-1))      # (2 - 2**-self.man) * (2**(max_exp-1))
                 else:
                     self.normal_max = 2**(max_exp-1)
-
-    def __str__(self):
-        return "Binary8 (P={:d}, signed={}, exponent={:d}, mantissa={:d})".format(self.P, self.signed, self.exp, self.man)  # potentially add saturation mode and subnormals ? 
+        
+        self.signed = signed
+        self.subnormals = subnormals
+        self.overflow_policy = overflow_policy
 
     def __repr__(self):
-        return "Binary8 (P={:d}, signed={}, exponent={:d}, mantissa={:d})".format(self.P, self.signed, self.exp, self.man)
+        return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
+               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy}"
+    
+    def __str__(self):
+        return self.__repr__()
