@@ -1,14 +1,22 @@
-__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+__all__ = ["Number", "FloatType", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+
 
 class Number:
+    """Base class of all number formats."""
     def __init__(self):
         pass
 
-    def __str__(self):
+    def __str__(self) -> str:
         raise NotImplementedError
 
     def __repr__(self) -> str:
         raise NotImplementedError
+
+
+class FloatType(Number):
+    """Base class of float-like number formats."""
+    pass
+
 
 class FixedPoint(Number):
     r"""
@@ -77,7 +85,7 @@ class FixedPoint(Number):
         return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
 
 
-class FloatingPoint(Number):
+class FloatingPoint(FloatType):
     """
     Low-Precision Floating Point Format.
 
@@ -122,7 +130,8 @@ class FloatingPoint(Number):
     def is_bfloat16(self) -> bool:
         return self.man == 7 and self.exp == 8
 
-class SuperNormalFloat(Number):
+
+class SuperNormalFloat(FloatType):
     """
     Low-Precision SuperNormal Floating Point Format.
 
@@ -192,7 +201,7 @@ class BlockFloatingPoint(Number):
         return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
 
 
-class Binary8(Number):
+class Binary8(FloatType):
     """
     Low-Precision Binary8 Format following the P3109 standard.
 

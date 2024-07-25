@@ -51,9 +51,9 @@ class QAffineFormats:
         - :attr: `bias_quant` (function or (Number, str)) : quantization function or format and rounding on the bias signal inputs
         - :attr: `input_quant` (function or (Number, str)) : quantization function or format and rounding on the output signal from the layer
         - :attr: `grad_quant` (function or (Number, str)) : quantization function or format and rounding on the gradient signals in the BWD pass
-        - :attr: `weight_scaled_format` (FloatingPoint) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
-        - :attr: `input_scaled_format` (FloatingPoint) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
-        - :attr: `grad_scaled_format` (FloatingPoint) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
+        - :attr: `weight_scaled_format` (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
+        - :attr: `input_scaled_format` (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
+        - :attr: `grad_scaled_format` (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
         - :attr: `grad_scaled_format` (int) : number of bits used for random number generation when rounding is stochastic
  
     """
@@ -68,9 +68,9 @@ class QAffineFormats:
         input_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         output_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         grad_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        weight_scaled_format: Optional[FloatingPoint] = None,
-        input_scaled_format: Optional[FloatingPoint] = None,
-        grad_scaled_format: Optional[FloatingPoint] = None,
+        weight_scaled_format: Optional[FloatType] = None,
+        input_scaled_format: Optional[FloatType] = None,
+        grad_scaled_format: Optional[FloatType] = None,
         prng_bits: int = 0
     ) -> None:
         if fwd_mac is not None:
@@ -116,7 +116,7 @@ class QAffineFormats:
         if isinstance(weight_quant, tuple):
             num, rnd = weight_quant
             self.weight_quant = make_quant_function(num, rnd, prng_bits)
-            if self.weight_scaled_format is None and isinstance(num, FloatingPoint):
+            if self.weight_scaled_format is None and isinstance(num, FloatType):
                 self.weight_scaled_format = num
         else:
             self.weight_quant = weight_quant
@@ -130,7 +130,7 @@ class QAffineFormats:
         if isinstance(input_quant, tuple):
             num, rnd = input_quant
             self.input_quant = make_quant_function(num, rnd, prng_bits)
-            if self.input_scaled_format is None and isinstance(num, FloatingPoint):
+            if self.input_scaled_format is None and isinstance(num, FloatType):
                 self.input_scaled_format = num
         else:
             self.input_quant = input_quant
@@ -144,7 +144,7 @@ class QAffineFormats:
         if isinstance(grad_quant, tuple):
             num, rnd = grad_quant
             self.grad_quant = make_quant_function(num, rnd, prng_bits)
-            if self.grad_scaled_format is None and isinstance(num, FloatingPoint):
+            if self.grad_scaled_format is None and isinstance(num, FloatType):
                 self.grad_scaled_format = num
         else:
             self.grad_quant = grad_quant

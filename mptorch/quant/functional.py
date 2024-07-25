@@ -1,7 +1,7 @@
 import torch
 import math
 from .quant_function import *
-from ..number import FloatingPoint
+from ..number import FloatType
 from .quant_format import make_quant_function
 
 __all__ = [
@@ -27,10 +27,10 @@ __all__ = [
 # divergence (i.e. grad_input computation in the linear layer backward pass is 
 # unstable and produces NaNs right from the start); more investigation is needed 
 # and this might need to be revisited in the case of supernormals
-def compute_bias(x, cast_to: FloatingPoint, margin=10):
+def compute_bias(x, cast_to: FloatType, margin=10):
     with torch.no_grad():
-          (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
-          (amax, _) = torch.max(amax, dim=-2, keepdim=True)
+        (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
+        (amax, _) = torch.max(amax, dim=-2, keepdim=True)
     return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
 
 def scale(x, x_scale):
@@ -149,7 +149,7 @@ class qmm_kernel(torch.autograd.Function):
         ctx.formats = formats
         if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
             ctx.weight_scale = compute_bias(other, formats.weight_scaled_format)
-            ctx.input_scale = compute_bias(input, formats.input_scalde_format)
+            ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
             ctx.input_scale, ctx.weight_scale = 0, 0
 
