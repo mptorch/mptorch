@@ -1,3 +1,5 @@
+#pragma once
+
 #include <ATen/ATen.h>
 #include <tuple>
 #include "binary8.h"
