@@ -729,7 +729,6 @@ void softmax_forward_fp_nearest(float *a, float *o,
                                 int man_exp, int exp_exp,
                                 int man_off, int exp_off,
                                 int man_acc, int exp_acc,
-                                int man_div, int exp_div,
                                 bool subnormals, bool saturate)
 {
   DimStrides *d_strides;
@@ -740,17 +739,21 @@ void softmax_forward_fp_nearest(float *a, float *o,
   size_t shared_mem_size = (block_size / 32) * sizeof(float);
   softmax_forward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, o, d_strides,
-    [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate); },
-    [man_off, exp_off, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate); },
-    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate); },
-    [man_div, exp_div, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate); }
+    [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate);
+    },
+    [man_off, exp_off, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate);
+    },
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    }
   );
   cudaFree(d_strides);
 }
 
 void softmax_lse_forward_fp_nearest(float *a, float *o,
                                 const DimStrides& strides,
-                                int man_exp, int exp_exp,
                                 int man_off, int exp_off,
                                 int man_lse, int exp_lse,
                                 bool subnormals, bool saturate)
@@ -763,9 +766,12 @@ void softmax_lse_forward_fp_nearest(float *a, float *o,
   size_t shared_mem_size = (block_size / 32) * sizeof(float);
   softmax_lse_forward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, o, d_strides,
-    [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate); },
-    [man_off, exp_off, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate); },
-    [man_lse, exp_lse, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_lse, exp_lse, subnormals, saturate); }
+    [man_off, exp_off, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate);
+    },
+    [man_lse, exp_lse, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_lse, exp_lse, subnormals, saturate);
+    }
   );
   cudaFree(d_strides);
 }
@@ -774,7 +780,6 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
                                 const DimStrides& strides,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
-                                int man_div, int exp_div,
                                 bool subnormals, bool saturate)
 {
   DimStrides *d_strides;
@@ -785,9 +790,12 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
   size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
   softmax_backward_impl<<<blocks, block_size, shared_mem_size>>>(
     a, g, o, d_strides,
-    [man_add, exp_add, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
-    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); },
-    [man_div, exp_div, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate); }
+    [man_add, exp_add, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    }
   );
   cudaFree(d_strides);
 }

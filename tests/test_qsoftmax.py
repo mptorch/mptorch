@@ -30,11 +30,9 @@ def formats_div(fp_format, quant_fp):
         fwd_exp=fp_format,
         fwd_off=fp_format,
         fwd_acc=fp_format,
-        fwd_div=fp_format,
 
         bwd_add=fp_format,
         bwd_mul=fp_format,
-        bwd_div=fp_format,
 
         output_quant=quant_fp,
         input_quant=quant_fp,
@@ -44,13 +42,11 @@ def formats_div(fp_format, quant_fp):
 @pytest.fixture(scope="module")
 def formats_lse(fp_format, quant_fp):
     return QSoftmaxFormats(
-        fwd_exp=fp_format,
         fwd_off=fp_format,
         fwd_lse=fp_format,
 
         bwd_add=fp_format,
         bwd_mul=fp_format,
-        bwd_div=fp_format,
 
         output_quant=quant_fp,
         input_quant=quant_fp,
@@ -63,9 +59,11 @@ def test_softmax_formats(formats_lse, formats_div):
     assert not formats_div.fwd_use_default_prec
     assert not formats_div.bwd_use_default_prec
     assert formats_lse.use_lse
-    assert not hasattr(formats_lse, "fwd_div")
+    assert not hasattr(formats_lse, "fwd_exp")
+    assert not hasattr(formats_lse, "fwd_acc")
     assert not formats_div.use_lse
-    assert hasattr(formats_div, "fwd_div")
+    assert hasattr(formats_div, "fwd_exp")
+    assert hasattr(formats_div, "fwd_acc")
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("shape", [(20, 30, 40)])

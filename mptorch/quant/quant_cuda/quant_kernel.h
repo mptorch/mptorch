@@ -158,15 +158,13 @@ struct DimStrides
 
 void softmax_forward_fp_nearest(float *a, float *o,
                                 const DimStrides& strides,
-                                int man_expf, int exp_expf,
+                                int man_exp, int exp_exp,
                                 int man_off, int exp_off,
                                 int man_acc, int exp_acc,
-                                int man_div, int exp_div,
                                 bool subnormals, bool saturate);
 
 void softmax_lse_forward_fp_nearest(float *a, float *o,
                                 const DimStrides& strides,
-                                int man_expf, int exp_expf,
                                 int man_off, int exp_off,
                                 int man_lse, int exp_lse,
                                 bool subnormals, bool saturate);
@@ -175,5 +173,4 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
                                 const DimStrides& strides,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
-                                int man_div, int exp_div,
                                 bool subnormals, bool saturate);
