@@ -1,5 +1,6 @@
 #include "quant.h"
 #include "quant_kernel.h"
+#include "binary8_kernel.h"
 #include <ATen/ATen.h>
 #include <climits>
 #include <cstdlib>
@@ -148,17 +149,59 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 
 }
 
-Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnormals)
+Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
-  // TODO
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  if (is_signed == true){ // signed
+      binary8_signed_kernel_nearest<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
   return o;
 }
 
-Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals)
+Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
-  // TODO
+  // generate random number on the GPU for the SR operation
+  auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  if (is_signed == true){ // signed
+      binary8_signed_kernel_stochastic<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_kernel_stochastic<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  if (is_signed == true){ // signed
+      binary8_signed_kernel_truncate<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_kernel_truncate<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
   return o;
 }
 
@@ -561,24 +604,21 @@ static void dim_striding(Tensor a, int dim, DimStrides &strides) {
 }
 
 void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
+                                            int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate)
 {
   DimStrides strides;
   dim_striding(a, dim, strides);
   softmax_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), strides,
-                             man_expf, exp_expf,
+                             man_exp, exp_exp,
                              man_off, exp_off,
                              man_acc, exp_acc,
-                             man_div, exp_div,
                              subnormals, saturate);
 }
 
 void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
                                             int man_off, int exp_off,
                                             int man_lse, int exp_lse,
                                             bool subnormals, bool saturate)
@@ -586,7 +626,6 @@ void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim
   DimStrides strides;
   dim_striding(a, dim, strides);
   softmax_lse_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), strides,
-                             man_expf, exp_expf,
                              man_off, exp_off,
                              man_lse, exp_lse,
                              subnormals, saturate); 
@@ -595,7 +634,6 @@ void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim
 void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
                                             int man_add, int exp_add,
                                             int man_mul, int exp_mul,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate)
 {
   DimStrides strides;
@@ -603,6 +641,5 @@ void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, 
   softmax_backward_fp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), strides,
                              man_add, exp_add,
                              man_mul, exp_mul,
-                             man_div, exp_div,
                              subnormals, saturate);
 }

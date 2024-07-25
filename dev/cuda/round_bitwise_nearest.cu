@@ -4,7 +4,7 @@ It assumes data is stored using a binary32 payload.
 
 
 Compile example:
-nvcc -O3 round_bitwise_nearest.cu -o round_bitwise_nearest -std=c++17
+nvcc -O3 round_bitwise_nearest.cu -o round_bitwise_nearest -std=c++17 -lcublas
 
 version 1 uses more temporary variables and an explicit if for testing
 how masking should be done in the tie breaking rule

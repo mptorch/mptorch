@@ -1,4 +1,7 @@
 #include "quant.h"
+#include "bit_helper.h"
+#include "binary8.h"
+#include "softmax.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -167,17 +170,6 @@ uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding) {
   return quantized;
 }
 
-uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
-    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    int offset = (down == (1u << (22u - man_bits)));
-    uint32_t mask = (1 << (23 - man_bits + offset)) - 1;
-    uint32_t rand_prob = 1 << (23 - man_bits - 1);
-    // unsigned int rand_prob = rn_prob[man_bits];
-    uint32_t add_r = target + rand_prob;
-    uint32_t quantized = add_r & ~mask;
-    return quantized;
-}
-
 void block_quantize_helper(float *input, float *output, float *max_elem, int wl,
                            int size, Mode rounding) {
   for (int64_t i = 0; i < size; i++) {
@@ -259,6 +251,106 @@ Tensor block_quantize_stochastic(Tensor a, int wl, int dim) {
   return o;
 }
 
+float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
+                                    int man_bits, int exp_bits,
+                                    bool subnormal_support = true,
+                                    bool saturate = false) {
+  uint32_t target, quantize_bits;
+  target = RFLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+
+  if (subnormal && subnormal_support) {
+    float shift_float, val;
+    int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
+    shift_float = RBITS_TO_FLOAT(&shift_bits);
+    val = origin_float + shift_float;
+    target = RFLOAT_TO_BITS(&val);
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantized = RBITS_TO_FLOAT(&quantize_bits) - shift_float;
+  } else {
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantize_bits =
+        clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+    quantized = RBITS_TO_FLOAT(&quantize_bits);
+  }
+
+  return quantized;
+}
+
+float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
+                                       bool subnormal_support = true,
+                                       bool saturate = false)
+{
+    uint32_t target, quantize_bits;
+    target = RFLOAT_TO_BITS(&origin_float);
+    float quantized;
+
+    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int min_exp = -((1 << (exp_bits - 1)) - 2);
+    bool subnormal = (target_exp < min_exp);
+    bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+    if (noquantize)
+    {
+        quantized = origin_float;
+    }
+    else
+    {
+        // handle subnormal inputs (if subnormal mode is active)
+        if (subnormal && subnormal_support)
+        {
+            int exp_diff = man_bits - (min_exp - target_exp);
+            int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+            quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+            quantize_bits =
+                clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = RBITS_TO_FLOAT(&quantize_bits);
+        }
+        // handle NaN/inf inputs
+        else if (target_exp == 128)
+        {
+            quantized = origin_float;
+        }
+        // normal value range or overflow
+        else
+        {
+            quantize_bits = round_bitwise_nearest(target, man_bits);
+            quantize_bits =
+                clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+            quantized = RBITS_TO_FLOAT(&quantize_bits);
+        }
+    }
+
+    return quantized;
+}
+
+float float_quantize(float origin_float, int man_bits, int exp_bits,
+                     Mode rounding, bool subnormal_support,
+                     bool saturate = false) {
+  float quantized;
+  switch(rounding) {
+    case Mode::rStochastic:
+      {
+      uint32_t mask = (1 << (23 - man_bits)) - 1;
+      uint32_t rand_prob = (dis(gen)) & mask;
+      quantized = cast_fp_stochastic(
+                          origin_float, rand_prob, man_bits, exp_bits, 
+                          subnormal_support, saturate);
+      }
+      break;
+    default:
+      quantized = cast_fp_nearest(
+                          origin_float, man_bits, exp_bits, 
+                          subnormal_support, saturate);
+  }
+  return quantized;
+}
+
+
 Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
                       bool subnormal_support, bool saturate = false) {
   auto a_array = a.data_ptr<float>();
@@ -267,59 +359,9 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
   int size = a.numel();
 
   for (int64_t i = 0; i < size; i++) {
-    uint32_t target, quantize_bits;
-    FLOAT_TO_BITS(a_array[i], target);
-    float quantized;
-
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
-    int min_exp = -((1 << (exp_bits - 1)) - 2);
-    bool subnormal = (target_exp < min_exp);
-    if (subnormal && subnormal_support) {
-      float shift_float, val;
-      int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
-      BITS_TO_FLOAT(shift_bits, shift_float);
-      val = a_array[i] + shift_float;
-      FLOAT_TO_BITS(val, target);
-      quantize_bits = round_bitwise(target, man_bits, rounding);
-      BITS_TO_FLOAT(quantize_bits, quantized);
-      quantized = quantized - shift_float;
-    } else {
-      quantize_bits = round_bitwise(target, man_bits, rounding);
-      quantize_bits =
-          clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
-      BITS_TO_FLOAT(quantize_bits, quantized);
-    }
-    o_array[i] = quantized;
+    o_array[i] = float_quantize(a_array[i], man_bits, exp_bits, rounding, subnormal_support, saturate);
   }
   return o;
-}
-
-float float_quantize(float origin_float, int man_bits, int exp_bits,
-                     Mode rounding, bool subnormal_support,
-                     bool saturate = false) {
-  uint32_t target, quantize_bits;
-  FLOAT_TO_BITS(origin_float, target);
-  float quantized;
-
-  int target_exp = (target << 1 >> 1 >> 23) - 127;
-  int min_exp = -((1 << (exp_bits - 1)) - 2);
-  bool subnormal = (target_exp < min_exp);
-  if (subnormal && subnormal_support) {
-    float shift_float, val;
-    int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
-    BITS_TO_FLOAT(shift_bits, shift_float);
-    val = origin_float + shift_float;
-    FLOAT_TO_BITS(val, target);
-    quantize_bits = round_bitwise(target, man_bits, rounding);
-    BITS_TO_FLOAT(quantize_bits, quantized);
-    quantized = quantized - shift_float;
-  } else {
-    quantize_bits = round_bitwise(target, man_bits, rounding);
-    quantize_bits =
-        clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
-    BITS_TO_FLOAT(quantize_bits, quantized);
-  }
-  return quantized;
 }
 
 // TODO: support saturate logic
@@ -450,155 +492,119 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
-// Uses the standard softmax formula e^xi/sum(e^xj)
-// Returns ouput tensor of softmaxxed and quantized values
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
+                                            int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate)
 {
   auto a_array = a.data_ptr<float>();
   auto o_array = o.data_ptr<float>();
-
   DimStrides strides;
   dim_striding(a, dim, strides);
-
-  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
-    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
-  };
-
-  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-    int outer_idx = i / strides.inner_size;
-    int inner_idx = i % strides.inner_size;
-
-    // Get beginning pointers to the row being softmaxed
-    int base_index = outer_idx * strides.outer_stride + inner_idx;
-    float* input = a_array + base_index;
-    float* output = o_array + base_index;
-  
-    // Get the maximum of the current row being softmaxed.
-    // This ensures no overflow and more stable exponentials.
-    float max = input[0];
-    for (int k = 1; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      max = fmaxf(max, input[idx]);
+  softmax_forward(
+    a_array, o_array, strides,
+    [subnormals, saturate, man_exp, exp_exp] (float x) {
+      return float_quantize(x, man_exp, exp_exp, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_off, exp_off] (float x) {
+      return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
     }
-
-    // Calculate the sum and store quantized values of exp(input) into output
-    float sum = 0.0f;
-    for (int k = 0; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      float x = quant(input[idx] - max, man_off, exp_off);
-      float e_x = quant(expf(x), man_expf, exp_expf);
-      output[idx] = e_x;
-      sum = quant(sum + e_x, man_acc, exp_acc);
-    }
-    // Divide all outputs by the current sum
-    for (int k = 0; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      output[idx] = quant(output[idx] / sum, man_div, exp_div);
-    }
-  }
+  );
 }
 
 // Uses the LogSumExp formula to compute softmax without divisions
 // Returns ouput tensor of softmaxxed and quantized values
 void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
-                                                int man_expf, int exp_expf,
                                                 int man_off, int exp_off,
                                                 int man_lse, int exp_lse,
                                                 bool subnormals, bool saturate)
 {
   auto a_array = a.data_ptr<float>();
   auto o_array = o.data_ptr<float>();
-
   DimStrides strides;
   dim_striding(a, dim, strides);
-
-  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
-    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
-  };
-
-  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-    int outer_idx = i / strides.inner_size;
-    int inner_idx = i % strides.inner_size;
-
-    // Get beginning pointers to the row being softmaxed
-    int base_index = outer_idx * strides.outer_stride + inner_idx;
-    float* input = a_array + base_index;
-    float* output = o_array + base_index;
-
-    // Get the maximum of the current row being softmaxed.
-    // This ensures no overflow and more stable exponentials.
-    // Index of maximum is saved for later.;
-    float max = input[0];
-    for (int k = 1; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      max = fmaxf(max, input[idx]);
+  softmax_lse_forward(
+    a_array, o_array, strides,
+    [subnormals, saturate, man_off, exp_off] (float x) {
+      return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_lse, exp_lse] (float x) {
+      return float_quantize(x, man_lse, exp_lse, rNearest, subnormals, saturate);
     }
-
-    // Calculate LogSumExp
-    float x0 = quant(input[0] - max, man_off, exp_off);
-    output[0] = x0;
-    float lgs = x0; // = log(exp(x[0] - max))
-    for (int k = 1; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      float x = quant(input[idx] - max, man_off, exp_off);
-      output[idx] = x;
-      lgs = quant(logf(expf(lgs) + expf(x)), man_lse, exp_lse);
-    }
-    // Compute output tensor elements
-    for (int k = 0; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      float x = quant(output[idx] - lgs, man_off, exp_off);
-      output[idx] = quant(expf(x), man_expf, exp_expf);
-    }
-  }
+  );
 }
-
 
 void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
                                              int man_add, int exp_add,
                                              int man_mul, int exp_mul,
-                                             int man_div, int exp_div,
                                              bool subnormals, bool saturate)
 {
-  auto g_array = g.data_ptr<float>();
   auto a_array = a.data_ptr<float>();
+  auto g_array = g.data_ptr<float>();
   auto o_array = o.data_ptr<float>();
-
   DimStrides strides;
   dim_striding(a, dim, strides);
-
-  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits) {
-    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
-  };
-
-  for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-    int outer_idx = i / strides.inner_size;
-    int inner_idx = i % strides.inner_size;
-
-    int base_index = outer_idx * strides.outer_stride + inner_idx;
-    float* input = a_array + base_index;
-    float* grad = g_array + base_index;
-    float* output = o_array + base_index;
-
-    float input_sum = 0.f;
-    float weighted_grad_sum = 0.f;
-    for (int k = 0; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      input_sum = quant(input_sum + input[idx], man_add, exp_add);
-      float prod = quant(input[idx] * grad[idx], man_mul, exp_mul);
-      weighted_grad_sum = quant(weighted_grad_sum + prod, man_add, exp_add);
+  softmax_backward(
+    a_array, g_array, o_array, strides,
+    [subnormals, saturate, man_add, exp_add] (float x) {
+      return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
     }
+  );
+}
 
-    for (int k = 0; k < strides.dim_size; ++k) {
-      int idx = k * strides.dim_stride;
-      float a = quant(grad[idx] - weighted_grad_sum, man_add, exp_add);
-      float b = quant(a * input[idx], man_mul, exp_mul);
-      output[idx] = quant(b / input_sum, man_div, exp_div);
-    }
+Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
   }
+
+  return o;
+}
+
+Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  // generate random number on the CPU for the SR operation
+  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
 }

@@ -1,6 +1,7 @@
 #include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
+#include "binary8_kernel.h"
 
 using namespace at;
 
@@ -52,10 +53,10 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, binades, saturate);
 }
 
-Tensor p3109_quantize_nearest(Tensor a, int P, bool is_signed, bool subnormals)
+Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_nearest_cuda(a, P, is_signed, subnormals);
+      return binary8_quantize_nearest_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
@@ -92,10 +93,16 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                             saturate);
 }
 
-Tensor p3109_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals)
+Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
       CHECK_INPUT(a);
-      return p3109_quantize_stochastic_cuda(a, P, prng_bits, is_signed, subnormals);
+      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, overflow_policy, subnormals);
+}
+
+Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+      CHECK_INPUT(a);
+      return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
@@ -315,25 +322,22 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
 }
 
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
+                                            int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(o);
       float_quantize_nearest_softmax_forward_cuda(
                               a, o, dim,
-                              man_expf, exp_expf,
+                              man_exp, exp_exp,
                               man_off, exp_off,
                               man_acc, exp_acc,
-                              man_div, exp_div,
                               subnormals, saturate);
 }
 
 void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
                                             int man_off, int exp_off,
                                             int man_lse, int exp_lse,
                                             bool subnormals, bool saturate)
@@ -342,7 +346,6 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
       CHECK_INPUT(o);
       float_quantize_nearest_softmax_lse_forward_cuda(
                               a, o, dim,
-                              man_expf, exp_expf,
                               man_off, exp_off,
                               man_lse, exp_lse,
                               subnormals, saturate);
@@ -351,7 +354,6 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
 void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
                                             int man_add, int exp_add,
                                             int man_mul, int exp_mul,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -361,7 +363,6 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
                               a, g, o, dim,
                               man_add, exp_add,
                               man_mul, exp_mul,
-                              man_div, exp_div,
                               subnormals, saturate);
 }
 
@@ -379,8 +380,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Block Floating Point Number Stochastic Quantization (CUDA)");
       m.def("float_quantize_stochastic", &float_quantize_stochastic,
             "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
-      m.def("p3109_quantize_stochastic", &p3109_quantize_stochastic,
+      m.def("binary8_quantize_stochastic", &binary8_quantize_stochastic,
             "Low-Bitwidth P3109 Floating-Point Number Stochastic Quantization (CUDA)");
+      m.def("binary8_quantize_truncate", &binary8_quantize_truncate,
+            "Low-Bitwidth P3109 Floating-Point Number truncate Quantization (CUDA)");
       m.def("fixed_point_quantize_nearest", &fixed_point_quantize_nearest,
             "Fixed Point Number Nearest Neighbor Quantization (CUDA)");
       m.def("fixed_point_quantize_nearest_mask", &fixed_point_quantize_nearest_mask,
@@ -395,10 +398,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("superfp_quantize_nearest", &superfp_quantize_nearest,
             "Low-Bitwidth Super Normal Floating Point Number Nearest Neighbor Quantization "
             "(CUDA)");
-      m.def("p3109_quantize_nearest", &p3109_quantize_nearest,
+      m.def("binary8_quantize_nearest", &binary8_quantize_nearest,
             "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
+
+      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic(), py::module_local())
+            .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
+            .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
+            .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);
+            
       m.def("float_quantize_nearest_mm", &float_quantize_nearest_mm,
-            "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
+            "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");          
       m.def("float_quantize_nearest_bmm", &float_quantize_nearest_bmm,
             "Low-Bitwidth Floating Point Number BGEMM Quantization (CUDA)");
       m.def(

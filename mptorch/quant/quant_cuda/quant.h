@@ -1,3 +1,4 @@
+#include "binary8_kernel.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <cublas_v2.h>
@@ -100,7 +101,8 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  * with [P] precision bits.
  * Nearest Rounding.
  */
-Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnormals);
+Tensor binary8_quantize_nearest_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
 
 /**
  * quantize a FloatTensor into a P3109-compliant floating point
@@ -108,7 +110,15 @@ Tensor p3109_quantize_nearest_cuda(Tensor a, int P, bool is_signed, bool subnorm
  * with [P] precision bits.
  * Stochastic Rounding (with user-given PRNG resulution [prng_bits]).
  */
-Tensor p3109_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, bool subnormals);
+Tensor binary8_quantize_stochastic_cuda(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
+/**
+ * quantize a FloatTensor into a P3109-compliant floating point
+ * Tensor (signed or unsigned version, with or without subnormal support)
+ * with [P] precision bits.
+ * Troncate Rounding (no rounding, just truncate the number).
+ */
+Tensor binary8_quantize_truncate_cuda(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
@@ -422,10 +432,9 @@ void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
  * the regular accumulation of exponentials.
  */
 void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
+                                            int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate);
 
 /**
@@ -434,7 +443,6 @@ void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
  * sum of exponentials via LogSumExp iterations, and does not use divisons.
  */
 void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_expf, int exp_expf,
                                             int man_off, int exp_off,
                                             int man_lse, int exp_lse,
                                             bool subnormals, bool saturate);
@@ -446,5 +454,4 @@ void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim
 void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
                                             int man_add, int exp_add,
                                             int man_mul, int exp_mul,
-                                            int man_div, int exp_div,
                                             bool subnormals, bool saturate);

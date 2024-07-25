@@ -1,5 +1,4 @@
-__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat"]
-
+__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
 
 class Number:
     def __init__(self):
@@ -176,3 +175,85 @@ class BlockFloatingPoint(Number):
 
     def __repr__(self):
         return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
+
+
+class Binary8(Number):
+    """
+    Low-Precision Binary8 Format following the P3109 standard.
+
+    Binary8 is a format that takes a value P as an input to determines the number
+    of mantissa and exponent bits.
+
+    Args:
+        - :attr: `P`: integer precision of the binary8 format
+        - :attr: `signed`: boolean indicating whether the format is signed or unsigned
+        - :attr: `subnormals`: allow the use of subnormal values
+        - :attr: `overflow_policy`: string indicating the overflow policy (dictates the max float) 
+                                    - saturate_maxfloat2 : no infinity and +1 normalized value
+                                    - saturate_maxfloat : use infinity
+                                    - saturate_infty : use infinity
+    """
+
+    def __init__(self, P: int, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"):
+        assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
+        assert overflow_policy in ("saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"), \
+            "Invalid overflow policy: {}".format(overflow_policy)
+
+        self.P = P
+        spec_exp = P == 1
+        
+        # Determine mantissa and exponent bits based on P and signed
+        self.man = P - 1
+        self.exp = (8 - P) if signed else (9 - P)
+        max_exp = 2**(self.exp - 1) - 1
+        min_exp = -max_exp + spec_exp
+
+        # Define the subnormal and normal ranges
+        if self.man != 1 and subnormals == True:
+            self.subnormal_min = (2**-self.man) * (2**min_exp)   # this is good
+            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)   # this is also good
+        else:
+            self.subnormal_min = None
+            self.subnormal_max = None
+
+        # no subnormal case
+        if subnormals == True or self.man == 1:
+            self.normal_min = 2**min_exp   # this is good
+        else:   # values of P with subnormal values will have different normal_min
+            self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
+    
+        if signed:
+            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FF not FE
+                if self.man > 0:
+                    self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**(max_exp + 1)  # 0 mantissa case
+            else:   # normal case where FE is max   
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**max_exp    # 0 mantissa case
+        else:   # unsigned case
+            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FE not FD
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                else:
+                    self.normal_max = 2**max_exp    # 0 mantissa case
+            else:   # normal case where FD is max
+                if self.man > 0:
+                    self.normal_max = (2 - 2**-self.man - 2**-(self.man-1)) * (2**max_exp)  # good for more than 1 mantissa
+                elif self.man == 1:
+                    self.normal_max = 1.5 * (2**(max_exp-1))      # (2 - 2**-self.man) * (2**(max_exp-1))
+                else:
+                    self.normal_max = 2**(max_exp-1)
+        
+        self.signed = signed
+        self.subnormals = subnormals
+        self.overflow_policy = overflow_policy
+
+    def __repr__(self):
+        return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
+               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy}"
+    
+    def __str__(self):
+        return self.__repr__()

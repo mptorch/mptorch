@@ -20,10 +20,10 @@ __device__ T shared_reduce(F fn, T *shared, int size) {
     return acc;
 }
 
-template<class Qexp, class Qoff, class Qacc, class Qdiv>
+template<class Qexp, class Qoff, class Qacc>
 __global__ void softmax_forward_impl(
     const float* __restrict__ input_array, float *output_array, const DimStrides *strides,
-    Qexp quant_exp, Qoff quant_off, Qacc quant_acc, Qdiv quant_div)
+    Qexp quant_exp, Qoff quant_off, Qacc quant_acc)
 {
     extern __shared__ float shared[];
 
@@ -95,14 +95,14 @@ __global__ void softmax_forward_impl(
     // finally, divide each previously computed exponentials by the sum
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        output[idx] = quant_div(output[idx] / sum);
+        output[idx] = output[idx] / sum; // quantization handled by output_quant
     }
 }
 
-template<class Qexp, class Qoff, class Qlse>
+template<class Qoff, class Qlse>
 __global__ void softmax_lse_forward_impl(
     const float* __restrict__ input_array, float *output_array, const DimStrides *strides,
-    Qexp quant_exp, Qoff quant_off, Qlse quant_lse)
+    Qoff quant_off, Qlse quant_lse)
 {
     extern __shared__ float shared[];
 
@@ -166,15 +166,15 @@ __global__ void softmax_lse_forward_impl(
     // finally, divide each previously computed exponentials by the sum
     for (int k = tid; k < strides->dim_size; k += blockDim.x) {
         int idx = k * strides->dim_stride;
-        output[idx] = quant_exp(expf(quant_off(output[idx] - lgs)));
+        output[idx] = expf(quant_off(output[idx] - lgs)); // quantization handled by output_quant
     }
 }
 
-template<class Qadd, class Qmul, class Qdiv>
+template<class Qadd, class Qmul>
 __global__ void softmax_backward_impl(
   const float* __restrict__ input_array, const float* __restrict__ out_gradient, float* output_array,
   const DimStrides *strides,
-  Qadd quant_add, Qmul quant_mul, Qdiv quant_div)
+  Qadd quant_add, Qmul quant_mul)
 {
     extern __shared__ float shared[];
 
@@ -227,6 +227,6 @@ __global__ void softmax_backward_impl(
         int idx = k * strides->dim_stride;
         float a = quant_add(grad[idx] - weighted_grad_sum);
         float b = quant_mul(a * input[idx]);
-        output[idx] = quant_div(b / input_sum);
+        output[idx] = b / input_sum; // handled by grad_quant
     }
 }

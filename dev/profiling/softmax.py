@@ -28,11 +28,9 @@ qsoftmax_formats = QSoftmaxFormats(
     fwd_exp=float_format,
     fwd_off=float_format,
     fwd_acc=float_format,
-    fwd_div=float_format,
 
     bwd_add=float_format,
     bwd_mul=float_format,
-    bwd_div=float_format,
 
     output_quant=quantize,
     input_quant=quantize,
