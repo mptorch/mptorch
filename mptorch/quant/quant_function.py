@@ -116,8 +116,8 @@ def float_qlayernorm_forward(a, weight, bias, eps, dims, formats):
 
     quant_module = get_module(a)
 
-    reduced_dim = list(range(x.dim() - len(dims)))
-    reduced_shape = [x.shape[i] for i in reduced_dim]
+    reduced_dim = list(range(a.dim() - len(dims)))
+    reduced_shape = [a.shape[i] for i in reduced_dim]
 
     mean = torch.zeros(reduced_shape)
     rstd = torch.zeros(reduced_shape)
