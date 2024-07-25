@@ -5,8 +5,10 @@ class Number:
         pass
 
     def __str__(self):
-        raise NotImplemented
+        raise NotImplementedError
 
+    def __repr__(self) -> str:
+        raise NotImplementedError
 
 class FixedPoint(Number):
     r"""
