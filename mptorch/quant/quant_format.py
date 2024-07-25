@@ -54,7 +54,7 @@ class QAffineFormats:
         - :attr: `weight_scaled_format` (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
         - :attr: `input_scaled_format` (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         - :attr: `grad_scaled_format` (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
-        - :attr: `grad_scaled_format` (int) : number of bits used for random number generation when rounding is stochastic
+        - :attr: `prng_bits` (int) : number of bits used for random number generation when rounding is stochastic
  
     """
     def __init__(
