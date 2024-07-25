@@ -17,7 +17,7 @@ NVCCFLAGS = -lcublas -lcublasLt -std=c++17
 	$(NVCC) $(CFLAGS) $(NVCCFLAGS) $< -o $@
 
 # Build all targets (new executables go here)
-TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul superfp_nearest binary8_nearest binary8_stochastic nv_bfloat16
+TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul superfp_nearest binary8_nearest binary8_stochastic nv_bfloat16 layernorm_forward
 
 all: $(TARGETS)
 
@@ -32,6 +32,7 @@ binary8_nearest: binary8_nearest.cu
 binary8_stochastic: binary8_stochastic.cu
 nv_bfloat16: nv_bfloat16.cu
 superfp_nearest: superfp_nearest.cu
+layernorm_forward: layernorm_forward.cu
 
 # Run all targets with the default (first) kernel
 run_all: all 
