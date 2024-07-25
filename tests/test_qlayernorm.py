@@ -9,7 +9,7 @@ from mptorch.quant import float_quantize
 
 @pytest.fixture(scope="module")
 def fp_format():
-    return FloatingPoint(exp=5, man=10, subnormals=True, saturate=False)
+    return FloatingPoint(exp=8, man=23, subnormals=True, saturate=False)
 
 @pytest.fixture(scope="module")
 def quant_fp(fp_format):
@@ -41,7 +41,7 @@ def norm_formats(fp_format, quant_fp):
         bias_quant = quant_fp,
     )
 
-@pytest.mark.xfail # TODO: Fix high precision error?
+#@pytest.mark.xfail # TODO: Fix high precision error?
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
@@ -55,12 +55,12 @@ def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
 
     y_ref = layer.forward(x_ref)
     y_res = qlayer.forward(x_res)
-    torch.testing.assert_close(y_res, y_ref, atol=1e-3, rtol=0)
+    torch.testing.assert_close(y_res, y_ref, atol=1e-5, rtol=0)
 
     grad = torch.rand(*shape, device=device)
     y_ref.backward(grad)
     y_res.backward(grad)
-    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-3, rtol=0)
+    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=0)
 
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
