@@ -1,16 +1,32 @@
 from typing import Optional
-from ..number import Number, FloatingPoint
+from ..number import *
 from typing import Union, Optional, Tuple, Callable
-from .quant_function import float_quantize
+from .quant_function import *
 
 __all__ = ["QAffineFormats"]
 
 id_quant = lambda x: x
 
-def make_quant_function(num: Number, rounding: str):
+def make_quant_function(num: Number, rounding: str, prng_bits: int = 0):
     if isinstance(num, FloatingPoint):
         return lambda x: float_quantize(
             x, num.exp, num.man, rounding, num.subnormals, num.saturate
+        )
+    elif isinstance(num, FixedPoint):
+        return lambda x: fixed_point_quantize(
+            x, num.wl, num.fl, num.clamp, num.symmetric, rounding
+        )
+    elif isinstance(num, SuperNormalFloat):
+        return lambda x: superfp_quantize(
+            x, num.exp, num.man, num.binades, rounding, num.saturate
+        )
+    elif isinstance(num, BlockFloatingPoint):
+        return lambda x: block_quantize(
+            x, num.wl, num.dim, rounding
+        )
+    elif isinstance(num, Binary8):
+        return lambda x: binary8_quantize(
+            x, num.P, rounding, num.overflow_policy, num.signed, num.subnormals, prng_bits
         )
     raise NotImplementedError
 
@@ -38,6 +54,7 @@ class QAffineFormats:
         - :attr: `weight_scaled_format` (FloatingPoint) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
         - :attr: `input_scaled_format` (FloatingPoint) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         - :attr: `grad_scaled_format` (FloatingPoint) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
+        - :attr: `grad_scaled_format` (int) : number of bits used for random number generation when rounding is stochastic
  
     """
     def __init__(
@@ -54,6 +71,7 @@ class QAffineFormats:
         weight_scaled_format: Optional[FloatingPoint] = None,
         input_scaled_format: Optional[FloatingPoint] = None,
         grad_scaled_format: Optional[FloatingPoint] = None,
+        prng_bits: int = 0
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -89,6 +107,7 @@ class QAffineFormats:
 
         self.fwd_rnd = fwd_rnd
         self.bwd_rnd = bwd_rnd
+        self.prng_bits = prng_bits
 
         self.weight_scaled_format = weight_scaled_format
         self.input_scaled_format = input_scaled_format
@@ -96,7 +115,7 @@ class QAffineFormats:
 
         if isinstance(weight_quant, tuple):
             num, rnd = weight_quant
-            self.weight_quant = make_quant_function(num, rnd)
+            self.weight_quant = make_quant_function(num, rnd, prng_bits)
             if self.weight_scaled_format is None and isinstance(num, FloatingPoint):
                 self.weight_scaled_format = num
         else:
@@ -104,13 +123,13 @@ class QAffineFormats:
         
         if isinstance(bias_quant, tuple):
             num, rnd = bias_quant
-            self.bias_quant = make_quant_function(num, rnd)
+            self.bias_quant = make_quant_function(num, rnd, prng_bits)
         else:
             self.bias_quant = bias_quant
         
         if isinstance(input_quant, tuple):
             num, rnd = input_quant
-            self.input_quant = make_quant_function(num, rnd)
+            self.input_quant = make_quant_function(num, rnd, prng_bits)
             if self.input_scaled_format is None and isinstance(num, FloatingPoint):
                 self.input_scaled_format = num
         else:
@@ -118,13 +137,13 @@ class QAffineFormats:
 
         if isinstance(output_quant, tuple):
             num, rnd = output_quant
-            self.output_quant = make_quant_function(num, rnd)
+            self.output_quant = make_quant_function(num, rnd, prng_bits)
         else:
             self.output_quant = output_quant
         
         if isinstance(grad_quant, tuple):
             num, rnd = grad_quant
-            self.grad_quant = make_quant_function(num, rnd)
+            self.grad_quant = make_quant_function(num, rnd, prng_bits)
             if self.grad_scaled_format is None and isinstance(num, FloatingPoint):
                 self.grad_scaled_format = num
         else:
