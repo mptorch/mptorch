@@ -1,18 +1,10 @@
 import torch
 from mptorch.quant import binary8_quantize
 import numpy as np
-import struct
 import random
 import pytest
 from tests.markers import available_devices
-
-def bits_to_float(bits):
-    s = struct.pack('>I', bits)
-    return struct.unpack('>f', s)[0]
-
-def float_to_bits(value):
-    s = struct.pack('>f', value)
-    return struct.unpack('>I', s)[0]
+from tests.quant import bits_to_float, float_to_bits
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binary8_signed_stochastic(device):
@@ -32,8 +24,8 @@ def test_binary8_signed_stochastic(device):
         elif result[x].item() == 2.0:
             rnd_down += 1
     
-    print("1 : ",rnd_up, ",", abs((rnd_up - 200)))
-    print("2 : ",rnd_down, ",", abs((rnd_down - 800)))
+    # print("1 : ",rnd_up, ",", abs((rnd_up - 200)))
+    # print("2 : ",rnd_down, ",", abs((rnd_down - 800)))
 
     # rnd_up = 191, rnd_down = 809 for a 20/80 split
     assert abs((rnd_up - 200)) < 30 and abs((rnd_down - 800)) < 30
@@ -53,20 +45,20 @@ def test_binary8_signed_stochastic_subnormal(device):
     # 3.814697265625E-6  or  3.81469772037235088646411895752E-6  
     # 0 01101101 000...      0 01101101 000...1                      
     # all round to 0         all round to min_val                    
-    print(num)
+    # print(num)
 
     num_tensor = torch.full((iterations,), num, dtype=torch.float32, device=device)
     result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
 
     for x in range(result.numel()):
-        print(result[x].item())
+        # print(result[x].item())
         if result[x].item() == 0.0068359375: #7.62939453125E-6 
             rnd_up += 1
         elif result[x].item() == 0.005859375: # 0.005859375
             rnd_down += 1
 
-    print("3 : ",rnd_up, ",", abs((rnd_up - 500)))
-    print("4 : ",rnd_down, ",", abs((rnd_down - 500)))
+    # print("3 : ",rnd_up, ",", abs((rnd_up - 500)))
+    # print("4 : ",rnd_down, ",", abs((rnd_down - 500)))
 
     # rnd_down = 513, rnd_up = 487 for a 50/50 split
     assert abs((rnd_up - 500)) < tolerance and abs((rnd_down - 500)) < tolerance
@@ -83,9 +75,7 @@ def test_binary8_signed_constant(device):
     rnd_down = 0
     
     for P in range(1, 8):
-
-        print(P)
-
+        # print(P)
         exp_bits = 8 - P
         man_bits = (P - 1) 
         prng_bits = 23 - (P - 1)
@@ -106,7 +96,7 @@ def test_binary8_signed_constant(device):
         previous_fval = bits_to_float(min_val)
 
         while i_fval <= max_val:
-            for i in range(10):
+            for _ in range(10):
                 random_float = bits_to_float(random.randint(float_to_bits(previous_fval), float_to_bits(i_fval)))
                 num_tensor = torch.full((iterations,), random_float, dtype=torch.float32, device=device)
                 result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
@@ -132,7 +122,7 @@ def test_binary8_signed_constant(device):
 def test_binary8_signed_stochastic_constant(device):
     P = 5
     values = [0]
-    getting_values(values, P)
+    get_bin8_values(values, P)
 
     iterations = 1000
     prng_bits = 23 - (P - 1)
@@ -148,7 +138,7 @@ def test_binary8_signed_stochastic_constant(device):
 def test_binary8_signed_stochastic_all_vals(device):
     P = 5
     values = []
-    getting_values(values, P)
+    get_bin8_values(values, P)
 
     iterations = 1000
     prng_bits = 23 - (P - 1)
@@ -169,7 +159,7 @@ def test_binary8_signed_stochastic_all_vals(device):
 
             num_tensor = torch.full((iterations,), rand, dtype=torch.float32, device=device)
             result = binary8_quantize(num_tensor, P, "stochastic", "saturate_maxfloat", True, True, prng_bits)
-            print("Lower: " + str(values[i]) + " | Rand Val: " + str(rand) + " | Upper: " + str(values[i+1]))
+            # print("Lower: " + str(values[i]) + " | Rand Val: " + str(rand) + " | Upper: " + str(values[i+1]))
             for x in range(result.numel()):
                 # print("Num:" + str(result[x].item()))
                 if result[x].item() == values[i]:
@@ -185,9 +175,9 @@ def test_binary8_signed_stochastic_all_vals(device):
             count += 1
             assert rnd_down + rnd_up == 1000 and abs((float(rnd_up)/1000) - prob_up) < 0.10
 
-    print("Average error: " + str(accu_error/count) + " | Lowest error: " + str(lowest) + " | Peak error: " + str(highest))
+    # print("Average error: " + str(accu_error/count) + " | Lowest error: " + str(lowest) + " | Peak error: " + str(highest))
 
-def getting_values(list, P):
+def get_bin8_values(values, P):
     exp_bits = 8 - P
     man_bits = P - 1 
     spec_exp = 1 if P == 1 else 0
@@ -200,12 +190,9 @@ def getting_values(list, P):
     i_fval = bits_to_float(min_val) + 2**(-man_bits)*2**(min_exp)
     previous_fval = bits_to_float(min_val)
 
-    list.append(i_fval)
-
+    values.append(i_fval)
     while i_fval < max_val:
-
         previous_fval = i_fval
         exp_prev = min_exp if previous_fval == 0 else max(((float_to_bits(previous_fval) << 1 >> 24) - 127),min_exp)
         i_fval += 2**(-man_bits)*2**(exp_prev)
-        list.append(i_fval)
-
+        values.append(i_fval)
