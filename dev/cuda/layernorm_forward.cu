@@ -30,8 +30,6 @@ DimStrides dim_striding(const int *norm_dims, int n_norm, const int *dims, int n
 	int min_dim = real_dims[n_norm - 1];
 	int max_dim = real_dims[0];
 
-    printf("\nmin: %d, max: %d\n", min_dim, max_dim);
-
 	strides.B = 1;
 	for (int i = 0; i < min_dim; i++){
 		strides.B *= dims[i];
@@ -41,8 +39,6 @@ DimStrides dim_striding(const int *norm_dims, int n_norm, const int *dims, int n
 	for (int i = max_dim + 1; i < n_dims; i++){
 		strides.T *= dims[i];
 	}
-
-    printf("\nT: %d, B: %d\n", strides.T, strides.B);
 
 	strides.outer_stride = strides.dim_size * strides.T;
 
@@ -192,9 +188,9 @@ __host__ __device__ float quant_sqrt(float origin_float) {
 
 // ---------------------------------------------------------------------------------------
 // CPU version
-static void cpu_quantize_layernorm_forward(const float *in_arr, float *out_arr, 
-                                           const float *w_array, const float *b_array, 
-                                           const float eps, DimStrides &strides){
+static void layernorm_forward_cpu(const float *in_arr, float *out_arr, 
+                                  const float *w_array, const float *b_array, 
+                                  const float eps, DimStrides &strides){
 	for (int i = 0; i < strides.B * strides.T; i++){
 		int b = i / strides.T;
 		int t = i % strides.T;
@@ -239,7 +235,18 @@ static void cpu_quantize_layernorm_forward(const float *in_arr, float *out_arr,
 
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
-
+void layernorm_forward_cuda(int kernel_num, const float *in_arr, float *out_arr, 
+                            const float *w_array, const float *b_array, 
+                            const float eps, DimStrides &strides,
+                            int block_size){
+    switch (kernel_num){
+        case 1:
+            break;
+        default:
+            printf("Invalid kernel number\n");
+            exit(1);
+    }
+}
 
 // ---------------------------------------------------------------------------------------
 int main(int argc, const char **argv) {
@@ -247,13 +254,17 @@ int main(int argc, const char **argv) {
 
     const int norm_dims[] = {-1, -2};
     const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
-    const int dims[] = {2, 3, 4};
+    const int dims[] = {20, 30, 40};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
     const float eps = 1e-5;
 
-    printf("\nn_norm: %d, n_dim: %d\n", n_norm, n_dims);
-
     auto strides = dim_striding(norm_dims, n_norm, dims, n_dims);
+
+    // which kernel to use
+    int version = 1;
+    if (argc > 1){
+        version = atoi(argv[1]);
+    }
 
     // host tensors
     int numel = 1;
@@ -262,22 +273,54 @@ int main(int argc, const char **argv) {
     }
     float* h_input = make_random_float(numel);
     float* h_output = make_zeros_float(numel);
+    float* h_weight= make_ones_float(strides.dim_size);
+    float* h_bias = make_zeros_float(strides.dim_size);
 
-    float* w_array = make_ones_float(strides.dim_size);
-    float* b_array = make_zeros_float(strides.dim_size);
+    // compute cpu reference
+    layernorm_forward_cpu(h_input, h_output, h_weight, h_bias, eps, strides);
 
-    // cpu reference
-    cpu_quantize_layernorm_forward(h_input, h_output, w_array, b_array, eps, strides);
+    // device tensors (move data to gpu)
+    float *d_input, *d_output, *d_weight, *d_bias;
+    cudaCheck(cudaMalloc(&d_input, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_weight, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_bias, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_output, numel * sizeof(float)));
+    cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_weight, h_weight, numel * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_bias, h_bias, numel * sizeof(float), cudaMemcpyHostToDevice));
 
-    for (int i = 0; i < numel; i++){
-        std::cout << h_output[i] << " \n";
+    // time the kernel at different block sizes
+    int block_sizes[] = {32, 64, 128, 256, 512, 1024};
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+        int block_size = block_sizes[j];
+        printf("Checking block size %d.\n", block_size);
+        layernorm_forward_cuda(version, d_input, d_output, d_weight, d_bias, eps, strides, block_size);
+
+        float tol = 0.0f;
+        validate_result(d_output, h_output, "output", numel, tol);
+    }
+
+    printf("All results match. Starting benchmarks.\n\n");
+
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+        int block_size = block_sizes[j];
+        int repeat_times = 1000;
+        float elapsed_time = benchmark_kernel(repeat_times, layernorm_forward_cuda, 
+                                              version, d_input, d_output, d_weight, d_bias, 
+                                              eps, strides, block_size);
+        printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
     }
 
 
     free(h_input);
     free(h_output);
-    free(w_array);
-    free(b_array);
+    free(h_weight);
+    free(h_bias);
+
+    cudaCheck(cudaFree(d_input));
+    cudaCheck(cudaFree(d_output));
+    cudaCheck(cudaFree(d_weight));
+    cudaCheck(cudaFree(d_bias));
 
     return 0;
 }
