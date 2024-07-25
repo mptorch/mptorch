@@ -571,7 +571,6 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
 
     // Get the maximum of the current row being softmaxed.
     // This ensures no overflow and more stable exponentials.
-    // Index of maximum is saved for later.;
     float max = input[0];
     for (int k = 1; k < strides.dim_size; ++k) {
       int idx = k * strides.dim_stride;
