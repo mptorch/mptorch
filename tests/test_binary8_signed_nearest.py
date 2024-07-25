@@ -1,25 +1,12 @@
 import torch
 from mptorch.quant import binary8_quantize
-import struct
 import numpy as np
 import random
 import pytest
 from tests.markers import available_devices
 from gfloat import RoundMode, round_float
 from gfloat.formats import *
-
-def bits_to_float(bits):
-    s = struct.pack('>I', bits)
-    return struct.unpack('>f', s)[0]
-
-def float_to_bits(value):
-    s = struct.pack('>f', value)
-    return struct.unpack('>I', s)[0]
-
-def assert_quant(x_arr, expected_arr, quant_fn, device):
-    x = torch.tensor(x_arr, dtype=torch.float32, device=device)
-    expected = torch.tensor(expected_arr, dtype=torch.float32, device=device)
-    assert expected.equal(quant_fn(x))
+from tests.quant import bits_to_float, float_to_bits, assert_quant
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binary8_to_gfloat(device): 
@@ -156,7 +143,7 @@ def test_binary8_signed_nearest(device):
     
     for P in range(1, 8):
 
-        print(P)
+        # print(P)
 
         exp_bits = 8 - P
         man_bits = P - 1  
