@@ -161,10 +161,8 @@ softmax_formats = qpt.QSoftmaxFormats(
     fwd_off=fp_format_softmax,
     fwd_exp=fp_format_softmax,
     fwd_acc=fp_format_softmax,
-    fwd_div=fp_format_softmax,
     bwd_add=fp_format_softmax,
     bwd_mul=fp_format_softmax,
-    bwd_div=fp_format_softmax,
 )
 
 
