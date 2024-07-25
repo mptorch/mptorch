@@ -2,6 +2,7 @@ import torch
 import math
 from .quant_function import *
 from ..number import FloatingPoint
+from .quant_format import make_quant_function
 
 __all__ = [
     "qlinear",
@@ -125,11 +126,10 @@ class qlinear_kernel(torch.autograd.Function):
                 ).reshape(qbias.shape)
             else:
                 with torch.no_grad():
-                    # NOTE: this needs to use the sum format in the BWD mac config
                     qgrad_bias = qsum(
                         qgrad_output,
                         dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
-                        quant=ctx.formats.grad_quant,
+                        quant=make_quant_function(ctx.formats.bwd_add, ctx.formats.bwd_rnd),
                     ).reshape(qbias.shape)
             qgrad_bias = unscale(qgrad_bias, grad_scale)
             # NOTE: look if this needs to be redesigned (separate grad_quants ?!)
