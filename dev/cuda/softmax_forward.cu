@@ -25,33 +25,29 @@ LogSumExp-based softmax using efficient intra-warp and inter-warp reductions.
 #include "common.h"
 
 
-struct DimStrides
+struct DimSizes
 {
-    int outer_size;
-    int inner_size;
-    int outer_stride;
-    int dim_size;
-    int dim_stride;
+    int outer;
+    int inner;
+    int channel;
 };
 
 /* Helper function for tensor striding */
 // ---------------------------------------------------------------------------------------
 
-DimStrides dim_striding(const int *dims, int n_dims, int dim) {
-    DimStrides strides;
+DimSizes partition_tensor(const int *dims, int n_dims, int dim) {
+    DimSizes sizes;
     int real_dim = (n_dims + (dim % n_dims)) % n_dims;
-    strides.outer_size = 1;
-    strides.dim_size = dims[real_dim];
-    strides.inner_size = 1;
+    sizes.outer = 1;
+    sizes.channel = dims[real_dim];
+    sizes.inner = 1;
     for (int i = 0; i < real_dim; ++i) {
-        strides.outer_size *= dims[i];
+        sizes.outer *= dims[i];
     }
     for (int i = real_dim + 1; i < n_dims; ++i) {
-        strides.inner_size *= dims[i];
+        sizes.inner *= dims[i];
     }
-    strides.dim_stride = strides.inner_size;
-    strides.outer_stride = strides.dim_size * strides.dim_stride;
-    return strides;
+    return sizes;
 }
 
 /* Quantization function and wrapper */
@@ -198,64 +194,64 @@ __host__ __device__ float quant_lse(float origin_float) {
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax */
 static void softmax_forward_div_cpu(const float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
-    auto strides = dim_striding(dims, n_dims, dim);
+    auto sizes = partition_tensor(dims, n_dims, dim);
 
-    for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-        int outer_idx = i / strides.inner_size;
-        int inner_idx = i % strides.inner_size;
+    for (int i = 0; i < sizes.outer * sizes.inner; ++i) {
+        int outer_idx = i / sizes.inner;
+        int inner_idx = i % sizes.inner;
 
-        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
         const float* input = input_array + base_index;
         float* output = output_array + base_index;
 
         float max = input[0];
-        for (int k = 1; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 1; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             max = fmaxf(max, input[idx]);
         }
 
         float sum = 0.0f;
-        for (int k = 0; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 0; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             float exp_x = quant_exp(expf(quant_add(input[idx] - max)));
             output[idx] = exp_x;
             sum = quant_add(sum + exp_x);
         }
-        for (int k = 0; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 0; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             output[idx] = quant_div(output[idx] / sum);
         }
     }
 }
 
 static void softmax_forward_lse_cpu(const float *input_array, float *output_array, const int *dims, int n_dims, int dim) {
-    auto strides = dim_striding(dims, n_dims, dim);
+    auto sizes = partition_tensor(dims, n_dims, dim);
 
-    for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-        int outer_idx = i / strides.inner_size;
-        int inner_idx = i % strides.inner_size;
+    for (int i = 0; i < sizes.outer * sizes.inner; ++i) {
+        int outer_idx = i / sizes.inner;
+        int inner_idx = i % sizes.inner;
 
-        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
         const float* input = input_array + base_index;
         float* output = output_array + base_index;
 
         float max = input[0];
-        for (int k = 1; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 1; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             max = fmaxf(max, input[idx]);
         }
 
         float x0 = quant_add(input[0] - max);
         output[0] = x0;
         float lgs = x0; // log(exp(x[0] - max))
-        for (int k = 1; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 1; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             float x = quant_add(input[idx] - max);
             output[idx] = x;
             lgs = quant_lse(logf(expf(lgs) + expf(x)));
         }
-        for (int k = 0; k < strides.dim_size; ++k) {
-            int idx = k * strides.dim_stride;
+        for (int k = 0; k < sizes.channel; ++k) {
+            int idx = k * sizes.inner;
             float x = quant_add(output[idx] - lgs);
             output[idx] = quant_exp(expf(x));
         }
@@ -265,50 +261,38 @@ static void softmax_forward_lse_cpu(const float *input_array, float *output_arra
 // ---------------------------------------------------------------------------------------
 /* Device (CUDA) softmax kernels */
 
-__global__ void softmax_forward_kernel1(const float* __restrict__ input_array, float *output_array, const DimStrides *strides, int N) {
+__global__ void softmax_forward_kernel1(const float* __restrict__ input_array, float *output_array, const DimSizes sizes, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(id >= N) return;
 
-    int outer_idx = id / strides->inner_size;
-    int inner_idx = id % strides->inner_size;
+    int outer_idx = id / sizes.inner;
+    int inner_idx = id % sizes.inner;
 
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
     float max = input[0];
-    for (int k = 1; k < strides->dim_size; ++k) {
-        int idx = k * strides->dim_stride;
+    for (int k = 1; k < sizes.channel; ++k) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
 
     float sum = 0.0f;
-    for (int k = 0; k < strides->dim_size; ++k) {
-        int idx = k * strides->dim_stride;
+    for (int k = 0; k < sizes.channel; ++k) {
+        int idx = k * sizes.inner;
         float exp_x = quant_exp(expf(quant_add(input[idx] - max)));
         output[idx] = exp_x;
         sum = quant_add(sum + exp_x);
     }
-    for (int k = 0; k < strides->dim_size; ++k) {
-        int idx = k * strides->dim_stride;
+    for (int k = 0; k < sizes.channel; ++k) {
+        int idx = k * sizes.inner;
         output[idx] = quant_div(output[idx] / sum);
     }
 }
 
-void softmax_forward_cuda1(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
-    DimStrides h_strides = dim_striding(dims, n_dims, dim);
-    DimStrides *d_strides;
-    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
-    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    // one thread per row to be softmaxed
-    int N = h_strides.outer_size * h_strides.inner_size; // number of rows
-    int blocks = N / block_size + (N % block_size != 0);
-    softmax_forward_kernel1<<<blocks, block_size>>>(input, output, d_strides, N);
-    cudaCheck(cudaFree(d_strides));
-}
-
-__global__ void softmax_forward_kernel2(const float* __restrict__ input_array, float *output_array, const DimStrides *strides) {
+__global__ void softmax_forward_kernel2(const float* __restrict__ input_array, float *output_array, const DimSizes sizes) {
     extern __shared__ float shared[];
 
     int tid = threadIdx.x;
@@ -317,10 +301,10 @@ __global__ void softmax_forward_kernel2(const float* __restrict__ input_array, f
 
     int warpsPerBlock = blockDim.x / warpSize;
 
-    int outer_idx = blockIdx.x / strides->inner_size;
-    int inner_idx = blockIdx.x % strides->inner_size;
+    int outer_idx = blockIdx.x / sizes.inner;
+    int inner_idx = blockIdx.x % sizes.inner;
     
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
@@ -329,8 +313,8 @@ __global__ void softmax_forward_kernel2(const float* __restrict__ input_array, f
     float max = -INFINITY;
     // each thread computes part of the maximum by iterating over its corresponding
     // position along the row, as many times as required to cover all the row
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
@@ -359,8 +343,8 @@ __global__ void softmax_forward_kernel2(const float* __restrict__ input_array, f
     max = shared[0];
 
     // each thread computes its exp(x[i] - max)
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = quant_exp(expf(quant_add(input[idx] - max)));
     }
 
@@ -368,8 +352,8 @@ __global__ void softmax_forward_kernel2(const float* __restrict__ input_array, f
     // but reducing a sum instead
 
     float sum = 0.f;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         sum = quant_add(sum + output[idx]); // we sum the previously computed exponentials
     }
     for (int offset = warpSize/2; offset > 0; offset /= 2) {
@@ -390,72 +374,47 @@ __global__ void softmax_forward_kernel2(const float* __restrict__ input_array, f
     sum = shared[0];
 
     // finally, divide each previously computed exponentials by the sum
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = quant_div(output[idx] / sum);
     }
 }
 
-void softmax_forward_cuda2(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
-    DimStrides h_strides = dim_striding(dims, n_dims, dim);
-    DimStrides *d_strides;
-    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
-    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    // one block per row to be softmaxed
-    int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
-    // block_size must be multiple of 32
-    size_t shared_mem_size = (block_size / 32) * sizeof(float);
-    softmax_forward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
-    cudaCheck(cudaFree(d_strides));
-}
-
-__global__ void softmax_forward_kernel3(const float* __restrict__ input_array, float *output_array, const DimStrides *strides, int N) {
+__global__ void softmax_forward_kernel3(const float* __restrict__ input_array, float *output_array, const DimSizes sizes, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(id >= N) return;
 
-    int outer_idx = id / strides->inner_size;
-    int inner_idx = id % strides->inner_size;
+    int outer_idx = id / sizes.inner;
+    int inner_idx = id % sizes.inner;
 
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
     float max = input[0];
-    for (int k = 1; k < strides->dim_size; ++k) {
-        int idx = k * strides->dim_stride;
+    for (int k = 1; k < sizes.channel; ++k) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
 
     float x0 = quant_add(input[0] - max);
     output[0] = x0;
     float lgs = x0; // log(exp(x[0] - max))
-    for (int k = 1; k < strides->dim_size; ++k) {
-      int idx = k * strides->dim_stride;
+    for (int k = 1; k < sizes.channel; ++k) {
+      int idx = k * sizes.inner;
       float x = quant_add(input[idx] - max);
       output[idx] = x;
       lgs = quant_lse(logf(expf(lgs) + expf(x)));
     }
-    for (int k = 0; k < strides->dim_size; ++k) {
-      int idx = k * strides->dim_stride;
+    for (int k = 0; k < sizes.channel; ++k) {
+      int idx = k * sizes.inner;
       float x = quant_add(output[idx] - lgs);
       output[idx] = quant_exp(expf(x));
     }
 }
 
-void softmax_forward_cuda3(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
-    DimStrides h_strides = dim_striding(dims, n_dims, dim);
-    DimStrides *d_strides;
-    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
-    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    // one thread per row to be softmaxed
-    int N = h_strides.outer_size * h_strides.inner_size; // number of rows
-    int blocks = N / block_size + (N % block_size != 0);
-    softmax_forward_kernel3<<<blocks, block_size>>>(input, output, d_strides, N);
-    cudaCheck(cudaFree(d_strides));
-}
-
-__global__ void softmax_forward_kernel4(const float* __restrict__ input_array, float *output_array, const DimStrides *strides) {
+__global__ void softmax_forward_kernel4(const float* __restrict__ input_array, float *output_array, const DimSizes sizes) {
     extern __shared__ float shared[];
 
     int tid = threadIdx.x;
@@ -465,18 +424,18 @@ __global__ void softmax_forward_kernel4(const float* __restrict__ input_array, f
 
     int warpsPerBlock = blockDim.x / warpSize;
 
-    int outer_idx = blockIdx.x / strides->inner_size;
-    int inner_idx = blockIdx.x % strides->inner_size;
+    int outer_idx = blockIdx.x / sizes.inner;
+    int inner_idx = blockIdx.x % sizes.inner;
     
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
     // compute the maximum value of the row
 
     float max = -INFINITY;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
@@ -504,8 +463,8 @@ __global__ void softmax_forward_kernel4(const float* __restrict__ input_array, f
 
     // compute log(exp(x[i] - max) + ...) using LogSumExp iterations
     float lgs = -INFINITY;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         float x = quant_add(input[idx] - max);
         output[idx] = x;
         lgs = quant_lse(logf(expf(lgs) + expf(x)));
@@ -529,26 +488,47 @@ __global__ void softmax_forward_kernel4(const float* __restrict__ input_array, f
     lgs = shared[0];
 
     // finally, divide each previously computed exponentials by the sum
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = quant_exp(expf(quant_add(output[idx] - lgs)));
     }
 }
 
-void softmax_forward_cuda4(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
-    DimStrides h_strides = dim_striding(dims, n_dims, dim);
-    DimStrides *d_strides;
-    cudaCheck(cudaMalloc(&d_strides, sizeof(DimStrides)));
-    cudaCheck(cudaMemcpy(d_strides, &h_strides, sizeof(DimStrides), cudaMemcpyHostToDevice));
-    // one block per row to be softmaxed
-    int blocks = h_strides.outer_size * h_strides.inner_size; // number of rows
-    // block_size must be multiple of 32
-    size_t shared_mem_size = (block_size / 32) * sizeof(float); // one slot per warp
-    softmax_forward_kernel4<<<blocks, block_size, shared_mem_size>>>(input, output, d_strides);
-    cudaCheck(cudaFree(d_strides));
+// ---------------------------------------------------------------------------------------
+// /* Kernel launchers */
+
+void softmax_forward_cuda1(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimSizes sizes = partition_tensor(dims, n_dims, dim);
+    // one thread per row to be softmaxed
+    int N = sizes.outer * sizes.inner; // number of rows
+    int blocks = N / block_size + (N % block_size != 0);
+    softmax_forward_kernel1<<<blocks, block_size>>>(input, output, sizes, N);
 }
 
-// ---------------------------------------------------------------------------------------
+void softmax_forward_cuda2(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimSizes sizes = partition_tensor(dims, n_dims, dim);
+    // one block per row to be softmaxed
+    int blocks = sizes.outer * sizes.inner; // number of rows
+    size_t shared_mem_size = (block_size / 32) * sizeof(float); // block_size must be multiple of 32
+    softmax_forward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, output, sizes);
+}
+
+void softmax_forward_cuda3(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimSizes sizes = partition_tensor(dims, n_dims, dim);
+    // one thread per row to be softmaxed
+    int N = sizes.outer * sizes.inner; // number of rows
+    int blocks = N / block_size + (N % block_size != 0);
+    softmax_forward_kernel3<<<blocks, block_size>>>(input, output, sizes, N);
+}
+
+void softmax_forward_cuda4(float *input, float *output, const int *dims, int n_dims, int dim, int block_size) {
+    DimSizes sizes = partition_tensor(dims, n_dims, dim);
+    // one block per row to be softmaxed
+    int blocks = sizes.outer * sizes.inner; // number of rows
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    softmax_forward_kernel4<<<blocks, block_size, shared_mem_size>>>(input, output, sizes);
+}
+
 void softmax_forward_cuda(int kernel_num, float *input, float *output,
                           const int *dims, int n_dims, int dim, int block_size) {
     switch (kernel_num) {
@@ -589,19 +569,19 @@ void softmax_forward_cpu(int kernel_num, float *input, float *output,
 
 
 void check_softmax_cpu(float* array, const int *dims, int n_dims, int dim, float tol=1e-1f) {
-    auto strides = dim_striding(dims, n_dims, dim);
+    auto sizes = partition_tensor(dims, n_dims, dim);
 
     int nfaults = 0;
-    for (int i = 0; i < strides.outer_size * strides.inner_size; ++i) {
-        int outer_idx = i / strides.inner_size;
-        int inner_idx = i % strides.inner_size;
+    for (int i = 0; i < sizes.outer * sizes.inner; ++i) {
+        int outer_idx = i / sizes.inner;
+        int inner_idx = i % sizes.inner;
 
-        int base_index = outer_idx * strides.outer_stride + inner_idx;
+        int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
         float* arr = array + base_index;
 
         float sum = 0.0f;
-        for (int k = 0; k < strides.dim_size; ++k) {
-            sum += arr[k * strides.dim_stride];
+        for (int k = 0; k < sizes.channel; ++k) {
+            sum += arr[k * sizes.inner];
         }
 
         if(i < 5) {

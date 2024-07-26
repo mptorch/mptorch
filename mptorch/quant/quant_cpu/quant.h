@@ -8,20 +8,16 @@ using namespace at;
 
 enum Mode { rNearest, rStochastic };
 
-struct DimStrides
+struct DimSizes
 {
-    int outer_size;
-    int inner_size;
-    int outer_stride;
-    int dim_size;
-    int dim_stride;
+    int outer;
+    int inner;
+    int channel;
 };
 
 float round(float a, float r, int sigma);
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max);
-
-void dim_striding(Tensor a, int dim, DimStrides &strides);
 
 uint32_t clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
                            uint32_t quantized_num, bool saturate);
@@ -125,21 +121,67 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subn
  **/
 Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
 
+
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
                                             bool subnormals, bool saturate);
 
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
 void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
                                             int man_off, int exp_off,
                                             int man_lse, int exp_lse,
                                             bool subnormals, bool saturate);
 
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * floating point formats for the intermediate computations.
+ */
 void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
                                             int man_add, int exp_add,
                                             int man_mul, int exp_mul,
                                             bool subnormals, bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom super floating-point
+ * formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom super floating-point
+ * formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
+void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate);
+
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * super floating-point formats for the intermediate computations.
+ */
+void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate);
+
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.

@@ -29,7 +29,11 @@ __all__ = [
     "mp_softmax_forward",
     "mp_softmax_backward",
     "float_softmax_forward",
+    "float_softmax_lse_forward",
     "float_softmax_backward",
+    "superfp_softmax_forward",
+    "superfp_softmax_lse_forward",
+    "superfp_softmax_backward",
     "cublas_mm",
     "cublas_bmm",
     "CUBLASMatrixType",
@@ -281,70 +285,250 @@ def match_mac_format_with_cublas_types(
 def mp_softmax_forward(a, dim, formats):
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
-        return float_softmax_forward(a, dim, formats)
-    raise NotImplementedError("Unsupported float type.")
+        if not formats.use_lse:
+            return float_softmax_forward(
+                a,
+                dim,
+                formats.fwd_exp.man,
+                formats.fwd_exp.exp,
+                formats.fwd_off.man,
+                formats.fwd_off.exp,
+                formats.fwd_acc.man,
+                formats.fwd_acc.exp,
+                formats.fwd_rnd,
+                off_cfg.subnormals,
+                off_cfg.saturate)
+        else:
+            return float_softmax_lse_forward(
+                a,
+                dim,
+                formats.fwd_off.man,
+                formats.fwd_off.exp,
+                formats.fwd_lse.man,
+                formats.fwd_lse.exp,
+                formats.fwd_rnd,
+                off_cfg.subnormals,
+                off_cfg.saturate)
+    elif type(off_cfg) == SuperNormalFloat:
+        if not formats.use_lse:
+            return superfp_softmax_forward(
+                a,
+                dim,
+                formats.fwd_exp.man,
+                formats.fwd_exp.exp,
+                formats.fwd_exp.binades,
+                formats.fwd_off.man,
+                formats.fwd_off.exp,
+                formats.fwd_off.binades,
+                formats.fwd_acc.man,
+                formats.fwd_acc.exp,
+                formats.fwd_acc.binades,
+                formats.fwd_rnd,
+                off_cfg.saturate
+            )
+        else:
+            return superfp_softmax_lse_forward(
+                a,
+                dim,
+                formats.fwd_off.man,
+                formats.fwd_off.exp,
+                formats.fwd_off.binades,
+                formats.fwd_lse.man,
+                formats.fwd_lse.exp,
+                formats.fwd_lse.binades,
+                formats.fwd_rnd,
+                off_cfg.saturate
+            )
+    raise NotImplementedError("Unsupported number format.")
 
 def mp_softmax_backward(input, grad_output, dim, formats):
     add_cfg = formats.bwd_add
     if type(add_cfg) == FloatingPoint:
-        return float_softmax_backward(input, grad_output, dim, formats)
-    raise NotImplementedError("Unsupported float type.")
-
-
-def float_softmax_forward(a, dim, formats):
-    off_cfg, rnd = formats.fwd_off, formats.fwd_rnd
-    assert rnd == "nearest", \
-        "Only nearest rounding softmax is implemented."
-
-    subnormals = off_cfg.subnormals
-    saturate = off_cfg.saturate
-
-    o = torch.zeros_like(a)
-
-    quant_module = get_module(a)
-
-    if not formats.use_lse:
-        exp_cfg, acc_cfg = formats.fwd_exp, formats.fwd_acc
-        quant_module.float_quantize_nearest_softmax_forward(
-            a.contiguous(), o, dim,
-            exp_cfg.man, exp_cfg.exp,
-            off_cfg.man, off_cfg.exp,
-            acc_cfg.man, acc_cfg.exp,
-            subnormals, saturate
+        return float_softmax_backward(
+            input,
+            grad_output,
+            dim,
+            formats.bwd_add.man,
+            formats.bwd_add.exp,
+            formats.bwd_mul.man,
+            formats.bwd_mul.exp,
+            formats.bwd_rnd,
+            add_cfg.subnormals,
+            add_cfg.saturate
         )
-    else:
-        lse_cfg = formats.fwd_lse
-        quant_module.float_quantize_nearest_softmax_lse_forward(
-            a.contiguous(), o, dim,
-            off_cfg.man, off_cfg.exp,
-            lse_cfg.man, lse_cfg.exp,
-            subnormals, saturate
+    elif type(add_cfg) == SuperNormalFloat:
+        return superfp_softmax_backward(
+            input,
+            grad_output,
+            dim,
+            formats.bwd_add.man,
+            formats.bwd_add.exp,
+            formats.bwd_add.binades,
+            formats.bwd_mul.man,
+            formats.bwd_mul.exp,
+            formats.bwd_mul.binades,
+            formats.bwd_rnd,
+            add_cfg.saturate
         )
-    return o
+    raise NotImplementedError("Unsupported number format.")
 
-def float_softmax_backward(input, grad_output, dim, formats):
-    assert input.device == grad_output.device
-    add_cfg, mul_cfg, rnd = (
-        formats.bwd_add,
-        formats.bwd_mul,
-        formats.bwd_rnd,
-    )
-    assert rnd == "nearest", \
+
+def float_softmax_forward(
+    input,
+    dim,
+    man_exp=23,
+    exp_exp=8,
+    man_off=23,
+    exp_off=8,
+    man_acc=23,
+    exp_acc=8,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False
+):
+    assert rounding == "nearest", \
         "Only nearest rounding softmax is implemented."
-    
-    subnormals = add_cfg.subnormals
-    saturate = add_cfg.saturate
-
+    output = torch.zeros_like(input)
     quant_module = get_module(input)
+    quant_module.float_quantize_nearest_softmax_forward(
+        input.contiguous(), output, dim,
+        man_exp, exp_exp,
+        man_off, exp_off,
+        man_acc, exp_acc,
+        subnormals,
+        saturate
+    )
+    return output
 
+def float_softmax_lse_forward(
+    input,
+    dim,
+    man_off=23,
+    exp_off=8,
+    man_lse=23,
+    exp_lse=8,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False
+):
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    output = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.float_quantize_nearest_softmax_lse_forward(
+        input.contiguous(), output, dim,
+        man_off, exp_off,
+        man_lse, exp_lse,
+        subnormals,
+        saturate
+    )
+    return output
+
+def float_softmax_backward(
+    input,
+    grad_output,
+    dim,
+    man_add=23,
+    exp_add=8,
+    man_mul=23,
+    exp_mul=8,
+    rounding="nearest",
+    subnormals=True,
+    saturate=False
+):
+    assert input.device == grad_output.device
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
+    quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_backward(
         input.contiguous(),
         grad_output.contiguous(),
         grad_input, dim,
-        add_cfg.man, add_cfg.exp,
-        mul_cfg.man, mul_cfg.exp,
-        subnormals, saturate
+        man_add, exp_add,
+        man_mul, exp_mul,
+        subnormals,
+        saturate
+    )
+    return grad_input
+
+def superfp_softmax_forward(
+    input,
+    dim,
+    man_exp=23,
+    exp_exp=8,
+    binades_exp=1,
+    man_off=23,
+    exp_off=8,
+    binades_off=1,
+    man_acc=23,
+    exp_acc=8,
+    binades_acc=1,
+    rounding="nearest",
+    saturate=False
+):
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    output = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.superfp_quantize_nearest_softmax_forward(
+        input.contiguous(), output, dim,
+        man_exp, exp_exp, binades_exp,
+        man_off, exp_off, binades_off,
+        man_acc, exp_acc, binades_acc,
+        saturate
+    )
+    return output
+
+def superfp_softmax_lse_forward(
+    input,
+    dim,
+    man_off=23,
+    exp_off=8,
+    binades_off=1,
+    man_lse=23,
+    exp_lse=8,
+    binades_lse=1,
+    rounding="nearest",
+    saturate=False
+):
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    output = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.superfp_quantize_nearest_softmax_lse_forward(
+        input.contiguous(), output, dim,
+        man_off, exp_off, binades_off,
+        man_lse, exp_lse, binades_lse,
+        saturate
+    )
+    return output
+
+def superfp_softmax_backward(
+    input,
+    grad_output,
+    dim,
+    man_add=23,
+    exp_add=8,
+    binades_add=1,
+    man_mul=23,
+    exp_mul=8,
+    binades_mul=1,
+    rounding="nearest",
+    saturate=False
+):
+    assert input.device == grad_output.device
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    grad_input = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.superfp_quantize_nearest_softmax_backward(
+        input.contiguous(),
+        grad_output.contiguous(),
+        grad_input, dim,
+        man_add, exp_add, binades_add,
+        man_mul, exp_mul, binades_mul,
+        saturate
     )
     return grad_input
 
