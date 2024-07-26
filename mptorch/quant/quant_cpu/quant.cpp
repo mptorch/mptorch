@@ -492,18 +492,31 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
+
+static DimSizes partition_tensor(Tensor a, int dim) {
+  DimSizes sizes;
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
+  sizes.outer = 1;
+  sizes.channel = a.size(real_dim);
+  sizes.inner = 1;
+  for (int i = 0; i < real_dim; ++i) {
+    sizes.outer *= a.size(i);
+  }
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
+    sizes.inner *= a.size(i);
+  }
+  return sizes;
+}
+
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,
                                             int man_acc, int exp_acc,
                                             bool subnormals, bool saturate)
 {
-  auto a_array = a.data_ptr<float>();
-  auto o_array = o.data_ptr<float>();
-  DimStrides strides;
-  dim_striding(a, dim, strides);
+  auto sizes = partition_tensor(a, dim);
   softmax_forward(
-    a_array, o_array, strides,
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
     [subnormals, saturate, man_exp, exp_exp] (float x) {
       return float_quantize(x, man_exp, exp_exp, rNearest, subnormals, saturate);
     },
@@ -516,19 +529,14 @@ void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
   );
 }
 
-// Uses the LogSumExp formula to compute softmax without divisions
-// Returns ouput tensor of softmaxxed and quantized values
 void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
                                                 int man_off, int exp_off,
                                                 int man_lse, int exp_lse,
                                                 bool subnormals, bool saturate)
 {
-  auto a_array = a.data_ptr<float>();
-  auto o_array = o.data_ptr<float>();
-  DimStrides strides;
-  dim_striding(a, dim, strides);
+  auto sizes = partition_tensor(a, dim);
   softmax_lse_forward(
-    a_array, o_array, strides,
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
     [subnormals, saturate, man_off, exp_off] (float x) {
       return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
     },
@@ -543,13 +551,9 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
                                              int man_mul, int exp_mul,
                                              bool subnormals, bool saturate)
 {
-  auto a_array = a.data_ptr<float>();
-  auto g_array = g.data_ptr<float>();
-  auto o_array = o.data_ptr<float>();
-  DimStrides strides;
-  dim_striding(a, dim, strides);
+  auto sizes = partition_tensor(a, dim);
   softmax_backward(
-    a_array, g_array, o_array, strides,
+    a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
     [subnormals, saturate, man_add, exp_add] (float x) {
       return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate);
     },

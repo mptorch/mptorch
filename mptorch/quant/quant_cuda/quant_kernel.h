@@ -147,30 +147,28 @@ void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                             int N, int sigma_fma, int t_min_fma, int t_max_fma);
 
 
-struct DimStrides
+struct DimSizes
 {
-    int outer_size;
-    int inner_size;
-    int outer_stride;
-    int dim_size;
-    int dim_stride;
+    int outer;
+    int inner;
+    int channel;
 };
 
 void softmax_forward_fp_nearest(float *a, float *o,
-                                const DimStrides& strides,
+                                const DimSizes& sizes,
                                 int man_exp, int exp_exp,
                                 int man_off, int exp_off,
                                 int man_acc, int exp_acc,
                                 bool subnormals, bool saturate);
 
 void softmax_lse_forward_fp_nearest(float *a, float *o,
-                                const DimStrides& strides,
+                                const DimSizes& sizes,
                                 int man_off, int exp_off,
                                 int man_lse, int exp_lse,
                                 bool subnormals, bool saturate);
 
 void softmax_backward_fp_nearest(float *a, float *g, float *o,
-                                const DimStrides& strides,
+                                const DimSizes& sizes,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
                                 bool subnormals, bool saturate);

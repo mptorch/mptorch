@@ -22,7 +22,7 @@ __device__ T shared_reduce(F fn, T *shared, int size) {
 
 template<class Qexp, class Qoff, class Qacc>
 __global__ void softmax_forward_impl(
-    const float* __restrict__ input_array, float *output_array, const DimStrides *strides,
+    const float* __restrict__ input_array, float *output_array, const DimSizes sizes,
     Qexp quant_exp, Qoff quant_off, Qacc quant_acc)
 {
     extern __shared__ float shared[];
@@ -33,10 +33,10 @@ __global__ void softmax_forward_impl(
 
     int warpsPerBlock = blockDim.x / warpSize;
 
-    int outer_idx = blockIdx.x / strides->inner_size;
-    int inner_idx = blockIdx.x % strides->inner_size;
+    int outer_idx = blockIdx.x / sizes.inner;
+    int inner_idx = blockIdx.x % sizes.inner;
     
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
@@ -45,8 +45,8 @@ __global__ void softmax_forward_impl(
     // each thread computes part of the maximum by iterating over its corresponding
     // position along the row, as many times as required to cover all the row
     float max = -INFINITY;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
@@ -67,8 +67,8 @@ __global__ void softmax_forward_impl(
     max = shared[0]; // each thread reads the row's maximum
 
     // each thread computes its exp(x[i] - max)
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = quant_exp(expf(quant_off(input[idx] - max)));
     }
 
@@ -76,8 +76,8 @@ __global__ void softmax_forward_impl(
     // but reducing a sum instead
 
     float sum = 0.f;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         sum = quant_acc(sum + output[idx]); // sum the previously computed exponentials
     }
     auto qadd = [&quant_acc] __device__(float a, float b) { return quant_acc(a + b); };
@@ -93,15 +93,15 @@ __global__ void softmax_forward_impl(
     sum = shared[0];
 
     // finally, divide each previously computed exponentials by the sum
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = output[idx] / sum; // quantization handled by output_quant
     }
 }
 
 template<class Qoff, class Qlse>
 __global__ void softmax_lse_forward_impl(
-    const float* __restrict__ input_array, float *output_array, const DimStrides *strides,
+    const float* __restrict__ input_array, float *output_array, const DimSizes sizes,
     Qoff quant_off, Qlse quant_lse)
 {
     extern __shared__ float shared[];
@@ -113,18 +113,18 @@ __global__ void softmax_lse_forward_impl(
 
     int warpsPerBlock = blockDim.x / warpSize;
 
-    int outer_idx = blockIdx.x / strides->inner_size;
-    int inner_idx = blockIdx.x % strides->inner_size;
+    int outer_idx = blockIdx.x / sizes.inner;
+    int inner_idx = blockIdx.x % sizes.inner;
     
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     float* output = output_array + base_index;
 
     // compute the maximum value of the row
 
     float max = -INFINITY;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         max = fmaxf(max, input[idx]);
     }
     // intra-warp maximum reduction
@@ -143,8 +143,8 @@ __global__ void softmax_lse_forward_impl(
 
     // compute log(exp(x[i] - max) + ...) using LogSumExp iterations
     float lgs = -INFINITY;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         float x = quant_off(input[idx] - max);
         output[idx] = x;
         lgs = quant_lse(logf(expf(lgs) + expf(x)));
@@ -164,8 +164,8 @@ __global__ void softmax_lse_forward_impl(
     lgs = shared[0];
 
     // finally, divide each previously computed exponentials by the sum
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         output[idx] = expf(quant_off(output[idx] - lgs)); // quantization handled by output_quant
     }
 }
@@ -173,7 +173,7 @@ __global__ void softmax_lse_forward_impl(
 template<class Qadd, class Qmul>
 __global__ void softmax_backward_impl(
   const float* __restrict__ input_array, const float* __restrict__ out_gradient, float* output_array,
-  const DimStrides *strides,
+  const DimSizes sizes,
   Qadd quant_add, Qmul quant_mul)
 {
     extern __shared__ float shared[];
@@ -184,10 +184,10 @@ __global__ void softmax_backward_impl(
 
     int warpsPerBlock = blockDim.x / warpSize;
 
-    int outer_idx = blockIdx.x / strides->inner_size;
-    int inner_idx = blockIdx.x % strides->inner_size;
+    int outer_idx = blockIdx.x / sizes.inner;
+    int inner_idx = blockIdx.x % sizes.inner;
     
-    int base_index = outer_idx * strides->outer_stride + inner_idx;
+    int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
     const float* input = input_array + base_index;
     const float* grad = out_gradient + base_index;
     float* output = output_array + base_index;
@@ -199,8 +199,8 @@ __global__ void softmax_backward_impl(
 
     float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         input_sum = quant_add(input_sum + input[idx]);
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
@@ -223,8 +223,8 @@ __global__ void softmax_backward_impl(
     weighted_grad_sum = shared_weighted_grad_sum[0];
 
     // Last step, subtract the weighted sum from the gradient, and divide by input sum
-    for (int k = tid; k < strides->dim_size; k += blockDim.x) {
-        int idx = k * strides->dim_stride;
+    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+        int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
         float b = quant_mul(a * input[idx]);
         output[idx] = b / input_sum; // handled by grad_quant
