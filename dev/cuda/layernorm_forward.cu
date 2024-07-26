@@ -3,46 +3,31 @@
 #include <chrono>
 #include "common.h"
 
-struct DimStrides
-{
-    int B;
-    int T;
-    int outer_stride;
-    int dim_size;
-    int dim_stride;
-};
-
 /* Helper function for tensor striding */
 // ---------------------------------------------------------------------------------------
-DimStrides dim_striding(const int *norm_dims, int n_norm, const int *dims, int n_dims) {
-    DimStrides strides;
-    
+void dim_striding(const int *norm_dims, int n_norm, const int *dims, int n_dims, int &B, int &T, int &C){
 	int real_dims[n_norm];
 	for (int i = 0; i < n_norm; i++){
 		real_dims[i] = (n_dims + (norm_dims[i] % n_dims)) % n_dims;
 	}
 
-	strides.dim_size = 1;
+	C = 1;
 	for (int i : real_dims){
-		strides.dim_size *= dims[i];
+		C *= dims[i];
 	}
 
 	int min_dim = real_dims[n_norm - 1];
 	int max_dim = real_dims[0];
 
-	strides.B = 1;
+	B = 1;
 	for (int i = 0; i < min_dim; i++){
-		strides.B *= dims[i];
+		B *= dims[i];
 	}
 
-	strides.T = 1;
+	T = 1;
 	for (int i = max_dim + 1; i < n_dims; i++){
-		strides.T *= dims[i];
+		T *= dims[i];
 	}
-
-	strides.outer_stride = strides.dim_size * strides.T;
-
-    return strides;
 }
 
 
@@ -190,35 +175,35 @@ __host__ __device__ float quant_sqrt(float origin_float) {
 // CPU version
 static void layernorm_forward_cpu(const float *in_arr, float *out_arr, 
                                   const float *w_array, const float *b_array, 
-                                  const float eps, DimStrides &strides){
-	for (int i = 0; i < strides.B * strides.T; i++){
-		int b = i / strides.T;
-		int t = i % strides.T;
+                                  const float eps, int B, int T, int C){
+	for (int i = 0; i < B * T; i++){
+		int b = i / T;
+		int t = i % T;
 
-		int base_index = (b * strides.outer_stride) + t;
+		int base_index = (b * C * T) + t;
 		const float* input = in_arr + base_index;
 		float* output = out_arr + base_index;
 
 		float m = 0.0f;
-		for (int k = 0; k < strides.dim_size; k++){
-	  		int idx = k * strides.T;
+		for (int k = 0; k < C; k++){
+	  		int idx = k * T;
 	  		m = quant_acc(m + input[idx]);
 		}
-		m = quant_div(m/strides.dim_size);
+		m = quant_div(m/C);
 
 		float variance = 0;
-        for (int k = 0; k < strides.dim_size; k++){
-            int idx = k * strides.T;
+        for (int k = 0; k < C; k++){
+            int idx = k * T;
             float shift = quant_acc(input[idx] - m);
             float shift_2 = quant_mul(shift * shift);
             variance = quant_acc(variance + shift_2);
         }
-        variance = quant_div(variance/strides.dim_size);
+        variance = quant_div(variance/C);
 
 		float rad = quant_acc(variance + eps);
 		float std = quant_sqrt(sqrtf(rad));
-		for (int k = 0; k < strides.dim_size; k++){
-	  		int idx = k * strides.T;
+		for (int k = 0; k < C; k++){
+	  		int idx = k * T;
 	  		float numer = quant_acc(input[idx] - m);
 	  		float norm = quant_div(numer/std);
 	  		float out = quant_mul(w_array[k] * norm);
@@ -230,17 +215,68 @@ static void layernorm_forward_cpu(const float *in_arr, float *out_arr,
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
+__global__ void layernorm_forward_kernel1(const float *in_arr, float *out_arr, 
+                                  const float *w_array, const float *b_array, 
+                                  const float eps, int B, int T, int C, int N){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if (i > N) return;
+
+    int b = i / T;
+    int t = i % T;
+
+    int base_index = (b * C * T) + t;
+    const float* input = in_arr + base_index;
+    float* output = out_arr + base_index;
+
+    float m = 0.0f;
+    for (int k = 0; k < C; k++){
+        int idx = k * T;
+        m = quant_acc(m + input[idx]);
+    }
+    m = quant_div(m/C);
+
+    float variance = 0;
+    for (int k = 0; k < C; k++){
+        int idx = k * T;
+        float shift = quant_acc(input[idx] - m);
+        float shift_2 = quant_mul(shift * shift);
+        variance = quant_acc(variance + shift_2);
+    }
+    variance = quant_div(variance/C);
+
+    float rad = quant_acc(variance + eps);
+    float std = quant_sqrt(sqrtf(rad));
+    for (int k = 0; k < C; k++){
+        int idx = k * T;
+        float numer = quant_acc(input[idx] - m);
+        float norm = quant_div(numer/std);
+        float out = quant_mul(w_array[k] * norm);
+        output[idx] = out + b_array[k];
+    }
+}
 
 
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
+void layernorm_forward_cuda1(const float *in_arr, float *out_arr, 
+                            const float *w_array, const float *b_array, 
+                            const float eps, int B, int T, int C,
+                            int block_size){
+    int N = B * T;
+    int blocks = N / block_size + (N % block_size != 0);
+    layernorm_forward_kernel1<<<blocks, block_size>>>(in_arr, out_arr, w_array, b_array, eps, B, T, C, N);
+
+
+}
+
 void layernorm_forward_cuda(int kernel_num, const float *in_arr, float *out_arr, 
                             const float *w_array, const float *b_array, 
-                            const float eps, DimStrides &strides,
+                            const float eps, int B, int T, int C,
                             int block_size){
     switch (kernel_num){
         case 1:
+            layernorm_forward_cuda1(in_arr, out_arr, w_array, b_array, eps, B, T, C, block_size);
             break;
         default:
             printf("Invalid kernel number\n");
@@ -252,13 +288,14 @@ void layernorm_forward_cuda(int kernel_num, const float *in_arr, float *out_arr,
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int norm_dims[] = {-1, -2};
+    const int norm_dims[] = {-1};
     const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
-    const int dims[] = {20, 30, 40};
+    const int dims[] = {40, 60, 80};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
     const float eps = 1e-5;
 
-    auto strides = dim_striding(norm_dims, n_norm, dims, n_dims);
+    int B, T, C;
+    dim_striding(norm_dims, n_norm, dims, n_dims, B, T, C);
 
     // which kernel to use
     int version = 1;
@@ -273,11 +310,11 @@ int main(int argc, const char **argv) {
     }
     float* h_input = make_random_float(numel);
     float* h_output = make_zeros_float(numel);
-    float* h_weight= make_ones_float(strides.dim_size);
-    float* h_bias = make_zeros_float(strides.dim_size);
+    float* h_weight= make_ones_float(C);
+    float* h_bias = make_zeros_float(C);
 
     // compute cpu reference
-    layernorm_forward_cpu(h_input, h_output, h_weight, h_bias, eps, strides);
+    layernorm_forward_cpu(h_input, h_output, h_weight, h_bias, eps, B, T, C);
 
     // device tensors (move data to gpu)
     float *d_input, *d_output, *d_weight, *d_bias;
@@ -294,7 +331,7 @@ int main(int argc, const char **argv) {
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        layernorm_forward_cuda(version, d_input, d_output, d_weight, d_bias, eps, strides, block_size);
+        layernorm_forward_cuda(version, d_input, d_output, d_weight, d_bias, eps, B, T, C, block_size);
 
         float tol = 0.0f;
         validate_result(d_output, h_output, "output", numel, tol);
@@ -307,7 +344,7 @@ int main(int argc, const char **argv) {
         int repeat_times = 1000;
         float elapsed_time = benchmark_kernel(repeat_times, layernorm_forward_cuda, 
                                               version, d_input, d_output, d_weight, d_bias, 
-                                              eps, strides, block_size);
+                                              eps, B, T, C, block_size);
         printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
     }
 
