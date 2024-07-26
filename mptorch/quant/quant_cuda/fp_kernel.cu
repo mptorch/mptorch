@@ -731,11 +731,7 @@ void softmax_forward_fp_nearest(float *a, float *o,
                                 int man_acc, int exp_acc,
                                 bool subnormals, bool saturate)
 {
-  int blocks = sizes.outer * sizes.inner;
-  int block_size = 64;
-  size_t shared_mem_size = (block_size / 32) * sizeof(float);
-  softmax_forward_impl<<<blocks, block_size, shared_mem_size>>>(
-    a, o, sizes,
+  softmax_forward(a, o, sizes,
     [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { 
       return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate);
     },
@@ -754,11 +750,7 @@ void softmax_lse_forward_fp_nearest(float *a, float *o,
                                 int man_lse, int exp_lse,
                                 bool subnormals, bool saturate)
 {
-  int blocks = sizes.outer * sizes.inner; 
-  int block_size = 64;
-  size_t shared_mem_size = (block_size / 32) * sizeof(float);
-  softmax_lse_forward_impl<<<blocks, block_size, shared_mem_size>>>(
-    a, o, sizes,
+  softmax_lse_forward(a, o, sizes,
     [man_off, exp_off, subnormals, saturate] __device__ (float x) { 
       return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate);
     },
@@ -774,11 +766,7 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
                                 int man_mul, int exp_mul,
                                 bool subnormals, bool saturate)
 {
-  int blocks = sizes.outer * sizes.inner; 
-  int block_size = 64;
-  size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
-  softmax_backward_impl<<<blocks, block_size, shared_mem_size>>>(
-    a, g, o, sizes,
+  softmax_backward(a, g, o, sizes,
     [man_add, exp_add, subnormals, saturate] __device__ (float x) { 
       return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate);
     },

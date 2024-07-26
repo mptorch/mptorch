@@ -230,3 +230,44 @@ __global__ void softmax_backward_impl(
         output[idx] = b / input_sum; // handled by grad_quant
     }
 }
+
+
+template<class Qexp, class Qoff, class Qacc>
+void softmax_forward(
+    const float* input_array, float *output_array, const DimSizes &sizes,
+    Qexp quant_exp, Qoff quant_off, Qacc quant_acc)
+{
+    int blocks = sizes.outer * sizes.inner;
+    int block_size = 64;
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    softmax_forward_impl<<<blocks, block_size, shared_mem_size>>>(
+        input_array, output_array, sizes, quant_exp, quant_off, quant_acc
+    );
+}
+
+template<class Qoff, class Qlse>
+void softmax_lse_forward(
+    const float* input_array, float *output_array, const DimSizes &sizes,
+    Qoff quant_off, Qlse quant_lse)
+{
+    int blocks = sizes.outer * sizes.inner;
+    int block_size = 64;
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    softmax_lse_forward_impl<<<blocks, block_size, shared_mem_size>>>(
+        input_array, output_array, sizes, quant_off, quant_lse
+    );
+}
+
+template<class Qadd, class Qmul>
+void softmax_backward(
+  const float* input_array, const float* out_gradient, float* output_array,
+  const DimSizes &sizes,
+  Qadd quant_add, Qmul quant_mul)
+{
+    int blocks = sizes.outer * sizes.inner;
+    int block_size = 64;
+    size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
+    softmax_backward_impl<<<blocks, block_size, shared_mem_size>>>(
+        input_array, out_gradient, output_array, sizes, quant_add, quant_mul
+    );
+}
