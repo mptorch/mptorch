@@ -567,9 +567,9 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
   }
 
-  int dim_size = 1;
+  int C = 1;
   for (int dim : real_dims){
-    dim_size *= a.size(dim);
+    C *= a.size(dim);
   }
 
   int min_dim = real_dims.back();
@@ -585,7 +585,7 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     T *= a.size(i);
   }
 
-  int outer_stride = dim_size * T;
+  int outer_stride = C * T;
 
   for (int i = 0; i < B * T; i++){
     int b = i / T;
@@ -596,24 +596,24 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     float* output = o_array + base_index;
 
     float m = 0.0f;
-    for (int k = 0; k < dim_size; k++){
+    for (int k = 0; k < C; k++){
       int idx = k*T;
       m = quant(m + input[idx], man_acc, exp_acc);
     }
-    m = quant(m/dim_size, man_div, exp_div);
+    m = quant(m/C, man_div, exp_div);
 
     float variance = 0;
-    for (int k = 0; k < dim_size; k++){
+    for (int k = 0; k < C; k++){
       int idx = k * T;
       float shift = quant(input[idx] - m, man_acc, exp_acc);
       float shift_2 = quant(shift * shift, man_mul, exp_mul);
       variance = quant(variance + shift_2, man_acc, exp_acc);
     }
-    variance = quant(variance/dim_size, man_div, exp_div);
+    variance = quant(variance/C, man_div, exp_div);
 
     float rad = quant(variance + eps, man_acc, exp_acc);
     float std = quant(sqrtf(rad), man_sqrt, exp_sqrt);
-    for (int k = 0; k < dim_size; k++){
+    for (int k = 0; k < C; k++){
       int idx = k * T;
       float numer = quant(input[idx] - m, man_acc, exp_acc);
       float norm = quant(numer/std, man_div, exp_div);
@@ -655,9 +655,9 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
     real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
   }
 
-  int dim_size = 1;
+  int C = 1;
   for (int dim : real_dims){
-    dim_size *= a.size(dim);
+    C *= a.size(dim);
   }
 
   int min_dim = real_dims.back();
@@ -673,7 +673,7 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
     T *= a.size(i);
   }
 
-  int outer_stride = dim_size * T;
+  int outer_stride = C * T;
 
   for (int i = 0; i < B * T; i++){
     int b = i / T;
@@ -690,7 +690,7 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
     // two reduce operations
     float grad_sum = 0.0f;
     float grad_sum_xhat = 0.0f;
-    for (int k = 0; k < dim_size; k++){
+    for (int k = 0; k < C; k++){
       int idx = k * T;
       float in_m = quant(input[idx] - m, man_acc, exp_acc);
       float xhat = quant(in_m * r, man_mul, exp_mul);
@@ -699,11 +699,11 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
       grad_sum = quant(grad_sum + grad_xhat, man_acc, exp_acc);
       grad_sum_xhat = quant(grad_sum_xhat + dot_xhat, man_acc, exp_acc);
     }
-    grad_sum = quant(grad_sum/dim_size, man_div, exp_div);
-    grad_sum_xhat = quant(grad_sum_xhat/dim_size, man_div, exp_div);
+    grad_sum = quant(grad_sum/C, man_div, exp_div);
+    grad_sum_xhat = quant(grad_sum_xhat/C, man_div, exp_div);
 
     // iterate and accumulate 
-    for (int k = 0; k < dim_size; k++){
+    for (int k = 0; k < C; k++){
       int idx = k * T;
       float in_m = quant(input[idx] - m, man_acc, exp_acc);
       float xhat = quant(in_m * r, man_mul, exp_mul);
