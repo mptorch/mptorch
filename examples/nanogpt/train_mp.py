@@ -27,7 +27,7 @@ import importlib.util
 # Load the model module
 try:
     # Load the module specification
-    _module_spec = importlib.util.spec_from_file_location(sys.argv[1][:-3], sys.argv[1])
+    _module_spec = importlib.util.spec_from_file_location(sys.argv[1], f"{sys.argv[1]}.py")
     _model_module = importlib.util.module_from_spec(_module_spec)
     _module_spec.loader.exec_module(_model_module)
 except IndexError:

@@ -19,6 +19,8 @@ from ast import literal_eval
 
 for arg in sys.argv[1:]:
     if '=' not in arg:
+        if not arg.endswith(".py"):
+            continue
         # assume it's the name of a config file
         assert not arg.startswith('--')
         config_file = arg
