@@ -14,6 +14,7 @@ __all__ = [
     "qmean",
     "qlayernorm",
     "qsoftmax",
+    "qgelu",
 ]
 
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
