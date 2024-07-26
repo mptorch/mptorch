@@ -563,6 +563,58 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
   );
 }
 
+void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_exp, exp_exp, binades_exp, saturate] (float x) { 
+      return superfp_quantize(x, man_exp, exp_exp, binades_exp, saturate);
+    },
+    [man_off, exp_off, binades_off, saturate] (float x) { 
+      return superfp_quantize(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_acc, exp_acc, binades_acc, saturate] (float x) { 
+      return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+    }
+  );
+}
+
+void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_off, exp_off, binades_off, saturate] (float x) { 
+      return superfp_quantize(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_lse, exp_lse, binades_lse, saturate] (float x) { 
+      return superfp_quantize(x, man_lse, exp_lse, binades_lse, saturate);
+    }
+  );
+}
+
+void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_add, exp_add, binades_add, saturate] (float x) { 
+      return superfp_quantize(x, man_add, exp_add, binades_add, saturate);
+    },
+    [man_mul, exp_mul, binades_mul, saturate] (float x) { 
+      return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+    }
+  );
+}
+
 Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);

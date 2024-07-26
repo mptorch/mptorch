@@ -172,3 +172,22 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
                                 bool subnormals, bool saturate);
+
+void softmax_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate);
+
+void softmax_lse_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate);
+
+void softmax_backward_superfp_nearest(float *a, float *g, float *o,
+                                const DimSizes& sizes,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate);

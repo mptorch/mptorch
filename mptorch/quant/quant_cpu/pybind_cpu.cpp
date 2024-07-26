@@ -54,12 +54,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "Low-Bitwidth GEMM (CPU)");
       m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
             "Low-Bitwidth GEMM (CPU)");
+      
       m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward,
             "Low-Bitwidth Floating Point Softmax Forward using division. (CPU)");
       m.def("float_quantize_nearest_softmax_lse_forward", &float_quantize_nearest_softmax_lse_forward,
             "Low-Bitwidth Floating Point Softmax Forward using LogSumExp. (CPU)");
       m.def("float_quantize_nearest_softmax_backward", &float_quantize_nearest_softmax_backward,
             "Low-Bitwidth Floating Point Softmax Backward. (CPU)");
+      
+      m.def("superfp_quantize_nearest_softmax_forward", &superfp_quantize_nearest_softmax_forward,
+            "Low-Bitwidth Super Floating Point Softmax Forward using division. (CPU)");
+      m.def("superfp_quantize_nearest_softmax_lse_forward", &superfp_quantize_nearest_softmax_lse_forward,
+            "Low-Bitwidth Super Floating Point Softmax Forward using LogSumExp. (CPU)");
+      m.def("superfp_quantize_nearest_softmax_backward", &superfp_quantize_nearest_softmax_backward,
+            "Low-Bitwidth Super Floating Point Softmax Backward. (CPU)");
+      
       m.def("binary8_quantize_stochastic", &binary8_quantize_stochastic,
             "Low-Bitwidth P3109 Floating-Point Number Stochastic Quantization (CPU)");
       m.def("binary8_quantize_truncate", &binary8_quantize_truncate,
