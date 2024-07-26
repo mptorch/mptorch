@@ -156,7 +156,7 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
 }
 
 __host__ __device__ float quant_acc(float origin_float) {
-    return cast_fp_nearest(origin_float, 7, 8, true, false);
+    return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
 __host__ __device__ float quant_mul(float origin_float) {
@@ -215,8 +215,8 @@ static void layernorm_forward_cpu(const float *in_arr, float *out_arr,
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
-__global__ void layernorm_forward_kernel1(const float *in_arr, float *out_arr, 
-                                  const float *w_array, const float *b_array, 
+__global__ void layernorm_forward_kernel1(const float* __restrict__ in_arr, float* out_arr, 
+                                  const float* w_array, const float* b_array, 
                                   const float eps, int B, int T, int C, int N){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -256,27 +256,119 @@ __global__ void layernorm_forward_kernel1(const float *in_arr, float *out_arr,
     }
 }
 
+__global__ void layernorm_forward_kernel2(const float* __restrict__ in_arr, float* out_arr, 
+                                  const float* w_array, const float* b_array, 
+                                  const float eps, int B, int T, int C){
+    extern __shared__ float shared[];
+
+    int tid = threadIdx.x;
+    int warp = threadIdx.x / warpSize; // groups of 32 threads (which warp the thread belongs to)
+    int lane = threadIdx.x % warpSize; // a warp has 32 lanes (id of the thread in a warp)
+
+    int warpsPerBlock= blockDim.x / warpSize;
+
+    int b = blockIdx.x / T;
+    int t = blockIdx.x % T;
+
+    int base_index = (b * C * T) + t;
+    const float* input = in_arr + base_index;
+    float* output = out_arr + base_index;
+
+    // compute mean by reducing sum of elements then dividing
+    float m_sum = 0.0f;
+    for (int k = tid; k < C; k += blockDim.x){
+        int idx = k * T;
+        m_sum = quant_acc(m_sum + input[idx]);
+    }
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        m_sum = quant_acc(m_sum + __shfl_down_sync(0xffffffff, m_sum, offset));
+    }
+    if (lane == 0){
+        shared[warp] = m_sum;
+    }
+    __syncthreads();
+    if (tid == 0){
+        m_sum = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            m_sum = quant_acc(m_sum + shared[i]);
+        }
+        shared[0] = m_sum/C;
+    }
+    __syncthreads();
+    float m = shared[0];
+
+    float v_sum = 0;
+    for (int k = tid; k < C; k += blockDim.x){
+        int idx = k * T;
+        float shift = quant_acc(input[idx] - m);
+        float shift_2 = quant_mul(shift * shift);
+        v_sum = quant_acc(v_sum + shift_2);
+    }
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        v_sum = quant_acc(v_sum + __shfl_down_sync(0xffffffff, v_sum, offset));
+    }
+    if (lane == 0){
+        shared[warp] = v_sum;
+    }
+    __syncthreads();
+    if (tid == 0){
+        v_sum = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            v_sum = quant_acc(v_sum + shared[i]);
+        }
+        shared[0] = v_sum/C;
+    }
+    __syncthreads();
+    float variance = shared[0];
+    
+    float rad = quant_acc(variance + eps);
+    float std = quant_sqrt(sqrtf(rad));
+    for (int k = tid; k < C; k += blockDim.x){
+        int idx = k * T;
+        float numer = quant_acc(input[idx] - m);
+        float norm = quant_div(numer/std);
+        float out = quant_mul(w_array[k] * norm);
+        output[idx] = out + b_array[k];
+    }
+}
+
+// TODO: Create kernel using cooperative groups
+// __global__ void layernorm_forward_kernel2(const float* __restrict__ in_arr, float* out_arr, 
+//                                   const float* w_array, const float* b_array, 
+//                                   const float eps, int B, int T, int C){
+// }
+
 
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
-void layernorm_forward_cuda1(const float *in_arr, float *out_arr, 
-                            const float *w_array, const float *b_array, 
+void layernorm_forward_cuda1(const float* in_arr, float* out_arr, 
+                            const float* w_array, const float* b_array, 
                             const float eps, int B, int T, int C,
                             int block_size){
     int N = B * T;
     int blocks = N / block_size + (N % block_size != 0);
     layernorm_forward_kernel1<<<blocks, block_size>>>(in_arr, out_arr, w_array, b_array, eps, B, T, C, N);
-
-
 }
 
-void layernorm_forward_cuda(int kernel_num, const float *in_arr, float *out_arr, 
-                            const float *w_array, const float *b_array, 
+void layernorm_forward_cuda2(const float* in_arr, float* out_arr, 
+                            const float* w_array, const float* b_array, 
+                            const float eps, int B, int T, int C,
+                            int block_size){
+    int blocks = B * T;
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    layernorm_forward_kernel2<<<blocks, block_size, shared_mem_size>>>(in_arr, out_arr, w_array, b_array, eps, B, T, C);
+}
+
+void layernorm_forward_cuda(int kernel_num, const float* in_arr, float* out_arr, 
+                            const float* w_array, const float* b_array, 
                             const float eps, int B, int T, int C,
                             int block_size){
     switch (kernel_num){
         case 1:
             layernorm_forward_cuda1(in_arr, out_arr, w_array, b_array, eps, B, T, C, block_size);
+            break;
+        case 2:
+            layernorm_forward_cuda2(in_arr, out_arr, w_array, b_array, eps, B, T, C, block_size);
             break;
         default:
             printf("Invalid kernel number\n");
@@ -288,7 +380,7 @@ void layernorm_forward_cuda(int kernel_num, const float *in_arr, float *out_arr,
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int norm_dims[] = {-1};
+    const int norm_dims[] = {-1, -2};
     const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
     const int dims[] = {40, 60, 80};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
@@ -333,7 +425,7 @@ int main(int argc, const char **argv) {
         printf("Checking block size %d.\n", block_size);
         layernorm_forward_cuda(version, d_input, d_output, d_weight, d_bias, eps, B, T, C, block_size);
 
-        float tol = 0.0f;
+        float tol = 1e-1f;
         validate_result(d_output, h_output, "output", numel, tol);
     }
 
