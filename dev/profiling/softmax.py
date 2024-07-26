@@ -1,6 +1,7 @@
 from torch.profiler import profile, record_function, ProfilerActivity
 import torch
-from mptorch.quant import float_softmax_forward, float_quantize, QSoftmaxFormats
+from mptorch.quant import float_quantize, QSoftmaxFormats
+from mptorch.quant.functional import qsoftmax
 from mptorch import FloatingPoint
 import argparse
 
@@ -47,8 +48,8 @@ if torch.cuda.is_available():
 
 with profile(activities=activities, record_shapes=True) as prof:
     if not args.pytorch:
-        with record_function("float_softmax_forward"):
-            out = float_softmax_forward(a, dim, qsoftmax_formats)
+        with record_function("qsoftmax"):
+            out = qsoftmax(a, dim, qsoftmax_formats)
     else:
         with record_function("torch.softmax"):
             out = torch.nn.functional.softmax(a, dim=dim)
