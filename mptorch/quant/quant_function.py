@@ -297,6 +297,10 @@ def mp_softmax_forward(a, dim, formats):
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
         if not formats.use_lse:
+            assert formats.fwd_exp.subnormals == off_cfg.subnormals and \
+                formats.fwd_acc.subnormals == off_cfg.subnormals
+            assert formats.fwd_exp.saturate == off_cfg.saturate and \
+                formats.fwd_acc.saturate == off_cfg.saturate
             return float_softmax_forward(
                 a,
                 dim,
@@ -310,6 +314,8 @@ def mp_softmax_forward(a, dim, formats):
                 off_cfg.subnormals,
                 off_cfg.saturate)
         else:
+            assert formats.fwd_lse.subnormals == off_cfg.subnormals
+            assert formats.fwd_lse.saturate == off_cfg.saturate
             return float_softmax_lse_forward(
                 a,
                 dim,
@@ -322,6 +328,8 @@ def mp_softmax_forward(a, dim, formats):
                 off_cfg.saturate)
     elif type(off_cfg) == SuperNormalFloat:
         if not formats.use_lse:
+            assert formats.fwd_exp.saturate == off_cfg.saturate and \
+                formats.fwd_acc.saturate == off_cfg.saturate
             return superfp_softmax_forward(
                 a,
                 dim,
@@ -338,6 +346,7 @@ def mp_softmax_forward(a, dim, formats):
                 off_cfg.saturate
             )
         else:
+            assert formats.fwd_lse.saturate == off_cfg.saturate
             return superfp_softmax_lse_forward(
                 a,
                 dim,
@@ -352,6 +361,8 @@ def mp_softmax_forward(a, dim, formats):
             )
     elif type(off_cfg) == Binary8:
         if not formats.use_lse:
+            assert formats.fwd_exp.subnormals == off_cfg.subnormals and \
+                formats.fwd_acc.subnormals == off_cfg.subnormals
             return binary8_softmax_forward(
                 a,
                 dim,
@@ -368,6 +379,7 @@ def mp_softmax_forward(a, dim, formats):
                 off_cfg.subnormals
             )
         else:
+            assert formats.fwd_lse.subnormals == off_cfg.subnormals
             return binary8_softmax_lse_forward(
                 a,
                 dim,
@@ -385,6 +397,8 @@ def mp_softmax_forward(a, dim, formats):
 def mp_softmax_backward(input, grad_output, dim, formats):
     add_cfg = formats.bwd_add
     if type(add_cfg) == FloatingPoint:
+        assert formats.bwd_mul.subnormals == add_cfg.subnormals
+        assert formats.bwd_mul.saturate == add_cfg.saturate
         return float_softmax_backward(
             input,
             grad_output,
@@ -398,6 +412,7 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             add_cfg.saturate
         )
     elif type(add_cfg) == SuperNormalFloat:
+        assert formats.bwd_mul.saturate == add_cfg.saturate
         return superfp_softmax_backward(
             input,
             grad_output,
@@ -412,6 +427,7 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             add_cfg.saturate
         )
     elif type(add_cfg) == Binary8:
+        assert formats.bwd_mul.subnormals == add_cfg.subnormals
         return binary8_softmax_backward(
             input,
             grad_output,
