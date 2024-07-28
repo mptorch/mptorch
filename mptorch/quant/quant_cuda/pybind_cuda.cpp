@@ -412,6 +412,53 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
                               saturate);
 }
 
+void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                          int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_forward_cuda(
+                              a, o, dim,
+                              P_exp, op_exp, signed_exp,
+                              P_off, op_off, signed_off,
+                              P_acc, op_acc, signed_acc,
+                              subnormals);
+}
+
+void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_lse_forward_cuda(
+                              a, o, dim,
+                              P_off, op_off, signed_off,
+                              P_lse, op_lse, signed_lse,
+                              subnormals);
+}
+
+void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                          int P_add, OverflowPolicy op_add, bool signed_add,
+                                          int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(g);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_backward_cuda(
+                              a, g, o, dim,
+                              P_add, op_add, signed_add,
+                              P_mul, op_mul, signed_mul,
+                              subnormals);
+}
+
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
       m.def("fixed_point_quantize_stochastic", &fixed_point_quantize_stochastic,
@@ -534,4 +581,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Low-Bitwidth Super Floating Point Softmax Forward using LogSumExp. (CUDA)");
       m.def("superfp_quantize_nearest_softmax_backward", &superfp_quantize_nearest_softmax_backward,
             "Low-Bitwidth Super Floating Point Softmax Backward. (CUDA)");
+      
+      m.def("binary8_quantize_nearest_softmax_forward", &binary8_quantize_nearest_softmax_forward,
+            "Binary8 Softmax Forward using division. (CUDA)");
+      m.def("binary8_quantize_nearest_softmax_lse_forward", &binary8_quantize_nearest_softmax_lse_forward,
+            "Binary8 Softmax Forward using LogSumExp. (CUDA)");
+      m.def("binary8_quantize_nearest_softmax_backward", &binary8_quantize_nearest_softmax_backward,
+            "Binary8 Softmax Backward. (CUDA)");
 }

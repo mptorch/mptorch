@@ -1,8 +1,8 @@
 #pragma once
 
+#include "binary8.h"
 #include <ATen/ATen.h>
 #include <tuple>
-#include "binary8.h"
 
 using namespace at;
 
@@ -14,6 +14,8 @@ struct DimSizes
     int inner;
     int channel;
 };
+
+DimSizes partition_tensor(Tensor a, int dim);
 
 float round(float a, float r, int sigma);
 
@@ -121,6 +123,51 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subn
  **/
 Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
 
+/**
+ * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Nearest Rounding.
+ **/
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);
+
+
+/**
+ * Quantizes a tensor to binary8 format using nearest rounding.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
+Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
+/**
+ * Quantizes a tensor to binary8 format using stochastic rounding.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param prng_bits        The number of bits used for the pseudo-random number generator.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
+Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
+/**
+ * Quantizes a tensor to binary8 format using truncation.
+ * 
+ * @param a                Input tensor.
+ * @param P                The precision parameter for binary8 format.
+ * @param is_signed        Flag indicating whether the values are signed or unsigned.
+ * @param overflow_policy  Policy to handle overflow scenarios.
+ * @param subnormals       Flag to enable or disable subnormal numbers.
+ * @return                 Quantized tensor.
+ */
+Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+
 
 /**
  * Performs a softmax along the specified dimension, using custom floating
@@ -183,46 +230,31 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
                                 bool saturate);
 
 /**
- * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
- * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Nearest Rounding.
- **/
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades, bool saturate);
-
+ * Performs a softmax along the specified dimension, using custom binary8
+ * formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                        int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                        int P_off, OverflowPolicy op_off, bool signed_off,
+                                        int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                        bool subnormals);
 
 /**
- * Quantizes a tensor to binary8 format using nearest rounding.
- * 
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
+ * Performs a softmax along the specified dimension, using custom binary8
+ * formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
  */
-Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                        int P_off, OverflowPolicy op_off, bool signed_off,
+                                        int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                        bool subnormals);
 
 /**
- * Quantizes a tensor to binary8 format using stochastic rounding.
- * 
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param prng_bits        The number of bits used for the pseudo-random number generator.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * super binary8 formats for the intermediate computations.
  */
-Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
-
-/**
- * Quantizes a tensor to binary8 format using truncation.
- * 
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
- */
-Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
+void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                        int P_add, OverflowPolicy op_add, bool signed_add,
+                                        int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                        bool subnormals);

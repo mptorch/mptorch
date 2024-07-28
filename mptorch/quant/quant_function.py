@@ -5,6 +5,7 @@ from mptorch import (
     FloatingPoint,
     SuperNormalFloat,
     BlockFloatingPoint,
+    Binary8
 )
 from torch.utils.cpp_extension import load
 import os
@@ -282,6 +283,16 @@ def match_mac_format_with_cublas_types(
     return None
 
 
+def translate_overflow_policy(module, overflow_policy):
+    enum_items = {
+        "saturate_infty": module.OverflowPolicy.SATURATE_INFTY,
+        "saturate_maxfloat": module.OverflowPolicy.SATURATE_MAXFLOAT,
+        "saturate_maxfloat2": module.OverflowPolicy.SATURATE_MAXFLOAT2,
+    }
+    assert overflow_policy in enum_items.keys(), f"invalid overflow policy, {overflow_policy}"
+    return enum_items[overflow_policy]
+
+
 def mp_softmax_forward(a, dim, formats):
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
@@ -339,6 +350,36 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_rnd,
                 off_cfg.saturate
             )
+    elif type(off_cfg) == Binary8:
+        if not formats.use_lse:
+            return binary8_softmax_forward(
+                a,
+                dim,
+                formats.fwd_exp.P,
+                formats.fwd_exp.overflow_policy,
+                formats.fwd_exp.signed,
+                formats.fwd_off.P,
+                formats.fwd_off.overflow_policy,
+                formats.fwd_off.signed,
+                formats.fwd_acc.P,
+                formats.fwd_acc.overflow_policy,
+                formats.fwd_acc.signed,
+                formats.fwd_rnd,
+                off_cfg.subnormals
+            )
+        else:
+            return binary8_softmax_lse_forward(
+                a,
+                dim,
+                formats.fwd_off.P,
+                formats.fwd_off.overflow_policy,
+                formats.fwd_off.signed,
+                formats.fwd_lse.P,
+                formats.fwd_lse.overflow_policy,
+                formats.fwd_lse.signed,
+                formats.fwd_rnd,
+                off_cfg.subnormals
+            )
     raise NotImplementedError("Unsupported number format.")
 
 def mp_softmax_backward(input, grad_output, dim, formats):
@@ -369,6 +410,20 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             formats.bwd_mul.binades,
             formats.bwd_rnd,
             add_cfg.saturate
+        )
+    elif type(add_cfg) == Binary8:
+        return binary8_softmax_backward(
+            input,
+            grad_output,
+            dim,
+            formats.bwd_add.P,
+            formats.bwd_add.overflow_policy,
+            formats.bwd_add.signed,
+            formats.bwd_mul.P,
+            formats.bwd_mul.overflow_policy,
+            formats.bwd_mul.signed,
+            formats.bwd_rnd,
+            add_cfg.subnormals
         )
     raise NotImplementedError("Unsupported number format.")
 
@@ -531,6 +586,87 @@ def superfp_softmax_backward(
         saturate
     )
     return grad_input
+
+def binary8_softmax_forward(
+    input,
+    dim,
+    P_exp,
+    op_exp,
+    signed_exp,
+    P_off,
+    op_off,
+    signed_off,
+    P_acc,
+    op_acc,
+    signed_acc,
+    rounding,
+    subnormals
+):
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    output = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.binary8_quantize_nearest_softmax_forward(
+        input.contiguous(), output, dim,
+        P_exp, translate_overflow_policy(quant_module, op_exp), signed_exp,
+        P_off, translate_overflow_policy(quant_module, op_off), signed_off,
+        P_acc, translate_overflow_policy(quant_module, op_acc), signed_acc,
+        subnormals
+    )
+    return output
+
+def binary8_softmax_lse_forward(
+    input,
+    dim,
+    P_off,
+    op_off,
+    signed_off,
+    P_lse,
+    op_lse,
+    signed_lse,
+    rounding,
+    subnormals
+):
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    output = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.binary8_quantize_nearest_softmax_lse_forward(
+        input.contiguous(), output, dim,
+        P_off, translate_overflow_policy(quant_module, op_off), signed_off,
+        P_lse, translate_overflow_policy(quant_module, op_lse), signed_lse,
+        subnormals
+    )
+    return output
+
+def binary8_softmax_backward(
+    input,
+    grad_output,
+    dim,
+    P_add,
+    op_add,
+    signed_add,
+    P_mul,
+    op_mul,
+    signed_mul,
+    rounding,
+    subnormals
+):
+    assert input.device == grad_output.device
+    assert rounding == "nearest", \
+        "Only nearest rounding softmax is implemented."
+    grad_input = torch.zeros_like(input)
+    quant_module = get_module(input)
+    quant_module.binary8_quantize_nearest_softmax_backward(
+        input.contiguous(),
+        grad_output.contiguous(),
+        grad_input, dim,
+        P_add, translate_overflow_policy(quant_module, op_add), signed_add,
+        P_mul, translate_overflow_policy(quant_module, op_mul), signed_mul,
+        subnormals
+    )
+    return grad_input
+
 
 
 def mp_mm(a, b, formats, use_forward=True):
@@ -2100,28 +2236,21 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
     assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
         rounding
     )
-    assert overflow_policy in ["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"], "invalid overflow policy, {}".format(
-        overflow_policy
-    )
     assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
 
     quant_module = get_module(x)
-    saturation_enum = {
-        "saturate_infty": quant_module.OverflowPolicy.SATURATE_INFTY,
-        "saturate_maxfloat": quant_module.OverflowPolicy.SATURATE_MAXFLOAT,
-        "saturate_maxfloat2": quant_module.OverflowPolicy.SATURATE_MAXFLOAT2,
-    }[overflow_policy]
+    overflow_enum = translate_overflow_policy(quant_module, overflow_policy)
     if rounding == "nearest":
         out = quant_module.binary8_quantize_nearest(
-            x.contiguous(), P, is_signed, saturation_enum, subnormals
+            x.contiguous(), P, is_signed, overflow_enum, subnormals
         )
     elif rounding == "stochastic":
         out = quant_module.binary8_quantize_stochastic(
-            x.contiguous(), P, prng_bits, is_signed, saturation_enum, subnormals
+            x.contiguous(), P, prng_bits, is_signed, overflow_enum, subnormals
         )
     elif rounding == "truncate":
         out = quant_module.binary8_quantize_truncate(
-            x.contiguous(), P, is_signed, saturation_enum, subnormals
+            x.contiguous(), P, is_signed, overflow_enum, subnormals
         )
     return out
 

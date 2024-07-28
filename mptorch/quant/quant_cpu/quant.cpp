@@ -1,6 +1,5 @@
 #include "quant.h"
 #include "bit_helper.h"
-#include "binary8.h"
 #include "softmax.h"
 #include <cassert>
 #include <random>
@@ -492,22 +491,6 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
-
-static DimSizes partition_tensor(Tensor a, int dim) {
-  DimSizes sizes;
-  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
-  sizes.outer = 1;
-  sizes.channel = a.size(real_dim);
-  sizes.inner = 1;
-  for (int i = 0; i < real_dim; ++i) {
-    sizes.outer *= a.size(i);
-  }
-  for (int i = real_dim + 1; i < a.dim(); ++i) {
-    sizes.inner *= a.size(i);
-  }
-  return sizes;
-}
-
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,
@@ -613,54 +596,4 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
       return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
     }
   );
-}
-
-Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  // generate random number on the CPU for the SR operation
-  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
 }
