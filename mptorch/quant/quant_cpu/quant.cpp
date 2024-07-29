@@ -585,13 +585,11 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
     T *= a.size(i);
   }
 
-  int outer_stride = C * T;
-
   for (int i = 0; i < B * T; i++){
     int b = i / T;
     int t = i % T;
 
-    int base_index = (b*outer_stride) + t;
+    int base_index = (b * C * T) + t;
     float* input = a_array + base_index;
     float* output = o_array + base_index;
 
@@ -673,13 +671,11 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
     T *= a.size(i);
   }
 
-  int outer_stride = C * T;
-
   for (int i = 0; i < B * T; i++){
     int b = i / T;
     int t = i % T;
 
-    int base_index = (b*outer_stride) + t;
+    int base_index = (b * C * T) + t;
     float* input = a_array + base_index;
     float* gradient = g_array + base_index;
     float* output = o_array + base_index;
