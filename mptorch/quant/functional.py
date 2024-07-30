@@ -34,10 +34,16 @@ def compute_bias(x, cast_to: FloatType, margin=11):
     return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
 
 def scale(x, x_scale):
-    return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
+    if x_scale != 0:
+        return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
+    else:
+        return x
 
 def unscale(x, x_scale):
-    return x * torch.pow(2.0 * torch.ones_like(x), -x_scale)
+    if x_scale != 0:
+        return x * torch.pow(2.0 * torch.ones_like(x), -x_scale)
+    else:
+        return x
 
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
 # See: https://github.com/pytorch/pytorch/blob/master/tools/autograd/derivatives.yaml
@@ -50,13 +56,10 @@ class qlinear_kernel(torch.autograd.Function):
         if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
             ctx.weight_scale = compute_bias(weight, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
-            qinput = formats.input_quant(scale(input, ctx.input_scale))
-            qweight = formats.weight_quant(scale(weight, ctx.weight_scale))
         else:
             ctx.input_scale, ctx.weight_scale = 0, 0
-            qinput = formats.input_quant(input)
-            qweight = formats.weight_quant(weight)
-
+        qinput = formats.input_quant(scale(input, ctx.input_scale))
+        qweight = formats.weight_quant(scale(weight, ctx.weight_scale))
         # NOTE: investigate if the bias term needs to be scaled as well
         if bias is not None:
             qbias = formats.bias_quant(bias)
