@@ -524,7 +524,7 @@ int main(int argc, const char **argv) {
     float* h_output = make_zeros_float(numel);
     float* h_weight = make_ones_float(C);
     float* h_bias = make_zeros_float(C);
-    float* h_gg = make_ones_float(C);
+    float* h_gg = make_zeros_float(C);
     float* h_gb = make_zeros_float(C);
     float* h_mean = make_random_float(numel);
     float* h_rstd = make_random_float(numel);
