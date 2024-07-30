@@ -1,6 +1,7 @@
+#include "quant.h"
 #include <cmath>
 #include <cstdint>
-#include "quant.h"
+#include <ATen/ATen.h>
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {
@@ -21,4 +22,19 @@ float round(float a, float r, int sigma) {
   a = round_helper(a, r);
   a = ldexp(a, sigma);
   return a;
+}
+
+DimSizes partition_tensor(Tensor a, int dim) {
+  DimSizes sizes;
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
+  sizes.outer = 1;
+  sizes.channel = a.size(real_dim);
+  sizes.inner = 1;
+  for (int i = 0; i < real_dim; ++i) {
+    sizes.outer *= a.size(i);
+  }
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
+    sizes.inner *= a.size(i);
+  }
+  return sizes;
 }

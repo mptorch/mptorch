@@ -1,6 +1,7 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
 #include "sim_helper.cu"
+#include "softmax_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -952,4 +953,57 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
       state, // rand_ints.data_ptr<int>(),
       M, K, N, man_fma, exp_fma, subnormal_support, saturate);
   cudaFree(state);
+}
+
+
+void softmax_forward_fp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_exp, int exp_exp,
+                                int man_off, int exp_off,
+                                int man_acc, int exp_acc,
+                                bool subnormals, bool saturate)
+{
+  softmax_forward(a, o, sizes,
+    [man_exp, exp_exp, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate);
+    },
+    [man_off, exp_off, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate);
+    },
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    }
+  );
+}
+
+void softmax_lse_forward_fp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_off, int exp_off,
+                                int man_lse, int exp_lse,
+                                bool subnormals, bool saturate)
+{
+  softmax_lse_forward(a, o, sizes,
+    [man_off, exp_off, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate);
+    },
+    [man_lse, exp_lse, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_lse, exp_lse, subnormals, saturate);
+    }
+  );
+}
+
+void softmax_backward_fp_nearest(float *a, float *g, float *o,
+                                const DimSizes& sizes,
+                                int man_add, int exp_add,
+                                int man_mul, int exp_mul,
+                                bool subnormals, bool saturate)
+{
+  softmax_backward(a, g, o, sizes,
+    [man_add, exp_add, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    }
+  );
 }

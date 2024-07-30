@@ -1,3 +1,5 @@
+#pragma once
+
 #include <curand.h>
 #include <curand_kernel.h>
 #include <cstdint>
@@ -143,3 +145,68 @@ void bmm_fxp_stochastic(float *a, float *b, float *c, int B, int M, int K,
 
 void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                             int N, int sigma_fma, int t_min_fma, int t_max_fma);
+
+
+struct DimSizes
+{
+    int outer;
+    int inner;
+    int channel;
+};
+
+void softmax_forward_fp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_exp, int exp_exp,
+                                int man_off, int exp_off,
+                                int man_acc, int exp_acc,
+                                bool subnormals, bool saturate);
+
+void softmax_lse_forward_fp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_off, int exp_off,
+                                int man_lse, int exp_lse,
+                                bool subnormals, bool saturate);
+
+void softmax_backward_fp_nearest(float *a, float *g, float *o,
+                                const DimSizes& sizes,
+                                int man_add, int exp_add,
+                                int man_mul, int exp_mul,
+                                bool subnormals, bool saturate);
+
+void softmax_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate);
+
+void softmax_lse_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate);
+
+void softmax_backward_superfp_nearest(float *a, float *g, float *o,
+                                const DimSizes& sizes,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate);
+
+void softmax_forward_binary8_nearest(float* a, float* o,
+                                const DimSizes& sizes,
+                                int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                int P_off, OverflowPolicy op_off, bool signed_off,
+                                int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                bool subnormals);
+
+void softmax_lse_forward_binary8_nearest(float* a, float* o,
+                                const DimSizes& sizes,
+                                int P_off, OverflowPolicy op_off, bool signed_off,
+                                int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                bool subnormals);
+
+void softmax_backward_binary8_nearest(float* a, float* g, float* o,
+                                const DimSizes& sizes,
+                                int P_add, OverflowPolicy op_add, bool signed_add,
+                                int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                bool subnormals);

@@ -585,3 +585,134 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                            t_min_fma, t_max_fma);
   return;
 }
+
+
+
+static DimSizes partition_tensor(Tensor a, int dim) {
+  DimSizes sizes;
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
+  sizes.outer = 1;
+  sizes.channel = a.size(real_dim);
+  sizes.inner = 1;
+  for (int i = 0; i < real_dim; ++i) {
+    sizes.outer *= a.size(i);
+  }
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
+    sizes.inner *= a.size(i);
+  }
+  return sizes;
+}
+
+void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_exp, int exp_exp,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            bool subnormals, bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                             man_exp, exp_exp,
+                             man_off, exp_off,
+                             man_acc, exp_acc,
+                             subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                             man_off, exp_off,
+                             man_lse, exp_lse,
+                             subnormals, saturate); 
+}
+
+void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            bool subnormals, bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward_fp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                             man_add, exp_add,
+                             man_mul, exp_mul,
+                             subnormals, saturate);
+}
+
+void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward_superfp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  man_exp, exp_exp, binades_exp,
+                                  man_off, exp_off, binades_off,
+                                  man_acc, exp_acc, binades_acc,
+                                  saturate);
+}
+
+void superfp_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward_superfp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                      man_off, exp_off, binades_off,
+                                      man_lse, exp_lse, binades_lse,
+                                      saturate);
+}
+
+void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward_superfp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                   man_add, exp_add, binades_add,
+                                   man_mul, exp_mul, binades_mul,
+                                   saturate);
+}
+
+void binary8_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                          int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_exp, op_exp, signed_exp,
+                                  P_off, op_off, signed_off,
+                                  P_acc, op_acc, signed_acc,
+                                  subnormals);
+}
+
+void binary8_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_off, op_off, signed_off,
+                                  P_lse, op_lse, signed_lse,
+                                  subnormals);
+}
+
+void binary8_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                          int P_add, OverflowPolicy op_add, bool signed_add,
+                                          int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward_binary8_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_add, op_add, signed_add,
+                                  P_mul, op_mul, signed_mul,
+                                  subnormals);
+}

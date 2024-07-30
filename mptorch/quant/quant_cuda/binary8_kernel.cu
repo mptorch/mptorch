@@ -1,10 +1,11 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
 #include "sim_helper.cu"
+#include "binary8_kernel.h"
+#include "softmax_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include "binary8_kernel.h"
 
 __host__ __device__ float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
 
@@ -276,4 +277,77 @@ __global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o
   if (idx < size) {
         o[idx] = cast_binary8_unsigned_truncate(a[idx], P, overflow_policy, subnormals);
   }
+}
+
+void softmax_forward_binary8_nearest(float* a, float* o, const DimSizes& sizes,
+                                    int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                    int P_off, OverflowPolicy op_off, bool signed_off,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    bool subnormals)
+{
+  softmax_forward(
+    a, o, sizes,
+    [subnormals, P_exp, op_exp, signed_exp] __device__ (float x) {
+      if (signed_exp) {
+        return cast_binary8_signed_nearest(x, P_exp, op_exp, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_exp, op_exp, subnormals);
+    },
+    [subnormals, P_off, op_off, signed_off] __device__ (float x) {
+      if (signed_off) {
+        return cast_binary8_signed_nearest(x, P_off, op_off, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_off, op_off, subnormals);
+    },
+    [subnormals, P_acc, op_acc, signed_acc] __device__ (float x) {
+      if (signed_acc) {
+        return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    }
+  );
+}
+
+void softmax_lse_forward_binary8_nearest(float* a, float* o, const DimSizes& sizes,
+                                    int P_off, OverflowPolicy op_off, bool signed_off,
+                                    int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                    bool subnormals)
+{
+  softmax_lse_forward(
+    a, o, sizes,
+    [subnormals, P_off, op_off, signed_off] __device__ (float x) {
+      if (signed_off) {
+        return cast_binary8_signed_nearest(x, P_off, op_off, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_off, op_off, subnormals);
+    },
+    [subnormals, P_lse, op_lse, signed_lse] __device__ (float x) {
+      if (signed_lse) {
+        return cast_binary8_signed_nearest(x, P_lse, op_lse, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_lse, op_lse, subnormals);
+    }
+  );
+}
+
+void softmax_backward_binary8_nearest(float* a, float* g, float* o, const DimSizes& sizes,
+                                    int P_add, OverflowPolicy op_add, bool signed_add,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    bool subnormals)
+{
+  softmax_backward(
+    a, g, o, sizes,
+    [subnormals, P_add, op_add, signed_add] __device__ (float x) {
+      if (signed_add) {
+        return cast_binary8_signed_nearest(x, P_add, op_add, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_add, op_add, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] __device__ (float x) {
+      if (signed_mul) {
+        return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    }
+  );
 }
