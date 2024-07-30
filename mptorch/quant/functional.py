@@ -366,8 +366,8 @@ class qsum_kernel(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-def qsum(x, dim, quant=lambda x: x):
-    return qsum_kernel.apply(x, quant, dim)
+def qsum(x, dim, quant=lambda x: x, keepdim=False):
+    return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
@@ -420,9 +420,41 @@ def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
 
 
 class qsoftmax_kernel(torch.autograd.Function):
-    # TODO: implement GPU-accelerated version of functional softmax
-    pass
+    @staticmethod
+    def forward(ctx, a, dim, formats):
+        ctx.formats = formats
+        ctx.dim = dim
 
+        qinput = formats.input_quant(a)
 
-def qsoftmax(x, dim, dtype, quant):
-    pass
+        if formats.fwd_use_default_prec:
+            with torch.no_grad():
+                output = torch.nn.functional.softmax(qinput, dim)
+        else:
+            output = mp_softmax_forward(qinput, dim, formats)
+
+        qoutput = formats.output_quant(output)
+        ctx.save_for_backward(qoutput)
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (qoutput,) = ctx.saved_tensors
+        formats = ctx.formats
+        dim = ctx.dim
+
+        qgrad_output = formats.grad_quant(grad_output)
+
+        if formats.bwd_use_default_prec:
+            input_sum = torch.sum(qoutput, dim=dim, keepdim=True)
+            weighted_grad_sum = torch.sum(qoutput * qgrad_output, dim=dim, keepdim=True)
+            grad_input = qoutput * ((qgrad_output - weighted_grad_sum) / input_sum)
+        else:
+            grad_input = mp_softmax_backward(qoutput, qgrad_output, dim, formats)
+
+        qgrad_input = formats.grad_quant(grad_input)
+
+        return qgrad_input, None, None
+
+def qsoftmax(x, dim, formats):
+    return qsoftmax_kernel.apply(x, dim, formats)

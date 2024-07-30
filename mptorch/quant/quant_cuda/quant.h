@@ -1,3 +1,5 @@
+#pragma once
+
 #include "binary8_kernel.h"
 #include <ATen/ATen.h>
 #include <tuple>
@@ -424,3 +426,94 @@ void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                       CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
                       CUBLASComputeType compute_type, bool pedantic);
+
+
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_exp, int exp_exp,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            bool subnormals, bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom floating
+ * point formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
+void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate);
+
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * floating point formats for the intermediate computations.
+ */
+void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            bool subnormals, bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom super floating-point
+ * formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_exp, int exp_exp, int binades_exp,
+                                            int man_off, int exp_off, int binades_off,
+                                            int man_acc, int exp_acc, int binades_acc,
+                                            bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom super floating-point
+ * formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
+void superfp_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int man_off, int exp_off, int binades_off,
+                                            int man_lse, int exp_lse, int binades_lse,
+                                            bool saturate);
+
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * super floating-point formats for the intermediate computations.
+ */
+void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add, int binades_add,
+                                            int man_mul, int exp_mul, int binades_mul,
+                                            bool saturate);
+
+/**
+ * Performs a softmax along the specified dimension, using custom binary8
+ * formats for intermediate computations. This version implements
+ * the regular accumulation of exponentials.
+ */
+void binary8_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                            int P_off, OverflowPolicy op_off, bool signed_off,
+                                            int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                            bool subnormals);
+
+/**
+ * Performs a softmax along the specified dimension, using custom binary8
+ * formats for intermediate computations. This version computes the
+ * sum of exponentials via LogSumExp iterations, and does not use divisons.
+ */
+void binary8_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                            int P_off, OverflowPolicy op_off, bool signed_off,
+                                            int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                            bool subnormals);
+
+/**
+ * Performs a regular softmax backward along the specified dimension, using custom
+ * binary8 formats for the intermediate computations.
+ */
+void binary8_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                            int P_add, OverflowPolicy op_add, bool signed_add,
+                                            int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                            bool subnormals);
