@@ -90,19 +90,19 @@ if torch.cuda.is_available():
 else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
-def mp_qlayernorm_forward(a, weight, bias, eps, dims, formats):
+def mp_qlayernorm_forward(inp, weight, bias, eps, dims, formats):
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
-        return float_qlayernorm_forward(a, weight, bias, eps, dims, formats)
+        return float_qlayernorm_forward(inp, weight, bias, eps, dims, formats)
     raise NotImplementedError("Unsupported float type.")
 
-def mp_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
+def mp_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, formats):
     acc_cfg = formats.bwd_acc
     if type(acc_cfg) == FloatingPoint:
-        return float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats)
+        return float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, formats)
     raise NotImplementedError("Unsupported float type.")
 
-def float_qlayernorm_forward(a, weight, bias, eps, dims, formats):
+def float_qlayernorm_forward(inp, weight, bias, eps, dims, formats):
     acc_cfg, mul_cfg, div_cfg, sqrt_cfg, rnd = (
         formats.fwd_acc,
         formats.fwd_mul,
@@ -114,26 +114,26 @@ def float_qlayernorm_forward(a, weight, bias, eps, dims, formats):
     subnormals = acc_cfg.subnormals
     saturate = acc_cfg.saturate
 
-    quant_module = get_module(a)
+    quant_module = get_module(inp)
 
-    reduced_dim = list(range(a.dim() - len(dims)))
-    reduced_shape = [a.shape[i] for i in reduced_dim]
+    reduced_dim = list(range(inp.dim() - len(dims)))
+    reduced_shape = [inp.shape[i] for i in reduced_dim]
 
     mean = torch.zeros(reduced_shape)
     rstd = torch.zeros(reduced_shape)
-    o = torch.zeros_like(a)
+    output = torch.zeros_like(inp)
 
-    quant_module.float_quantize_layernorm_forward(a, weight, bias, 
-                                                  o, mean, rstd, 
+    quant_module.float_quantize_layernorm_forward(inp, weight, bias, 
+                                                  output, mean, rstd, 
                                                   eps, dims,
                                                   acc_cfg.man, acc_cfg.exp,
                                                   mul_cfg.man, mul_cfg.exp,
                                                   div_cfg.man, div_cfg.exp,
                                                   sqrt_cfg.man, sqrt_cfg.exp,
                                                   subnormals, saturate)
-    return o, mean, rstd
+    return output, mean, rstd
 
-def float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
+def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, formats):
     acc_cfg, mul_cfg, div_cfg, rnd = (
         formats.bwd_acc,
         formats.bwd_mul,
@@ -144,17 +144,20 @@ def float_qlayernorm_backward(a, g, weight, bias, mean, rstd, dims, formats):
     subnormals = acc_cfg.subnormals
     saturate = acc_cfg.saturate
 
-    quant_module = get_module(a)
+    quant_module = get_module(inp)
 
-    o = torch.zeros_like(a)
+    grad_input = torch.zeros_like(inp)
+    grad_weight = torch.zeros_like(weight)
+    grad_bias = torch.zeros_like(bias)
 
-    quant_module.float_quantize_layernorm_backward(a, g, weight, bias, 
-                                                   o, mean, rstd, dims,
-                                                   acc_cfg.man, acc_cfg.exp,
-                                                   mul_cfg.man, mul_cfg.exp,
-                                                   div_cfg.man, div_cfg.exp,
-                                                   subnormals, saturate)
-    return o
+    quant_module.float_quantize_layernorm_backward(inp, grad_output, weight, bias, mean, rstd,
+                                                grad_input, grad_weight, grad_bias,
+                                                dims,
+                                                acc_cfg.man, acc_cfg.exp,
+                                                mul_cfg.man, mul_cfg.exp,
+                                                div_cfg.man, div_cfg.exp,
+                                                subnormals, saturate)
+    return grad_input, grad_weight, grad_bias
 
 def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     """

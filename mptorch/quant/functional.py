@@ -438,7 +438,20 @@ class qlayernorm_kernel(torch.autograd.Function):
         dims = [-(i + 1) for i in range(len(normalized_shape))]
         ctx.dims = dims
 
-        output, mean, rstd = mp_qlayernorm_forward(qinput, qweight, qbias, eps, dims, formats)
+        if ctx.formats.fwd_use_default_prec:
+            B, T, C = x.size()
+
+            mean = x.sum(dims, keepdim=True) / C
+
+            xshift = x - mean
+            variance = (xshift**2).sum(dims, keepdim=True) / C
+
+            rstd = (var + eps) ** -0.5
+            norm = xshift * rstd
+            output = norm * qweight + qbias    
+        else:
+            output, mean, rstd = mp_qlayernorm_forward(qinput, qweight, qbias, eps, dims, formats)
+        
         qoutput = formats.output_quant(output)
 
         ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)
@@ -447,18 +460,36 @@ class qlayernorm_kernel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        (qinput, qweight, qbias, mean, rstd, ) = ctx.saved_tensors
+        (qinput, qweight, qbias, mean, rstd,) = ctx.saved_tensors
         formats = ctx.formats
         dims = ctx.dims
 
-        qmeans = formats.input_quant(mean)
-        qrstd = formats.input_quant(rstd)
         qgrad_output = formats.grad_quant(grad_output)
 
-        grad_input = mp_qlayernorm_backward(qinput, qgrad_output, qweight, qbias, qmeans, qrstd, dims, formats)
-        qgrad_input = formats.grad_quant(grad_input)
+        qgrad_input = None
+        qgrad_weight = None
+        qgrad_bias = None
+        
+        if ctx.formats.bwd_use_default_prec:
+            norm = (qinput - mean) * rstd
 
-        return qgrad_input, None, None, None, None, None
+            grad_bias = grad_output.sum((0, 1))
+            grad_weight = (grad_output * norm).sum((0, 1))
+
+            grad_norm = grad_output * grad_weight
+            grad_input = grad_norm - grad_norm.mean(-1, keepdim=True) - norm * (grad_norm * norm).mean(-1, keepdim=True)
+            grad_input *= rstd
+        else:
+            grad_input, grad_weight, grad_bias = mp_qlayernorm_backward(qinput, qgrad_output, qweight, qbias, mean, rstd, dims, formats)
+
+        if ctx.needs_input_grad[0]:
+            qgrad_input = formats.grad_quant(grad_input)
+        if qweight is not None and ctx.needs_input_grad[2]:
+            qgrad_weight = formats.grad_quant(grad_weight)
+        if qbias is not None and ctx.needs_input_grad[3]:
+            qgrad_bias = formats.grad_quant(grad_bias)
+
+        return qgrad_input, None, qgrad_weight, qgrad_bias, None, None
 
         
 def qlayernorm(x, normalized_shape, weight, bias, eps, formats):

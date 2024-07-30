@@ -46,8 +46,8 @@ def norm_formats(fp_format, quant_fp):
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
 def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
-    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, False, False)
-    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-5, False, False)
+    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, True, True)
+    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-5, True, True)
 
     x_ref = torch.rand(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
@@ -61,13 +61,15 @@ def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
     y_ref.backward(grad)
     y_res.backward(grad)
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=0)
+    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-3, rtol=0.0)
+    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-3, rtol=0.0)
 
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
 def test_qlayer_norm_normal(device, shape, normalized_shape):
-    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, False, False)
-    qlayer = QLayerNorm(normalized_shape, QLayerNormFormats(), 1e-5, False, False)
+    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, True, True)
+    qlayer = QLayerNorm(normalized_shape, QLayerNormFormats(), 1e-5, True, True)
 
     x_ref = torch.rand(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
@@ -81,3 +83,5 @@ def test_qlayer_norm_normal(device, shape, normalized_shape):
     y_ref.backward(grad)
     y_res.backward(grad)
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-8, rtol=0.0)
+    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-8, rtol=0.0)
+    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-8, rtol=0.0)
