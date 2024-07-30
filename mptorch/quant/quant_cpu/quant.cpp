@@ -542,19 +542,19 @@ Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPo
   return o;
 }
 
-void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
-                                      Tensor o, Tensor mean, Tensor rstd,
+void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                      Tensor output, Tensor mean, Tensor rstd,
                                       float eps, std::vector<int> &dims,
                                       int man_acc, int exp_acc,
                                       int man_mul, int exp_mul,
                                       int man_div, int exp_div,
                                       int man_sqrt, int exp_sqrt,
                                       bool subnormals, bool saturate){
-  auto a_array = a.data_ptr<float>();
+  auto a_array = input.data_ptr<float>();
   auto w_array = weight.data_ptr<float>();
   auto b_array = bias.data_ptr<float>();
 
-  auto o_array = o.data_ptr<float>();
+  auto o_array = output.data_ptr<float>();
   auto m_array = mean.data_ptr<float>();
   auto r_array = rstd.data_ptr<float>();
 
@@ -564,12 +564,12 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
 
   std::vector<int> real_dims(dims.size());
   for (int i = 0; i < dims.size(); i++){
-    real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
+    real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
   }
 
   int C = 1;
   for (int dim : real_dims){
-    C *= a.size(dim);
+    C *= input.size(dim);
   }
 
   int min_dim = real_dims.back();
@@ -577,12 +577,12 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
 
   int B = 1;
   for (int i = 0; i < min_dim; i++){
-    B *= a.size(i);
+    B *= input.size(i);
   }
 
   int T = 1;
-  for (int i = max_dim + 1; i < a.dim(); i++){
-    T *= a.size(i);
+  for (int i = max_dim + 1; i < input.dim(); i++){
+    T *= input.size(i);
   }
 
   for (int i = 0; i < B * T; i++){
@@ -623,26 +623,24 @@ void float_quantize_layernorm_forward(Tensor a, Tensor weight, Tensor bias,
   }
 }
 
-void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor bias,
-                                       Tensor o, Tensor mean, Tensor rstd,
-                                       std::vector<int> &dims,
-                                       int man_acc, int exp_acc,
-                                       int man_mul, int exp_mul,
-                                       int man_div, int exp_div,
-                                       bool subnormals, bool saturate){
-  auto a_array = a.data_ptr<float>();
-  auto g_array = g.data_ptr<float>();
+void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                      Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                      std::vector<int> &dims,
+                                      int man_acc, int exp_acc,
+                                      int man_mul, int exp_mul,
+                                      int man_div, int exp_div,
+                                      bool subnormals, bool saturate){
+  auto a_array = input.data_ptr<float>();
+  auto g_array = grad_output.data_ptr<float>();
   auto w_array = weight.data_ptr<float>();
   auto b_array = bias.data_ptr<float>();
 
-  auto o_array = o.data_ptr<float>();
+  auto o_array = grad_input.data_ptr<float>();
   auto m_array = mean.data_ptr<float>();
   auto r_array = rstd.data_ptr<float>();
 
-  Tensor gamma = ones_like(weight);
-  Tensor beta = zeros_like(bias);
-  auto grad_gamma = gamma.data_ptr<float>();
-  auto grad_beta = beta.data_ptr<float>();
+  auto grad_gamma = grad_weight.data_ptr<float>();
+  auto grad_beta = grad_bias.data_ptr<float>();
 
   auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits){
     return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
@@ -650,12 +648,12 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
 
   std::vector<int> real_dims(dims.size());
   for (int i = 0; i < dims.size(); i++){
-    real_dims[i] = (a.dim() + (dims[i] % a.dim())) % a.dim();
+    real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
   }
 
   int C = 1;
   for (int dim : real_dims){
-    C *= a.size(dim);
+    C *= input.size(dim);
   }
 
   int min_dim = real_dims.back();
@@ -663,12 +661,12 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
 
   int B = 1;
   for (int i = 0; i < min_dim; i++){
-    B *= a.size(i);
+    B *= input.size(i);
   }
 
   int T = 1;
-  for (int i = max_dim + 1; i < a.dim(); i++){
-    T *= a.size(i);
+  for (int i = max_dim + 1; i < input.dim(); i++){
+    T *= input.size(i);
   }
 
   for (int i = 0; i < B * T; i++){
@@ -706,7 +704,7 @@ void float_quantize_layernorm_backward(Tensor a, Tensor g, Tensor weight, Tensor
       float xhat_gradient = quant(xhat * gradient[idx], man_mul, exp_mul);
       float grad_xhat = quant(w_array[k] * gradient[idx], man_mul, exp_mul);
 
-      grad_beta[k] = quant(grad_beta[k] + gradient[idx], man_acc, exp_acc);
+      grad_beta[k] = quant((grad_beta[k] + gradient[idx]), man_acc, exp_acc);
       grad_gamma[k] = quant(grad_gamma[k] + xhat_gradient, man_acc, exp_acc);
 
       float weighted_grad_sum = quant(xhat * grad_sum_xhat, man_mul, exp_mul);
