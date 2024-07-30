@@ -87,20 +87,20 @@ def test_scaling_is_used(device, mm):
 
 
 @pytest.mark.parametrize("device", ["cpu"])
-@pytest.mark.parametrize("exp,man", [(8,23), (5,10), (4,3)])
-def test_qlinear_custom_mm_scaled(device, exp, man):
-    mac_format = FloatingPoint(exp=8, man=23, subnormals=True, saturate=False)
-    fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+@pytest.mark.parametrize("exp_1, man_1, exp_2, man_2", [(4, 3, 5, 2), (5, 10, 5, 10)])
+def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
+    mac_format = FloatingPoint(exp=5, man=10, subnormals=True, saturate=False)
+    fp_format_1 = FloatingPoint(exp=exp_1, man=man_1, subnormals=True, saturate=False)
+    fp_format_2 = FloatingPoint(exp=exp_2, man=man_2, subnormals=True, saturate=False)
     formats_q = QAffineFormats(
         fwd_mac=(mac_format,),
         bwd_mac=(mac_format,),
         fwd_rnd="nearest",
         bwd_rnd="nearest",
-        weight_quant=(fp_format, "nearest"),
-        grad_quant=(fp_format, "nearest"),
-        output_quant=(fp_format, "nearest"),
-        input_quant=(fp_format, "nearest"),
-        bias_quant=(fp_format, "nearest")
+        weight_quant=(fp_format_1, "nearest"),
+        grad_quant=(fp_format_2, "nearest"),
+        input_quant=(fp_format_1, "nearest"),
+        bias_quant=(mac_format, "nearest")
     )
     x = torch.randn(11, 1034)
     m = torch.nn.Linear(1034, 542, bias=True)
