@@ -1,5 +1,6 @@
 import torch
 from .quant_function import *
+from torch import nn
 
 __all__ = [
     "qlinear",
@@ -429,16 +430,14 @@ def qsoftmax(x, dim, dtype, quant):
     pass
 
 
-class qgelu(torch.autograd.Function):
+class qgelu_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, formats):
         ctx.formats = formats
+        
         qinput = formats.input_quant(input)
-
-        #compute GELU using the tanh approximation
-        gelu_output = 0.5 * qinput * (1 + torch.tanh(torch.sqrt(2 / torch.pi) * (qinput + 0.044715 * qinput ** 3)))
-
-        qoutput = formats.output_quant(gelu_output)
+        output = 0.5 * qinput * (1 + torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device))))
+        qoutput = formats.output_quant(output)
         ctx.save_for_backward(qinput)
         return qoutput
 
@@ -447,13 +446,20 @@ class qgelu(torch.autograd.Function):
         qinput, = ctx.saved_tensors
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
-        #compute the derivative of the GELU function
-        tanh_part = torch.tanh(torch.sqrt(2 / torch.pi) * (qinput + 0.044715 * qinput ** 3))
-        grad_input = 0.5 * (1 + tanh_part) + 0.5 * qinput * (1 - tanh_part ** 2) * (torch.sqrt(2 / torch.pi) * (1 + 3 * 0.044715 * qinput ** 2))
-        grad_input = grad_input * qgrad_output
-
+        cdf = 0.5 * (1 + torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device))))
+        pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
+        grad_input = qgrad_output * (cdf + qinput * pdf)
         qgrad_input = ctx.formats.grad_quant(grad_input)
+
         return qgrad_input, None
 
 def qgelu(input, formats):
-    return qgelu.apply(input, formats)
+    return qgelu_kernel.apply(input, formats)
+
+class QGeLU(nn.Module):
+    def __init__(self, formats):
+        super(QGeLU, self).__init__()
+        self.formats = formats
+
+    def forward(self, input):
+        return qgelu(input, self.formats)
