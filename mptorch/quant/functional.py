@@ -50,10 +50,13 @@ class qlinear_kernel(torch.autograd.Function):
         if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
             ctx.weight_scale = compute_bias(weight, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
+            qinput = formats.input_quant(scale(input, ctx.input_scale))
+            qweight = formats.weight_quant(scale(weight, ctx.weight_scale))
         else:
             ctx.input_scale, ctx.weight_scale = 0, 0
-        qinput = formats.input_quant(scale(input, ctx.input_scale))
-        qweight = formats.weight_quant(scale(weight, ctx.weight_scale))
+            qinput = formats.input_quant(input)
+            qweight = formats.weight_quant(weight)
+
         # NOTE: investigate if the bias term needs to be scaled as well
         if bias is not None:
             qbias = formats.bias_quant(bias)
