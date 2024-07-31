@@ -65,7 +65,8 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/binary8_kernel.cu"),
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
-        extra_ldflags=extra_ldflags
+        extra_ldflags=extra_ldflags,
+        extra_cuda_cflags=["--extended-lambda"]
     )
 else:
     quant_cuda = quant_cpu
@@ -119,9 +120,12 @@ def float_qlayernorm_forward(inp, weight, bias, eps, dims, formats):
     reduced_dim = list(range(inp.dim() - len(dims)))
     reduced_shape = [inp.shape[i] for i in reduced_dim]
 
-    mean = torch.zeros(reduced_shape)
-    rstd = torch.zeros(reduced_shape)
-    output = torch.zeros_like(inp)
+    mean = torch.zeros(reduced_shape, device=inp.device)
+    rstd = torch.zeros(reduced_shape, device=inp.device)
+    output = torch.zeros_like(inp, device=inp.device)
+
+    weight = weight.to(inp.device)
+    bias = bias.to(inp.device)
 
     quant_module.float_quantize_layernorm_forward(inp, weight, bias, 
                                                   output, mean, rstd, 
@@ -146,9 +150,9 @@ def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, 
 
     quant_module = get_module(inp)
 
-    grad_input = torch.zeros_like(inp)
-    grad_weight = torch.zeros_like(weight)
-    grad_bias = torch.zeros_like(bias)
+    grad_input = torch.zeros_like(inp, device=inp.device)
+    grad_weight = torch.zeros_like(weight, device=inp.device)
+    grad_bias = torch.zeros_like(bias, device=inp.device)
 
     quant_module.float_quantize_layernorm_backward(inp, grad_output, weight, bias, mean, rstd,
                                                 grad_input, grad_weight, grad_bias,

@@ -6,6 +6,7 @@ from mptorch import FloatingPoint
 from mptorch.quant import QLayerNorm
 from mptorch.quant import QLayerNormFormats
 from mptorch.quant import float_quantize
+from tests.markers import available_devices
 
 @pytest.fixture(scope="module")
 def fp_format():
@@ -41,7 +42,6 @@ def norm_formats(fp_format, quant_fp):
         bias_quant = quant_fp,
     )
 
-#@pytest.mark.xfail # TODO: Fix high precision error?
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])

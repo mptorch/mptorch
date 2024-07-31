@@ -1,6 +1,7 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
 #include "sim_helper.cu"
+#include "layernorm_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -720,4 +721,29 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
       state, // rand_ints.data_ptr<int>(),
       M, K, N, man_fma, exp_fma, subnormal_support, saturate);
   cudaFree(state);
+}
+
+void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
+                              float *output, float *mean, float *rstd,
+                              float eps, const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              int man_sqrt, int exp_sqrt,
+                              bool subnormals, bool saturate)
+{
+  layernorm_forward(input, weight, bias, output, mean, rstd, eps, sizes,
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    },
+    [man_div, exp_div, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate);
+    },
+    [man_sqrt, exp_sqrt, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_sqrt, exp_sqrt, subnormals, saturate);
+    }
+  );
 }

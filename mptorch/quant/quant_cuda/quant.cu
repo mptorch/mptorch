@@ -11,6 +11,7 @@
 #include <tuple>
 #include <stdexcept>
 #include <cassert>
+#include <vector>
 
 using namespace at;
 
@@ -584,4 +585,51 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                            c.data_ptr<float>(), 1, M, K, N, sigma_fma,
                            t_min_fma, t_max_fma);
   return;
+}
+
+static DimSizes dim_striding(Tensor input, std::vector<int> &dims){
+	DimSizes sizes;
+  std::vector<int> real_dims(dims.size());
+  for (int i = 0; i < dims.size(); i++){
+    real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
+  }
+
+  sizes.channel = 1;
+  for (int dim : real_dims){
+    sizes.channel *= input.size(dim);
+  }
+
+  int min_dim = real_dims.back();
+  int max_dim = real_dims.front();
+
+  sizes.outer = 1;
+  for (int i = 0; i < min_dim; i++){
+    sizes.outer *= input.size(i);
+  }
+
+  sizes.inner = 1;
+  for (int i = max_dim + 1; i < input.dim(); i++){
+    sizes.inner *= input.size(i);
+  }
+  return sizes;
+}
+
+void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                  Tensor output, Tensor mean, Tensor rstd,
+                                                  float eps, std::vector<int> &dims,
+                                                  int man_acc, int exp_acc,
+                                                  int man_mul, int exp_mul,
+                                                  int man_div, int exp_div,
+                                                  int man_sqrt, int exp_sqrt,
+                                                  bool subnormals, bool saturate)
+{
+  auto sizes = dim_striding(input, dims);
+  layernorm_forward_fp_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+                              output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                              eps, sizes,
+                              man_acc, exp_acc,
+                              man_mul, exp_mul,
+                              man_div, exp_div,
+                              man_sqrt, exp_sqrt,
+                              subnormals, saturate);
 }

@@ -321,6 +321,31 @@ void floating_point_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K
       return;
 }
 
+void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                    Tensor output, Tensor mean, Tensor rstd,
+                                    float eps, std::vector<int> &dims,
+                                    int man_acc, int exp_acc,
+                                    int man_mul, int exp_mul,
+                                    int man_div, int exp_div,
+                                    int man_sqrt, int exp_sqrt,
+                                    bool subnormals, bool saturate)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(output);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      float_quantize_nearest_layernorm_forward_cuda(input, weight, bias,
+                                                output, mean, rstd,
+                                                eps, dims,
+                                                man_acc, exp_acc,
+                                                man_mul, exp_mul,
+                                                man_div, exp_div,
+                                                man_sqrt, exp_sqrt,
+                                                subnormals, saturate);
+} 
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
@@ -430,4 +455,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &floating_point_bmm_cublas,
             "cuBLAS accelerated batched matrix multiply, using the specified precision "
             "and compute mode (CUDA)");
+
+      m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
+            "Low-Bitwidth Layer Normalization (CUDA)");
 }

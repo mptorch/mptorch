@@ -1,3 +1,5 @@
+#pragma once
+
 #include <curand.h>
 #include <curand_kernel.h>
 #include <cstdint>
@@ -143,3 +145,21 @@ void bmm_fxp_stochastic(float *a, float *b, float *c, int B, int M, int K,
 
 void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                             int N, int sigma_fma, int t_min_fma, int t_max_fma);
+
+struct DimSizes
+{
+    int outer;
+    int inner;
+    int channel;
+};
+
+void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
+                              float *output, float *mean, float *rstd,
+                              float eps, const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              int man_sqrt, int exp_sqrt,
+                              bool subnormals, bool saturate);
+
+//void layernorm_backward_fp_nearest();

@@ -424,3 +424,16 @@ void float_mm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
 void float_bmm_cublas(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                       CUBLASMatrixType AB_type, CUBLASMatrixType C_type,
                       CUBLASComputeType compute_type, bool pedantic);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+*/
+void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                  Tensor output, Tensor mean, Tensor rstd,
+                                                  float eps, std::vector<int> &dims,
+                                                  int man_acc, int exp_acc,
+                                                  int man_mul, int exp_mul,
+                                                  int man_div, int exp_div,
+                                                  int man_sqrt, int exp_sqrt,
+                                                  bool subnormals, bool saturate);

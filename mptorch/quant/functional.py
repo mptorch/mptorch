@@ -446,7 +446,7 @@ class qlayernorm_kernel(torch.autograd.Function):
             xshift = x - mean
             variance = (xshift**2).sum(dims, keepdim=True) / C
 
-            rstd = (var + eps) ** -0.5
+            rstd = (variance + eps) ** -0.5
             norm = xshift * rstd
             output = norm * qweight + qbias    
         else:
