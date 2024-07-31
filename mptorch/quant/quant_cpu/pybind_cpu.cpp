@@ -69,7 +69,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       m.def("float_quantize_nearest_mm_fma", &float_quantize_nearest_mm_fma,
             "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CPU)");
       m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
-            "Low-Bitwidth Layer Normalization (CPU");
+            "Low-Bitwidth Layer Normalization (CPU)");
       m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
-            "Low-Bitwidth Layer Normalization Backward (CPU");
+            "Low-Bitwidth Layer Normalization Backward (CPU)");
 }
