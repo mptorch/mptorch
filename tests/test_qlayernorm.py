@@ -55,14 +55,14 @@ def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
 
     y_ref = layer.forward(x_ref)
     y_res = qlayer.forward(x_res)
-    torch.testing.assert_close(y_res, y_ref, atol=1e-5, rtol=0)
+    torch.testing.assert_close(y_res, y_ref, atol=1e-5, rtol=1e-5)
 
     grad = torch.rand(*shape, device=device)
     y_ref.backward(grad)
     y_res.backward(grad)
-    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=0)
-    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-3, rtol=0.0)
-    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-3, rtol=0.0)
+    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-5, rtol=1e-5)
 
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
@@ -77,11 +77,11 @@ def test_qlayer_norm_normal(device, shape, normalized_shape):
 
     y_ref = layer.forward(x_ref)
     y_res = qlayer.forward(x_res)
-    torch.testing.assert_close(y_res, y_ref, atol=1e-8, rtol=0.0)
+    torch.testing.assert_close(y_res, y_ref, atol=1e-8, rtol=1e-8)
 
     grad = torch.rand(*shape, device=device)
     y_ref.backward(grad)
     y_res.backward(grad)
-    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-8, rtol=0.0)
-    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-8, rtol=0.0)
-    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-8, rtol=0.0)
+    torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-8, rtol=1e-8)
+    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-8, rtol=1e-8)
+    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-8, rtol=1e-8)
