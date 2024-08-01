@@ -633,3 +633,25 @@ void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, 
                               man_sqrt, exp_sqrt,
                               subnormals, saturate);
 }
+
+void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int man_acc, int exp_acc,
+                                                    int man_mul, int exp_mul,
+                                                    int man_div, int exp_div,
+                                                    bool subnormals, bool saturate)
+{
+  auto sizes = dim_striding(input, dims);
+  layernorm_backward_fp_nearest(input.data_ptr<float>(), grad_output.data_ptr<float>(),
+                                weight.data_ptr<float>(), bias.data_ptr<float>(), 
+                                mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                                grad_input.data_ptr<float>(), grad_gamma.data_ptr<float>(), grad_beta.data_ptr<float>(),
+                                sizes,
+                                man_acc, exp_acc,
+                                man_mul, exp_mul,
+                                man_div, exp_div,
+                                subnormals, saturate);
+}

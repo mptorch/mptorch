@@ -1,3 +1,5 @@
+#pragma once
+
 #include "binary8_kernel.h"
 #include <ATen/ATen.h>
 #include <tuple>
@@ -437,3 +439,17 @@ void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, 
                                                   int man_div, int exp_div,
                                                   int man_sqrt, int exp_sqrt,
                                                   bool subnormals, bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+*/                                             
+void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int man_acc, int exp_acc,
+                                                    int man_mul, int exp_mul,
+                                                    int man_div, int exp_div,
+                                                    bool subnormals, bool saturate);

@@ -124,10 +124,7 @@ def float_qlayernorm_forward(inp, weight, bias, eps, dims, formats):
     rstd = torch.zeros(reduced_shape, device=inp.device)
     output = torch.zeros_like(inp, device=inp.device)
 
-    weight = weight.to(inp.device)
-    bias = bias.to(inp.device)
-
-    quant_module.float_quantize_layernorm_forward(inp, weight, bias, 
+    quant_module.float_quantize_layernorm_forward(inp.contiguous(), weight.contiguous(), bias.contiguous(), 
                                                   output, mean, rstd, 
                                                   eps, dims,
                                                   acc_cfg.man, acc_cfg.exp,
@@ -145,6 +142,13 @@ def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, 
         formats.bwd_rnd
     )
 
+    print("DEVICE:", inp.device)
+    print("\nGrad 0:", grad_output)
+    print("\nMean 0:", mean)
+    print("\nRSTD 0:", rstd)
+
+    assert inp.device == grad_output.device
+
     subnormals = acc_cfg.subnormals
     saturate = acc_cfg.saturate
 
@@ -154,9 +158,12 @@ def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, 
     grad_weight = torch.zeros_like(weight, device=inp.device)
     grad_bias = torch.zeros_like(bias, device=inp.device)
 
-    quant_module.float_quantize_layernorm_backward(inp, grad_output, weight, bias, mean, rstd,
-                                                grad_input, grad_weight, grad_bias,
-                                                dims,
+    # weight = weight.to(inp.device)
+    # bias = bias.to(inp.device)
+
+    quant_module.float_quantize_layernorm_backward(inp.contiguous(), grad_output.contiguous(), 
+                                                weight.contiguous(), bias.contiguous(), mean.contiguous(), rstd.contiguous(),
+                                                grad_input, grad_weight, grad_bias, dims,
                                                 acc_cfg.man, acc_cfg.exp,
                                                 mul_cfg.man, mul_cfg.exp,
                                                 div_cfg.man, div_cfg.exp,

@@ -747,3 +747,26 @@ void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
     }
   );
 }
+
+void layernorm_backward_fp_nearest(float *input, float *grad_output,
+                              float *weight, float *bias,
+                              float *mean, float *rstd,
+                              float *grad_input, float *grad_gamma, float *grad_beta,
+                              const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              bool subnormals, bool saturate)
+{
+  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, sizes,
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    },
+    [man_div, exp_div, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate);
+    }
+  );
+}

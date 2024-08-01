@@ -344,7 +344,37 @@ void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
                                                 man_div, exp_div,
                                                 man_sqrt, exp_sqrt,
                                                 subnormals, saturate);
-} 
+}
+
+void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                          Tensor weight, Tensor bias, 
+                                          Tensor mean, Tensor rstd, 
+                                          Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                          std::vector<int> &dims,
+                                          int man_acc, int exp_acc,
+                                          int man_mul, int exp_mul,
+                                          int man_div, int exp_div,
+                                          bool subnormals, bool saturate)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(grad_output);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      CHECK_INPUT(grad_input);
+      CHECK_INPUT(grad_gamma);
+      CHECK_INPUT(grad_beta);
+      float_quantize_nearest_layernorm_backward_cuda(input, grad_output, 
+                                                weight, bias, 
+                                                mean, rstd, 
+                                                grad_input, grad_gamma, grad_beta,
+                                                dims,
+                                                man_acc, exp_acc,
+                                                man_mul, exp_mul,
+                                                man_div, exp_div,
+                                                subnormals, saturate);
+}
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
@@ -457,5 +487,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "and compute mode (CUDA)");
 
       m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
+            "Low-Bitwidth Layer Normalization (CUDA)");
+      m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
             "Low-Bitwidth Layer Normalization (CUDA)");
 }

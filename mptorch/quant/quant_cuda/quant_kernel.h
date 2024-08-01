@@ -162,4 +162,12 @@ void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
                               int man_sqrt, int exp_sqrt,
                               bool subnormals, bool saturate);
 
-//void layernorm_backward_fp_nearest();
+void layernorm_backward_fp_nearest(float *input, float *grad_output,
+                              float *weight, float *bias,
+                              float *mean, float *rstd,
+                              float *grad_input, float *grad_gamma, float *grad_beta, 
+                              const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              bool subnormals, bool saturate);
