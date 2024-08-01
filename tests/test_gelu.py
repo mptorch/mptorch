@@ -2,43 +2,38 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 from mptorch.quant.functional import qgelu, QGeLU
+from mptorch.quant.quant_geluformat import QGeLUFormats
 
-class MockFormats:
-    def input_quant(self, x):
-        return x
-
-    def output_quant(self, x):
-        return x
-
-    def grad_quant(self, x):
+class MockQuant:
+    def __call__(self, x):
         return x
 
 def test_quantized_gelu():
     input_tensor = torch.randn(10, 10, requires_grad=True)
     regular_gelu_output = F.gelu(input_tensor)
-    formats = MockFormats()
-    quantized_gelu_output = qgelu(input_tensor, formats)
+    formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
+    quantized_gelu_output = qgelu(input_tensor, formats, 'none')
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)
     if comparison:
-        print("The quantized GeLU implementation matches the regular GeLU implementation.")
+        print("GELU MATCH")
     else:
-        print("The quantized GeLU implementation does NOT match the regular GeLU implementation.")
+        print("GELU")
     print("Regular GeLU Output:")
     print(regular_gelu_output)
     print("Quantized GeLU Output:")
-    print(quantized_gelu_output)
+    print(quantized_gelu_output)    
 
 def test_qgelu_layer():
     input_tensor = torch.randn(10, 10, requires_grad=True)
-    formats = MockFormats()
-    qgelu_layer = QGeLU(formats)
+    formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
+    qgelu_layer = QGeLU(formats, 'none')
     regular_gelu_output = F.gelu(input_tensor)
     quantized_gelu_output = qgelu_layer(input_tensor)
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)
     if comparison:
-        print("The QGeLU layer implementation matches the regular GeLU implementation.")
+        print("LAYER MATCH")
     else:
-        print("The QGeLU layer implementation does NOT match the regular GeLU implementation.")
+        print("LAYER FAIL")
     print("Regular GeLU Output:")
     print(regular_gelu_output)
     print("QGeLU Layer Output:")
@@ -54,3 +49,4 @@ def test_qgelu_layer():
 
 if __name__ == "__main__":
     test_quantized_gelu()
+    test_qgelu_layer()

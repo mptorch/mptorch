@@ -432,34 +432,50 @@ def qsoftmax(x, dim, dtype, quant):
 
 class qgelu_kernel(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, formats):
+    def forward(ctx, input, formats, approximate):
         ctx.formats = formats
-        
+        ctx.approximate = approximate
         qinput = formats.input_quant(input)
-        output = 0.5 * qinput * (1 + torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device))))
+        
+        with torch.no_grad():
+            if approximate == 'tanh':
+                intermediate_output = torch.tanh(torch.sqrt(2 / torch.tensor(3.141592653589793, device=qinput.device)) * (qinput + 0.044715 * qinput ** 3))
+            else:
+                intermediate_output = torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device)))
+            
+            quantized_intermediate_output = formats.output_quant(intermediate_output)
+            output = 0.5 * qinput * (1 + quantized_intermediate_output)
+        
         qoutput = formats.output_quant(output)
-        ctx.save_for_backward(qinput)
+        ctx.save_for_backward(qinput, quantized_intermediate_output)
         return qoutput
 
     @staticmethod
     def backward(ctx, grad_output):
-        qinput, = ctx.saved_tensors
+        qinput, quantized_intermediate_output = ctx.saved_tensors
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
-        cdf = 0.5 * (1 + torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device))))
-        pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
-        grad_input = qgrad_output * (cdf + qinput * pdf)
+        if ctx.approximate == 'tanh':
+            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
+            cdf = 0.5 * (1 + quantized_intermediate_output)
+            grad_input = qgrad_output * (cdf + qinput * pdf)
+        else:
+            cdf = 0.5 * (1 + quantized_intermediate_output)
+            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
+            grad_input = qgrad_output * (cdf + qinput * pdf)
+        
         qgrad_input = ctx.formats.grad_quant(grad_input)
 
-        return qgrad_input, None
+        return qgrad_input, None, None
 
-def qgelu(input, formats):
-    return qgelu_kernel.apply(input, formats)
+def qgelu(input, formats, approximate):
+    return qgelu_kernel.apply(input, formats, approximate)
 
 class QGeLU(nn.Module):
-    def __init__(self, formats):
+    def __init__(self, formats, approximate='none'):
         super(QGeLU, self).__init__()
         self.formats = formats
+        self.approximate = approximate
 
     def forward(self, input):
-        return qgelu(input, self.formats)
+        return qgelu(input, self.formats, self.approximate)
