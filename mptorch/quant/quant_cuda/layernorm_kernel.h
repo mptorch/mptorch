@@ -1,6 +1,9 @@
 #pragma once
 #include "quant_kernel.h"
 
+// forward pass of layer normalization
+// outputs means, rstds, and normalized tensor
+// means and rstds used later for the backward pass
 template<class Qacc, class Qmul, class Qdiv, class Qsqrt>
 __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const float* __restrict__ w_array, const float* __restrict__ b_array,
                                     float* out_arr, float* m_array, float* r_array,
@@ -13,7 +16,7 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
     int warp = threadIdx.x / warpSize; // groups of 32 threads (which warp the thread belongs to)
     int lane = threadIdx.x % warpSize; // a warp has 32 lanes (id of the thread in a warp)
 
-    int warpsPerBlock= blockDim.x / warpSize;
+    int warpsPerBlock = blockDim.x / warpSize;
 
     int b = blockIdx.x / sizes.inner;
     int t = blockIdx.x % sizes.inner;
@@ -22,29 +25,37 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
     const float* input = in_arr + base_index;
     float* output = out_arr + base_index;
 
-    // compute mean by reducing sum of elements then dividing
+    // compute mean by reducing sum of elements then dividing by size of channel
     float m_sum = 0.0f;
     for (int k = tid; k < sizes.channel; k += blockDim.x){
         int idx = k * sizes.inner;
         m_sum = quant_acc(m_sum + input[idx]);
     }
+    // each thread contains part of the sum, so we combine these values
     for (int offset = warpSize/2; offset > 0; offset /= 2){
         m_sum = quant_acc(m_sum + __shfl_down_sync(0xffffffff, m_sum, offset));
     }
+    // store sum for mean in shared memory when at 0th thread of warp
     if (lane == 0){
         shared[warp] = m_sum;
     }
     __syncthreads();
+    // reduce sum of each warp into 0th thread of block, warp 0 and lane 0
     if (tid == 0){
         m_sum = shared[0];
         for (int i = 1; i < warpsPerBlock; i++){
             m_sum = quant_acc(m_sum + shared[i]);
         }
+        // store computed mean in fixed location of memory
         shared[0] = m_sum/sizes.channel;
     }
     __syncthreads();
+
+    // get computed mean from shared memory
     float m = shared[0];
 
+    // compute variance by reducing sum of elements then dividing by size of channel
+    // done similarly to mean
     float v_sum = 0;
     for (int k = tid; k < sizes.channel; k += blockDim.x){
         int idx = k * sizes.inner;
@@ -67,8 +78,11 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
         shared[0] = v_sum/sizes.channel;
     }
     __syncthreads();
+
+    // get computer variance from shared memory
     float variance = shared[0];
     
+    // computer the layer normalization formula with quantization
     float rad = quant_acc(variance + eps);
     float std = quant_sqrt(sqrtf(rad));
     for (int k = tid; k < sizes.channel; k += blockDim.x){
@@ -78,10 +92,16 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
         float out = quant_mul(w_array[k] * norm);
         output[idx] = out + b_array[k];
     }
+
+    // output mean and rstd to respective arrays
+    // these values will be used later in the backward pass 
     m_array[b * sizes.inner + t] = m;
     r_array[b * sizes.inner + t] = quant_div(1.0f/std); 
 }
 
+// first pass of the backward pass
+// used to calculate only the input gradient
+// saves some values for later second pass to calculate gradient of weights and biases
 template<class Qacc, class Qmul, class Qdiv>
 __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
                                                 const float* __restrict__ w_array, const float* __restrict__ b_array,
@@ -102,6 +122,7 @@ __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_
     float* output = out_arr + base_index;
     float* xhat_grad = xhat_gradient + base_index;
 
+    // get out current mean and rstd from earlier
     float m = m_array[b * sizes.inner + t];
     float r = r_array[b * sizes.inner + t];
 
@@ -125,10 +146,15 @@ __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_
         int idx = k * sizes.inner;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
+
+        // save the xhat gradient for a second pass
+        // used for gradients of gamma (weights) and beta (biases)
         xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
-        
+
         float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
+
+        // accumulate the input gradient
         float grad_input = norm_grad;
         grad_input = quant_acc(grad_input - grad_sum);
         grad_input = quant_acc(grad_input - weighted_grad_sum);
@@ -138,16 +164,21 @@ __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_
     }
 }
 
+// second pass of the backward pass
+// uses output gradient from forward pass and xhat_gradient from first backward pass
+// used to calculate grad_gamma (gradient of weights) and grad_beta (gradient of biases)
 template<class Qacc>
 __global__ void layernorm_backward_second_pass_impl(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
                                                     float* grad_gamma, float* grad_beta, const DimSizes sizes,
                                                     Qacc quant_acc){
     int k = blockIdx.x * blockDim.x + threadIdx.x;
 
+    // iterate over size of channel rather than B*T
     if (k >= sizes.channel) return;
 
     int idx = k * sizes.inner;
 
+    // temp values for accumulation
     float grad_gamma_sum = 0.0f;
     float grad_beta_sum = 0.0f;
 
@@ -155,17 +186,21 @@ __global__ void layernorm_backward_second_pass_impl(const float* __restrict__ xh
         int b = i / sizes.inner;
         int t = i % sizes.inner;
         int base_index = (b * sizes.channel * sizes.inner) + t;
+
+        // get xhat gradient and output gradient from earlier
         const float* gradient = out_grad + base_index;
         const float* xhat_grad = xhat_gradient + base_index;
 
+        // increment gradient of weights and biases by respective values
         grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
         grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
     }
-
+    // output to respective arrays (gamma is weight, beta is bias)
     grad_gamma[k] = grad_gamma_sum;
     grad_beta[k] = grad_beta_sum;
 }
 
+// calls forward pass kernel
 template<class Qacc, class Qmul, class Qdiv, class Qsqrt>
 void layernorm_forward(const float* in_arr, const float* w_array, const float* b_array,
                     float* out_arr, float* m_array, float* r_array,
@@ -180,6 +215,7 @@ void layernorm_forward(const float* in_arr, const float* w_array, const float* b
         quant_acc, quant_mul, quant_div, quant_sqrt);
 }
 
+// calls backward pass kernel(s)
 template<class Qacc, class Qmul, class Qdiv>
 void layernorm_backward(const float* in_arr, const float* out_grad, 
                         const float* w_array, const float* b_array,

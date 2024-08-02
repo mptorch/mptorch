@@ -758,6 +758,9 @@ void layernorm_backward_fp_nearest(float *input, float *grad_output,
                               int man_div, int exp_div,
                               bool subnormals, bool saturate)
 {
+  // creating xhat_gradient, an array of all 0s for backward pass
+  // xhat_gradient is an output from the first pass of the backward
+  // used again as an input to the second pass of the backward
   float* xhat_gradient;
   cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
   layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes,
