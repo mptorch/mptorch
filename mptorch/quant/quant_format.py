@@ -51,6 +51,7 @@ class QAffineFormats:
         - :attr: `bias_quant` (function or (Number, str)) : quantization function or format and rounding on the bias signal inputs
         - :attr: `input_quant` (function or (Number, str)) : quantization function or format and rounding on the output signal from the layer
         - :attr: `grad_quant` (function or (Number, str)) : quantization function or format and rounding on the gradient signals in the BWD pass
+        - :attr: `use_scaling` (bool) : whether to use weight, input and grad scaling during forward/backward pass
         - :attr: `weight_scaled_format` (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
         - :attr: `input_scaled_format` (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         - :attr: `grad_scaled_format` (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
@@ -68,6 +69,7 @@ class QAffineFormats:
         input_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         output_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         grad_quant: Union[Callable, Tuple[Number, str]] = id_quant,
+        use_scaling: bool = False,
         weight_scaled_format: Optional[FloatType] = None,
         input_scaled_format: Optional[FloatType] = None,
         grad_scaled_format: Optional[FloatType] = None,
@@ -148,6 +150,8 @@ class QAffineFormats:
                 self.grad_scaled_format = num
         else:
             self.grad_quant = grad_quant
+        
+        self.use_scaling = use_scaling
     
     def __repr__(self) -> str:
         out = []

@@ -45,7 +45,8 @@ def test_scaling_format_deduction_non_float():
 
 @pytest.mark.parametrize("device", ["cpu"])
 @pytest.mark.parametrize("mm", [lambda x,w,fmt: qlinear(x,w,None,fmt), qmatmul, qmm])
-def test_scaling_is_used(device, mm):
+@pytest.mark.parametrize("use_scaling", [True, False])
+def test_scaling_is_used(device, mm, use_scaling):
     mac_format = FloatingPoint(exp=5, man=10)
     input_scaled_format = MagicMock()
     weight_scaled_format = MagicMock()
@@ -61,7 +62,8 @@ def test_scaling_is_used(device, mm):
         bwd_mac=mac_format,
         input_scaled_format=input_scaled_format,
         weight_scaled_format=weight_scaled_format,
-        grad_scaled_format=grad_scaled_format
+        grad_scaled_format=grad_scaled_format,
+        use_scaling=use_scaling
     )
 
     assert not formats.fwd_use_default_prec
@@ -75,15 +77,24 @@ def test_scaling_is_used(device, mm):
     w = torch.rand(10, 10, dtype=torch.float32, device=device)
     y = mm(x, w, formats)
 
-    normal_max_input.assert_called_once()
-    normal_max_weight.assert_called_once()
+    if use_scaling:
+        normal_max_input.assert_called_once()
+        normal_max_weight.assert_called_once()
+    else:
+        normal_max_input.assert_not_called()
+        normal_max_weight.assert_not_called()
     normal_max_grad.assert_not_called()
 
     y.backward(torch.rand(10, 10, dtype=torch.float32, device=device))
 
-    normal_max_input.assert_called_once()
-    normal_max_weight.assert_called_once()
-    normal_max_grad.assert_called_once()
+    if use_scaling:
+        normal_max_input.assert_called_once()
+        normal_max_weight.assert_called_once()
+        normal_max_grad.assert_called_once()
+    else:
+        normal_max_input.assert_not_called()
+        normal_max_weight.assert_not_called()
+        normal_max_grad.assert_not_called()
 
 
 @pytest.mark.parametrize("device", ["cpu"])
@@ -100,7 +111,8 @@ def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
         weight_quant=(fp_format_1, "nearest"),
         grad_quant=(fp_format_2, "nearest"),
         input_quant=(fp_format_1, "nearest"),
-        bias_quant=(mac_format, "nearest")
+        bias_quant=(mac_format, "nearest"),
+        use_scaling=True
     )
     x = torch.randn(11, 1034)
     m = torch.nn.Linear(1034, 542, bias=True)

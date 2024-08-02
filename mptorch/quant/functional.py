@@ -53,7 +53,7 @@ class qlinear_kernel(torch.autograd.Function):
     def forward(ctx, input, weight, bias, formats):
         ctx.formats = formats
         # NOTE: (optimization) precompute the LP weights and weight scale
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
+        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
             ctx.weight_scale = compute_bias(weight, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -89,7 +89,7 @@ class qlinear_kernel(torch.autograd.Function):
         qinput, qweight, qbias = ctx.saved_tensors
         qgrad_input, qgrad_weight, qgrad_bias = None, None, None
 
-        if ctx.formats.grad_scaled_format is not None:
+        if ctx.formats.grad_scaled_format is not None and ctx.formats.use_scaling:
             grad_scale = compute_bias(grad_output, ctx.formats.grad_scaled_format)
         else:
             grad_scale = 0
@@ -153,7 +153,7 @@ class qmm_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, other, formats):
         ctx.formats = formats
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
+        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
             ctx.weight_scale = compute_bias(other, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -184,7 +184,7 @@ class qmm_kernel(torch.autograd.Function):
         qinput, qother = ctx.saved_tensors
         qgrad_input, qgrad_other = None, None
 
-        if ctx.formats.grad_scaled_format is not None:
+        if ctx.formats.grad_scaled_format is not None and ctx.formats.use_scaling:
             grad_scale = compute_bias(grad_output, ctx.formats.grad_scaled_format)
         else:
             grad_scale = 0
@@ -231,7 +231,7 @@ class qmatmul_kernel(torch.autograd.Function):
         ctx.formats = formats
         # NOTE: need to see how we do things for each matrix in
         # the batched version
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None):
+        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
             ctx.weight_scale = compute_bias(other, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -260,7 +260,7 @@ class qmatmul_kernel(torch.autograd.Function):
         qinput, qother = ctx.saved_tensors
         qgrad_input, qgrad_other = None, None
 
-        if ctx.formats.grad_scaled_format is not None:
+        if ctx.formats.grad_scaled_format is not None and ctx.formats.use_scaling:
             grad_scale = compute_bias(grad_output, ctx.formats.grad_scaled_format)
         else:
             grad_scale = 0
