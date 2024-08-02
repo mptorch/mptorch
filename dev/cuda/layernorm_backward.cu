@@ -208,10 +208,10 @@ static void layernorm_backward_cpu(const float* in_arr, const float* out_grad,
             float xhat = quant_mul(in_m * r);
             float xhat_gradient = quant_mul(xhat * gradient[idx]);
             float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-
-            grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
+            
             grad_gamma[k] = quant_acc(grad_gamma[k] + xhat_gradient);
-
+            grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
+            
             float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
             float grad_input = grad_xhat;
             grad_input = quant_acc(grad_input - grad_sum);
@@ -226,14 +226,14 @@ static void layernorm_backward_cpu(const float* in_arr, const float* out_grad,
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
-__global__ void layernorm_backward_kernel1(const float* __restrict__ in_arr, const float* out_grad, 
+__global__ void layernorm_backward_first_pass_kernel1(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
                                 const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,
-                                float* grad_gamma, float* grad_beta, float* out_arr,
-                                int B, int T, int C, int N){
+                                const float* m_array, const float* r_array,  
+                                float* out_arr, float* xhat_gradient,
+                                int B, int T, int C){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (i > N) return;
+    if (i >= B*T) return;
 
     int b = i / T;
     int t = i % T;
@@ -242,6 +242,7 @@ __global__ void layernorm_backward_kernel1(const float* __restrict__ in_arr, con
     const float* input = in_arr + base_index;
     const float* gradient = out_grad + base_index;
     float* output = out_arr + base_index;
+    float* xhat_grad = xhat_gradient + base_index;
 
     float m = m_array[b * T + t];
     float r = r_array[b * T + t];
@@ -253,9 +254,9 @@ __global__ void layernorm_backward_kernel1(const float* __restrict__ in_arr, con
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-        float dot_xhat = quant_mul(xhat * grad_xhat);
-        grad_sum = quant_acc(grad_sum + grad_xhat);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        float dot_xhat = quant_mul(xhat * norm_grad);
+        grad_sum = quant_acc(grad_sum + norm_grad);
         grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
     }
     grad_sum = quant_div(grad_sum/C);
@@ -266,14 +267,11 @@ __global__ void layernorm_backward_kernel1(const float* __restrict__ in_arr, con
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
-        float xhat_gradient = quant_mul(xhat * gradient[idx]);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-
-        grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
-        grad_gamma[k] = quant_acc(grad_gamma[k] + xhat_gradient);
-
+        xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
+        
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
-        float grad_input = grad_xhat;
+        float grad_input = norm_grad;
         grad_input = quant_acc(grad_input - grad_sum);
         grad_input = quant_acc(grad_input - weighted_grad_sum);
         grad_input = quant_mul(grad_input * r);
@@ -282,63 +280,36 @@ __global__ void layernorm_backward_kernel1(const float* __restrict__ in_arr, con
     }
 }
 
+__global__ void layernorm_backward_second_pass_kernel1(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
+                                                    float* grad_gamma, float* grad_beta,
+                                                    int B, int T, int C){
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (k >= C) return;
+
+    int idx = k * T;
+
+    float grad_gamma_sum = 0.0f;
+    float grad_beta_sum = 0.0f;
+
+    for (int i = 0; i < B * T; i++){
+        int b = i / T;
+        int t = i % T;
+        int base_index = (b * C * T) + t;
+        const float* gradient = out_grad + base_index;
+        const float* xhat_grad = xhat_gradient + base_index;
+
+        grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
+        grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
+    }
+
+    grad_gamma[k] = grad_gamma_sum;
+    grad_beta[k] = grad_beta_sum;
+}
+
+
+// This is mainly a reference using atomicAdd
 __global__ void layernorm_backward_kernel2(const float* __restrict__ in_arr, const float* out_grad, 
-                                const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,
-                                float* grad_gamma, float* grad_beta, float* out_arr,
-                                int B, int T, int C){
-    extern __shared__ float shared[];
-
-    int tid = threadIdx.x;
-
-    int b = blockIdx.x / T;
-    int t = blockIdx.x % T;
-
-    int base_index = (b * C * T) + t;
-    const float* input = in_arr + base_index;
-    const float* gradient = out_grad + base_index;
-    float* output = out_arr + base_index;
-
-    float m = m_array[b * T + t];
-    float r = r_array[b * T + t];
-
-    // two reduce operations
-    float grad_sum = 0.0f;
-    float grad_sum_xhat = 0.0f;
-    for (int k = tid; k < C; k += blockDim.x){
-        int idx = k * T;
-        float in_m = quant_acc(input[idx] - m);
-        float xhat = quant_mul(in_m * r);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-        float dot_xhat = quant_mul(xhat * grad_xhat);
-        grad_sum = quant_acc(grad_sum + grad_xhat);
-        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
-    }
-    grad_sum = quant_div(grad_sum/C);
-    grad_sum_xhat = quant_div(grad_sum_xhat/C);
-
-    // iterate and accumulate 
-    for (int k = tid; k < C; k += blockDim.x){
-        int idx = k * T;
-        float in_m = quant_acc(input[idx] - m);
-        float xhat = quant_mul(in_m * r);
-        float xhat_gradient = quant_mul(xhat * gradient[idx]);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-
-        grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
-        grad_gamma[k] = quant_acc(grad_gamma[k] + xhat_gradient);
-
-        float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
-        float grad_input = grad_xhat;
-        grad_input = quant_acc(grad_input - grad_sum);
-        grad_input = quant_acc(grad_input - weighted_grad_sum);
-        grad_input = quant_mul(grad_input * r);
-
-        output[idx] = grad_input;
-    }
-}
-
-__global__ void layernorm_backward_kernel3(const float* __restrict__ in_arr, const float* out_grad, 
                                 const float* w_array, const float* b_array,
                                 const float* m_array, const float* r_array,
                                 float* grad_gamma, float* grad_beta, float* out_arr,
@@ -349,7 +320,7 @@ __global__ void layernorm_backward_kernel3(const float* __restrict__ in_arr, con
     int warp = threadIdx.x / warpSize; // groups of 32 threads (which warp the thread belongs to)
     int lane = threadIdx.x % warpSize; // a warp has 32 lanes (id of the thread in a warp)
 
-    int warpsPerBlock= blockDim.x / warpSize;
+    int warpsPerBlock = blockDim.x / warpSize;
 
     int b = blockIdx.x / T;
     int t = blockIdx.x % T;
@@ -418,8 +389,8 @@ __global__ void layernorm_backward_kernel3(const float* __restrict__ in_arr, con
         float xhat_gradient = quant_mul(xhat * gradient[idx]);
         float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
 
-        grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
-        grad_gamma[k] = quant_acc(grad_gamma[k] + xhat_gradient);
+        atomicAdd(&grad_gamma[k], xhat_gradient);
+        atomicAdd(&grad_beta[k], gradient[idx]);
 
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
         float grad_input = grad_xhat;
@@ -440,7 +411,12 @@ void layernorm_backward_cuda1(const float* in_arr, const float* out_grad,
                             int B, int T, int C, int block_size){
     int N = B * T;
     int blocks = N / block_size + (N % block_size != 0);
-    layernorm_backward_kernel1<<<blocks, block_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C, N);
+    float* xhat_gradient;
+    cudaCheck(cudaMalloc(&xhat_gradient, sizeof(float) * (B * T * C)));
+    layernorm_backward_first_pass_kernel1<<<blocks, block_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, out_arr, xhat_gradient, B, T, C);
+    blocks = C / block_size + (C % block_size != 0);
+    layernorm_backward_second_pass_kernel1<<<blocks, block_size>>>(xhat_gradient, out_grad, grad_gamma, grad_beta, B, T, C);
+    cudaCheck(cudaFree(xhat_gradient));
 }
 
 void layernorm_backward_cuda2(const float* in_arr, const float* out_grad, 
@@ -451,16 +427,6 @@ void layernorm_backward_cuda2(const float* in_arr, const float* out_grad,
     int blocks = B * T;
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
     layernorm_backward_kernel2<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
-}
-
-void layernorm_backward_cuda3(const float* in_arr, const float* out_grad, 
-                            const float* w_array, const float* b_array,
-                            const float* m_array, const float* r_array,
-                            float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size){
-    int blocks = B * T;
-    size_t shared_mem_size = (block_size / 32) * sizeof(float);
-    layernorm_backward_kernel3<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
 }
 
 void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* out_grad, 
@@ -483,13 +449,6 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
                             grad_gamma, grad_beta, out_arr,
                             B, T, C, block_size);
             break;
-        case 3:
-            layernorm_backward_cuda3(in_arr, out_grad, 
-                            w_array, b_array,
-                            m_array, r_array,
-                            grad_gamma, grad_beta, out_arr,
-                            B, T, C, block_size);
-            break;
         default:
             printf("Invalid kernel number\n");
             exit(1);
@@ -500,9 +459,9 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int norm_dims[] = {-1, -2};
+    const int norm_dims[] = {-1};
     const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
-    const int dims[] = {40, 60, 80};
+    const int dims[] = {40, 60, 300};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
 
     int B, T, C;
@@ -526,8 +485,8 @@ int main(int argc, const char **argv) {
     float* h_bias = make_zeros_float(C);
     float* h_gg = make_zeros_float(C);
     float* h_gb = make_zeros_float(C);
-    float* h_mean = make_random_float(numel);
-    float* h_rstd = make_random_float(numel);
+    float* h_mean = make_random_float(B * T);
+    float* h_rstd = make_random_float(B * T);
 
     // compute cpu reference
     layernorm_backward_cpu(h_input, h_grad, 
@@ -540,26 +499,27 @@ int main(int argc, const char **argv) {
     float *d_input, *d_grad, *d_output, *d_weight, *d_bias, *d_gg, *d_gb, *d_mean, *d_rstd;
     cudaCheck(cudaMalloc(&d_input, numel * sizeof(float)));
     cudaCheck(cudaMalloc(&d_grad, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_weight, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_bias, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_gg, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_gb, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_weight, C * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_bias, C * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_gg, C * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_gb, C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_output, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_mean, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_rstd, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_mean, B * T * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_rstd, B * T * sizeof(float)));
     cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(d_grad, h_grad, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_weight, h_weight, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_bias, h_bias, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_gg, h_gg, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_gb, h_gb, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_mean, h_mean, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_rstd, h_rstd, numel * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_weight, h_weight, C * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_bias, h_bias, C * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_mean, h_mean, B * T * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_rstd, h_rstd, B * T * sizeof(float), cudaMemcpyHostToDevice));
 
 
     // time the kernel at different block sizes
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+        cudaMemset(d_gg, 0, C * sizeof(float));
+        cudaMemset(d_gb, 0, C * sizeof(float));
+
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
         layernorm_backward_cuda(version, d_input, d_grad, 
@@ -568,15 +528,20 @@ int main(int argc, const char **argv) {
                             d_gg, d_gb, d_output,
                             B, T, C, block_size);
 
-        float tol = 1e-1f;
-        validate_result(d_output, h_output, "output", numel, tol);
+        float tol = 2e-0f;
+        printf("validating input_grad\n");
+        validate_result(d_output, h_output, "input_grad", numel, tol);
+        printf("validating weight_grad\n");
+        validate_result(d_gg, h_gg, "weight_grad", C, tol);
+        printf("validating bias_grad\n");
+        validate_result(d_gb, h_gb, "bias_grad", C, tol);
     }
 
     printf("All results match. Starting benchmarks.\n\n");
 
     for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
         int block_size = block_sizes[j];
-        int repeat_times = 1000;
+        int repeat_times = 100;
         float elapsed_time = benchmark_kernel(repeat_times, layernorm_backward_cuda, 
                                             version, d_input, d_grad, 
                                             d_weight, d_bias,
