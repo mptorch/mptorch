@@ -1,6 +1,7 @@
 #include "quant.h"
 #include "bit_helper.h"
 #include "binary8.h"
+#include "layernorm.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -549,78 +550,26 @@ void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
                                       int man_mul, int exp_mul,
                                       int man_div, int exp_div,
                                       int man_sqrt, int exp_sqrt,
-                                      bool subnormals, bool saturate){
-  auto a_array = input.data_ptr<float>();
-  auto w_array = weight.data_ptr<float>();
-  auto b_array = bias.data_ptr<float>();
-
-  auto o_array = output.data_ptr<float>();
-  auto m_array = mean.data_ptr<float>();
-  auto r_array = rstd.data_ptr<float>();
-
-  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits){
-    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
-  };
-
-  std::vector<int> real_dims(dims.size());
-  for (int i = 0; i < dims.size(); i++){
-    real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
-  }
-
-  int C = 1;
-  for (int dim : real_dims){
-    C *= input.size(dim);
-  }
-
-  int min_dim = real_dims.back();
-  int max_dim = real_dims.front();
-
-  int B = 1;
-  for (int i = 0; i < min_dim; i++){
-    B *= input.size(i);
-  }
-
-  int T = 1;
-  for (int i = max_dim + 1; i < input.dim(); i++){
-    T *= input.size(i);
-  }
-
-  for (int i = 0; i < B * T; i++){
-    int b = i / T;
-    int t = i % T;
-
-    int base_index = (b * C * T) + t;
-    float* input = a_array + base_index;
-    float* output = o_array + base_index;
-
-    float m = 0.0f;
-    for (int k = 0; k < C; k++){
-      int idx = k*T;
-      m = quant(m + input[idx], man_acc, exp_acc);
+                                      bool subnormals, bool saturate)
+{
+  auto sizes = dim_striding(input, dims);
+  layernorm_forward(
+    input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+    output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    eps, sizes,
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_div, exp_div] (float x) {
+      return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_sqrt, exp_sqrt] (float x) {
+      return float_quantize(x, man_sqrt, exp_sqrt, rNearest, subnormals, saturate);
     }
-    m = quant(m/C, man_div, exp_div);
-
-    float variance = 0;
-    for (int k = 0; k < C; k++){
-      int idx = k * T;
-      float shift = quant(input[idx] - m, man_acc, exp_acc);
-      float shift_2 = quant(shift * shift, man_mul, exp_mul);
-      variance = quant(variance + shift_2, man_acc, exp_acc);
-    }
-    variance = quant(variance/C, man_div, exp_div);
-
-    float rad = quant(variance + eps, man_acc, exp_acc);
-    float std = quant(sqrtf(rad), man_sqrt, exp_sqrt);
-    for (int k = 0; k < C; k++){
-      int idx = k * T;
-      float numer = quant(input[idx] - m, man_acc, exp_acc);
-      float norm = quant(numer/std, man_div, exp_div);
-      float out = quant(w_array[k] * norm, man_mul, exp_mul);
-      output[idx] = out + b_array[k];
-    }
-    m_array[b * T + t] = m;
-    r_array[b * T + t] = quant(1.0f/std, man_div, exp_div); 
-  }
+  );
 }
 
 void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
@@ -629,91 +578,21 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor 
                                       int man_acc, int exp_acc,
                                       int man_mul, int exp_mul,
                                       int man_div, int exp_div,
-                                      bool subnormals, bool saturate){
-  auto a_array = input.data_ptr<float>();
-  auto g_array = grad_output.data_ptr<float>();
-  auto w_array = weight.data_ptr<float>();
-  auto b_array = bias.data_ptr<float>();
-
-  auto o_array = grad_input.data_ptr<float>();
-  auto m_array = mean.data_ptr<float>();
-  auto r_array = rstd.data_ptr<float>();
-
-  auto grad_gamma = grad_weight.data_ptr<float>();
-  auto grad_beta = grad_bias.data_ptr<float>();
-
-  auto quant = [subnormals, saturate](float x, int man_bits, int exp_bits){
-    return float_quantize(x, man_bits, exp_bits, rNearest, subnormals, saturate);
-  };
-
-  std::vector<int> real_dims(dims.size());
-  for (int i = 0; i < dims.size(); i++){
-    real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
-  }
-
-  int C = 1;
-  for (int dim : real_dims){
-    C *= input.size(dim);
-  }
-
-  int min_dim = real_dims.back();
-  int max_dim = real_dims.front();
-
-  int B = 1;
-  for (int i = 0; i < min_dim; i++){
-    B *= input.size(i);
-  }
-
-  int T = 1;
-  for (int i = max_dim + 1; i < input.dim(); i++){
-    T *= input.size(i);
-  }
-
-  for (int i = 0; i < B * T; i++){
-    int b = i / T;
-    int t = i % T;
-
-    int base_index = (b * C * T) + t;
-    float* input = a_array + base_index;
-    float* gradient = g_array + base_index;
-    float* output = o_array + base_index;
-
-    float m = m_array[b * T + t];
-    float r = r_array[b * T + t];
-
-    // two reduce operations
-    float grad_sum = 0.0f;
-    float grad_sum_xhat = 0.0f;
-    for (int k = 0; k < C; k++){
-      int idx = k * T;
-      float in_m = quant(input[idx] - m, man_acc, exp_acc);
-      float xhat = quant(in_m * r, man_mul, exp_mul);
-      float grad_xhat = quant(w_array[k] * gradient[idx], man_mul, exp_mul);
-      float dot_xhat = quant(xhat * grad_xhat, man_mul, exp_mul);
-      grad_sum = quant(grad_sum + grad_xhat, man_acc, exp_acc);
-      grad_sum_xhat = quant(grad_sum_xhat + dot_xhat, man_acc, exp_acc);
+                                      bool subnormals, bool saturate)
+{
+  auto sizes = dim_striding(input, dims);
+  layernorm_backward(
+    input.data_ptr<float>(), grad_output.data_ptr<float>(), 
+    weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_div, exp_div] (float x) {
+      return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
     }
-    grad_sum = quant(grad_sum/C, man_div, exp_div);
-    grad_sum_xhat = quant(grad_sum_xhat/C, man_div, exp_div);
-
-    // iterate and accumulate 
-    for (int k = 0; k < C; k++){
-      int idx = k * T;
-      float in_m = quant(input[idx] - m, man_acc, exp_acc);
-      float xhat = quant(in_m * r, man_mul, exp_mul);
-      float xhat_gradient = quant(xhat * gradient[idx], man_mul, exp_mul);
-      float grad_xhat = quant(w_array[k] * gradient[idx], man_mul, exp_mul);
-
-      grad_beta[k] = quant((grad_beta[k] + gradient[idx]), man_acc, exp_acc);
-      grad_gamma[k] = quant(grad_gamma[k] + xhat_gradient, man_acc, exp_acc);
-
-      float weighted_grad_sum = quant(xhat * grad_sum_xhat, man_mul, exp_mul);
-      float grad_input = grad_xhat;
-      grad_input = quant(grad_input - grad_sum, man_acc, exp_acc);
-      grad_input = quant(grad_input - weighted_grad_sum, man_acc, exp_acc);
-      grad_input = quant(grad_input * r, man_mul, exp_mul);
-
-      output[idx] = grad_input;
-    }
-  }
+  );
 }

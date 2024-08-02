@@ -1,3 +1,5 @@
+#pragma once
+
 #include <ATen/ATen.h>
 #include <tuple>
 #include <vector>
@@ -6,6 +8,15 @@
 using namespace at;
 
 enum Mode { rNearest, rStochastic };
+
+struct DimSizes
+{
+    int outer;
+    int inner;
+    int channel;
+};
+
+DimSizes dim_striding(Tensor input, std::vector<int> &dims);
 
 float round(float a, float r, int sigma);
 
