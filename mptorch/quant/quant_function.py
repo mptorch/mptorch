@@ -142,11 +142,6 @@ def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, 
         formats.bwd_rnd
     )
 
-    print("DEVICE:", inp.device)
-    print("\nGrad 0:", grad_output)
-    print("\nMean 0:", mean)
-    print("\nRSTD 0:", rstd)
-
     assert inp.device == grad_output.device
 
     subnormals = acc_cfg.subnormals
@@ -154,12 +149,9 @@ def float_qlayernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, 
 
     quant_module = get_module(inp)
 
-    grad_input = torch.zeros_like(inp, device=inp.device)
-    grad_weight = torch.zeros_like(weight, device=inp.device)
-    grad_bias = torch.zeros_like(bias, device=inp.device)
-
-    # weight = weight.to(inp.device)
-    # bias = bias.to(inp.device)
+    grad_input = torch.zeros_like(inp)
+    grad_weight = torch.zeros_like(weight)
+    grad_bias = torch.zeros_like(bias)
 
     quant_module.float_quantize_layernorm_backward(inp.contiguous(), grad_output.contiguous(), 
                                                 weight.contiguous(), bias.contiguous(), mean.contiguous(), rstd.contiguous(),

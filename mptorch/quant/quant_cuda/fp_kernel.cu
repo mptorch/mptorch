@@ -758,7 +758,9 @@ void layernorm_backward_fp_nearest(float *input, float *grad_output,
                               int man_div, int exp_div,
                               bool subnormals, bool saturate)
 {
-  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, sizes,
+  float* xhat_gradient;
+  cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
+  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes,
     [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
       return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
     },
@@ -769,4 +771,5 @@ void layernorm_backward_fp_nearest(float *input, float *grad_output,
       return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate);
     }
   );
+  cudaFree(xhat_gradient);
 }

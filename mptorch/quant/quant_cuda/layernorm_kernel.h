@@ -2,9 +2,9 @@
 #include "quant_kernel.h"
 
 template<class Qacc, class Qmul, class Qdiv, class Qsqrt>
-__global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const float* w_array, const float* b_array,
+__global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const float* __restrict__ w_array, const float* __restrict__ b_array,
                                     float* out_arr, float* m_array, float* r_array,
-                                    float eps, const DimSizes &sizes,
+                                    float eps, const DimSizes sizes,
                                     Qacc quant_acc, Qmul quant_mul, Qdiv quant_div, Qsqrt quant_sqrt)
 {
     extern __shared__ float shared[];
@@ -18,7 +18,7 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
     int b = blockIdx.x / sizes.inner;
     int t = blockIdx.x % sizes.inner;
 
-    int base_index = (b * sizes.channel * sizes.inner) + t;
+    int base_index = (b * (sizes.channel * sizes.inner)) + t;
     const float* input = in_arr + base_index;
     float* output = out_arr + base_index;
 
@@ -82,6 +82,90 @@ __global__ void layernorm_forward_impl(const float* __restrict__ in_arr, const f
     r_array[b * sizes.inner + t] = quant_div(1.0f/std); 
 }
 
+template<class Qacc, class Qmul, class Qdiv>
+__global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
+                                                const float* __restrict__ w_array, const float* __restrict__ b_array,
+                                                const float* __restrict__ m_array, const float* __restrict__ r_array,
+                                                float* out_arr, float* xhat_gradient, const DimSizes sizes,
+                                                Qacc quant_acc, Qmul quant_mul, Qdiv quant_div)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i >= sizes.outer*sizes.inner) return;
+
+    int b = i / sizes.inner;
+    int t = i % sizes.inner;
+
+    int base_index = (b * sizes.channel * sizes.inner) + t;
+    const float* input = in_arr + base_index;
+    const float* gradient = out_grad + base_index;
+    float* output = out_arr + base_index;
+    float* xhat_grad = xhat_gradient + base_index;
+
+    float m = m_array[b * sizes.inner + t];
+    float r = r_array[b * sizes.inner + t];
+
+    // two reduce operations
+    float grad_sum = 0.0f;
+    float grad_sum_xhat = 0.0f;
+    for (int k = 0; k < sizes.channel; k++){
+        int idx = k * sizes.inner;
+        float in_m = quant_acc(input[idx] - m);
+        float xhat = quant_mul(in_m * r);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        float dot_xhat = quant_mul(xhat * norm_grad);
+        grad_sum = quant_acc(grad_sum + norm_grad);
+        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
+    }
+    grad_sum = quant_div(grad_sum/sizes.channel);
+    grad_sum_xhat = quant_div(grad_sum_xhat/sizes.channel);
+
+    // iterate and accumulate 
+    for (int k = 0; k < sizes.channel; k++){
+        int idx = k * sizes.inner;
+        float in_m = quant_acc(input[idx] - m);
+        float xhat = quant_mul(in_m * r);
+        xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
+        
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
+        float grad_input = norm_grad;
+        grad_input = quant_acc(grad_input - grad_sum);
+        grad_input = quant_acc(grad_input - weighted_grad_sum);
+        grad_input = quant_mul(grad_input * r);
+
+        output[idx] = grad_input;
+    }
+}
+
+template<class Qacc>
+__global__ void layernorm_backward_second_pass_impl(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
+                                                    float* grad_gamma, float* grad_beta, const DimSizes sizes,
+                                                    Qacc quant_acc){
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (k >= sizes.channel) return;
+
+    int idx = k * sizes.inner;
+
+    float grad_gamma_sum = 0.0f;
+    float grad_beta_sum = 0.0f;
+
+    for (int i = 0; i < sizes.outer * sizes.inner; i++){
+        int b = i / sizes.inner;
+        int t = i % sizes.inner;
+        int base_index = (b * sizes.channel * sizes.inner) + t;
+        const float* gradient = out_grad + base_index;
+        const float* xhat_grad = xhat_gradient + base_index;
+
+        grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
+        grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
+    }
+
+    grad_gamma[k] = grad_gamma_sum;
+    grad_beta[k] = grad_beta_sum;
+}
+
 template<class Qacc, class Qmul, class Qdiv, class Qsqrt>
 void layernorm_forward(const float* in_arr, const float* w_array, const float* b_array,
                     float* out_arr, float* m_array, float* r_array,
@@ -94,4 +178,24 @@ void layernorm_forward(const float* in_arr, const float* w_array, const float* b
     layernorm_forward_impl<<<blocks, block_size, shared_mem_size>>>(
         in_arr, w_array, b_array, out_arr, m_array, r_array, eps, sizes,
         quant_acc, quant_mul, quant_div, quant_sqrt);
+}
+
+template<class Qacc, class Qmul, class Qdiv>
+void layernorm_backward(const float* in_arr, const float* out_grad, 
+                        const float* w_array, const float* b_array,
+                        const float* m_array, const float* r_array,
+                        float* grad_input, float* grad_gamma, float* grad_beta, float* xhat_gradient,
+                        const DimSizes &sizes, Qacc quant_acc, Qmul quant_mul, Qdiv quant_div)
+{
+    int blocks = sizes.outer * sizes.inner;
+    int block_size = 64;
+    layernorm_backward_first_pass_impl<<<blocks, block_size>>>(
+        in_arr, out_grad, w_array, b_array, m_array, r_array, 
+        grad_input, xhat_gradient, sizes, 
+        quant_acc, quant_mul, quant_div);
+    blocks = sizes.channel / block_size + (sizes.channel % block_size != 0);
+    layernorm_backward_second_pass_impl<<<blocks, block_size>>>(
+        xhat_gradient, out_grad, 
+        grad_gamma, grad_beta, sizes, 
+        quant_acc);
 }
