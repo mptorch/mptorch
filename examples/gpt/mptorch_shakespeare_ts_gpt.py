@@ -133,7 +133,8 @@ layer_formats = qpt.QAffineFormats(
     weight_quant=(w_format, rounding),
     input_quant=(i_format, rounding),
     grad_quant=(g_format, rounding),
-    bias_quant=(fma_format, rounding)
+    bias_quant=(fma_format, rounding),
+    use_scaling=True
 )
 
 # hyperparameters

@@ -34,13 +34,13 @@ def compute_bias(x, cast_to: FloatType, margin=11):
     return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
 
 def scale(x, x_scale):
-    if x_scale != 0:
+    if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
     else:
         return x
 
 def unscale(x, x_scale):
-    if x_scale != 0:
+    if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), -x_scale)
     else:
         return x
