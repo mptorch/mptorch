@@ -109,12 +109,16 @@ __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_
                                                 float* out_arr, float* xhat_gradient, const DimSizes sizes,
                                                 Qacc quant_acc, Qmul quant_mul, Qdiv quant_div)
 {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    extern __shared__ float shared[];
 
-    if (i >= sizes.outer*sizes.inner) return;
+    int tid = threadIdx.x;
+    int warp = threadIdx.x / warpSize; // groups of 32 threads (which warp the thread belongs to)
+    int lane = threadIdx.x % warpSize; // a warp has 32 lanes (id of the thread in a warp)
 
-    int b = i / sizes.inner;
-    int t = i % sizes.inner;
+    int warpsPerBlock = blockDim.x / warpSize;
+
+    int b = blockIdx.x / sizes.inner;
+    int t = blockIdx.x % sizes.inner;
 
     int base_index = (b * sizes.channel * sizes.inner) + t;
     const float* input = in_arr + base_index;
@@ -122,39 +126,71 @@ __global__ void layernorm_backward_first_pass_impl(const float* __restrict__ in_
     float* output = out_arr + base_index;
     float* xhat_grad = xhat_gradient + base_index;
 
-    // get out current mean and rstd from earlier
     float m = m_array[b * sizes.inner + t];
     float r = r_array[b * sizes.inner + t];
 
     // two reduce operations
     float grad_sum = 0.0f;
     float grad_sum_xhat = 0.0f;
-    for (int k = 0; k < sizes.channel; k++){
+    for (int k = tid; k < sizes.channel; k += blockDim.x){
         int idx = k * sizes.inner;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
         float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float dot_xhat = quant_mul(xhat * norm_grad);
         grad_sum = quant_acc(grad_sum + norm_grad);
-        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
+        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat); 
     }
-    grad_sum = quant_div(grad_sum/sizes.channel);
-    grad_sum_xhat = quant_div(grad_sum_xhat/sizes.channel);
+    // grad_sum calculated by reducing similar to mean and variance from forward pass
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        grad_sum = quant_acc(grad_sum + __shfl_down_sync(0xffffffff, grad_sum, offset));
+    }
+    if (lane == 0){
+        shared[warp] = grad_sum;
+    }
+    __syncthreads();
+    if (tid == 0){
+        grad_sum = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            grad_sum = quant_acc(grad_sum + shared[i]);
+        }
+        shared[0] = quant_div(grad_sum/sizes.channel);
+    }
+    __syncthreads();
+    grad_sum = shared[0];
 
-    // iterate and accumulate 
-    for (int k = 0; k < sizes.channel; k++){
+    // grad_sum_xhat
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        grad_sum_xhat = quant_acc(grad_sum_xhat + __shfl_down_sync(0xffffffff, grad_sum_xhat, offset));
+    }
+    if (lane == 0){
+        shared[warp] = grad_sum_xhat;
+    }
+    __syncthreads();
+    if (tid == 0){
+        grad_sum_xhat = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            grad_sum_xhat = quant_acc(grad_sum_xhat + shared[i]);
+        }
+        shared[0] = quant_div(grad_sum_xhat/sizes.channel);
+    }
+    __syncthreads();
+    grad_sum_xhat = shared[0];
+
+    // computer input gradient through accumulation
+    for (int k = tid; k < sizes.channel; k += blockDim.x){
         int idx = k * sizes.inner;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
 
-        // save the xhat gradient for a second pass
-        // used for gradients of gamma (weights) and beta (biases)
+        // calculate xhat gradient and store in an array
+        // these values will be used in the second backward pass
         xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
 
-        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
 
-        // accumulate the input gradient
+        // input gradient calculation
         float grad_input = norm_grad;
         grad_input = quant_acc(grad_input - grad_sum);
         grad_input = quant_acc(grad_input - weighted_grad_sum);
@@ -173,7 +209,7 @@ __global__ void layernorm_backward_second_pass_impl(const float* __restrict__ xh
                                                     Qacc quant_acc){
     int k = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // iterate over size of channel rather than B*T
+    // iterate over size of channel rather than sizes.outer*sizes.inner
     if (k >= sizes.channel) return;
 
     int idx = k * sizes.inner;
@@ -225,7 +261,8 @@ void layernorm_backward(const float* in_arr, const float* out_grad,
 {
     int blocks = sizes.outer * sizes.inner;
     int block_size = 64;
-    layernorm_backward_first_pass_impl<<<blocks, block_size>>>(
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    layernorm_backward_first_pass_impl<<<blocks, block_size, shared_mem_size>>>(
         in_arr, out_grad, w_array, b_array, m_array, r_array, 
         grad_input, xhat_gradient, sizes, 
         quant_acc, quant_mul, quant_div);
