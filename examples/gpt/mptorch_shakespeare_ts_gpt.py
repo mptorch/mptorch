@@ -4,12 +4,16 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
+from mptorch.quant import cublas_acceleration
+import os
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
 import random
 import numpy as np
 import argparse
 import wandb
+
+cublas_acceleration.enabled = True
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
 # how many independent sequences will we process in parallel?
@@ -114,37 +118,24 @@ args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 
-qpt.cublas_acceleration.enabled = args.cuda
-
-rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
-fp_format = FloatingPoint(
-    exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
-)
+rounding = "nearest"
+fma_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, saturate=False)
 w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
 i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
-quant_g = lambda x: qpt.float_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, subnormals=True, saturate=False
-)
-quant_w = lambda x: qpt.float_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, subnormals=True, saturate=False
-)
-quant_b = lambda x: qpt.float_quantize(
-    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
-)
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format),
+    fwd_mac=fma_format,
     fwd_rnd=rounding,
-    bwd_mac=(fp_format),
+    bwd_mac=fma_format,
     bwd_rnd=rounding,
-    weight_quant=quant_w,
-    input_quant=quant_w,
-    grad_quant=quant_g,
-    bias_quant=quant_b,
+    weight_quant=(w_format, rounding),
+    input_quant=(i_format, rounding),
+    grad_quant=(g_format, rounding),
+    bias_quant=(fma_format, rounding),
+    use_scaling=True
 )
-
 
 # hyperparameters
 eval_iters = 10  # 200
@@ -235,7 +226,7 @@ class Head(nn.Module):
             args.n_embd, head_size, bias=False, formats=layer_formats
         )
         self.value = qpt.QLinear(
-            args.n_embd, head_size, bias=False, formats=layer_formats
+            args.n_embd, head_size, bias=False, formats=layer_formats,
         )
         self.register_buffer(
             "tril", torch.tril(torch.ones(args.block_size, args.block_size))
@@ -384,58 +375,64 @@ m = model.to(device)
 # print the number of parameters in the model
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
-# set up loss scaling
-init_scale = 2.0**16
-if device == "cpu" or init_scale is None:
-    scaler = None
+if os.path.exists("model.pth"):
+    m.load_state_dict(torch.load("model.pth"))
 else:
-    scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
+    # set up loss scaling
+    init_scale = 2**16
+    if device == "cpu" or init_scale is None:
+        scaler = None
+    else:
+        scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
 
-# create a PyTorch optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
-tq = tqdm(total=args.batch_size * args.max_iters)
-tq.set_description(f"Training progress")
-losses = estimate_loss()
-for iter in range(args.max_iters):
-    # every once in a while evaluate the loss on train and val sets
-    tq.update(args.batch_size)
-    tq.set_postfix(
-        train_loss="{:.5f}".format(losses["train"]),
-        val_loss="{:.5f}".format(losses["val"]),
-        epoch="{:d}".format(int(iter * args.batch_size / n)),
-        scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
-    )
-    if args.wandb:
-        wandb.log(
-            {
-                "train_loss": losses["train"],
-                "val_loss": losses["val"],
-                "epoch": int(iter * args.batch_size / n),
-                "iter": iter,
-                "scale": scaler.get_scale() if scaler is not None else 0.0,
-            }
+    # create a PyTorch optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    tq = tqdm(total=args.batch_size * args.max_iters)
+    tq.set_description(f"Training progress")
+    losses = estimate_loss()
+    for iter in range(args.max_iters):
+        # every once in a while evaluate the loss on train and val sets
+        tq.update(args.batch_size)
+        tq.set_postfix(
+            train_loss="{:.5f}".format(losses["train"]),
+            val_loss="{:.5f}".format(losses["val"]),
+            epoch="{:d}".format(int(iter * args.batch_size / n)),
+            scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
         )
-    if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
-        losses = estimate_loss()
+        if args.wandb:
+            wandb.log(
+                {
+                    "train_loss": losses["train"],
+                    "val_loss": losses["val"],
+                    "epoch": int(iter * args.batch_size / n),
+                    "iter": iter,
+                    "scale": scaler.get_scale() if scaler is not None else 0.0,
+                }
+            )
+        if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
+            losses = estimate_loss()
 
-    # sample a batch of data
-    xb, yb = get_batch("train")
+        # sample a batch of data
+        xb, yb = get_batch("train")
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    if scaler is None:
-        loss.backward()
-    else:
-        scaler.scale(loss).backward()
+        # evaluate the loss
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        if scaler is None:
+            loss.backward()
+        else:
+            scaler.scale(loss).backward()
 
-    if scaler is None:
-        optimizer.step()
-    else:
-        scaler.step(optimizer)
-        scaler.update()
+        if scaler is None:
+            optimizer.step()
+        else:
+            scaler.step(optimizer)
+            scaler.update()
 
-tq.close()
+    tq.close()
+    torch.save(m.state_dict(), "model.pth")
+
+m.eval()
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))

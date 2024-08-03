@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
-from mptorch import FloatingPoint
+from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
@@ -113,7 +113,6 @@ args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
-
 qpt.cublas_acceleration.enabled = args.cuda
 
 rounding = "nearest"
@@ -121,14 +120,14 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
-g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
-i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
-quant_g = lambda x: qpt.float_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, subnormals=True, saturate=False
+w_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
+g_format = SuperNormalFloat(exp=5, man=2, binades=4, saturate=False)
+i_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
+quant_g = lambda x: qpt.superfp_quantize(
+    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
 )
-quant_w = lambda x: qpt.float_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, subnormals=True, saturate=False
+quant_w = lambda x: qpt.superfp_quantize(
+    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
 )
 quant_b = lambda x: qpt.float_quantize(
     x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
