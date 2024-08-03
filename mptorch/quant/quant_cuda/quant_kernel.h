@@ -191,3 +191,22 @@ void softmax_backward_superfp_nearest(float *a, float *g, float *o,
                                 int man_add, int exp_add, int binades_add,
                                 int man_mul, int exp_mul, int binades_mul,
                                 bool saturate);
+
+void softmax_forward_binary8_nearest(float* a, float* o,
+                                const DimSizes& sizes,
+                                int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                int P_off, OverflowPolicy op_off, bool signed_off,
+                                int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                bool subnormals);
+
+void softmax_lse_forward_binary8_nearest(float* a, float* o,
+                                const DimSizes& sizes,
+                                int P_off, OverflowPolicy op_off, bool signed_off,
+                                int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                bool subnormals);
+
+void softmax_backward_binary8_nearest(float* a, float* g, float* o,
+                                const DimSizes& sizes,
+                                int P_add, OverflowPolicy op_add, bool signed_add,
+                                int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                bool subnormals);

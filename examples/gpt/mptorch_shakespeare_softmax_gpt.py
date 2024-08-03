@@ -4,6 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
+import mptorch.quant.functional as Q
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
 import random
@@ -108,6 +109,20 @@ parser.add_argument(
     metavar="N",
     help="Weights mantissa size (default: 2)",
 )
+parser.add_argument(
+    "--expSoftmax",
+    type=int,
+    default=8,
+    metavar="N",
+    help="Softmax exponent size (default: 8)",
+)
+parser.add_argument(
+    "--manSoftmax",
+    type=int,
+    default=10,
+    metavar="N",
+    help="Softmax mantissa size (default: 10)",
+)
 
 args = parser.parse_args()
 
@@ -116,8 +131,11 @@ device = "cuda" if args.cuda else "cpu"
 
 rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
-fp_format = FloatingPoint(
+fp_format_mac = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
+)
+fp_format_softmax = FloatingPoint(
+    exp=args.expSoftmax, man=args.manSoftmax, subnormals=True, saturate=False
 )
 quant_fp = lambda x: qpt.float_quantize(
     x,
@@ -129,14 +147,22 @@ quant_fp = lambda x: qpt.float_quantize(
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format),
+    fwd_mac=(fp_format_mac),
     fwd_rnd=rounding,
-    bwd_mac=(fp_format),
+    bwd_mac=(fp_format_mac),
     bwd_rnd=rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,
     grad_quant=quant_fp,
     bias_quant=quant_fp,
+)
+
+softmax_formats = qpt.QSoftmaxFormats(
+    fwd_off=fp_format_softmax,
+    fwd_exp=fp_format_softmax,
+    fwd_acc=fp_format_softmax,
+    bwd_add=fp_format_softmax,
+    bwd_mul=fp_format_softmax,
 )
 
 
@@ -158,10 +184,12 @@ if args.wandb:
             "n_head": args.n_head,
             "n_layer": args.n_layer,
             "dropout": dropout,
-            "fp_format_exp": args.expMac,
-            "fp_format_man": args.manMac,
-            "quant_fp_exp": args.expWeight,
-            "quant_fp_man": args.manWeight,
+            "fp_format_mac_exp": args.expMac,
+            "fp_format_mac_man": args.manMac,
+            "quant_fp_weight_exp": args.expWeight,
+            "quant_fp_weight_man": args.manWeight,
+            "fp_format_softmax_exp": args.expSoftmax,
+            "fp_format_softmax_man": args.manSoftmax,
         },
     )
 
@@ -250,7 +278,8 @@ class Head(nn.Module):
             * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
-        wei = F.softmax(wei, dim=-1)  # (B, T, T)
+        # wei = F.softmax(wei, dim=-1)  # (B, T, T)
+        wei = Q.qsoftmax(wei, dim=-1, formats=softmax_formats)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)

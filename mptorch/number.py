@@ -253,7 +253,7 @@ class Binary8(Number):
 
     def __repr__(self):
         return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
-               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy}"
+               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
     
     def __str__(self):
         return self.__repr__()

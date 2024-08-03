@@ -1,7 +1,12 @@
 #include "bit_helper.h"
 #include "quant.h"
-#include <cmath>
 #include "binary8.h"
+#include "softmax.h"
+#include <ATen/ATen.h>
+#include <cmath>
+
+#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
+#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
 float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
     const int exp_bits = 8 - P;
@@ -249,4 +254,130 @@ void binary8_unsigned_truncate(float *a, float *o, int size, int P, OverflowPoli
     for (int idx = 0; idx < size; ++idx) {
         o[idx] = cast_binary8_unsigned_truncate(a[idx], P, overflow_policy, subnormals);
     }
+}
+
+Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  // generate random number on the CPU for the SR operation
+  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                          int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward(
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, P_exp, op_exp, signed_exp] (float x) {
+      if (signed_exp) {
+        return cast_binary8_signed_nearest(x, P_exp, op_exp, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_exp, op_exp, subnormals);
+    },
+    [subnormals, P_off, op_off, signed_off] (float x) {
+      if (signed_off) {
+        return cast_binary8_signed_nearest(x, P_off, op_off, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_off, op_off, subnormals);
+    },
+    [subnormals, P_acc, op_acc, signed_acc] (float x) {
+      if (signed_acc) {
+        return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    }
+  );
+}
+
+void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                            int P_off, OverflowPolicy op_off, bool signed_off,
+                                            int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                            bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward(
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, P_off, op_off, signed_off] (float x) {
+      if (signed_off) {
+        return cast_binary8_signed_nearest(x, P_off, op_off, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_off, op_off, subnormals);
+    },
+    [subnormals, P_lse, op_lse, signed_lse] (float x) {
+      if (signed_lse) {
+        return cast_binary8_signed_nearest(x, P_lse, op_lse, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_lse, op_lse, subnormals);
+    }
+  );
+}
+
+void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                            int P_add, OverflowPolicy op_add, bool signed_add,
+                                            int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                            bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward(
+    a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, P_add, op_add, signed_add] (float x) {
+      if (signed_add) {
+        return cast_binary8_signed_nearest(x, P_add, op_add, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_add, op_add, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] (float x) {
+      if (signed_mul) {
+        return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+      }
+      return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    }
+  );
 }

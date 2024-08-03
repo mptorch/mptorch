@@ -1,9 +1,8 @@
+#pragma once
+
+#include "binary8.h"
 #include <cmath>
 #include <cstdint>
-#include "binary8.h"
-
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
 uint32_t extract_exponent(float *a);
 

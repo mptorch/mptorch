@@ -1,5 +1,6 @@
+#pragma once
+
 #include "quant.h"
-#include <cassert>
 #include <torch/torch.h>
 #include <cmath>
 

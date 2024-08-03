@@ -678,3 +678,41 @@ void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o
                                    man_mul, exp_mul, binades_mul,
                                    saturate);
 }
+
+void binary8_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
+                                          int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_exp, op_exp, signed_exp,
+                                  P_off, op_off, signed_off,
+                                  P_acc, op_acc, signed_acc,
+                                  subnormals);
+}
+
+void binary8_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_off, op_off, signed_off,
+                                  P_lse, op_lse, signed_lse,
+                                  subnormals);
+}
+
+void binary8_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
+                                          int P_add, OverflowPolicy op_add, bool signed_add,
+                                          int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                          bool subnormals)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward_binary8_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+                                  P_add, op_add, signed_add,
+                                  P_mul, op_mul, signed_mul,
+                                  subnormals);
+}
