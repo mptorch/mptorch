@@ -4,15 +4,12 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.quant import cublas_acceleration
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
 import random
 import numpy as np
 import argparse
 import wandb
-
-cublas_acceleration.enabled = True
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
 # how many independent sequences will we process in parallel?
@@ -116,7 +113,8 @@ args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
-qpt.cublas_acceleration(args.cuda)
+
+qpt.cublas_acceleration.enabled = args.cuda
 
 rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
