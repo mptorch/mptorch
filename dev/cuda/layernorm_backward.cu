@@ -307,9 +307,127 @@ __global__ void layernorm_backward_second_pass_kernel1(const float* __restrict__
     grad_beta[k] = grad_beta_sum;
 }
 
+__global__ void layernorm_backward_first_pass_kernel2(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
+                                const float* w_array, const float* b_array,
+                                const float* m_array, const float* r_array,  
+                                float* out_arr, float* xhat_gradient,
+                                int B, int T, int C)
+{
+    extern __shared__ float shared[];
 
-// This is mainly a reference using atomicAdd
-__global__ void layernorm_backward_kernel2(const float* __restrict__ in_arr, const float* out_grad, 
+    int tid = threadIdx.x;
+    int warp = threadIdx.x / warpSize; // groups of 32 threads (which warp the thread belongs to)
+    int lane = threadIdx.x % warpSize; // a warp has 32 lanes (id of the thread in a warp)
+
+    int warpsPerBlock = blockDim.x / warpSize;
+
+    int b = blockIdx.x / T;
+    int t = blockIdx.x % T;
+
+    int base_index = (b * C * T) + t;
+    const float* input = in_arr + base_index;
+    const float* gradient = out_grad + base_index;
+    float* output = out_arr + base_index;
+    float* xhat_grad = xhat_gradient + base_index;
+
+    float m = m_array[b * T + t];
+    float r = r_array[b * T + t];
+
+    // two reduce operations
+    // grad_sum
+    float grad_sum = 0.0f;
+    float grad_sum_xhat = 0.0f;
+    for (int k = tid; k < C; k += blockDim.x){
+        int idx = k * T;
+        float in_m = quant_acc(input[idx] - m);
+        float xhat = quant_mul(in_m * r);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        float dot_xhat = quant_mul(xhat * norm_grad);
+        grad_sum = quant_acc(grad_sum + norm_grad);
+        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat); 
+    }
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        grad_sum = quant_acc(grad_sum + __shfl_down_sync(0xffffffff, grad_sum, offset));
+    }
+    if (lane == 0){
+        shared[warp] = grad_sum;
+    }
+    __syncthreads();
+    if (tid == 0){
+        grad_sum = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            grad_sum = quant_acc(grad_sum + shared[i]);
+        }
+        shared[0] = quant_div(grad_sum/C);
+    }
+    __syncthreads();
+    grad_sum = shared[0];
+
+    // grad_sum_xhat
+    for (int offset = warpSize/2; offset > 0; offset /= 2){
+        grad_sum_xhat = quant_acc(grad_sum_xhat + __shfl_down_sync(0xffffffff, grad_sum_xhat, offset));
+    }
+    if (lane == 0){
+        shared[warp] = grad_sum_xhat;
+    }
+    __syncthreads();
+    if (tid == 0){
+        grad_sum_xhat = shared[0];
+        for (int i = 1; i < warpsPerBlock; i++){
+            grad_sum_xhat = quant_acc(grad_sum_xhat + shared[i]);
+        }
+        shared[0] = quant_div(grad_sum_xhat/C);
+    }
+    __syncthreads();
+    grad_sum_xhat = shared[0];
+
+    for (int k = tid; k < C; k += blockDim.x){
+        int idx = k * T;
+        float in_m = quant_acc(input[idx] - m);
+        float xhat = quant_mul(in_m * r);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
+
+        float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
+        float grad_input = norm_grad;
+        grad_input = quant_acc(grad_input - grad_sum);
+        grad_input = quant_acc(grad_input - weighted_grad_sum);
+        grad_input = quant_mul(grad_input * r);
+
+        output[idx] = grad_input;
+    }
+}
+
+__global__ void layernorm_backward_second_pass_kernel2(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
+                                                    float* grad_gamma, float* grad_beta,
+                                                    int B, int T, int C){
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (k >= C) return;
+
+    int idx = k * T;
+
+    float grad_gamma_sum = 0.0f;
+    float grad_beta_sum = 0.0f;
+
+    for (int i = 0; i < B * T; i++){
+        int b = i / T;
+        int t = i % T;
+        int base_index = (b * C * T) + t;
+        const float* gradient = out_grad + base_index;
+        const float* xhat_grad = xhat_gradient + base_index;
+
+        grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
+        grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
+    }
+
+    grad_gamma[k] = grad_gamma_sum;
+    grad_beta[k] = grad_beta_sum;
+}
+
+
+// reference kernel using atomicAdd w/o quant
+__global__ void layernorm_backward_kernel3(const float* __restrict__ in_arr, const float* out_grad, 
                                 const float* w_array, const float* b_array,
                                 const float* m_array, const float* r_array,
                                 float* grad_gamma, float* grad_beta, float* out_arr,
@@ -341,9 +459,9 @@ __global__ void layernorm_backward_kernel2(const float* __restrict__ in_arr, con
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-        float dot_xhat = quant_mul(xhat * grad_xhat);
-        grad_sum = quant_acc(grad_sum + grad_xhat);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
+        float dot_xhat = quant_mul(xhat * norm_grad);
+        grad_sum = quant_acc(grad_sum + norm_grad);
         grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat); 
     }
     for (int offset = warpSize/2; offset > 0; offset /= 2){
@@ -387,13 +505,13 @@ __global__ void layernorm_backward_kernel2(const float* __restrict__ in_arr, con
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
         float xhat_gradient = quant_mul(xhat * gradient[idx]);
-        float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
+        float norm_grad = quant_mul(w_array[k] * gradient[idx]);
 
         atomicAdd(&grad_gamma[k], xhat_gradient);
         atomicAdd(&grad_beta[k], gradient[idx]);
 
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
-        float grad_input = grad_xhat;
+        float grad_input = norm_grad;
         grad_input = quant_acc(grad_input - grad_sum);
         grad_input = quant_acc(grad_input - weighted_grad_sum);
         grad_input = quant_mul(grad_input * r);
@@ -408,7 +526,8 @@ void layernorm_backward_cuda1(const float* in_arr, const float* out_grad,
                             const float* w_array, const float* b_array,
                             const float* m_array, const float* r_array,
                             float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size){
+                            int B, int T, int C, int block_size)
+{
     int N = B * T;
     int blocks = N / block_size + (N % block_size != 0);
     float* xhat_gradient;
@@ -423,10 +542,27 @@ void layernorm_backward_cuda2(const float* in_arr, const float* out_grad,
                             const float* w_array, const float* b_array,
                             const float* m_array, const float* r_array,
                             float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size){
+                            int B, int T, int C, int block_size)
+{
     int blocks = B * T;
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
-    layernorm_backward_kernel2<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
+    float* xhat_gradient;
+    cudaCheck(cudaMalloc(&xhat_gradient, sizeof(float) * (B * T * C)));
+    layernorm_backward_first_pass_kernel2<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, out_arr, xhat_gradient, B, T, C);
+    blocks = C / block_size + (C % block_size != 0);
+    layernorm_backward_second_pass_kernel2<<<blocks, block_size>>>(xhat_gradient, out_grad, grad_gamma, grad_beta, B, T, C);
+    cudaCheck(cudaFree(xhat_gradient));
+}
+
+void layernorm_backward_cuda3(const float* in_arr, const float* out_grad, 
+                            const float* w_array, const float* b_array,
+                            const float* m_array, const float* r_array,
+                            float* grad_gamma, float* grad_beta, float* out_arr,
+                            int B, int T, int C, int block_size)
+{
+    int blocks = B * T;
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
+    layernorm_backward_kernel3<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
 }
 
 void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* out_grad, 
@@ -449,6 +585,13 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
                             grad_gamma, grad_beta, out_arr,
                             B, T, C, block_size);
             break;
+        case 3:
+            layernorm_backward_cuda3(in_arr, out_grad, 
+                            w_array, b_array,
+                            m_array, r_array,
+                            grad_gamma, grad_beta, out_arr,
+                            B, T, C, block_size);
+            break;
         default:
             printf("Invalid kernel number\n");
             exit(1);
@@ -459,7 +602,7 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
 int main(int argc, const char **argv) {
     setup_main();
 
-    const int norm_dims[] = {-1};
+    const int norm_dims[] = {-1, -2};
     const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
     const int dims[] = {40, 60, 300};
     const int n_dims = sizeof(dims)/sizeof(dims[0]);
