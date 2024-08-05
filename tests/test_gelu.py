@@ -12,12 +12,12 @@ def test_quantized_gelu():
     input_tensor = torch.randn(10, 10, requires_grad=True)
     regular_gelu_output = F.gelu(input_tensor)
     formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
-    quantized_gelu_output = qgelu(input_tensor, formats, 'none')
+    quantized_gelu_output = qgelu(input_tensor, formats, 'tanh')
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)
     if comparison:
         print("GELU MATCH")
     else:
-        print("GELU")
+        print("GELU FAIL")
     print("Regular GeLU Output:")
     print(regular_gelu_output)
     print("Quantized GeLU Output:")
@@ -26,7 +26,7 @@ def test_quantized_gelu():
 def test_qgelu_layer():
     input_tensor = torch.randn(10, 10, requires_grad=True)
     formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
-    qgelu_layer = QGeLU(formats, 'none')
+    qgelu_layer = QGeLU(formats, 'tanh')
     regular_gelu_output = F.gelu(input_tensor)
     quantized_gelu_output = qgelu_layer(input_tensor)
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)

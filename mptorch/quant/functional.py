@@ -456,9 +456,9 @@ class qgelu_kernel(torch.autograd.Function):
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
         if ctx.approximate == 'tanh':
-            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
-            cdf = 0.5 * (1 + quantized_intermediate_output)
-            grad_input = qgrad_output * (cdf + qinput * pdf)
+            tanh_term = torch.sqrt(2 / torch.tensor(3.141592653589793, device=qinput.device)) * (qinput + 0.044715 * qinput ** 3)
+            dtanh_term = 1 - quantized_intermediate_output ** 2
+            grad_input = qgrad_output * (0.5 * (1 + quantized_intermediate_output) + 0.5 * qinput * dtanh_term * (tanh_term + 0.134145 * qinput ** 3))
         else:
             cdf = 0.5 * (1 + quantized_intermediate_output)
             pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
@@ -468,7 +468,7 @@ class qgelu_kernel(torch.autograd.Function):
 
         return qgrad_input, None, None
 
-def qgelu(input, formats, approximate):
+def qgelu(input, formats, approximate='none'):
     return qgelu_kernel.apply(input, formats, approximate)
 
 class QGeLU(nn.Module):
