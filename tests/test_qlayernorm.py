@@ -45,9 +45,11 @@ def norm_formats(fp_format, quant_fp):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
 @pytest.mark.parametrize("normalized_shape", [[30, 40], [40]])
-def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
-    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, True, True, device)
-    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-5, True, True).to(device)
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("affine", [True, False])
+def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats, affine, bias):
+    layer = torch.nn.LayerNorm(normalized_shape, 1e-5, affine, bias, device)
+    qlayer = QLayerNorm(normalized_shape, norm_formats, 1e-5, affine, bias).to(device)
 
     x_ref = torch.rand(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
@@ -61,8 +63,10 @@ def test_qlayer_norm_custom(device, shape, normalized_shape, norm_formats):
     y_ref.backward(grad)
     y_res.backward(grad)
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=1e-5)
-    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-4, rtol=1e-4)
-    torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-4, rtol=1e-4)
+    if bias and affine:
+        torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-4, rtol=1e-4)
+    if affine:
+        torch.testing.assert_close(layer.weight.grad, qlayer.weight.grad, atol=1e-4, rtol=1e-4)
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("shape", [(20, 30, 40)])
