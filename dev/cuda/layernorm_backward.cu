@@ -426,8 +426,9 @@ __global__ void layernorm_backward_second_pass_kernel2(const float* __restrict__
 }
 
 
+
 // reference kernel using atomicAdd w/o quant
-__global__ void layernorm_backward_kernel3(const float* __restrict__ in_arr, const float* out_grad, 
+__global__ void layernorm_backward_kernel0(const float* __restrict__ in_arr, const float* out_grad, 
                                 const float* w_array, const float* b_array,
                                 const float* m_array, const float* r_array,
                                 float* grad_gamma, float* grad_beta, float* out_arr,
@@ -554,7 +555,8 @@ void layernorm_backward_cuda2(const float* in_arr, const float* out_grad,
     cudaCheck(cudaFree(xhat_gradient));
 }
 
-void layernorm_backward_cuda3(const float* in_arr, const float* out_grad, 
+// reference using atomic add
+void layernorm_backward_cuda0(const float* in_arr, const float* out_grad, 
                             const float* w_array, const float* b_array,
                             const float* m_array, const float* r_array,
                             float* grad_gamma, float* grad_beta, float* out_arr,
@@ -562,7 +564,7 @@ void layernorm_backward_cuda3(const float* in_arr, const float* out_grad,
 {
     int blocks = B * T;
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
-    layernorm_backward_kernel3<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
+    layernorm_backward_kernel0<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
 }
 
 void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* out_grad, 
@@ -571,6 +573,13 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
                             float* grad_gamma, float* grad_beta, float* out_arr,
                             int B, int T, int C, int block_size){
     switch (kernel_num){
+        case 0:
+            layernorm_backward_cuda0(in_arr, out_grad, 
+                            w_array, b_array,
+                            m_array, r_array,
+                            grad_gamma, grad_beta, out_arr,
+                            B, T, C, block_size);
+            break;
         case 1:
             layernorm_backward_cuda1(in_arr, out_grad, 
                             w_array, b_array,
@@ -580,13 +589,6 @@ void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* o
             break;
         case 2:
             layernorm_backward_cuda2(in_arr, out_grad, 
-                            w_array, b_array,
-                            m_array, r_array,
-                            grad_gamma, grad_beta, out_arr,
-                            B, T, C, block_size);
-            break;
-        case 3:
-            layernorm_backward_cuda3(in_arr, out_grad, 
                             w_array, b_array,
                             m_array, r_array,
                             grad_gamma, grad_beta, out_arr,
