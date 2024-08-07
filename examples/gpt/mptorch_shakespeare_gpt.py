@@ -83,14 +83,14 @@ parser.add_argument(
 parser.add_argument(
     "--expMac",
     type=int,
-    default=8,
+    default=5,
     metavar="N",
     help="MAC exponent size (default: 8)",
 )
 parser.add_argument(
     "--manMac",
     type=int,
-    default=7,
+    default=10,
     metavar="N",
     help="MAC mantissa size (default: 7)",
 )
@@ -114,18 +114,24 @@ args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 
+qpt.cublas_acceleration.enabled = args.cuda
+
 rounding = "nearest"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-quant_fp = lambda x: qpt.float_quantize(
-    x,
-    exp=args.expWeight,
-    man=args.manWeight,
-    rounding=rounding,
-    subnormals=True,
-    saturate=False,
+w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
+g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
+i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
+quant_g = lambda x: qpt.float_quantize(
+    x, exp=g_format.exp, man=g_format.man, rounding=rounding, subnormals=True, saturate=False
+)
+quant_w = lambda x: qpt.float_quantize(
+    x, exp=w_format.exp, man=w_format.man, rounding=rounding, subnormals=True, saturate=False
+)
+quant_b = lambda x: qpt.float_quantize(
+    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
 )
 
 layer_formats = qpt.QAffineFormats(
@@ -133,10 +139,10 @@ layer_formats = qpt.QAffineFormats(
     fwd_rnd=rounding,
     bwd_mac=(fp_format),
     bwd_rnd=rounding,
-    weight_quant=quant_fp,
-    input_quant=quant_fp,
-    grad_quant=quant_fp,
-    bias_quant=quant_fp,
+    weight_quant=quant_w,
+    input_quant=quant_w,
+    grad_quant=quant_g,
+    bias_quant=quant_b,
 )
 
 
@@ -379,7 +385,7 @@ m = model.to(device)
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
 # set up loss scaling
-init_scale = 256.0
+init_scale = 2.0**16
 if device == "cpu" or init_scale is None:
     scaler = None
 else:

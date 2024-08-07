@@ -245,6 +245,7 @@ void layernorm_forward(const float* in_arr, const float* w_array, const float* b
 {
     int blocks = sizes.outer * sizes.inner;
     int block_size = 64;
+    // printf("inner: %d, outer: %d, channel: %d", sizes.inner, sizes.outer, sizes.channel);
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
     layernorm_forward_impl<<<blocks, block_size, shared_mem_size>>>(
         in_arr, w_array, b_array, out_arr, m_array, r_array, eps, sizes,

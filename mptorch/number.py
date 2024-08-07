@@ -1,11 +1,21 @@
-__all__ = ["Number", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+__all__ = ["Number", "FloatType", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+
 
 class Number:
+    """Base class of all number formats."""
     def __init__(self):
         pass
 
-    def __str__(self):
-        raise NotImplemented
+    def __str__(self) -> str:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        raise NotImplementedError
+
+
+class FloatType(Number):
+    """Base class of float-like number formats."""
+    pass
 
 
 class FixedPoint(Number):
@@ -75,11 +85,11 @@ class FixedPoint(Number):
         return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
 
 
-class FloatingPoint(Number):
+class FloatingPoint(FloatType):
     """
     Low-Precision Floating Point Format.
 
-    We set the exponent bias to be :math:`2^{exp-1}`. For rounding
+    We set the exponent bias to be :math:`2^{exp-1} - 1`. For rounding
     mode, we apply *round to nearest even*.
 
     Args:
@@ -97,6 +107,10 @@ class FloatingPoint(Number):
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
+        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man) if subnormals else None
+        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man)) if subnormals else None
+        self.normal_max    = 2.0**(2**(self.exp-1)-1) * (2.0 - 2.0**(-self.man))
+        self.normal_min    = 2.0**(2 - 2**(self.exp-1))
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
@@ -116,7 +130,8 @@ class FloatingPoint(Number):
     def is_bfloat16(self) -> bool:
         return self.man == 7 and self.exp == 8
 
-class SuperNormalFloat(Number):
+
+class SuperNormalFloat(FloatType):
     """
     Low-Precision SuperNormal Floating Point Format.
 
@@ -139,6 +154,15 @@ class SuperNormalFloat(Number):
         self.man = man
         self.binades = binades
         self.saturate = saturate
+
+        min_exp = 1 - 2**exp + (binades - 1)
+        max_exp = 2**(exp-1) - 2 - (binades - 1)
+        self.subnormal_min = 2**(min_exp - binades * (2**man) + 2)
+        self.subnormal_max = 2**(min_exp - 1)
+        self.normal_min = 2**min_exp
+        self.normal_max = 2**max_exp
+        self.supernormal_min = 2**(max_exp + 1)
+        self.supernormal_max = 2**(max_exp + binades * (2**man) - 1 + int(saturate))
 
     def __str__(self):
         return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)
@@ -177,7 +201,7 @@ class BlockFloatingPoint(Number):
         return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
 
 
-class Binary8(Number):
+class Binary8(FloatType):
     """
     Low-Precision Binary8 Format following the P3109 standard.
 
@@ -253,7 +277,7 @@ class Binary8(Number):
 
     def __repr__(self):
         return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
-               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy}"
+               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
     
     def __str__(self):
         return self.__repr__()

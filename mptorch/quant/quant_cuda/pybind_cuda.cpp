@@ -376,6 +376,143 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output,
                                                 subnormals, saturate);
 }
 
+void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                            int man_exp, int exp_exp,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_forward_cuda(
+                              a, o, dim,
+                              man_exp, exp_exp,
+                              man_off, exp_off,
+                              man_acc, exp_acc,
+                              subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                            int man_off, int exp_off,
+                                            int man_lse, int exp_lse,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_lse_forward_cuda(
+                              a, o, dim,
+                              man_off, exp_off,
+                              man_lse, exp_lse,
+                              subnormals, saturate);
+}
+
+void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                            int man_add, int exp_add,
+                                            int man_mul, int exp_mul,
+                                            bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(g);
+      CHECK_INPUT(o);
+      float_quantize_nearest_softmax_backward_cuda(
+                              a, g, o, dim,
+                              man_add, exp_add,
+                              man_mul, exp_mul,
+                              subnormals, saturate);
+}
+
+
+void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      superfp_quantize_nearest_softmax_forward_cuda(
+                              a, o, dim,
+                              man_exp, exp_exp, binades_exp,
+                              man_off, exp_off, binades_off,
+                              man_acc, exp_acc, binades_acc,
+                              saturate);
+}
+
+void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      superfp_quantize_nearest_softmax_lse_forward_cuda(
+                              a, o, dim,
+                              man_off, exp_off, binades_off,
+                              man_lse, exp_lse, binades_lse,
+                              saturate);
+}
+
+void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(g);
+      CHECK_INPUT(o);
+      superfp_quantize_nearest_softmax_backward_cuda(
+                              a, g, o, dim,
+                              man_add, exp_add, binades_add,
+                              man_mul, exp_mul, binades_mul,
+                              saturate);
+}
+
+void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                          int P_exp, OverflowPolicy op_exp, bool signed_exp,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_forward_cuda(
+                              a, o, dim,
+                              P_exp, op_exp, signed_exp,
+                              P_off, op_off, signed_off,
+                              P_acc, op_acc, signed_acc,
+                              subnormals);
+}
+
+void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                          int P_off, OverflowPolicy op_off, bool signed_off,
+                                          int P_lse, OverflowPolicy op_lse, bool signed_lse,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_lse_forward_cuda(
+                              a, o, dim,
+                              P_off, op_off, signed_off,
+                              P_lse, op_lse, signed_lse,
+                              subnormals);
+}
+
+void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                          int P_add, OverflowPolicy op_add, bool signed_add,
+                                          int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                          bool subnormals)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(g);
+      CHECK_INPUT(o);
+      binary8_quantize_nearest_softmax_backward_cuda(
+                              a, g, o, dim,
+                              P_add, op_add, signed_add,
+                              P_mul, op_mul, signed_mul,
+                              subnormals);
+}
+
+
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
@@ -490,4 +627,25 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Low-Bitwidth Layer Normalization (CUDA)");
       m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
             "Low-Bitwidth Layer Normalization (CUDA)");
+      
+      m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward,
+            "Low-Bitwidth Floating Point Softmax Forward using division. (CUDA)");
+      m.def("float_quantize_nearest_softmax_lse_forward", &float_quantize_nearest_softmax_lse_forward,
+            "Low-Bitwidth Floating Point Softmax Forward using LogSumExp. (CUDA)");
+      m.def("float_quantize_nearest_softmax_backward", &float_quantize_nearest_softmax_backward,
+            "Low-Bitwidth Floating Point Softmax Backward. (CUDA)");
+      
+      m.def("superfp_quantize_nearest_softmax_forward", &superfp_quantize_nearest_softmax_forward,
+            "Low-Bitwidth Super Floating Point Softmax Forward using division. (CUDA)");
+      m.def("superfp_quantize_nearest_softmax_lse_forward", &superfp_quantize_nearest_softmax_lse_forward,
+            "Low-Bitwidth Super Floating Point Softmax Forward using LogSumExp. (CUDA)");
+      m.def("superfp_quantize_nearest_softmax_backward", &superfp_quantize_nearest_softmax_backward,
+            "Low-Bitwidth Super Floating Point Softmax Backward. (CUDA)");
+      
+      m.def("binary8_quantize_nearest_softmax_forward", &binary8_quantize_nearest_softmax_forward,
+            "Binary8 Softmax Forward using division. (CUDA)");
+      m.def("binary8_quantize_nearest_softmax_lse_forward", &binary8_quantize_nearest_softmax_lse_forward,
+            "Binary8 Softmax Forward using LogSumExp. (CUDA)");
+      m.def("binary8_quantize_nearest_softmax_backward", &binary8_quantize_nearest_softmax_backward,
+            "Binary8 Softmax Backward. (CUDA)");
 }

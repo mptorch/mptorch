@@ -15,73 +15,92 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from mptorch import FloatingPoint
-from mptorch.quant import float_quantize, qmatmul, cublas_acceleration
+from mptorch.quant import qmatmul
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
-from mptorch.quant import QAffineFormats
+from mptorch.quant import QAffineFormats, QSoftmaxFormats
+import mptorch.quant.functional as Q
+from mptorch import FloatingPoint
+from mptorch.quant import float_quantize
 
-from model import GPTConfig
+
+@dataclass
+class QGPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    # quantization
+    subnormals: bool = True
+    saturate: bool = False
+    rounding: str = "nearest"
+    fwd_mac: tuple[int, int] | None = None # (exp, man)
+    bwd_mac: tuple[int, int] | None = None
+    affine_input_fmt: tuple[int, int] | None = None
+    affine_output_fmt: tuple[int, int] | None = None
+    affine_grad_fmt: tuple[int, int] | None = None
+    weight_fmt: tuple[int, int] | None = None
+    bias_fmt: tuple[int, int] | None = None
+    softmax_input_fmt: tuple[int, int] | None = None
+    softmax_output_fmt: tuple[int, int] | None = None
+    softmax_grad_fmt: tuple[int, int] | None = None
+    softmax_fwd_off: tuple[int, int] | None = None
+    softmax_fwd_exp: tuple[int, int] | None = None
+    softmax_fwd_acc: tuple[int, int] | None = None
+    softmax_fwd_lse: tuple[int, int] | None = None
+    softmax_bwd_add: tuple[int, int] | None = None
+    softmax_bwd_mul: tuple[int, int] | None = None
 
 
-lowp_format = FloatingPoint(
-    exp=8, man=7, subnormals=True, saturate=False
-)
-highp_format = FloatingPoint(
-    exp=8, man=23, subnormals=True, saturate=False
-)
+# -----------------------------------------------------------------------------
+def make_float(config, fmt_name):
+    fmt = config.__dict__[fmt_name]
+    if fmt is None:
+        return None
+    exp, man = fmt
+    return FloatingPoint(exp=exp, man=man,
+                         subnormals=config.subnormals,
+                         saturate=config.saturate)
 
-activation_q = Quantizer(
-    forward_number=highp_format,
-    backward_number=highp_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
-)
+def make_quant(config, fmt_name):
+    fmt = config.__dict__[fmt_name]
+    if fmt is None:
+        return lambda x: x
+    exp, man = fmt
+    return lambda x: float_quantize(x, exp, man, rounding=config.rounding,
+                                    subnormals=config.subnormals,
+                                    saturate=config.saturate)
+def make_affine_formats(config):
+    return QAffineFormats(
+        fwd_mac=make_float(config, "fwd_mac"),
+        bwd_mac=make_float(config, "bwd_mac"),
+        fwd_rnd=config.rounding,
+        bwd_rnd=config.rounding,
+        weight_quant=make_quant(config, "weight_fmt"),
+        bias_quant=make_quant(config, "bias_fmt"),
+        input_quant=make_quant(config, "affine_input_fmt"),
+        output_quant=make_quant(config, "affine_output_fmt"),
+        grad_quant=make_quant(config, "affine_grad_fmt")
+    )
 
-softmax_q = Quantizer(
-    forward_number=lowp_format,
-    backward_number=lowp_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
-)
-
-param_q = lambda x: float_quantize(
-     x,
-     exp=8,
-     man=7,
-     rounding="nearest",
-     subnormals=True,
-     saturate=False,
-)
-
-affine_formats = QAffineFormats(
-     fwd_mac=(highp_format,),
-     bwd_mac=(highp_format,),
-     fwd_rnd="nearest",
-     bwd_rnd="nearest",
-     weight_quant=param_q,
-     bias_quant=param_q,
-     input_quant=param_q,
-     output_quant=param_q,
-)
-
-cublas_acceleration(True)
-
-# affine_formats = QAffineFormats(
-#     fwd_mac=None,
-#     bwd_mac=None,
-#     fwd_rnd="nearest",
-#     bwd_rnd="nearest",
-#    weight_quant=lambda x: x,
-#     bias_quant=lambda x: x,
-#     input_quant=lambda x: x,
-#     output_quant=lambda x: x,
-# )
-
-# layernorm_q = lambda x: float_quantize(
-#     x, exp=8, man=23, rounding="nearest", saturate=False
-# )
-
+def make_softmax_formats(config):
+    return QSoftmaxFormats(
+        fwd_off=make_float(config, "softmax_fwd_off"),
+        fwd_exp=make_float(config, "softmax_fwd_exp"),
+        fwd_acc=make_float(config, "softmax_fwd_acc"),
+        fwd_lse=make_float(config, "softmax_fwd_lse"),
+        bwd_add=make_float(config, "softmax_bwd_add"),
+        bwd_mul=make_float(config, "softmax_bwd_mul"),
+        fwd_rnd=config.rounding,
+        bwd_rnd=config.rounding,
+        input_quant=make_quant(config, "softmax_input_fmt"),
+        output_quant=make_quant(config, "softmax_output_fmt"),
+        grad_quant=make_quant(config, "softmax_grad_fmt"),
+    )
+# -----------------------------------------------------------------------------
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -99,10 +118,14 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+        self.softmax_formats = make_softmax_formats(config)
+        self.affine_formats = make_affine_formats(config)
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = QLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, formats=affine_formats) # quantization
+        self.c_attn = QLinear(config.n_embd, 3 * config.n_embd, bias=config.bias,
+                              formats=self.affine_formats) # quantization
         # output projection
-        self.c_proj = QLinear(config.n_embd, config.n_embd, bias=config.bias, formats=affine_formats) # quantization
+        self.c_proj = QLinear(config.n_embd, config.n_embd, bias=config.bias,
+                              formats=self.affine_formats) # quantization
         # regularization
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
@@ -124,14 +147,14 @@ class CausalSelfAttention(nn.Module):
 
         # manual implementation of attention
         # att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = qmatmul(q, k.transpose(-2, -1), formats=affine_formats) * (1.0 / math.sqrt(k.size(-1)))
+        # quantization
+        att = qmatmul(q, k.transpose(-2, -1), formats=self.affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        att = softmax_q(att) # quantization
-        att = F.softmax(att, dim=-1)
-        att = softmax_q(att) # quantization
+        att = Q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
         att = self.attn_dropout(att)
         # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = qmatmul(att, v, formats=affine_formats)
+        # quantization
+        y = qmatmul(att, v, formats=self.affine_formats)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
@@ -142,15 +165,16 @@ class MLP(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, formats=affine_formats) # quantization
+        self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias,
+                               formats=make_affine_formats(config)) # quantization
         self.gelu    = nn.GELU()
-        self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias, formats=affine_formats) # quantization
+        self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias,
+                               formats=make_affine_formats(config)) # quantization
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
-        x = activation_q(x) # quantization
         x = self.c_proj(x)
         x = self.dropout(x)
         return x
@@ -282,7 +306,7 @@ class QGPT(nn.Module):
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args['dropout'] = override_args['dropout']
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
+        config = QGPTConfig(**config_args)
         model = QGPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()

@@ -1,8 +1,8 @@
+#include "quant.h"
 #include <cmath>
 #include <cstdint>
 #include <vector>
 #include <ATen/ATen.h>
-#include "quant.h"
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {
@@ -25,7 +25,7 @@ float round(float a, float r, int sigma) {
   return a;
 }
 
-DimSizes dim_striding(Tensor input, std::vector<int> &dims){
+DimSizes partition_tensor(Tensor input, std::vector<int> &dims){
   DimSizes sizes;
   std::vector<int> real_dims(dims.size());
   for (int i = 0; i < dims.size(); i++){
@@ -48,6 +48,21 @@ DimSizes dim_striding(Tensor input, std::vector<int> &dims){
   sizes.inner = 1;
   for (int i = max_dim + 1; i < input.dim(); i++){
     sizes.inner *= input.size(i);
+  }
+  return sizes;
+}
+
+DimSizes partition_tensor(Tensor a, int dim) {
+  DimSizes sizes;
+  int real_dim = (a.dim() + (dim % a.dim())) % a.dim();
+  sizes.outer = 1;
+  sizes.channel = a.size(real_dim);
+  sizes.inner = 1;
+  for (int i = 0; i < real_dim; ++i) {
+    sizes.outer *= a.size(i);
+  }
+  for (int i = real_dim + 1; i < a.dim(); ++i) {
+    sizes.inner *= a.size(i);
   }
   return sizes;
 }
