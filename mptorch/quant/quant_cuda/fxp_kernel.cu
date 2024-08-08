@@ -583,7 +583,7 @@ void mm_fxp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   // TODO: change this to a fixed seed?!
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   mm_fxp_stochastic_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, state, M, K, N, sigma_add, t_min_add,
                                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
@@ -605,7 +605,7 @@ void bmm_fxp_stochastic(float *a, float *b, float *c, int B, int M, int K,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   // TODO: change this to a fixed seed?!
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   bmm_fxp_stochastic_impl<SHMEM_SIZE>
       <<<block_dim, thread_dim>>>(a, b, c, state, M, K, N, sigma_add, t_min_add,
                                   t_max_add, sigma_mul, t_min_mul, t_max_mul);
@@ -625,7 +625,7 @@ void mm_fxp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   // TODO: change this to a fixed seed?!
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   mm_fxp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, state, M, K, N, sigma_fma, t_min_fma, t_max_fma);
   cudaFree(state);
@@ -646,7 +646,7 @@ void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   // TODO: change this to a fixed seed?!
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   bmm_fxp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, state, M, K, N, sigma_fma, t_min_fma, t_max_fma);
   cudaFree(state);

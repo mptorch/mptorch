@@ -5,7 +5,7 @@
 #include <cstdint>
 #include "binary8_kernel.h"
 
-__global__ void seed_init(uint32_t seed, curandState_t *state);
+__global__ void seed_init(curandState_t *state);
 
 __global__ void fixed_point_quantize_kernel_stochastic(
     float *__restrict__ a, float *__restrict__ r, float *o, int size, int sigma,
