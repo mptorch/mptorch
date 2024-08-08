@@ -443,7 +443,7 @@ class qgelu_kernel(torch.autograd.Function):
             else:
                 intermediate_output = torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device)))
             
-            quantized_intermediate_output = formats.output_quant(intermediate_output)
+            quantized_intermediate_output = formats.inter_quant(intermediate_output)
             output = 0.5 * qinput * (1 + quantized_intermediate_output)
         
         qoutput = formats.output_quant(output)
@@ -462,7 +462,7 @@ class qgelu_kernel(torch.autograd.Function):
         else:
             cdf = 0.5 * (1 + quantized_intermediate_output)
             pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
-            grad_input = qgrad_output * (cdf + qinput * pdf)
+            grad_input =    qgrad_output * (cdf + qinput * pdf)
         
         qgrad_input = ctx.formats.grad_quant(grad_input)
 
@@ -471,11 +471,3 @@ class qgelu_kernel(torch.autograd.Function):
 def qgelu(input, formats, approximate='none'):
     return qgelu_kernel.apply(input, formats, approximate)
 
-class QGeLU(nn.Module):
-    def __init__(self, formats, approximate='none'):
-        super(QGeLU, self).__init__()
-        self.formats = formats
-        self.approximate = approximate
-
-    def forward(self, input):
-        return qgelu(input, self.formats, self.approximate)

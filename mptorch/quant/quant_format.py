@@ -2,7 +2,7 @@ from typing import Optional
 from ..number import Number
 from typing import Union, Optional, Tuple
 
-__all__ = ["QAffineFormats"]
+__all__ = ["QAffineFormats", "QGeLUFormats"]
 
 id_quant = lambda x: x
 
@@ -85,3 +85,17 @@ class QAffineFormats:
     
     def __str__(self) -> str:
         return self.__repr__()
+    
+class QGeLUFormats:
+    def __init__(self, input_quant=None, output_quant=None, grad_quant=None):
+        input_quant=id_quant
+        output_quant=id_quant
+        inter_quant=id_quant
+        grad_quant=id_quant
+        self.input_quant = input_quant 
+        self.output_quant = output_quant
+        self.inter_quant = inter_quant
+        self.grad_quant = grad_quant 
+
+def id_quant(x):
+    return x

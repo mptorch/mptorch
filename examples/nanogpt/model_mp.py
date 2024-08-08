@@ -20,6 +20,9 @@ from mptorch.quant import float_quantize, qmatmul, cublas_acceleration
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
 from mptorch.quant import QAffineFormats
+from mptorch.quant.modules.gelu import QGeLU
+from mptorch.quant.quant_format import QGeLUFormats
+from mptorch.quant import float_quantize
 
 from model import GPTConfig
 
@@ -142,8 +145,14 @@ class MLP(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        my_gelu_formats = QGeLUFormats(
+            input_quant=lambda x: float_quantize(x, exp=5, man=10, subnormals=True, rounding="nearest"),
+            output_quant=lambda x: float_quantize(x, exp=4, man=3, subnormals=True, rounding="nearest"), # can use different quantization function for each parameter
+            inter_quant=lambda x: float_quantize(x, exp=4, man=3, subnormals=True, rounding="nearest"),
+            grad_quant=lambda x: float_quantize(x, exp=5, man=10, subnormals=True, rounding="nearest"),
+        )
         self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, formats=affine_formats) # quantization
-        self.gelu    = nn.GELU()
+        self.gelu    = nn.QGeLU(formats=my_gelu_formats, approximate="tanh")
         self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias, formats=affine_formats) # quantization
         self.dropout = nn.Dropout(config.dropout)
 
