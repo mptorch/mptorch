@@ -455,6 +455,64 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
                                                     bool subnormals, bool saturate);
 
 /**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Using super floating point for intermediate calculations.
+*/
+void superfp_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                Tensor output, Tensor mean, Tensor rstd,
+                                                float eps, std::vector<int> &dims,
+                                                int man_acc, int exp_acc, int binades_acc,
+                                                int man_mul, int exp_mul, int binades_mul,
+                                                int man_div, int exp_div, int binades_div,
+                                                int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                                bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Using super floating point for intermediate calculations.
+*/                                             
+void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int man_acc, int exp_acc, int binades_acc,
+                                                    int man_mul, int exp_mul, int binades_mul,
+                                                    int man_div, int exp_div, int binades_div,
+                                                    bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Using binary8 floating point for intermediate calculations.
+*/
+void binary8_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                Tensor output, Tensor mean, Tensor rstd,
+                                                float eps, std::vector<int> &dims,
+                                                int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                                int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                                int P_div, OverflowPolicy op_div, bool signed_div,
+                                                int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                                bool subnormals);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Using binary8 floating point for intermediate calculations.
+*/                                             
+void binary8_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                                    bool subnormals);
+
+/**
  * Performs a softmax along the specified dimension, using custom floating
  * point formats for intermediate computations. This version implements
  * the regular accumulation of exponentials.

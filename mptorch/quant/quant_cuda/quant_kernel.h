@@ -171,6 +171,45 @@ void layernorm_backward_fp_nearest(float *input, float *grad_output,
                               int man_mul, int exp_mul,
                               int man_div, int exp_div,
                               bool subnormals, bool saturate);
+
+void layernorm_forward_superfp_nearest(float *input, float *weight, float *bias,
+                                    float *output, float *mean, float *rstd,
+                                    float eps, const DimSizes& sizes,
+                                    int man_acc, int exp_acc, int binades_acc,
+                                    int man_mul, int exp_mul, int binades_mul,
+                                    int man_div, int exp_div, int binades_div,
+                                    int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                    bool saturate);
+
+void layernorm_backward_superfp_nearest(float *input, float *grad_output,
+                                        float *weight, float *bias,
+                                        float *mean, float *rstd,
+                                        float *grad_input, float *grad_gamma, float *grad_beta, 
+                                        const DimSizes& sizes,
+                                        int man_acc, int exp_acc, int binades_acc,
+                                        int man_mul, int exp_mul, int binades_mul,
+                                        int man_div, int exp_div, int binades_div,
+                                        bool saturate);
+
+void layernorm_forward_binary8_nearest(float *input, float *weight, float *bias,
+                                    float *output, float *mean, float *rstd,
+                                    float eps, const DimSizes& sizes,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                    bool subnormals);
+
+void layernorm_backward_binary8_nearest(float *input, float *grad_output,
+                                        float *weight, float *bias,
+                                        float *mean, float *rstd,
+                                        float *grad_input, float *grad_gamma, float *grad_beta, 
+                                        const DimSizes& sizes,
+                                        int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                        int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                        int P_div, OverflowPolicy op_div, bool signed_div,
+                                        bool subnormals);
+
 void softmax_forward_fp_nearest(float *a, float *o,
                                 const DimSizes& sizes,
                                 int man_exp, int exp_exp,

@@ -670,6 +670,91 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
                                 man_div, exp_div,
                                 subnormals, saturate);
 }
+
+void superfp_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                  Tensor output, Tensor mean, Tensor rstd,
+                                                  float eps, std::vector<int> &dims,
+                                                  int man_acc, int exp_acc, int binades_acc,
+                                                  int man_mul, int exp_mul, int binades_mul,
+                                                  int man_div, int exp_div, int binades_div,
+                                                  int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                                  bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_forward_superfp_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+                              output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                              eps, sizes,
+                              man_acc, exp_acc, binades_acc,
+                              man_mul, exp_mul, binades_mul,
+                              man_div, exp_div, binades_div,
+                              man_sqrt, exp_sqrt, binades_sqrt,
+                              saturate);
+}
+
+void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int man_acc, int exp_acc, int binades_acc,
+                                                    int man_mul, int exp_mul, int binades_mul,
+                                                    int man_div, int exp_div, int binades_div,
+                                                    bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_backward_superfp_nearest(input.data_ptr<float>(), grad_output.data_ptr<float>(),
+                                weight.data_ptr<float>(), bias.data_ptr<float>(), 
+                                mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                                grad_input.data_ptr<float>(), grad_gamma.data_ptr<float>(), grad_beta.data_ptr<float>(),
+                                sizes,
+                                man_acc, exp_acc, binades_acc,
+                                man_mul, exp_mul, binades_mul,
+                                man_div, exp_div, binades_div,
+                                saturate);
+}
+
+void binary8_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
+                                                  Tensor output, Tensor mean, Tensor rstd,
+                                                  float eps, std::vector<int> &dims,
+                                                  int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                                  int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                                  int P_div, OverflowPolicy op_div, bool signed_div,
+                                                  int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                                  bool subnormals)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_forward_binary8_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+                              output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                              eps, sizes,
+                              P_acc, op_acc, signed_acc,
+                              P_mul, op_mul, signed_mul,
+                              P_div, op_div, signed_div,
+                              P_sqrt, op_sqrt, signed_sqrt,
+                              subnormals);
+}
+
+void binary8_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output, 
+                                                    Tensor weight, Tensor bias, 
+                                                    Tensor mean, Tensor rstd, 
+                                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                                    std::vector<int> &dims,
+                                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                                    bool subnormals)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_backward_binary8_nearest(input.data_ptr<float>(), grad_output.data_ptr<float>(),
+                                weight.data_ptr<float>(), bias.data_ptr<float>(), 
+                                mean.data_ptr<float>(), rstd.data_ptr<float>(),
+                                grad_input.data_ptr<float>(), grad_gamma.data_ptr<float>(), grad_beta.data_ptr<float>(),
+                                sizes,
+                                P_acc, op_acc, signed_acc,
+                                P_mul, op_mul, signed_mul,
+                                P_div, op_div, signed_div,
+                                subnormals);
+}
+
 void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,

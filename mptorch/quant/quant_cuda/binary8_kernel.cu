@@ -3,6 +3,7 @@
 #include "sim_helper.cu"
 #include "binary8_kernel.h"
 #include "softmax_kernel.h"
+#include "layernorm_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -350,4 +351,79 @@ void softmax_backward_binary8_nearest(float* a, float* g, float* o, const DimSiz
       return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
     }
   );
+}
+
+void layernorm_forward_binary8_nearest(float *input, float *weight, float *bias,
+                                float *output, float *mean, float *rstd,
+                                float eps, const DimSizes& sizes,
+                                int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                int P_div, OverflowPolicy op_div, bool signed_div,
+                                int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                bool subnormals)
+{
+  layernorm_forward(input, weight, bias, output, mean, rstd, eps, sizes,
+    [subnormals, P_acc, op_acc, signed_acc] __device__ (float x) {
+        if (signed_acc){
+            return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] __device__ (float x) {
+        if (signed_mul){
+            return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    },
+    [subnormals, P_div, op_div, signed_div] __device__ (float x) {
+        if (signed_div){
+            return cast_binary8_signed_nearest(x, P_div, op_div, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_div, op_div, subnormals);
+    },
+    [subnormals, P_sqrt, op_sqrt, signed_sqrt] __device__ (float x) {
+        if (signed_sqrt){
+            return cast_binary8_signed_nearest(x, P_sqrt, op_sqrt, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_sqrt, op_sqrt, subnormals);
+    }
+  );
+}
+
+void layernorm_backward_binary8_nearest(float *input, float *grad_output,
+                                float *weight, float *bias,
+                                float *mean, float *rstd,
+                                float *grad_input, float *grad_gamma, float *grad_beta,
+                                const DimSizes& sizes,
+                                int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                int P_div, OverflowPolicy op_div, bool signed_div,
+                                bool subnormals)
+{
+  // creating xhat_gradient, an array of all 0s for backward pass
+  // xhat_gradient is an output from the first pass of the backward
+  // used again as an input to the second pass of the backward
+  float* xhat_gradient;
+  cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
+  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes,
+    [subnormals, P_acc, op_acc, signed_acc] __device__ (float x) {
+        if (signed_acc){
+            return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] __device__ (float x) {
+        if (signed_mul){
+            return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    },
+    [subnormals, P_div, op_div, signed_div] __device__ (float x) {
+        if (signed_div){
+            return cast_binary8_signed_nearest(x, P_div, op_div, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_div, op_div, subnormals);
+    }
+  );
+  cudaFree(xhat_gradient);
 }

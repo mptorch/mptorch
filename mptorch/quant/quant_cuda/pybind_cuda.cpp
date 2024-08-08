@@ -376,6 +376,116 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output,
                                                 subnormals, saturate);
 }
 
+void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                    Tensor output, Tensor mean, Tensor rstd,
+                                    float eps, std::vector<int> &dims,
+                                    int man_acc, int exp_acc, int binades_acc,
+                                    int man_mul, int exp_mul, int binades_mul,
+                                    int man_div, int exp_div, int binades_div,
+                                    int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                    bool saturate)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(output);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      superfp_quantize_nearest_layernorm_forward_cuda(input, weight, bias,
+                                                output, mean, rstd,
+                                                eps, dims,
+                                                man_acc, exp_acc, binades_acc,
+                                                man_mul, exp_mul, binades_mul,
+                                                man_div, exp_div, binades_div,
+                                                man_sqrt, exp_sqrt, binades_sqrt,
+                                                saturate);
+}
+
+void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                    Tensor weight, Tensor bias, 
+                                    Tensor mean, Tensor rstd, 
+                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                    std::vector<int> &dims,
+                                    int man_acc, int exp_acc, int binades_acc,
+                                    int man_mul, int exp_mul, int binades_mul,
+                                    int man_div, int exp_div, int binades_div,
+                                    bool saturate)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(grad_output);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      CHECK_INPUT(grad_input);
+      CHECK_INPUT(grad_gamma);
+      CHECK_INPUT(grad_beta);
+      superfp_quantize_nearest_layernorm_backward_cuda(input, grad_output, 
+                                                weight, bias, 
+                                                mean, rstd, 
+                                                grad_input, grad_gamma, grad_beta,
+                                                dims,
+                                                man_acc, exp_acc, binades_acc,
+                                                man_mul, exp_mul, binades_mul,
+                                                man_div, exp_div, binades_div,
+                                                saturate);
+}
+
+void binary8_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                    Tensor output, Tensor mean, Tensor rstd,
+                                    float eps, std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                    bool subnormals)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(output);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      binary8_quantize_nearest_layernorm_forward_cuda(input, weight, bias,
+                                                output, mean, rstd,
+                                                eps, dims,
+                                                P_acc, op_acc, signed_acc,
+                                                P_mul, op_mul, signed_mul,
+                                                P_div, op_div, signed_div,
+                                                P_sqrt, op_sqrt, signed_sqrt,
+                                                subnormals);
+}
+
+void binary8_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                    Tensor weight, Tensor bias, 
+                                    Tensor mean, Tensor rstd, 
+                                    Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
+                                    std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    bool subnormals)
+{
+      CHECK_INPUT(input);
+      CHECK_INPUT(grad_output);
+      CHECK_INPUT(weight);
+      CHECK_INPUT(bias);
+      CHECK_INPUT(mean);
+      CHECK_INPUT(rstd);
+      CHECK_INPUT(grad_input);
+      CHECK_INPUT(grad_gamma);
+      CHECK_INPUT(grad_beta);
+      binary8_quantize_nearest_layernorm_backward_cuda(input, grad_output, 
+                                                weight, bias, 
+                                                mean, rstd, 
+                                                grad_input, grad_gamma, grad_beta,
+                                                dims,
+                                                P_acc, op_acc, signed_acc,
+                                                P_mul, op_mul, signed_mul,
+                                                P_div, op_div, signed_div,
+                                                subnormals);
+}
+
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,
@@ -622,11 +732,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &floating_point_bmm_cublas,
             "cuBLAS accelerated batched matrix multiply, using the specified precision "
             "and compute mode (CUDA)");
-
-      m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
-            "Low-Bitwidth Layer Normalization (CUDA)");
-      m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
-            "Low-Bitwidth Layer Normalization (CUDA)");
       
       m.def("float_quantize_nearest_softmax_forward", &float_quantize_nearest_softmax_forward,
             "Low-Bitwidth Floating Point Softmax Forward using division. (CUDA)");
@@ -648,4 +753,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Binary8 Softmax Forward using LogSumExp. (CUDA)");
       m.def("binary8_quantize_nearest_softmax_backward", &binary8_quantize_nearest_softmax_backward,
             "Binary8 Softmax Backward. (CUDA)");
+
+      m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
+            "Low-Bitwidth Floating Point Layer Normalization (CUDA)");
+      m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
+            "Low-Bitwidth Floating Point Layer Normalization Backward (CUDA)");
+
+      m.def("superfp_quantize_layernorm_forward", &superfp_quantize_layernorm_forward,
+            "Low-Bitwidth Super Floating Point Layer Normalization (CUDA)");
+      m.def("superfp_quantize_layernorm_backward", &superfp_quantize_layernorm_backward,
+            "Low-Bitwidth Super Floating Point Layer Normalization Backward (CUDA)");
+
+      m.def("binary8_quantize_layernorm_forward", &binary8_quantize_layernorm_forward,
+            "Low-Bitwidth binary8 Layer Normalization (CUDA)");
+      m.def("binary8_quantize_layernorm_backward", &binary8_quantize_layernorm_backward,
+            "Low-Bitwidth binary8 Layer Normalization Backward (CUDA)");
 }
