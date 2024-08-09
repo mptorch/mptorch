@@ -967,8 +967,10 @@ def superfp_mm(
         - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
         - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
         - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
+        - :attr: `binades_add` (int) : number of binades in the sub/sup normal range for addition operations
         - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
         - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
+        - :attr: `binades_mul` (int) : number of binades in the sub/sup normal range for multiplication operations
         - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable

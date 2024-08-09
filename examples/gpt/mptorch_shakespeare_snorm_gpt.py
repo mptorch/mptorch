@@ -2,15 +2,14 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
-from mptorch import FloatingPoint
+from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
 from mptorch.utils import trainer
-from mptorch.quant import cublas_acceleration
-from torch.profiler import profile, record_function, ProfilerActivity
 import random
 import numpy as np
 import argparse
+import wandb
 
 parser = argparse.ArgumentParser(description="GPT Skakespeare Example")
 # how many independent sequences will we process in parallel?
@@ -35,22 +34,22 @@ parser.add_argument(
 parser.add_argument(
     "--max_iters",
     type=int,
-    default=100,
+    default=5000,
     metavar="N",
-    help="number of iterations to train (default: 100)",
+    help="number of iterations to train (default: 5000)",
 )
 
 parser.add_argument(
     "--eval_interval",
     type=int,
-    default=10,
+    default=200,
     metavar="N",
-    help="evaluation interval (i.e. how often do we compute evaluation loss) (default: 10)",
+    help="evaluation interval (i.e. how often do we compute evaluation loss) (default: 200)",
 )
 parser.add_argument(
     "--n_embd",
     type=int,
-    default=384,
+    default=96,
     metavar="N",
     help="embedding dimension (default: 96)",
 )
@@ -79,23 +78,21 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 parser.add_argument(
+    "--wandb", action="store_true", default=False, help="wandb logging"
+)
+parser.add_argument(
     "--expMac",
     type=int,
     default=5,
     metavar="N",
-    help="MAC exponent size (default: 5)",
+    help="MAC exponent size (default: 8)",
 )
 parser.add_argument(
     "--manMac",
     type=int,
     default=10,
     metavar="N",
-    help="MAC mantissa size (default: 10)",
-)
-parser.add_argument(
-    "--no_mac_quant",
-    action="store_true",
-    help="No quantization on MAC",
+    help="MAC mantissa size (default: 7)",
 )
 parser.add_argument(
     "--expWeight",
@@ -111,80 +108,67 @@ parser.add_argument(
     metavar="N",
     help="Weights mantissa size (default: 2)",
 )
-parser.add_argument(
-    "--no_weight_quant",
-    action="store_true",
-    help="No quantization on parameters",
-)
-parser.add_argument(
-    "--cublas", action="store_true", default=False, help="enable cublas acceleration"
-)
-parser.add_argument(
-    "--profile",
-    action="store_true",
-    default=False,
-    help="profile the training and show summary table",
-)
 
 args = parser.parse_args()
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
-print("Using device:", device)
+qpt.cublas_acceleration.enabled = args.cuda
 
-cublas_acceleration.enable(args.cublas)
-print("Using cublas acceleration:", cublas_acceleration.enabled)
-
-mac_format = FloatingPoint(
+rounding = "nearest"
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
+w_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
+g_format = SuperNormalFloat(exp=5, man=2, binades=4, saturate=False)
+i_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
+quant_g = lambda x: qpt.superfp_quantize(
+    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
+)
+quant_w = lambda x: qpt.superfp_quantize(
+    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
+)
+quant_b = lambda x: qpt.float_quantize(
+    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
+)
 
-if not args.no_weight_quant:
-    weight_q = lambda x: qpt.float_quantize(
-        x,
-        exp=args.expWeight,
-        man=args.manWeight,
-        rounding="nearest",
-        subnormals=True,
-        saturate=False,
-    )
-    print("Using parameter quant: float_quantize("
-    f"man={args.expWeight}, exp={args.manWeight}, "
-    f"rounding=nearest, "
-    f"subnormals={True}, "
-    f"saturate={False})")
-else:
-    weight_q = lambda x: x
-    print("Using parameter quant: None")
-
-
-if not args.no_mac_quant:
-    layer_formats = qpt.QAffineFormats(
-        fwd_mac=(mac_format),
-        fwd_rnd="nearest",
-        bwd_mac=(mac_format),
-        bwd_rnd="nearest",
-        weight_quant=weight_q,
-        input_quant=weight_q,
-        grad_quant=weight_q,
-        bias_quant=weight_q,
-    )
-else:
-    layer_formats = qpt.QAffineFormats(
-        fwd_mac=None,
-        bwd_mac=None,
-        weight_quant=weight_q,
-        bias_quant=weight_q,
-        input_quant=weight_q,
-        output_quant=weight_q,
-    )
-print("Using affine formats:", layer_formats)
+layer_formats = qpt.QAffineFormats(
+    fwd_mac=(fp_format),
+    fwd_rnd=rounding,
+    bwd_mac=(fp_format),
+    bwd_rnd=rounding,
+    weight_quant=quant_w,
+    input_quant=quant_w,
+    grad_quant=quant_g,
+    bias_quant=quant_b,
+)
 
 
 # hyperparameters
 eval_iters = 10  # 200
 dropout = 0.2
 # ------------
+
+if args.wandb:
+    run = wandb.init(
+        # Set the project where this run will be logged
+        project="shakespeare-gpt mptorch",
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": args.learning_rate,
+            "iterations": args.max_iters,
+            "batch_size": args.batch_size,
+            "n_embd": args.n_embd,
+            "n_head": args.n_head,
+            "n_layer": args.n_layer,
+            "dropout": dropout,
+            "fp_format_exp": args.expMac,
+            "fp_format_man": args.manMac,
+            "quant_fp_exp": args.expWeight,
+            "quant_fp_man": args.manWeight,
+        },
+    )
 
 torch.manual_seed(1337)
 
@@ -400,7 +384,7 @@ m = model.to(device)
 print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 
 # set up loss scaling
-init_scale = 256.0
+init_scale = 2.0**16
 if device == "cpu" or init_scale is None:
     scaler = None
 else:
@@ -411,42 +395,46 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
-
-def train():
-    for iter in range(args.max_iters):
-        # every once in a while evaluate the loss on train and val sets
-        tq.update(args.batch_size)
-        tq.set_postfix(
-            train_loss="{:.5f}".format(losses["train"]),
-            val_loss="{:.5f}".format(losses["val"]),
-            epoch="{:d}".format(int(iter * args.batch_size / n)),
-            scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
+for iter in range(args.max_iters):
+    # every once in a while evaluate the loss on train and val sets
+    tq.update(args.batch_size)
+    tq.set_postfix(
+        train_loss="{:.5f}".format(losses["train"]),
+        val_loss="{:.5f}".format(losses["val"]),
+        epoch="{:d}".format(int(iter * args.batch_size / n)),
+        scale="{:.3E}".format(scaler.get_scale() if scaler is not None else 0.0),
+    )
+    if args.wandb:
+        wandb.log(
+            {
+                "train_loss": losses["train"],
+                "val_loss": losses["val"],
+                "epoch": int(iter * args.batch_size / n),
+                "iter": iter,
+                "scale": scaler.get_scale() if scaler is not None else 0.0,
+            }
         )
-        if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
-            losses = estimate_loss()
+    if (iter > 0 and iter % args.eval_interval == 0) or iter == args.max_iters - 1:
+        losses = estimate_loss()
 
-        # sample a batch of data
-        xb, yb = get_batch("train")
+    # sample a batch of data
+    xb, yb = get_batch("train")
 
-        # evaluate the loss
-        logits, loss = model(xb, yb)
-        optimizer.zero_grad(set_to_none=True)
-        if scaler is None:
-            loss.backward()
-        else:
-            scaler.scale(loss).backward()
+    # evaluate the loss
+    logits, loss = model(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    if scaler is None:
+        loss.backward()
+    else:
+        scaler.scale(loss).backward()
 
-        if scaler is None:
-            optimizer.step()
-        else:
-            scaler.step(optimizer)
-            scaler.update()
-
-if args.profile:
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        train()
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
-else:
-    train()
+    if scaler is None:
+        optimizer.step()
+    else:
+        scaler.step(optimizer)
+        scaler.update()
 
 tq.close()
+# generate from the model
+context = torch.zeros((1, 1), dtype=torch.long, device=device)
+print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))

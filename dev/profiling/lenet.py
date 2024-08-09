@@ -122,6 +122,12 @@ parser.add_argument(
 parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
 )
+parser.add_argument(
+    "--profile",
+    action="store_true",
+    default=False,
+    help="profile the training and show summary table",
+)
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -259,17 +265,22 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
+def train():
+    trainer(
+        model,
+        train_loader,
+        test_loader,
+        num_epochs=args.epochs,
+        lr=args.lr_init,
+        batch_size=args.batch_size,
+        optimizer=optimizer,
+        device=device,
+        init_scale=2.0**10,
+    )
 
-# with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-trainer(
-    model,
-    train_loader,
-    test_loader,
-    num_epochs=args.epochs,
-    lr=args.lr_init,
-    batch_size=args.batch_size,
-    optimizer=optimizer,
-    device=device,
-    init_scale=2.0**10,
-)
-# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+if args.profile:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        train()
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+else:
+    train()
