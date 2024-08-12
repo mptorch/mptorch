@@ -1,8 +1,8 @@
 import torch
 import torch.nn.functional as F
-import torch.nn as nn
-from mptorch.quant.functional import qgelu, QGeLU
-from mptorch.quant.quant_geluformat import QGeLUFormats
+from mptorch.quant.functional import qgelu
+from mptorch.quant import QGELU
+from mptorch.quant import QGELUFormats
 
 class MockQuant:
     def __call__(self, x):
@@ -11,7 +11,7 @@ class MockQuant:
 def test_quantized_gelu():
     input_tensor = torch.randn(10, 10, requires_grad=True)
     regular_gelu_output = F.gelu(input_tensor)
-    formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
+    formats = QGELUFormats(MockQuant(), MockQuant(), MockQuant())
     quantized_gelu_output = qgelu(input_tensor, formats, 'tanh')
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)
     if comparison:
@@ -25,8 +25,8 @@ def test_quantized_gelu():
 
 def test_qgelu_layer():
     input_tensor = torch.randn(10, 10, requires_grad=True)
-    formats = QGeLUFormats(MockQuant(), MockQuant(), MockQuant())
-    qgelu_layer = QGeLU(formats, 'tanh')
+    formats = QGELUFormats(MockQuant(), MockQuant(), MockQuant())
+    qgelu_layer = QGELU(formats, 'tanh')
     regular_gelu_output = F.gelu(input_tensor)
     quantized_gelu_output = qgelu_layer(input_tensor)
     comparison = torch.allclose(regular_gelu_output, quantized_gelu_output, atol=1e-5)
