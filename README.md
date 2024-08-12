@@ -160,3 +160,4 @@ in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/
 - [@Krafpy](https://github.com/Krafpy)
 - [@BobbbbbZ](https://github.com/BobbbbbZ)
 - [@nirvik-pande](https://github.com/nirvik-pande)
+- [@VictorRavain](https://github.com/VictorRavain)
