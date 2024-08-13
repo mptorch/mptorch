@@ -18,7 +18,8 @@ from torch.nn import functional as F
 from mptorch.quant import qmatmul
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
-from mptorch.quant import QAffineFormats, QSoftmaxFormats
+from mptorch.quant import QGELU
+from mptorch.quant import QAffineFormats, QSoftmaxFormats, QGELUFormats
 import mptorch.quant.functional as Q
 from mptorch import FloatingPoint
 from mptorch.quant import float_quantize
@@ -53,6 +54,10 @@ class QGPTConfig:
     softmax_fwd_lse: tuple[int, int] | None = None
     softmax_bwd_add: tuple[int, int] | None = None
     softmax_bwd_mul: tuple[int, int] | None = None
+    gelu_input_fmt: tuple[int, int] | None = None
+    gelu_inter_fmt: tuple[int, int] | None = None
+    gelu_output_fmt: tuple[int, int] | None = None
+    gelu_grad_fmt: tuple[int, int] | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -99,6 +104,14 @@ def make_softmax_formats(config):
         input_quant=make_quant(config, "softmax_input_fmt"),
         output_quant=make_quant(config, "softmax_output_fmt"),
         grad_quant=make_quant(config, "softmax_grad_fmt"),
+    )
+
+def make_gelu_formats(config):
+    return QGELUFormats(
+        input_quant=make_quant(config, "gelu_input_fmt"),
+        inter_quant=make_quant(config, "gelu_inter_fmt"),
+        output_quant=make_quant(config, "gelu_output_fmt"),
+        grad_quant=make_quant(config, "gelu_grad_fmt")
     )
 # -----------------------------------------------------------------------------
 
@@ -167,7 +180,7 @@ class MLP(nn.Module):
         super().__init__()
         self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias,
                                formats=make_affine_formats(config)) # quantization
-        self.gelu    = nn.GELU()
+        self.gelu    = QGELU(formats=make_gelu_formats(config))
         self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias,
                                formats=make_affine_formats(config)) # quantization
         self.dropout = nn.Dropout(config.dropout)
