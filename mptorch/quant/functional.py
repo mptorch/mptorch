@@ -551,7 +551,7 @@ class qgelu_kernel(torch.autograd.Function):
 
         with torch.no_grad():
             if approximate == 'tanh':
-                PI = torch.tensor(math.pi, device=input.device)
+                PI = torch.tensor(math.pi, device=qinput.device)
                 intermediate_output = torch.tanh(torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput ** 3))
             else:
                 SQRT2 = torch.tensor(1.41421356237, device=qinput.device)
