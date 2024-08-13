@@ -65,7 +65,7 @@ class qlinear_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.formats.bwd_use_default_prec:
-                qgrad_input = torch.bmm(qgrad_output, qweight)
+                qgrad_input = torch.matmul(qgrad_output, qweight)
             else:
                 qgrad_input = mp_bmm(
                     qgrad_output,
@@ -77,7 +77,7 @@ class qlinear_kernel(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             if ctx.formats.bwd_use_default_prec:
-                qgrad_weight = torch.bmm(qgrad_output.transpose(-2, -1), qinput)
+                qgrad_weight = torch.matmul(qgrad_output.transpose(-2, -1), qinput)
             else:
                 qgrad_weight = mp_bmm(
                     qgrad_output.transpose(-2, -1),
