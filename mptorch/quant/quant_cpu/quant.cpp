@@ -1,6 +1,6 @@
 #include "quant.h"
 #include "bit_helper.h"
-#include "binary8.h"
+#include "softmax.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -491,52 +491,109 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binade
   return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
 }
 
-Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                            int man_exp, int exp_exp,
+                                            int man_off, int exp_off,
+                                            int man_acc, int exp_acc,
+                                            bool subnormals, bool saturate)
 {
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward(
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, saturate, man_exp, exp_exp] (float x) {
+      return float_quantize(x, man_exp, exp_exp, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_off, exp_off] (float x) {
+      return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+    }
+  );
 }
 
-Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                                int man_off, int exp_off,
+                                                int man_lse, int exp_lse,
+                                                bool subnormals, bool saturate)
 {
-  auto o = zeros_like(a);
-  // generate random number on the CPU for the SR operation
-  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  }
-
-  return o;
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward(
+    a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, saturate, man_off, exp_off] (float x) {
+      return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_lse, exp_lse] (float x) {
+      return float_quantize(x, man_lse, exp_lse, rNearest, subnormals, saturate);
+    }
+  );
 }
 
-Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                             int man_add, int exp_add,
+                                             int man_mul, int exp_mul,
+                                             bool subnormals, bool saturate)
 {
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward(
+    a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [subnormals, saturate, man_add, exp_add] (float x) {
+      return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+    }
+  );
+}
 
-  if (is_signed == true){ // signed
-      binary8_signed_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
+void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_exp, exp_exp, binades_exp, saturate] (float x) { 
+      return superfp_quantize(x, man_exp, exp_exp, binades_exp, saturate);
+    },
+    [man_off, exp_off, binades_off, saturate] (float x) { 
+      return superfp_quantize(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_acc, exp_acc, binades_acc, saturate] (float x) { 
+      return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+    }
+  );
+}
 
-  return o;
+void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_lse_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_off, exp_off, binades_off, saturate] (float x) { 
+      return superfp_quantize(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_lse, exp_lse, binades_lse, saturate] (float x) { 
+      return superfp_quantize(x, man_lse, exp_lse, binades_lse, saturate);
+    }
+  );
+}
+
+void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate)
+{
+  auto sizes = partition_tensor(a, dim);
+  softmax_backward(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
+    [man_add, exp_add, binades_add, saturate] (float x) { 
+      return superfp_quantize(x, man_add, exp_add, binades_add, saturate);
+    },
+    [man_mul, exp_mul, binades_mul, saturate] (float x) { 
+      return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+    }
+  );
 }

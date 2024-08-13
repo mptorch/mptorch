@@ -19,6 +19,8 @@ from ast import literal_eval
 
 for arg in sys.argv[1:]:
     if '=' not in arg:
+        if not arg.endswith(".py"):
+            continue
         # assume it's the name of a config file
         assert not arg.startswith('--')
         config_file = arg
@@ -39,7 +41,8 @@ for arg in sys.argv[1:]:
                 # if that goes wrong, just use the string
                 attempt = val
             # ensure the types match ok
-            assert type(attempt) == type(globals()[key])
+            assert type(globals()[key]) == type(None) \
+                or type(attempt) == type(globals()[key])
             # cross fingers
             print(f"Overriding: {key} = {attempt}")
             globals()[key] = attempt

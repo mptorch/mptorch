@@ -1,5 +1,6 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
+#include "softmax_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -327,4 +328,57 @@ void bmm_superfp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
       static_cast<uint32_t>(B)};
   bmm_superfp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c, M, K, N, man_fma, exp_fma, binades_fma, saturate);
+}
+
+
+void softmax_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_exp, int exp_exp, int binades_exp,
+                                int man_off, int exp_off, int binades_off,
+                                int man_acc, int exp_acc, int binades_acc,
+                                bool saturate)
+{
+  softmax_forward(a, o, sizes,
+    [man_exp, exp_exp, binades_exp, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_exp, exp_exp, binades_exp, saturate);
+    },
+    [man_off, exp_off, binades_off, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_acc, exp_acc, binades_acc, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc, saturate);
+    }
+  );
+}
+
+void softmax_lse_forward_superfp_nearest(float *a, float *o,
+                                const DimSizes& sizes,
+                                int man_off, int exp_off, int binades_off,
+                                int man_lse, int exp_lse, int binades_lse,
+                                bool saturate)
+{
+  softmax_lse_forward(a, o, sizes,
+    [man_off, exp_off, binades_off, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_off, exp_off, binades_off, saturate);
+    },
+    [man_lse, exp_lse, binades_lse, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_lse, exp_lse, binades_lse, saturate);
+    }
+  );
+}
+
+void softmax_backward_superfp_nearest(float *a, float *g, float *o,
+                                const DimSizes& sizes,
+                                int man_add, int exp_add, int binades_add,
+                                int man_mul, int exp_mul, int binades_mul,
+                                bool saturate)
+{
+  softmax_backward(a, g, o, sizes,
+    [man_add, exp_add, binades_add, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_add, exp_add, binades_add, saturate);
+    },
+    [man_mul, exp_mul, binades_mul, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul, saturate);
+    }
+  );
 }

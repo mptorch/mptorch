@@ -171,9 +171,9 @@ def test_binary8_signed_nearest(device):
                 result1 = result.cpu() 
 
                 distance = (random_float - previous_fval) / (i_fval - previous_fval)
-                if(distance < 0.5):
+                if distance < 0.5:
                     assert result1 == previous_fval
-                else:
+                elif distance > 0.5:
                     assert result1 == i_fval
 
             previous_fval = i_fval

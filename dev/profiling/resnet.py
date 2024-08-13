@@ -6,6 +6,7 @@ from mptorch.optim import OptimMP
 import torch.nn as nn
 from mptorch.utils import trainer
 from mptorch.quant import cublas_acceleration
+from mptorch.quant import Quantizer
 import torchvision
 from torchvision import transforms
 import torch.nn.functional as F
@@ -102,6 +103,12 @@ parser.add_argument(
 )
 parser.add_argument(
     "--cublas", action="store_true", default=False, help="enable cublas acceleration"
+)
+parser.add_argument(
+    "--profile",
+    action="store_true",
+    default=False,
+    help="profile the training and show summary table",
 )
 
 args = parser.parse_args()
@@ -378,16 +385,23 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epo
 
 
 # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-trainer(
-    net,
-    train_loader,
-    test_loader,
-    num_epochs=args.epochs,
-    lr=args.lr_init,
-    batch_size=args.batch_size,
-    optimizer=optimizer,
-    device=device,
-    scheduler=scheduler,
-    init_scale=256.0,
-)
-# print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+def train():
+    trainer(
+        net,
+        train_loader,
+        test_loader,
+        num_epochs=args.epochs,
+        lr=args.lr_init,
+        batch_size=args.batch_size,
+        optimizer=optimizer,
+        device=device,
+        scheduler=scheduler,
+        init_scale=256.0,
+    )
+
+if args.profile:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        train()
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
+else:
+    train()

@@ -17,8 +17,28 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
-from model import GPTConfig, GPT
-from model_mp import QGPT
+from mptorch.quant import cublas_acceleration
+
+import sys
+import importlib.util
+
+
+# -----------------------------------------------------------------------------
+# Load the model module
+try:
+    # Load the module specification
+    _module_spec = importlib.util.spec_from_file_location(sys.argv[1], f"{sys.argv[1]}.py")
+    _model_module = importlib.util.module_from_spec(_module_spec)
+    _module_spec.loader.exec_module(_model_module)
+except IndexError:
+    print("Missing model module name as first argument.")
+    exit(1)
+except:
+    raise
+QGPTConfig = _model_module.QGPTConfig
+QGPT = _model_module.QGPT
+# -----------------------------------------------------------------------------
+
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -61,13 +81,27 @@ min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchi
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 # dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 dtype = 'float32'
-use_quant = False # used mptorch wrapped model
+# quantization with cublas
+use_cublas = False
+
+# model settings with quantization taken from default QGPTConfig values
+for field in QGPTConfig.__dataclass_fields__.values():
+    if not field.name in globals():
+        globals()[field.name] = field.default
+
+
 # -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+_allowed_types = (int, float, bool, str, type(None), tuple)
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, _allowed_types)]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+cublas_acceleration.enabled = use_cublas
+# -----------------------------------------------------------------------------
+
+print("Use cublas:", cublas_acceleration.enabled)
 
 # we are running on a single gpu, and one process
 tokens_per_iter = gradient_accumulation_steps * batch_size * block_size
@@ -75,6 +109,8 @@ print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
 os.makedirs(out_dir, exist_ok=True)
 torch.manual_seed(1337)
+torch.cuda.manual_seed(1337)
+torch.backends.cudnn.deterministic = True
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
 device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
@@ -115,8 +151,11 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+# start with model_args from command line
+model_args = {
+    field.name: globals()[field.name] for field in QGPTConfig.__dataclass_fields__.values()
+}
+
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
@@ -124,11 +163,8 @@ if init_from == 'scratch':
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
-    gptconf = GPTConfig(**model_args)
-    if use_quant:
-        model = QGPT(gptconf)
-    else:
-        model = GPT(gptconf)
+    gptconf = QGPTConfig(**model_args)
+    model = QGPT(gptconf)
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -140,11 +176,8 @@ elif init_from == 'resume':
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
-    if use_quant:
-        model = QGPT(gptconf)
-    else:
-        model = GPT(gptconf)
+    gptconf = QGPTConfig(**model_args)
+    model = QGPT(gptconf)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -159,10 +192,7 @@ elif init_from.startswith('gpt2'):
     print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
     # initialize from OpenAI GPT-2 weights
     override_args = dict(dropout=dropout)
-    if use_quant:
-        model = QGPT.from_pretrained(init_from, override_args)
-    else:
-        model = GPT.from_pretrained(init_from, override_args)
+    model = QGPT.from_pretrained(init_from, override_args)
     # read off the created config params, so we can store them into checkpoint correctly
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = getattr(model.config, k)
@@ -173,7 +203,7 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.cuda.amp.GradScaler(init_scale=256.0)
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
