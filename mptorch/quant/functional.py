@@ -436,10 +436,12 @@ class qgelu_kernel(torch.autograd.Function):
         ctx.formats = formats
         ctx.approximate = approximate
         qinput = formats.input_quant(input)
+
+        pi = torch.tensor(3.141592653589793, device=input.device)
         
         with torch.no_grad():
             if approximate == 'tanh':
-                intermediate_output = torch.tanh(torch.sqrt(2 / torch.tensor(3.141592653589793, device=qinput.device)) * (qinput + 0.044715 * qinput ** 3))
+                intermediate_output = torch.tanh(torch.sqrt(2 / pi) * (qinput + 0.044715 * qinput ** 3))
             else:
                 intermediate_output = torch.erf(qinput / torch.sqrt(torch.tensor(2.0, device=qinput.device)))
             
@@ -455,13 +457,15 @@ class qgelu_kernel(torch.autograd.Function):
         qinput, quantized_intermediate_output = ctx.saved_tensors
         qgrad_output = ctx.formats.grad_quant(grad_output)
 
+        pi = torch.tensor(3.141592653589793, device=grad_output.device)
+
         if ctx.approximate == 'tanh':
-            tanh_term = torch.sqrt(2 / torch.tensor(3.141592653589793, device=qinput.device)) * (qinput + 0.044715 * qinput ** 3)
+            tanh_term = torch.sqrt(2 / pi) * (qinput + 0.044715 * qinput ** 3)
             dtanh_term = 1 - quantized_intermediate_output ** 2
             grad_input = qgrad_output * (0.5 * (1 + quantized_intermediate_output) + 0.5 * qinput * dtanh_term * (tanh_term + 0.134145 * qinput ** 3))
         else:
             cdf = 0.5 * (1 + quantized_intermediate_output)
-            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(torch.tensor(2.0 * 3.141592653589793, device=qinput.device))
+            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(2.0 * pi)
             grad_input =    qgrad_output * (cdf + qinput * pdf)
         
         qgrad_input = ctx.formats.grad_quant(grad_input)
