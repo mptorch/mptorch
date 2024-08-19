@@ -8,28 +8,35 @@
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
+// quantize a float into a signed binary8 floating point with [8 - P] exponent and
+// [P - 1] mantissa using round to nearest, ties to even
 float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
-    const int exp_bits = 8 - P;
-    const int man_bits = P - 1;
+
     const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
-    // Early return for inf/NaN case
-    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+    // if input is NaN, return a NaN
+    if (exp_val == 128 && man_val != 0) {
         return origin_float;
     }
 
+    // if input is infinity, and overflow_policy is SATURATE_INFTY, return infinity
     if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
 
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
     int subnormal_shift = 0;
+
+    // subnormal logic
     if (subnormals) {
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if (((min_exp - exp_val) <= man_bits) && (exp_val < min_exp)) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -42,13 +49,15 @@ float cast_binary8_signed_nearest(float origin_float, int P, OverflowPolicy over
     return BITS_TO_FLOAT(&uval8);
 }
 
+// quantize a float into a signed binary8 floating point with [8 - P] exponent and
+// [P - 1] mantissa using stochastic rounding
 float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
-    const int exp_bits = 8 - P;
-    const int man_bits = P - 1;
+
     const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
-    // Early return for inf/NaN case
+
+    // if input is NaN, return a NaN
     if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
         return origin_float;
     }
@@ -57,12 +66,17 @@ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_pr
         return origin_float;
     }
 
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
     int subnormal_shift = 0;
+
+    // subnormal logic
     if (subnormals) {
         int spec_exp = (P == 1) ? 1 : 0;
         int max_exp = (1 << (exp_bits - 1)) - 1;
         int min_exp = spec_exp - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -77,15 +91,16 @@ float cast_binary8_signed_stochastic(float origin_float, int P, uint32_t rand_pr
     return BITS_TO_FLOAT(&uval8);
 }
 
+// truncate a float into a signed binary8 floating point with [8 - P] exponent and
+// [P - 1] mantissa
 float cast_binary8_signed_truncate(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
-    const int exp_bits = 8 - P;
-    const int man_bits = P - 1;
+
     const uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     const uint32_t man_val = uval32 & 0x7FFFFF;
 
-    // Early return for inf/NaN case
-    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+    // if input is NaN, return a NaN
+    if (exp_val == 128 && man_val != 0) { 
         return origin_float;
     }
 
@@ -93,12 +108,17 @@ float cast_binary8_signed_truncate(float origin_float, int P, OverflowPolicy ove
         return origin_float;
     }
 
+    const int exp_bits = 8 - P;
+    const int man_bits = P - 1;
     int subnormal_shift = 0;
+    
+    // subnormal logic
     if (subnormals) {
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -109,18 +129,23 @@ float cast_binary8_signed_truncate(float origin_float, int P, OverflowPolicy ove
     return BITS_TO_FLOAT(&uval8);
 }
 
+// quantize a float into an unsigned binary8 floating point with [8 - P + 1] exponent and
+// [P - 1] mantissa using round to nearest, ties to even
 float cast_binary8_unsigned_nearest(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
+    
+    // if negative, return NaN
     if (origin_float < 0) return NAN;
 
     uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    // Early return for inf/NaN case
-    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+    // if input is NaN, return a NaN
+    if (exp_val == 128 && man_val != 0) { 
         return origin_float;
     }
 
+    // if input is infinity, and overflow_policy is SATURATE_INFTY, return infinity
     if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
@@ -129,10 +154,12 @@ float cast_binary8_unsigned_nearest(float origin_float, int P, OverflowPolicy ov
     const int man_bits = P - 1;
     int subnormal_shift = 0;
 
+    // subnormal logic
     if (subnormals) {
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = (P == 1) - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if ((min_exp - exp_val) <= man_bits && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -140,13 +167,17 @@ float cast_binary8_unsigned_nearest(float origin_float, int P, OverflowPolicy ov
 
     uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
                                : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
-
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
 
     return BITS_TO_FLOAT(&uval8);
 }
 
+
+// quantize a float into an unsigned binary8 floating point with [8 - P + 1] exponent and
+// [P - 1] mantissa using stochastic rounding
 float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_prob, int prng_bits, OverflowPolicy overflow_policy, bool subnormals) {
+    
+    // if negative, return NaN
     if (origin_float < 0) return NAN;
 
     uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
@@ -158,6 +189,8 @@ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_
         return origin_float;
     }
 
+
+    // if input is NaN, return a NaN
     if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
         return origin_float;
     }
@@ -166,11 +199,14 @@ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_
     const int man_bits = P - 1;
     int subnormal_shift = 0;
 
+
+    // subnormal logic
     if (subnormals) {
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -185,19 +221,24 @@ float cast_binary8_unsigned_stochastic(float origin_float, int P, uint32_t rand_
     return BITS_TO_FLOAT(&uval8);
 }
 
+// truncate a float into an unsigned binary8 floating point with [8 - P + 1] exponent and
+// [P - 1] mantissa
 float cast_binary8_unsigned_truncate(float origin_float, int P, OverflowPolicy overflow_policy, bool subnormals) {
+    
+    // if negative, return NaN
     if (origin_float < 0) return NAN;
 
     uint32_t uval32 = FLOAT_TO_BITS(&origin_float);
     const int exp_val = (uval32 << 1 >> 24) - 127;
     uint32_t man_val = uval32 & 0x7FFFFF;
 
-    // Early return for inf/NaN case
-    if (exp_val == 128 && man_val != 0) { // if input nan return nan anyway
+    // if input is NaN, return a NaN
+    if (exp_val == 128 && man_val != 0) {
         return origin_float;
     }
 
-    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) { //if input is infty and overflow_policy is SATURATE_INFTY
+    // if input is infinity, and overflow_policy is SATURATE_INFTY, return infinity
+    if (overflow_policy == OverflowPolicy::SATURATE_INFTY && exp_val == 128 && man_val == 0) {
         return origin_float;
     }
 
@@ -205,11 +246,13 @@ float cast_binary8_unsigned_truncate(float origin_float, int P, OverflowPolicy o
     const int man_bits = P - 1;
     int subnormal_shift = 0;
 
+    // subnormal logic
     if (subnormals) {
         const int spec_exp = (P == 1) ? 1 : 0;
         const int max_exp = (1 << (exp_bits - 1)) - 1;
         const int min_exp = spec_exp - max_exp;
 
+        // subnormal shifts for values in the subnormal range
         if (((min_exp - exp_val) <= man_bits) && exp_val < min_exp) {
             subnormal_shift = min_exp - exp_val;
         }
@@ -217,6 +260,7 @@ float cast_binary8_unsigned_truncate(float origin_float, int P, OverflowPolicy o
 
     uint32_t uval8 = uval32 >> (23 - man_bits + subnormal_shift) << (23 - man_bits + subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
+    
     return BITS_TO_FLOAT(&uval8);
 }
 
@@ -259,12 +303,12 @@ void binary8_unsigned_truncate(float *a, float *o, int size, int P, OverflowPoli
 Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
+  int size = a.numel(); 
 
-  if (is_signed == true){ // signed
+  if (is_signed == true){ 
       binary8_signed_nearest(
       a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
+  } else { 
       binary8_unsigned_nearest(
       a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
   }
@@ -275,14 +319,13 @@ Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPol
 Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
-  // generate random number on the CPU for the SR operation
   auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
-  int size = a.numel(); // gets number of elements in tensor a
+  int size = a.numel(); 
 
-  if (is_signed == true){ // signed
+  if (is_signed == true){ 
       binary8_signed_stochastic(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  } else {  // unsigned
+  } else {  
       binary8_unsigned_stochastic(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
   }
@@ -293,12 +336,12 @@ Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_s
 Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
 {
   auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
+  int size = a.numel();
 
-  if (is_signed == true){ // signed
+  if (is_signed == true){
       binary8_signed_truncate(
       a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
+  } else {  
       binary8_unsigned_truncate(
       a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
   }
