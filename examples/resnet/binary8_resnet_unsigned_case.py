@@ -46,14 +46,14 @@ parser.add_argument(
     help="mantissa size (default: 2)",
 )
 parser.add_argument(
-    "--exp_acc",
+    "--exp_add",
     type=int,
     default=8,
     metavar="N",
     help="exponent size (default: 8)",
 )
 parser.add_argument(
-    "--man_acc",
+    "--man_add",
     type=int,
     default=7,
     metavar="N",
@@ -174,7 +174,7 @@ fpmul = FloatingPoint(
     exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=True
 )
 fpacc = FloatingPoint(
-    exp=args.exp_acc, man=args.man_acc, subnormals=True, saturate=True
+    exp=args.exp_add, man=args.man_add, subnormals=True, saturate=True
 )
 
 transform_train = transforms.Compose(
