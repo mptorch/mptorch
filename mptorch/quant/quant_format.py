@@ -261,10 +261,10 @@ class QSoftmaxFormats:
 class QGELUFormats:
     def __init__(
         self,
-        input_quant=id_quant,
-        inter_quant=id_quant,
-        output_quant=id_quant,
-        grad_quant=id_quant,
+        input_quant: Callable = id_quant,
+        inter_quant: Optional[Callable] = None,
+        output_quant: Callable = id_quant,
+        grad_quant: Callable = id_quant,
     ):
         self.input_quant = input_quant 
         self.inter_quant = inter_quant
