@@ -54,7 +54,6 @@ class QGPTConfig:
     softmax_fwd_lse: tuple[int, int] | None = None
     softmax_bwd_add: tuple[int, int] | None = None
     softmax_bwd_mul: tuple[int, int] | None = None
-
 	layernorm_fwd_acc: tuple[int, int] | None = None
 	layernorm_fwd_mul: tuple[int, int] | None = None
 	layernorm_fwd_div: tuple[int, int] | None = None
@@ -115,20 +114,20 @@ def make_softmax_formats(config):
 
 def make_layernorm_formats(config):
 	return QLayerNormFormats(
-	fwd_acc=make_float(config, "layernorm_fwd_acc"),
-	fwd_mul=make_float(config, "layernorm_fwd_mul"),
-	fwd_div=make_float(config, "layernorm_fwd_div"),
-	fwd_sqrt=make_float(config, "layernorm_fwd_sqrt"),
-	bwd_acc=make_float(config, "layernorm_bwd_acc"),
-	bwd_mul=make_float(config, "layernorm_bwd_mul"),
-	bwd_div=make_float(config, "layernorm_bwd_div"),
-	fwd_rnd=config.rounding,
-	bwd_rnd=config.rounding,
-	input_quant=make_quant(config, "layernorm_input_fmt"),
-	output_quant=make_quant(config, "layernorm_output_fmt"),
-	grad_quant=make_quant(config, "layernorm_grad_fmt"),
-	weight_quant=make_quant(config, "layernorm_weight_fmt"),
-	bias_quant=make_quant(config, "layernorm_bias_fmt")
+		fwd_acc=make_float(config, "layernorm_fwd_acc"),
+		fwd_mul=make_float(config, "layernorm_fwd_mul"),
+		fwd_div=make_float(config, "layernorm_fwd_div"),
+		fwd_sqrt=make_float(config, "layernorm_fwd_sqrt"),
+		bwd_acc=make_float(config, "layernorm_bwd_acc"),
+		bwd_mul=make_float(config, "layernorm_bwd_mul"),
+		bwd_div=make_float(config, "layernorm_bwd_div"),
+		fwd_rnd=config.rounding,
+		bwd_rnd=config.rounding,
+		input_quant=make_quant(config, "layernorm_input_fmt"),
+		output_quant=make_quant(config, "layernorm_output_fmt"),
+		grad_quant=make_quant(config, "layernorm_grad_fmt"),
+		weight_quant=make_quant(config, "layernorm_weight_fmt"),
+		bias_quant=make_quant(config, "layernorm_bias_fmt")
 	)
 # -----------------------------------------------------------------------------
 
@@ -148,6 +147,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+		self.layernorm_formats = make_layernorm_formats(config)
         self.softmax_formats = make_softmax_formats(config)
         self.affine_formats = make_affine_formats(config)
         # key, query, value projections for all heads, but in a batch
@@ -181,8 +181,8 @@ class CausalSelfAttention(nn.Module):
         att = qmatmul(q, k.transpose(-2, -1), formats=self.affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
         #att = q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
-	att = F.softmax(att, dim=-1)
-	att = self.attn_dropout(att)
+		att = F.softmax(att, dim=-1)
+		att = self.attn_dropout(att)
         # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         # quantization
         y = qmatmul(att, v, formats=self.affine_formats)
@@ -214,9 +214,9 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = QLayerNorm(config.n_embd, bias=config.bias)
+        self.ln_1 = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats)
         self.attn = CausalSelfAttention(config)
-        self.ln_2 = QLayerNorm(config.n_embd, bias=config.bias)
+        self.ln_2 = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats)
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -237,7 +237,7 @@ class QGPT(nn.Module):
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = QLayerNorm(config.n_embd, bias=config.bias),
+            ln_f = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
