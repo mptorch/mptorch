@@ -17,6 +17,7 @@ __all__ = [
     "qmean",
     "qlayernorm",
     "qsoftmax",
+    "qgelu",
 ]
 
 # Utility functions to perform tensor scaling operations in low precison (8-bit and
@@ -615,3 +616,50 @@ class qsoftmax_kernel(torch.autograd.Function):
 
 def qsoftmax(x, dim, formats):
     return qsoftmax_kernel.apply(x, dim, formats)
+
+
+class qgelu_kernel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, formats, approximate):
+        ctx.formats = formats
+        ctx.approximate = approximate
+        qinput = formats.input_quant(input)
+
+        with torch.no_grad():
+            if approximate == 'tanh':
+                PI = torch.tensor(math.pi, device=qinput.device)
+                intermediate_output = torch.tanh(torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput ** 3))
+            else:
+                SQRT2 = torch.tensor(1.41421356237, device=qinput.device)
+                intermediate_output = torch.erf(qinput / SQRT2)
+            
+            quantized_intermediate_output = formats.inter_quant(intermediate_output)
+            output = 0.5 * qinput * (1 + quantized_intermediate_output)
+        
+        qoutput = formats.output_quant(output)
+        ctx.save_for_backward(qinput, quantized_intermediate_output)
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        qinput, quantized_intermediate_output = ctx.saved_tensors
+        qgrad_output = ctx.formats.grad_quant(grad_output)
+
+        PI = torch.tensor(math.pi, device=grad_output.device)
+
+        if ctx.approximate == 'tanh':
+            tanh_term = torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput ** 3)
+            dtanh_term = 1 - quantized_intermediate_output ** 2
+            grad_input = qgrad_output * (0.5 * (1 + quantized_intermediate_output) + 0.5 * qinput * dtanh_term * (tanh_term + 0.134145 * qinput ** 3))
+        else:
+            cdf = 0.5 * (1 + quantized_intermediate_output)
+            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(2.0 * PI)
+            grad_input = qgrad_output * (cdf + qinput * pdf)
+        
+        qgrad_input = ctx.formats.grad_quant(grad_input)
+
+        return qgrad_input, None, None
+
+def qgelu(input, formats, approximate='none'):
+    return qgelu_kernel.apply(input, formats, approximate)
+

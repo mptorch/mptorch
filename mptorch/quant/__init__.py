@@ -15,5 +15,6 @@ __all__ = [
     "QAffineFormats",
     "QLayerNormFormats",
     "QSoftmaxFormats",
+    "QGELUFormats",
     "qmatmul",
 ]

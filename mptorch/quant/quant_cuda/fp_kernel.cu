@@ -122,8 +122,8 @@ __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob, int 
 }
 
 
-__global__ void seed_init(uint32_t seed, curandState_t *state) {
-  curand_init(seed, blockIdx.x * blockIdx.y, 0,
+__global__ void seed_init(curandState_t *state) {
+  curand_init(clock64(), blockIdx.x * blockIdx.y, 0,
               &state[blockIdx.x * blockIdx.y]);
 }
 
@@ -883,7 +883,7 @@ void mm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   mm_fp_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data<int>(),
@@ -905,7 +905,7 @@ void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   bmm_fp_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data<int>(),
@@ -926,7 +926,7 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   mm_fp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data_ptr<int>(),
@@ -948,7 +948,7 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   curandState_t *state;
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(time(0), state);
+  seed_init<<<block_dim, 1>>>(state);
   bmm_fp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
       state, // rand_ints.data_ptr<int>(),

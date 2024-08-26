@@ -3,7 +3,7 @@ from ..number import *
 from typing import Union, Optional, Tuple, Callable
 from .quant_function import *
 
-__all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats"]
+__all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats", "QLayerNormFormats"]
 
 id_quant = lambda x: x
 
@@ -327,3 +327,17 @@ class QSoftmaxFormats:
     
     def __str__(self) -> str:
         return self.__repr__()
+
+
+class QGELUFormats:
+    def __init__(
+        self,
+        input_quant: Callable = id_quant,
+        inter_quant: Optional[Callable] = None,
+        output_quant: Callable = id_quant,
+        grad_quant: Callable = id_quant,
+    ):
+        self.input_quant = input_quant 
+        self.inter_quant = inter_quant
+        self.output_quant = output_quant
+        self.grad_quant = grad_quant
