@@ -11,6 +11,7 @@ from .quantizer import Quantizer
 from .batchnorm import QBatchNorm, QBatchNorm1d, QBatchNorm2d
 from .layernorm import QLayerNorm
 from .softmax import QSoftmax
+from .gelu import QGELU
 
 __all__ = [
     "Quantizer",
@@ -27,4 +28,5 @@ __all__ = [
     "QBatchNorm2d",
     "QLayerNorm",
     "QSoftmax",
+    "QGELU",
 ]
