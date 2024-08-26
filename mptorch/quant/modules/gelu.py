@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..functional import qgelu
 
-__all__ = ["QGELU",]
+__all__ = ["QGELU"]
 
 class QGELU(nn.GELU):
     def __init__(self, formats, approximate='none'):
