@@ -54,18 +54,18 @@ class QGPTConfig:
     softmax_fwd_lse: tuple[int, int] | None = None
     softmax_bwd_add: tuple[int, int] | None = None
     softmax_bwd_mul: tuple[int, int] | None = None
-	layernorm_fwd_acc: tuple[int, int] | None = None
-	layernorm_fwd_mul: tuple[int, int] | None = None
-	layernorm_fwd_div: tuple[int, int] | None = None
-	layernorm_fwd_sqrt: tuple[int, int] | None = None
-	layernorm_bwd_acc: tuple[int, int] | None = None
-	layernorm_bwd_mul: tuple[int, int] | None = None
-	layernorm_bwd_div: tuple[int, int] | None = None
-	layernorm_input_fmt: tuple[int, int] | None = None
-	layernorm_output_fmt: tuple[int, int] | None = None
-	layernorm_weight_fmt: tuple[int, int] | None = None
-	layernorm_bias_fmt : tuple[int, int] | None = None
-	layernorm_grad_fmt : tuple[int, int] | None = None
+    layernorm_fwd_acc: tuple[int, int] | None = None
+    layernorm_fwd_mul: tuple[int, int] | None = None
+    layernorm_fwd_div: tuple[int, int] | None = None
+    layernorm_fwd_sqrt: tuple[int, int] | None = None
+    layernorm_bwd_acc: tuple[int, int] | None = None
+    layernorm_bwd_mul: tuple[int, int] | None = None
+    layernorm_bwd_div: tuple[int, int] | None = None
+    layernorm_input_fmt: tuple[int, int] | None = None
+    layernorm_output_fmt: tuple[int, int] | None = None
+    layernorm_weight_fmt: tuple[int, int] | None = None
+    layernorm_bias_fmt : tuple[int, int] | None = None
+    layernorm_grad_fmt : tuple[int, int] | None = None
 # -----------------------------------------------------------------------------
 def make_float(config, fmt_name):
     fmt = config.__dict__[fmt_name]
@@ -147,7 +147,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
-		self.layernorm_formats = make_layernorm_formats(config)
+        self.layernorm_formats = make_layernorm_formats(config)
         self.softmax_formats = make_softmax_formats(config)
         self.affine_formats = make_affine_formats(config)
         # key, query, value projections for all heads, but in a batch
@@ -181,8 +181,8 @@ class CausalSelfAttention(nn.Module):
         att = qmatmul(q, k.transpose(-2, -1), formats=self.affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
         #att = q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
-		att = F.softmax(att, dim=-1)
-		att = self.attn_dropout(att)
+        att = F.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
         # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         # quantization
         y = qmatmul(att, v, formats=self.affine_formats)
@@ -239,7 +239,7 @@ class QGPT(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats),
         ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = QLinear(config.n_embd, config.vocab_size, bias=False, formats=make_affine_formats(self.config))
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
