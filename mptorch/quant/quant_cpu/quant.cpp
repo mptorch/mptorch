@@ -1,5 +1,6 @@
 #include "quant.h"
 #include "bit_helper.h"
+#include "layernorm.h"
 #include "softmax.h"
 #include <cassert>
 #include <random>
@@ -7,6 +8,7 @@
 #include <tuple>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 using namespace at;
 
@@ -594,6 +596,114 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
     },
     [man_mul, exp_mul, binades_mul, saturate] (float x) { 
       return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+    }
+  );
+}
+
+void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                      Tensor output, Tensor mean, Tensor rstd,
+                                      float eps, std::vector<int> &dims,
+                                      int man_acc, int exp_acc,
+                                      int man_mul, int exp_mul,
+                                      int man_div, int exp_div,
+                                      int man_sqrt, int exp_sqrt,
+                                      bool subnormals, bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_forward(
+    input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+    output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    eps, sizes,
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_div, exp_div] (float x) {
+      return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_sqrt, exp_sqrt] (float x) {
+      return float_quantize(x, man_sqrt, exp_sqrt, rNearest, subnormals, saturate);
+    }
+  );
+}
+
+void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                      Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                      std::vector<int> &dims,
+                                      int man_acc, int exp_acc,
+                                      int man_mul, int exp_mul,
+                                      int man_div, int exp_div,
+                                      bool subnormals, bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_backward(
+    input.data_ptr<float>(), grad_output.data_ptr<float>(), 
+    weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
+    [subnormals, saturate, man_acc, exp_acc] (float x) {
+      return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_mul, exp_mul] (float x) {
+      return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+    },
+    [subnormals, saturate, man_div, exp_div] (float x) {
+      return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
+    }
+  );
+}
+
+void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                      Tensor output, Tensor mean, Tensor rstd,
+                                      float eps, std::vector<int> &dims,
+                                      int man_acc, int exp_acc, int binades_acc,
+                                      int man_mul, int exp_mul, int binades_mul,
+                                      int man_div, int exp_div, int binades_div,
+                                      int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                      bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_forward(
+    input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+    output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    eps, sizes,
+    [saturate, man_acc, exp_acc, binades_acc] (float x) {
+      return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+    },
+    [saturate, man_mul, exp_mul, binades_mul] (float x) {
+      return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+    },
+    [saturate, man_div, exp_div, binades_div] (float x) {
+      return superfp_quantize(x, man_div, exp_div, binades_div, saturate);
+    },
+    [saturate, man_sqrt, exp_sqrt, binades_sqrt] (float x) {
+      return superfp_quantize(x, man_sqrt, exp_sqrt, binades_sqrt, saturate);
+    }
+  );
+}
+
+void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                      Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                      std::vector<int> &dims,
+                                      int man_acc, int exp_acc, int binades_acc,
+                                      int man_mul, int exp_mul, int binades_mul,
+                                      int man_div, int exp_div, int binades_div,
+                                      bool saturate)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_backward(
+    input.data_ptr<float>(), grad_output.data_ptr<float>(), 
+    weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
+    [saturate, man_acc, exp_acc, binades_acc] (float x) {
+      return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+    },
+    [saturate, man_mul, exp_mul, binades_mul] (float x) {
+      return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+    },
+    [saturate, man_div, exp_div, binades_div] (float x) {
+      return superfp_quantize(x, man_div, exp_div, binades_div, saturate);
     }
   );
 }

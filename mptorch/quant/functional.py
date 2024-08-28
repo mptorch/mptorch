@@ -446,8 +446,7 @@ class qsum_kernel(torch.autograd.Function):
             grad_output = torch.unsqueeze(grad_output, d)
         grad_x = grad_output * torch.ones_like(x, device=x.device)
         return grad_x, None, None, None
-
-
+    
 def qsum(x, dim, quant=lambda x: x, keepdim=False):
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
@@ -493,12 +492,89 @@ class qmean(torch.autograd.Function):
 
 
 class qlayernorm_kernel(torch.autograd.Function):
-    # TODO: implement GPU-accelerated version of functional layernorm
-    pass
+    @staticmethod
+    def forward(ctx, x, normalized_shape, weight, bias, eps, formats):
+        ctx.formats = formats
+        ctx.eps = eps
+        qinput = formats.input_quant(x)
+        output = torch.zeros_like(x)
 
+        if weight is not None:
+            qweight = formats.weight_quant(weight)
+        else:
+            qweight = torch.ones(normalized_shape, device=x.device)
 
-def qlayernorm(x, normalized_shape, weight, bias, eps, quant):
-    pass
+        if bias is not None:
+            qbias = formats.bias_quant(bias)
+        else:
+            qbias = torch.zeros(normalized_shape, device=x.device)
+
+        if isinstance(normalized_shape, int):
+            normalized_shape = torch.Size([normalized_shape])
+        elif isinstance(normalized_shape, list):
+            normalized_shape = torch.Size(normalized_shape)
+        assert isinstance(normalized_shape, torch.Size)
+
+        assert normalized_shape == x.shape[-len(normalized_shape):]
+        dims = [-(i + 1) for i in range(len(normalized_shape))]
+        ctx.dims = dims
+
+        if ctx.formats.fwd_use_default_prec:
+            B, T, C = x.size()
+
+            mean = x.sum(dims, keepdim=True) / C
+
+            xshift = x - mean
+            variance = (xshift**2).sum(dims, keepdim=True) / C
+
+            rstd = (variance + eps) ** -0.5
+            norm = xshift * rstd
+            output = norm * qweight + qbias    
+        else:
+            output, mean, rstd = mp_layernorm_forward(qinput, qweight, qbias, eps, dims, formats)
+        
+        qoutput = formats.output_quant(output)
+
+        ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)
+
+        return qoutput
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (qinput, qweight, qbias, mean, rstd,) = ctx.saved_tensors
+        formats = ctx.formats
+        dims = ctx.dims
+
+        qgrad_output = formats.grad_quant(grad_output)
+
+        qgrad_input = None
+        qgrad_weight = None
+        qgrad_bias = None
+        
+        if ctx.formats.bwd_use_default_prec:
+            norm = (qinput - mean) * rstd
+
+            grad_bias = grad_output.sum((0, 1))
+            grad_weight = (grad_output * norm).sum((0, 1))
+
+            grad_norm = grad_output * grad_weight
+            grad_input = grad_norm - grad_norm.mean(-1, keepdim=True) - norm * (grad_norm * norm).mean(-1, keepdim=True)
+            grad_input *= rstd
+        else:
+            grad_input, grad_weight, grad_bias = mp_layernorm_backward(qinput, qgrad_output, qweight, qbias, mean, rstd, dims, formats)
+
+        if ctx.needs_input_grad[0]:
+            qgrad_input = formats.grad_quant(grad_input)
+        if qweight is not None and ctx.needs_input_grad[2]:
+            qgrad_weight = formats.grad_quant(grad_weight)
+        if qbias is not None and ctx.needs_input_grad[3]:
+            qgrad_bias = formats.grad_quant(grad_bias)
+
+        return qgrad_input, None, qgrad_weight, qgrad_bias, None, None
+
+        
+def qlayernorm(x, normalized_shape, weight, bias, eps, formats):
+    return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 
 
 class qsoftmax_kernel(torch.autograd.Function):

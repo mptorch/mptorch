@@ -2,6 +2,7 @@
 #include "quant.h"
 #include "binary8.h"
 #include "softmax.h"
+#include "layernorm.h"
 #include <ATen/ATen.h>
 #include <cmath>
 
@@ -378,6 +379,81 @@ void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
         return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
       }
       return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    }
+  );
+}
+
+void binary8_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                    Tensor output, Tensor mean, Tensor rstd,
+                                    float eps, std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                    bool subnormals)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_forward(
+    input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
+    output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    eps, sizes,
+    [subnormals, P_acc, op_acc, signed_acc] (float x) {
+        if (signed_acc){
+            return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] (float x) {
+        if (signed_mul){
+            return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    },
+    [subnormals, P_div, op_div, signed_div] (float x) {
+        if (signed_div){
+            return cast_binary8_signed_nearest(x, P_div, op_div, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_div, op_div, subnormals);
+    },
+    [subnormals, P_sqrt, op_sqrt, signed_sqrt] (float x) {
+        if (signed_sqrt){
+            return cast_binary8_signed_nearest(x, P_sqrt, op_sqrt, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_sqrt, op_sqrt, subnormals);
+    }
+  );
+}
+
+void binary8_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                    Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                    std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    bool subnormals)
+{
+  auto sizes = partition_tensor(input, dims);
+  layernorm_backward(
+    input.data_ptr<float>(), grad_output.data_ptr<float>(), 
+    weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(), 
+    grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
+    [subnormals, P_acc, op_acc, signed_acc] (float x) {
+        if (signed_acc){
+            return cast_binary8_signed_nearest(x, P_acc, op_acc, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_acc, op_acc, subnormals);
+    },
+    [subnormals, P_mul, op_mul, signed_mul] (float x) {
+        if (signed_mul){
+            return cast_binary8_signed_nearest(x, P_mul, op_mul, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_mul, op_mul, subnormals);
+    },
+    [subnormals, P_div, op_div, signed_div] (float x) {
+        if (signed_div){
+            return cast_binary8_signed_nearest(x, P_div, op_div, subnormals);
+        }
+        return cast_binary8_unsigned_nearest(x, P_div, op_div, subnormals);
     }
   );
 }

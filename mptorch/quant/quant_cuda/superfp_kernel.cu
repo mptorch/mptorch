@@ -1,6 +1,7 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
 #include "softmax_kernel.h"
+#include "layernorm_kernel.h"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -381,4 +382,58 @@ void softmax_backward_superfp_nearest(float *a, float *g, float *o,
       return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul, saturate);
     }
   );
+}
+
+void layernorm_forward_superfp_nearest(float *input, float *weight, float *bias,
+                                      float *output, float *mean, float *rstd,
+                                      float eps, const DimSizes& sizes,
+                                      int man_acc, int exp_acc, int binades_acc,
+                                      int man_mul, int exp_mul, int binades_mul,
+                                      int man_div, int exp_div, int binades_div,
+                                      int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                      bool saturate)
+{
+  layernorm_forward(input, weight, bias, output, mean, rstd, eps, sizes,
+    [man_acc, exp_acc, binades_acc, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc, saturate);
+    },
+    [man_mul, exp_mul, binades_mul, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul, saturate);
+    },
+    [man_div, exp_div, binades_div, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_div, exp_div, binades_div, saturate);
+    },
+    [man_sqrt, exp_sqrt, binades_sqrt, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_sqrt, exp_sqrt, binades_sqrt, saturate);
+    }
+  );
+}
+
+void layernorm_backward_superfp_nearest(float *input, float *grad_output,
+                                      float *weight, float *bias,
+                                      float *mean, float *rstd,
+                                      float *grad_input, float *grad_gamma, float *grad_beta,
+                                      const DimSizes& sizes,
+                                      int man_acc, int exp_acc, int binades_acc,
+                                      int man_mul, int exp_mul, int binades_mul,
+                                      int man_div, int exp_div, int binades_div,
+                                      bool saturate)
+{
+  // creating xhat_gradient, an array of all 0s for backward pass
+  // xhat_gradient is an output from the first pass of the backward
+  // used again as an input to the second pass of the backward
+  float* xhat_gradient;
+  cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
+  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes,
+    [man_acc, exp_acc, binades_acc, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc, saturate);
+    },
+    [man_mul, exp_mul, binades_mul, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul, saturate);
+    },
+    [man_div, exp_div, binades_div, saturate] __device__ (float x) { 
+      return cast_superfp_nearest(x, man_div, exp_div, binades_div, saturate);
+    }
+  );
+  cudaFree(xhat_gradient);
 }

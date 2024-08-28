@@ -3,7 +3,7 @@ from ..number import *
 from typing import Union, Optional, Tuple, Callable
 from .quant_function import *
 
-__all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats"]
+__all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats", "QLayerNormFormats"]
 
 id_quant = lambda x: x
 
@@ -182,6 +182,77 @@ class QAffineFormats:
         sep = ", "
         return f"QAffineFormats ({sep.join(out)})"
     
+    def __str__(self) -> str:
+        return self.__repr__()
+
+class QLayerNormFormats:
+    def __init__(
+        self,
+        fwd_acc: Optional[Number] = None,
+        fwd_mul: Optional[Number] = None,
+        fwd_div: Optional[Number] = None,
+        fwd_sqrt: Optional[Number] = None,
+
+        bwd_acc: Optional[Number] = None,
+        bwd_mul: Optional[Number] = None,
+        bwd_div: Optional[Number] = None,
+        
+        fwd_rnd: Optional[str] = "nearest",
+        bwd_rnd: Optional[str] = "nearest",
+
+        input_quant = id_quant,
+        output_quant = id_quant,
+        grad_quant = id_quant,
+        weight_quant = id_quant,
+        bias_quant = id_quant,
+    )-> None:
+        if fwd_acc is not None and fwd_mul is not None and fwd_div is not None and fwd_sqrt is not None:
+            self.fwd_acc = fwd_acc
+            self.fwd_mul = fwd_mul
+            self.fwd_div = fwd_div
+            self.fwd_sqrt = fwd_sqrt
+            self.fwd_use_default_prec = False
+        else:
+            self.fwd_use_default_prec = True
+
+        if bwd_acc is not None and bwd_mul is not None and bwd_div is not None:
+            self.bwd_acc = bwd_acc
+            self.bwd_mul = bwd_mul
+            self.bwd_div = bwd_div
+            self.bwd_use_default_prec = False
+        else:
+            self.bwd_use_default_prec = True
+
+        self.fwd_rnd = fwd_rnd
+        self.bwd_rnd = bwd_rnd
+        self.input_quant = input_quant
+        self.output_quant = output_quant
+        self.grad_quant = grad_quant
+        self.weight_quant = weight_quant
+        self.bias_quant = bias_quant
+
+    def __repr__(self) -> str:
+        out = []
+        if self.fwd_use_default_prec:
+            out.append("default_fwd")
+        else:
+            out.append(f"fwd_acc={self.fwd_acc}")
+            out.append(f"fwd_mul={self.fwd_mul}")
+            out.append(f"fwd_div={self.fwd_div}")
+            out.append(f"fwd_sqrt={self.fwd_sqrt}")
+            out.append(f"fwd_rnd={self.fwd_rnd}")
+
+        if self.bwd_use_default_prec:
+            out.append("default_bwd")
+        else:
+            out.append(f"bwd_acc={self.bwd_acc}")
+            out.append(f"bwd_mul={self.bwd_mul}")
+            out.append(f"bwd_div={self.bwd_div}")
+            out.append(f"bwd_rnd={self.bwd_rnd}")
+
+        sep = " , "
+        return f"QLayerNormFormats ({sep.join(out)})"
+
     def __str__(self) -> str:
         return self.__repr__()
 

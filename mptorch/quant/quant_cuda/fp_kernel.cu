@@ -1,6 +1,7 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
 #include "sim_helper.cu"
+#include "layernorm_kernel.h"
 #include "softmax_kernel.h"
 #include <cmath>
 #include <cuda.h>
@@ -955,7 +956,6 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   cudaFree(state);
 }
 
-
 void softmax_forward_fp_nearest(float *a, float *o,
                                 const DimSizes& sizes,
                                 int man_exp, int exp_exp,
@@ -1006,4 +1006,58 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
       return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
     }
   );
+}
+
+void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
+                              float *output, float *mean, float *rstd,
+                              float eps, const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              int man_sqrt, int exp_sqrt,
+                              bool subnormals, bool saturate)
+{
+  layernorm_forward(input, weight, bias, output, mean, rstd, eps, sizes,
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    },
+    [man_div, exp_div, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate);
+    },
+    [man_sqrt, exp_sqrt, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_sqrt, exp_sqrt, subnormals, saturate);
+    }
+  );
+}
+
+void layernorm_backward_fp_nearest(float *input, float *grad_output,
+                              float *weight, float *bias,
+                              float *mean, float *rstd,
+                              float *grad_input, float *grad_gamma, float *grad_beta,
+                              const DimSizes& sizes,
+                              int man_acc, int exp_acc,
+                              int man_mul, int exp_mul,
+                              int man_div, int exp_div,
+                              bool subnormals, bool saturate)
+{
+  // creating xhat_gradient, an array of all 0s for backward pass
+  // xhat_gradient is an output from the first pass of the backward
+  // used again as an input to the second pass of the backward
+  float* xhat_gradient;
+  cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
+  layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes,
+    [man_acc, exp_acc, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate);
+    },
+    [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate);
+    },
+    [man_div, exp_div, subnormals, saturate] __device__ (float x) { 
+      return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate);
+    }
+  );
+  cudaFree(xhat_gradient);
 }
