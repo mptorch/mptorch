@@ -176,11 +176,6 @@ __host__ __device__ float quant_mul(float origin_float) {
     return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
-__host__ __device__ float quant_div(float origin_float) {
-    return cast_fp_nearest(origin_float, 10, 8, true, false);
-}
-
-
 
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax backward */
@@ -196,11 +191,9 @@ static void softmax_backward_cpu(const float* input_array, const float* out_grad
         const float* grad = out_gradient + base_index;
         float* output = output_array + base_index;
 
-        float input_sum = 0.f;
         float weighted_grad_sum = 0.f;
         for (int k = 0; k < sizes.channel; ++k) {
             int idx = k * sizes.inner;
-            input_sum = quant_add(input_sum + input[idx]);
             float prod = quant_mul(input[idx] * grad[idx]);
             weighted_grad_sum = quant_add(weighted_grad_sum + prod);
         }
@@ -208,8 +201,7 @@ static void softmax_backward_cpu(const float* input_array, const float* out_grad
         for (int k = 0; k < sizes.channel; ++k) {
             int idx = k * sizes.inner;
             float a = quant_add(grad[idx] - weighted_grad_sum);
-            float b = quant_mul(a * input[idx]);
-            output[idx] = quant_div(b / input_sum);
+            output[idx] = quant_mul(a * input[idx]);
         }
     }
 }
@@ -231,11 +223,9 @@ __global__ void softmax_backward_kernel1(const float* __restrict__ input_array, 
     const float* grad = out_gradient + base_index;
     float* output = output_array + base_index;
 
-    float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
     for (int k = 0; k < sizes.channel; ++k) {
         int idx = k * sizes.inner;
-        input_sum = quant_add(input_sum + input[idx]);
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
@@ -243,8 +233,7 @@ __global__ void softmax_backward_kernel1(const float* __restrict__ input_array, 
     for (int k = 0; k < sizes.channel; ++k) {
         int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
-        float b = quant_mul(a * input[idx]);
-        output[idx] = quant_div(b / input_sum);
+        output[idx] = quant_mul(a * input[idx]);
     }
 }
 
@@ -268,46 +257,36 @@ __global__ void softmax_backward_kernel2(const float* __restrict__ input_array, 
 
     // Compute the input row sum and weighted sum
 
-    float* shared_input_sum = &shared[0];
-    float* shared_weighted_grad_sum = &shared[warpsPerBlock];
+    float* shared_weighted_grad_sum = &shared[0];
 
-    float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
     for (int k = tid; k < sizes.channel; k += blockDim.x) {
         int idx = k * sizes.inner;
-        input_sum = quant_add(input_sum + input[idx]);
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
     for (int offset = warpSize/2; offset > 0; offset /= 2) {
-        input_sum = quant_add(input_sum + __shfl_down_sync(0xFFFFFFFF, input_sum, offset));
         weighted_grad_sum = quant_add(weighted_grad_sum + __shfl_down_sync(0xFFFFFFFF, weighted_grad_sum, offset));
     }
     if (lane == 0) {
-        shared_input_sum[warp] = input_sum;
         shared_weighted_grad_sum[warp] = weighted_grad_sum;
     }
     __syncthreads();
     if(tid == 0) {
-        input_sum = shared_input_sum[0];
         weighted_grad_sum = shared_weighted_grad_sum[0];
         for (int i = 1; i < warpsPerBlock; i++) {
-            input_sum = quant_add(input_sum + shared_input_sum[i]);
             weighted_grad_sum = quant_add(weighted_grad_sum + shared_weighted_grad_sum[i]);
         }
-        shared_input_sum[0] = input_sum;
         shared_weighted_grad_sum[0] = weighted_grad_sum;
     }
     __syncthreads();
-    input_sum = shared_input_sum[0];
     weighted_grad_sum = shared_weighted_grad_sum[0];
 
     // Last step, subsrtact the weighted sum from the gradient, and divide by input sum
     for (int k = tid; k < sizes.channel; k += blockDim.x) {
         int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
-        float b = quant_mul(a * input[idx]);
-        output[idx] = quant_div(b / input_sum);
+        output[idx] = quant_mul(a * input[idx]);
     }
 }
 
@@ -327,7 +306,7 @@ void softmax_backward_cuda2(float *input, float *out_grad, float *output, const 
     // one block per row that was softmaxed
     int blocks = sizes.outer * sizes.inner; // number of rows
     // block_size must be multiple of 32
-    size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
     softmax_backward_kernel2<<<blocks, block_size, shared_mem_size>>>(input, out_grad, output, sizes);
 }
 
