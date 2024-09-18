@@ -96,6 +96,14 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--binadeWeight",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Weights binade size (default: 1)",
+)
+
+parser.add_argument(
     "--expGrad",
     type=int,
     default=5,
@@ -110,6 +118,14 @@ parser.add_argument(
     help="Grad mantissa size (default: 2)",
 )
 
+parser.add_argument(
+    "--binadeGrad",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Grad binade size (default: 1)",
+)
+
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
@@ -120,14 +136,14 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-w_format = FloatingPoint(exp=args.expWeight, man=args.manWeight, saturate=False)
-g_format = FloatingPoint(exp=args.expGrad, man=args.manGrad, saturate=False)
-i_format = FloatingPoint(exp=args.expWeight, man=args.manWeight, saturate=False)
-quant_g = lambda x: qpt.float_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, saturate=False
+w_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+g_format = SuperNormalFloat(exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False)
+i_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+quant_g = lambda x: qpt.superfp_quantize(
+    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
 )
-quant_w = lambda x: qpt.float_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, saturate=False
+quant_w = lambda x: qpt.superfp_quantize(
+    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
 )
 quant_b = lambda x: qpt.float_quantize(
     x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
@@ -353,7 +369,6 @@ trainer(
     optimizer=optimizer,
     device=device,
     scheduler=scheduler,
-    # init_scale=256.0,
     log_wandb=args.wandb,
 )
 

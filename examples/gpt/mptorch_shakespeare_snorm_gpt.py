@@ -85,28 +85,59 @@ parser.add_argument(
     type=int,
     default=5,
     metavar="N",
-    help="MAC exponent size (default: 8)",
+    help="MAC exponent size (default: 5)",
 )
 parser.add_argument(
     "--manMac",
     type=int,
     default=10,
     metavar="N",
-    help="MAC mantissa size (default: 7)",
+    help="MAC mantissa size (default: 10)",
 )
 parser.add_argument(
     "--expWeight",
     type=int,
-    default=5,
+    default=4,
     metavar="N",
-    help="Weights exponent size (default: 5)",
+    help="Weights exponent size (default: 4)",
 )
 parser.add_argument(
     "--manWeight",
     type=int,
+    default=3,
+    metavar="N",
+    help="Weights mantissa size (default: 3)",
+)
+
+parser.add_argument(
+    "--binadeWeight",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Weights binade size (default: 1)",
+)
+
+parser.add_argument(
+    "--expGrad",
+    type=int,
+    default=5,
+    metavar="N",
+    help="Grad exponent size (default: 5)",
+)
+parser.add_argument(
+    "--manGrad",
+    type=int,
     default=2,
     metavar="N",
-    help="Weights mantissa size (default: 2)",
+    help="Grad mantissa size (default: 2)",
+)
+
+parser.add_argument(
+    "--binadeGrad",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Grad binade size (default: 1)",
 )
 
 args = parser.parse_args()
@@ -120,9 +151,9 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-w_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
-g_format = SuperNormalFloat(exp=5, man=2, binades=4, saturate=False)
-i_format = SuperNormalFloat(exp=4, man=3, binades=4, saturate=False)
+w_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+g_format = SuperNormalFloat(exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False)
+i_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
 quant_g = lambda x: qpt.superfp_quantize(
     x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
 )
