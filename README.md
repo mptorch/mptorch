@@ -17,7 +17,6 @@ import torch
 import torch.nn as nn
 from torch.optim import SGD
 from torch.utils.data import DataLoader
-import torchvision
 from torchvision import datasets, transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
@@ -60,9 +59,7 @@ for the layer operations and signals
 """
 exp, man = 4, 2
 fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-quant_fp = lambda x: qpt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
-)
+quant_fp = lambda x: qpt.float_quantize(x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
@@ -93,9 +90,9 @@ model = nn.Sequential(
 """Prepare and launch the training process"""
 model = model.to(device)
 optimizer = SGD(
-    model.parameters(), 
-    lr=lr_init, 
-    momentum=momentum, 
+    model.parameters(),
+    lr=lr_init,
+    momentum=momentum,
     weight_decay=weight_decay,
 )
 
@@ -107,7 +104,7 @@ acc_q = lambda x: qpt.float_quantize(
 )
 optimizer = OptimMP(
     optimizer,
-    weight_quant=weight_q,
+    weight_quant=acc_q,
     acc_quant=acc_q,
     momentum_quant=acc_q,
 )
