@@ -13,6 +13,8 @@ __all__ = [
     "quantizer",
     "QAvgPool2d",
     "QAffineFormats",
+    "QLayerNormFormats",
     "QSoftmaxFormats",
+    "QGELUFormats",
     "qmatmul",
 ]

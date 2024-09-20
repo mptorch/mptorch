@@ -98,11 +98,9 @@ void softmax_backward(const float *a_array, const float *g_array, float *o_array
     const float* grad = g_array + base_index;
     float* output = o_array + base_index;
 
-    float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
     for (int k = 0; k < sizes.channel; ++k) {
       int idx = k * sizes.inner;
-      input_sum = quant_add(input_sum + input[idx]);
       float prod = quant_mul(input[idx] * grad[idx]);
       weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
@@ -110,8 +108,7 @@ void softmax_backward(const float *a_array, const float *g_array, float *o_array
     for (int k = 0; k < sizes.channel; ++k) {
       int idx = k * sizes.inner;
       float a = quant_add(grad[idx] - weighted_grad_sum);
-      float b = quant_mul(a * input[idx]);
-      output[idx] = b / input_sum; // quantization handled by grad_quant
+      output[idx] = a * input[idx]; // quantization handled by grad_quant
     }
   }
 }

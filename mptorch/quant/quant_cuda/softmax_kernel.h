@@ -176,7 +176,7 @@ __global__ void softmax_backward_impl(
   const DimSizes sizes,
   Qadd quant_add, Qmul quant_mul)
 {
-    extern __shared__ float shared[];
+    extern __shared__ float shared_weighted_grad_sum[];
 
     int tid = threadIdx.x;
     int warp = threadIdx.x / warpSize; // which warp within this block the thread belongs to
@@ -194,40 +194,30 @@ __global__ void softmax_backward_impl(
 
     // Compute the input row sum and weighted sum
 
-    float* shared_input_sum = &shared[0];
-    float* shared_weighted_grad_sum = &shared[warpsPerBlock];
-
-    float input_sum = 0.f;
     float weighted_grad_sum = 0.f;
     for (int k = tid; k < sizes.channel; k += blockDim.x) {
         int idx = k * sizes.inner;
-        input_sum = quant_add(input_sum + input[idx]);
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
 
     auto qadd = [&quant_add] __device__(float a, float b) { return quant_add(a + b); };
-    input_sum = warp_reduce(input_sum, qadd);
     weighted_grad_sum = warp_reduce(weighted_grad_sum, qadd);
     if (lane == 0) {
-        shared_input_sum[warp] = input_sum;
         shared_weighted_grad_sum[warp] = weighted_grad_sum;
     }
     __syncthreads();
     if(tid == 0) {
-        shared_input_sum[0] = shared_reduce(qadd, shared_input_sum, warpsPerBlock);
         shared_weighted_grad_sum[0] = shared_reduce(qadd, shared_weighted_grad_sum, warpsPerBlock);
     }
     __syncthreads();
-    input_sum = shared_input_sum[0];
     weighted_grad_sum = shared_weighted_grad_sum[0];
 
     // Last step, subtract the weighted sum from the gradient, and divide by input sum
     for (int k = tid; k < sizes.channel; k += blockDim.x) {
         int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
-        float b = quant_mul(a * input[idx]);
-        output[idx] = b / input_sum; // handled by grad_quant
+        output[idx] = a * input[idx]; // handled by grad_quant
     }
 }
 
@@ -266,7 +256,7 @@ void softmax_backward(
 {
     int blocks = sizes.outer * sizes.inner;
     int block_size = 64;
-    size_t shared_mem_size = 2 * (block_size / 32) * sizeof(float);
+    size_t shared_mem_size = (block_size / 32) * sizeof(float);
     softmax_backward_impl<<<blocks, block_size, shared_mem_size>>>(
         input_array, out_gradient, output_array, sizes, quant_add, quant_mul
     );

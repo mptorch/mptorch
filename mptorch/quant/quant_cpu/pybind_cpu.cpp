@@ -87,4 +87,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "Binary8 Softmax Forward using LogSumExp. (CPU)");
       m.def("binary8_quantize_nearest_softmax_backward", &binary8_quantize_nearest_softmax_backward,
             "Binary8 Softmax Backward. (CPU)");
+            
+      m.def("float_quantize_layernorm_forward", &float_quantize_layernorm_forward,
+            "Low-Bitwidth Floating Point Layer Normalization (CPU)");
+      m.def("float_quantize_layernorm_backward", &float_quantize_layernorm_backward,
+            "Low-Bitwidth Floating Point Layer Normalization Backward (CPU)");
+
+      m.def("superfp_quantize_layernorm_forward", &superfp_quantize_layernorm_forward,
+            "Low-Bitwidth Super Floating Point Layer Normalization (CPU)");
+      m.def("superfp_quantize_layernorm_backward", &superfp_quantize_layernorm_backward,
+            "Low-Bitwidth Super Floating Point Layer Normalization Backward (CPU)");
+
+      m.def("binary8_quantize_layernorm_forward", &binary8_quantize_layernorm_forward,
+            "Low-Bitwidth binary8 Layer Normalization (CPU)");
+      m.def("binary8_quantize_layernorm_backward", &binary8_quantize_layernorm_backward,
+            "Low-Bitwidth binary8 Layer Normalization Backward (CPU)");
 }

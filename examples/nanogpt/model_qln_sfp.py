@@ -16,13 +16,13 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from mptorch.quant import qmatmul
+from mptorch.quant import QLayerNorm
 from mptorch.quant import QLinear
 from mptorch.quant import Quantizer
-from mptorch.quant import QGELU
-from mptorch.quant import QAffineFormats, QSoftmaxFormats, QGELUFormats
+from mptorch.quant import QAffineFormats, QSoftmaxFormats, QLayerNormFormats
 import mptorch.quant.functional as Q
 from mptorch import FloatingPoint
-from mptorch.quant import float_quantize
+from mptorch.quant import float_quantize, superfp_quantize
 
 
 @dataclass
@@ -54,12 +54,18 @@ class QGPTConfig:
     softmax_fwd_lse: tuple[int, int] | None = None
     softmax_bwd_add: tuple[int, int] | None = None
     softmax_bwd_mul: tuple[int, int] | None = None
-    gelu_input_fmt: tuple[int, int] | None = None
-    gelu_inter_fmt: tuple[int, int] | None = None
-    gelu_output_fmt: tuple[int, int] | None = None
-    gelu_grad_fmt: tuple[int, int] | None = None
-
-
+    layernorm_fwd_acc: tuple[int, int] | None = None
+    layernorm_fwd_mul: tuple[int, int] | None = None
+    layernorm_fwd_div: tuple[int, int] | None = None
+    layernorm_fwd_sqrt: tuple[int, int] | None = None
+    layernorm_bwd_acc: tuple[int, int] | None = None
+    layernorm_bwd_mul: tuple[int, int] | None = None
+    layernorm_bwd_div: tuple[int, int] | None = None
+    layernorm_input_fmt: tuple[int, int, int] | None = None
+    layernorm_output_fmt: tuple[int, int, int] | None = None
+    layernorm_weight_fmt: tuple[int, int, int] | None = None
+    layernorm_bias_fmt : tuple[int, int, int] | None = None
+    layernorm_grad_fmt : tuple[int, int, int] | None = None
 # -----------------------------------------------------------------------------
 def make_float(config, fmt_name):
     fmt = config.__dict__[fmt_name]
@@ -78,6 +84,15 @@ def make_quant(config, fmt_name):
     return lambda x: float_quantize(x, exp, man, rounding=config.rounding,
                                     subnormals=config.subnormals,
                                     saturate=config.saturate)
+
+def make_sfp_quant(config, fmt_name):
+    fmt = config.__dict__[fmt_name]
+    if fmt is None:
+        return lambda x: x
+    exp, man, binades = fmt
+    return lambda x: superfp_quantize(x, exp, man, binades=binades, rounding=config.rounding,
+                                    saturate=config.saturate)
+
 def make_affine_formats(config):
     return QAffineFormats(
         fwd_mac=make_float(config, "fwd_mac"),
@@ -106,31 +121,42 @@ def make_softmax_formats(config):
         grad_quant=make_quant(config, "softmax_grad_fmt"),
     )
 
-def make_gelu_formats(config):
-    return QGELUFormats(
-        input_quant=make_quant(config, "gelu_input_fmt"),
-        inter_quant=make_quant(config, "gelu_inter_fmt"),
-        output_quant=make_quant(config, "gelu_output_fmt"),
-        grad_quant=make_quant(config, "gelu_grad_fmt")
-    )
+def make_layernorm_formats(config):
+	return QLayerNormFormats(
+		fwd_acc=make_float(config, "layernorm_fwd_acc"),
+		fwd_mul=make_float(config, "layernorm_fwd_mul"),
+		fwd_div=make_float(config, "layernorm_fwd_div"),
+		fwd_sqrt=make_float(config, "layernorm_fwd_sqrt"),
+		bwd_acc=make_float(config, "layernorm_bwd_acc"),
+		bwd_mul=make_float(config, "layernorm_bwd_mul"),
+		bwd_div=make_float(config, "layernorm_bwd_div"),
+		fwd_rnd=config.rounding,
+		bwd_rnd=config.rounding,
+		input_quant=make_sfp_quant(config, "layernorm_input_fmt"),
+		output_quant=make_sfp_quant(config, "layernorm_output_fmt"),
+		grad_quant=make_sfp_quant(config, "layernorm_grad_fmt"),
+		weight_quant=make_sfp_quant(config, "layernorm_weight_fmt"),
+		bias_quant=make_sfp_quant(config, "layernorm_bias_fmt")
+	)
 # -----------------------------------------------------------------------------
 
-class LayerNorm(nn.Module):
-    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
-
-    def __init__(self, ndim, bias):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(ndim))
-        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
-
-    def forward(self, input):
-        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+#class LayerNorm(nn.Module):
+#    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
+#
+#    def __init__(self, ndim, bias):
+#        super().__init__()
+#        self.weight = nn.Parameter(torch.ones(ndim))
+#        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
+#
+#    def forward(self, input):
+#        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+        self.layernorm_formats = make_layernorm_formats(config)
         self.softmax_formats = make_softmax_formats(config)
         self.affine_formats = make_affine_formats(config)
         # key, query, value projections for all heads, but in a batch
@@ -163,7 +189,8 @@ class CausalSelfAttention(nn.Module):
         # quantization
         att = qmatmul(q, k.transpose(-2, -1), formats=self.affine_formats) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        att = Q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
+        #att = q.qsoftmax(att, dim=-1, formats=self.softmax_formats) # quantization
+        att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
         # y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         # quantization
@@ -180,7 +207,7 @@ class MLP(nn.Module):
         super().__init__()
         self.c_fc    = QLinear(config.n_embd, 4 * config.n_embd, bias=config.bias,
                                formats=make_affine_formats(config)) # quantization
-        self.gelu    = QGELU(formats=make_gelu_formats(config))
+        self.gelu    = nn.GELU()
         self.c_proj  = QLinear(4 * config.n_embd, config.n_embd, bias=config.bias,
                                formats=make_affine_formats(config)) # quantization
         self.dropout = nn.Dropout(config.dropout)
@@ -196,9 +223,9 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_1 = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats)
         self.attn = CausalSelfAttention(config)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_2 = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats)
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -219,9 +246,9 @@ class QGPT(nn.Module):
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = LayerNorm(config.n_embd, bias=config.bias),
+            ln_f = QLayerNorm(config.n_embd, bias=config.bias, formats=self.layernorm_formats),
         ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = QLinear(config.n_embd, config.vocab_size, bias=False, formats=make_affine_formats(self.config))
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"

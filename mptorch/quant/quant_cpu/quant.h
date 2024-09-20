@@ -3,6 +3,7 @@
 #include "binary8.h"
 #include <ATen/ATen.h>
 #include <tuple>
+#include <vector>
 
 using namespace at;
 
@@ -15,6 +16,7 @@ struct DimSizes
     int channel;
 };
 
+DimSizes partition_tensor(Tensor input, std::vector<int> &dims);
 DimSizes partition_tensor(Tensor a, int dim);
 
 float round(float a, float r, int sigma);
@@ -168,7 +170,6 @@ Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_s
  */
 Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
 
-
 /**
  * Performs a softmax along the specified dimension, using custom floating
  * point formats for intermediate computations. This version implements
@@ -258,3 +259,85 @@ void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
                                         int P_add, OverflowPolicy op_add, bool signed_add,
                                         int P_mul, OverflowPolicy op_mul, bool signed_mul,
                                         bool subnormals);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+*/
+void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                      Tensor output, Tensor mean, Tensor rstd,
+                                      float eps, std::vector<int> &dims,
+                                      int man_acc, int exp_acc,
+                                      int man_mul, int exp_mul,
+                                      int man_div, int exp_div,
+                                      int man_sqrt, int exp_sqrt,                                      
+                                      bool subnormals, bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+*/ 
+void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                    Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                    Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                    std::vector<int> &dims,
+                                    int man_acc, int exp_acc,
+                                    int man_mul, int exp_mul,
+                                    int man_div, int exp_div,
+                                    bool subnormals, bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Uses super floating point format for intermediate calculations.
+*/
+void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                      Tensor output, Tensor mean, Tensor rstd,
+                                      float eps, std::vector<int> &dims,
+                                      int man_acc, int exp_acc, int binades_acc,
+                                      int man_mul, int exp_mul, int binades_mul,
+                                      int man_div, int exp_div, int binades_div,
+                                      int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                      bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user. 
+ * Uses super floating point format for intermediate calculations.
+*/ 
+void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                    Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                    Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                    std::vector<int> &dims,
+                                    int man_acc, int exp_acc, int binades_acc,
+                                    int man_mul, int exp_mul, int binades_mul,
+                                    int man_div, int exp_div, int binades_div,
+                                    bool saturate);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Uses binary8 floating point format for intermediate calculations.
+*/
+void binary8_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
+                                    Tensor output, Tensor mean, Tensor rstd,
+                                    float eps, std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
+                                    bool subnormals);
+
+/**
+ * Performs layer normalization on a specified normalized shape with the
+ * percision configuration defined by the user.
+ * Uses binary8 floating point format for intermediate calculations.
+*/ 
+void binary8_quantize_layernorm_backward(Tensor input, Tensor grad_output, 
+                                    Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
+                                    Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
+                                    std::vector<int> &dims,
+                                    int P_acc, OverflowPolicy op_acc, bool signed_acc,
+                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
+                                    int P_div, OverflowPolicy op_div, bool signed_div,
+                                    bool subnormals);

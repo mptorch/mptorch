@@ -1,6 +1,6 @@
 import torch
 from torch.optim import SGD
-from mptorch import FloatingPoint
+from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
 from mptorch.optim import OptimMP
 import torch.nn as nn
@@ -11,15 +11,16 @@ import torch.nn.functional as F
 import random
 import numpy as np
 import argparse
+import os
 import wandb
 
 parser = argparse.ArgumentParser(description="ResNet CIFAR10 Example")
 parser.add_argument(
     "--batch_size",
     type=int,
-    default=64,
+    default=128,
     metavar="N",
-    help="input batch size for training (default: 64)",
+    help="input batch size for training (default: 128)",
 )
 parser.add_argument(
     "--seed", type=int, default=123, metavar="S", help="random seed (default: 123)"
@@ -27,45 +28,17 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10,
+    default=200,
     metavar="N",
-    help="number of epochs to train (default: 10)",
-)
-parser.add_argument(
-    "--exp_mul",
-    type=int,
-    default=3,
-    metavar="N",
-    help="exponent size (default: 5)",
-)
-parser.add_argument(
-    "--man_mul",
-    type=int,
-    default=4,
-    metavar="N",
-    help="mantissa size (default: 2)",
-)
-parser.add_argument(
-    "--exp_add",
-    type=int,
-    default=6,
-    metavar="N",
-    help="exponent size (default: 8)",
-)
-parser.add_argument(
-    "--man_add",
-    type=int,
-    default=1,
-    metavar="N",
-    help="mantissa size (default: 7)",
+    help="number of epochs to train (default: 200)",
 )
 
 parser.add_argument(
     "--lr_init",
     type=float,
-    default=0.01,
+    default=0.1,
     metavar="N",
-    help="initial learning rate (default: 0.01)",
+    help="initial learning rate (default: 0.1)",
 )
 parser.add_argument(
     "--momentum",
@@ -77,9 +50,9 @@ parser.add_argument(
 parser.add_argument(
     "--weight_decay",
     type=float,
-    default=0,
+    default=1e-4,
     metavar="N",
-    help="weight decay value to be used by the optimizer (default: 0.0)",
+    help="weight decay value to be used by the optimizer (default: 5e-4)",
 )
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
@@ -89,31 +62,103 @@ parser.add_argument(
     "--wandb", action="store_true", default=False, help="wandb logging"
 )
 
-# name of wandb project run will be in
 parser.add_argument(
-    "--wandb_proj_name",
-    type=str,
-    default="ResNet Tests",
-    help="name of the project where runs will be logged"
+    "--resume", "-r", action="store_true", default=False, help="resume from checkpoint"
 )
 
-# group within project file
 parser.add_argument(
-    "--group_name",
-    type=str,
-    default="P=3",
-    help="name of group the run will reside in"
+    "--expMac",
+    type=int,
+    default=5,
+    metavar="N",
+    help="MAC exponent size (default: 5)",
+)
+parser.add_argument(
+    "--manMac",
+    type=int,
+    default=10,
+    metavar="N",
+    help="MAC mantissa size (default: 10)",
+)
+parser.add_argument(
+    "--expWeight",
+    type=int,
+    default=4,
+    metavar="N",
+    help="Weights exponent size (default: 4)",
+)
+parser.add_argument(
+    "--manWeight",
+    type=int,
+    default=3,
+    metavar="N",
+    help="Weights mantissa size (default: 3)",
+)
+
+parser.add_argument(
+    "--binadeWeight",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Weights binade size (default: 1)",
+)
+
+parser.add_argument(
+    "--expGrad",
+    type=int,
+    default=5,
+    metavar="N",
+    help="Grad exponent size (default: 5)",
+)
+parser.add_argument(
+    "--manGrad",
+    type=int,
+    default=2,
+    metavar="N",
+    help="Grad mantissa size (default: 2)",
+)
+
+parser.add_argument(
+    "--binadeGrad",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Grad binade size (default: 1)",
 )
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
+qpt.cublas_acceleration.enabled = args.cuda
 
-# weights and biases configuration----------------------------------
-if args.wandb:
-    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
-    config = wandb.config.update(args)
-# ------------------------------------------------------------------
+rounding = "nearest"
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fp_format = FloatingPoint(
+    exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
+)
+w_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+g_format = SuperNormalFloat(exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False)
+i_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+quant_g = lambda x: qpt.superfp_quantize(
+    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
+)
+quant_w = lambda x: qpt.superfp_quantize(
+    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
+)
+quant_b = lambda x: qpt.float_quantize(
+    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
+)
+
+layer_formats = qpt.QAffineFormats(
+    fwd_mac=(fp_format),
+    fwd_rnd=rounding,
+    bwd_mac=(fp_format),
+    bwd_rnd=rounding,
+    weight_quant=quant_w,
+    input_quant=quant_w,
+    grad_quant=quant_g,
+    bias_quant=quant_b,
+)
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
@@ -121,26 +166,21 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 torch.backends.cudnn.deterministic = True
 
-fpmul = FloatingPoint(
-    exp=args.exp_mul, man=args.man_mul, subnormals=True, saturate=False
-)
-fpacc = FloatingPoint(
-    exp=args.exp_add, man=args.man_add, subnormals=True, saturate=False
-)
-
 transform_train = transforms.Compose(
     [
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
     ]
 )
 
 transform_test = transforms.Compose(
     [
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225]),
     ]
 )
 
@@ -148,60 +188,26 @@ train_set = torchvision.datasets.CIFAR10(
     root="./data", train=True, download=True, transform=transform_train
 )
 train_loader = torch.utils.data.DataLoader(
-    train_set, batch_size=args.batch_size, shuffle=True
+    train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True
 )
 
 test_set = torchvision.datasets.CIFAR10(
     root="./data", train=False, download=True, transform=transform_test
 )
 test_loader = torch.utils.data.DataLoader(
-    test_set, batch_size=args.batch_size, shuffle=False
+    test_set, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True
 )
 
-# define a lambda function so that the Quantizer module can be duplicated easily
-act_error_quant = lambda: qpt.Quantizer(
-    forward_number=fpmul,
-    backward_number=fpmul,
-    forward_rounding="stochastic",
-    backward_rounding="stochastic",
-)
-
-param_q = lambda x: qpt.float_quantize(
-    x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
-)
-input_q = lambda x: qpt.float_quantize(
-    x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
-)
-grad_q = lambda x: qpt.float_quantize(
-    x,
-    exp=5,
-    man=2,
-    rounding="stochastic",
-    subnormals=True,
-    saturate=False,
-)
-
-layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fpacc, fpmul),
-    fwd_rnd="stochastic",
-    bwd_mac=(fpacc, fpmul),
-    bwd_rnd="stochastic",
-    weight_quant=param_q,
-    bias_quant=param_q,
-    input_quant=input_q,
-    grad_quant=grad_q,
-)
-
+if args.wandb:
+    run = wandb.init(
+        # Set the project where this run will be logged
+        project="resnet20 torch",
+        # Track hyperparameters and run metadata
+        config={
+            "iterations": args.epochs,
+            "batch_size": args.batch_size,
+        },
+    )
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -237,7 +243,6 @@ class BasicBlock(nn.Module):
             formats=layer_formats,
         )
         self.bn2 = nn.BatchNorm2d(planes)
-        self.ae = act_error_quant()
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -270,7 +275,6 @@ class BasicBlock(nn.Module):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
-        out = self.ae(out)
         out = F.relu(out)
         return out
 
@@ -280,9 +284,7 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.in_planes = 16
 
-        self.conv1 = qpt.QConv2d(
-            3, 16, kernel_size=3, stride=1, padding=1, bias=False, formats=layer_formats
-        )
+        self.conv1 = qpt.QConv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False, formats=layer_formats)
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
@@ -332,8 +334,21 @@ def resnet110():
 def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
+
 net = resnet20()
 net = net.to(device)
+
+if args.resume:
+    # load checkpoint
+    print("==> Resuming from checkpoint...")
+    assert os.path.isdir("checkpoint"), "Error: no checkpoint directory found!"
+    checkpoint = torch.load("./checkpoint/ckpt.pth")
+    net.load_state_dict(checkpoint["net"])
+    best_acc = checkpoint["acc"]
+    start_epoch = checkpoint["epoch"]
+else:
+    start_epoch = 0
+
 optimizer = SGD(
     net.parameters(),
     lr=args.lr_init,
@@ -341,24 +356,20 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="stochastic", subnormals=True
-)
-optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 trainer(
     net,
     train_loader,
     test_loader,
+    start_epoch=start_epoch,
     num_epochs=args.epochs,
     lr=args.lr_init,
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
     scheduler=scheduler,
-    init_scale=256.0,
-    log_wandb = args.wandb,
+    log_wandb=args.wandb,
 )
 
 wandb.finish()
