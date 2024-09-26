@@ -58,13 +58,13 @@ class FixedPoint(Number):
        }
 
     Args:
-        - :attr: wl (int) : word length of each fixed point number
-        - :attr: fl (int) : fractional length of each fixed point number
-        - :attr: clamp (bool) : whether to clamp unrepresentable numbers
-        - :attr: symmetric (bool) : whether to make the representable range symmetric
+        wl: word length of each fixed point number
+        fl: fractional length of each fixed point number
+        clamp: whether to clamp unrepresentable numbers
+        symmetric: whether to make the representable range symmetric
     """
 
-    def __init__(self, wl, fl, clamp=True, symmetric=False):
+    def __init__(self, wl: int, fl: int, clamp: bool = True, symmetric: bool = False):
         assert wl > 0, "invalid bits for word length: {}".format(wl)
         assert fl > 0, "invalid bits for fractional length: {}".format(fl)
         assert type(symmetric) == bool, "invalid type for clamping choice: {}".format(
@@ -93,14 +93,14 @@ class FloatingPoint(FloatType):
     mode, we apply *round to nearest even*.
 
     Args:
-        - :attr: `exp`: number of bits allocated for exponent
-        - :attr: `man`: number of bits allocated for mantissa, referring to number of bits that are
-                        supposed to be stored on hardware (not counting the virtual bits)
-        - :attr: `subnormals`: allow the use of subnormal values
-        - :attr: `saturate`: clamp values instead of using infinities in case of overflow
+        exp: number of bits allocated for exponent
+        man: number of bits allocated for mantissa, referring to number of bits that are
+             supposed to be stored on hardware (not counting the virtual bits)
+        subnormals: allow the use of subnormal values
+        saturate: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp, man, subnormals=False, saturate=True):
+    def __init__(self, exp: int, man: int, subnormals: bool = False, saturate: bool = True):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         self.exp = exp
@@ -139,14 +139,14 @@ class SuperNormalFloat(FloatType):
     mode, we apply *round to nearest even*.
 
     Args:
-        - :attr: `exp`: number of bits allocated for exponent
-        - :attr: `man`: number of bits allocated for mantissa, referring to number of bits that are
-                        supposed to be stored on hardware (not counting the virtual bits)
-        - :attr: `binades`: number of binades tranformed into log range
-        - :attr: `saturate`: clamp values instead of using infinities in case of overflow
+        exp: number of bits allocated for exponent
+        man: number of bits allocated for mantissa, referring to number of bits that are
+             supposed to be stored on hardware (not counting the virtual bits)
+        binades: number of binades tranformed into log range
+        saturate: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp, man, binades, saturate=False):
+    def __init__(self, exp: int, man: int, binades: int, saturate: bool = False):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
@@ -179,14 +179,14 @@ class BlockFloatingPoint(Number):
     the largest magnitude in the block.
 
     Args:
-        - :attr: `wl` word length of the tensor
-        - :attr: `dim` block dimension to share exponent. (*, D, *) Tensor where
-          D is at position `dim` will have D different exponents; use -1 if the
-          entire tensor is treated as a single block (there is only 1 shared
-          exponent).
+        wl: word length of the tensor
+        dim: block dimension to share exponent. (\*, D, \*) Tensor where
+             D is at position `dim` will have D different exponents; use -1 if the
+             entire tensor is treated as a single block (there is only 1 shared
+             exponent).
     """
 
-    def __init__(self, wl, dim=-1):
+    def __init__(self, wl: int, dim: int = -1):
         assert wl > 0 and isinstance(wl, int), "invalid bits for word length:{}".format(
             wl
         )
@@ -209,16 +209,21 @@ class Binary8(FloatType):
     of mantissa and exponent bits.
 
     Args:
-        - :attr: `P`: integer precision of the binary8 format
-        - :attr: `signed`: boolean indicating whether the format is signed or unsigned
-        - :attr: `subnormals`: allow the use of subnormal values
-        - :attr: `overflow_policy`: string indicating the overflow policy (dictates the max float) 
-                                    - saturate_maxfloat2 : no infinity and +1 normalized value
-                                    - saturate_maxfloat : use infinity
-                                    - saturate_infty : use infinity
+        P: integer precision of the binary8 format
+        signed: boolean indicating whether the format is signed or unsigned
+        subnormals: allow the use of subnormal values
+        overflow_policy: string indicating the overflow policy, one of:
+            `saturate_maxfloat2` (no infinity and +1 normalized value),
+            `saturate_maxfloat` (clamp to maxfloat),
+            `saturate_infty` (use infinity)
     """
 
-    def __init__(self, P: int, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"):
+    def __init__(self,
+                 P: int,
+                 signed: bool = True,
+                 subnormals: int = True,
+                 overflow_policy: str = "saturate_maxfloat2"
+                ):
         assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
         assert overflow_policy in ("saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"), \
             "Invalid overflow policy: {}".format(overflow_policy)
