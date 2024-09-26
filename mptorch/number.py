@@ -95,7 +95,7 @@ class FloatingPoint(FloatType):
     Args:
         exp: number of bits allocated for exponent
         man: number of bits allocated for mantissa, referring to number of bits that are
-             supposed to be stored on hardware (not counting the virtual bits)
+            supposed to be stored on hardware (not counting the virtual bits)
         subnormals: allow the use of subnormal values
         saturate: clamp values instead of using infinities in case of overflow
     """
@@ -141,7 +141,7 @@ class SuperNormalFloat(FloatType):
     Args:
         exp: number of bits allocated for exponent
         man: number of bits allocated for mantissa, referring to number of bits that are
-             supposed to be stored on hardware (not counting the virtual bits)
+            supposed to be stored on hardware (not counting the virtual bits)
         binades: number of binades tranformed into log range
         saturate: clamp values instead of using infinities in case of overflow
     """
@@ -181,9 +181,9 @@ class BlockFloatingPoint(Number):
     Args:
         wl: word length of the tensor
         dim: block dimension to share exponent. (\*, D, \*) Tensor where
-             D is at position `dim` will have D different exponents; use -1 if the
-             entire tensor is treated as a single block (there is only 1 shared
-             exponent).
+            D is at position `dim` will have D different exponents; use -1 if the
+            entire tensor is treated as a single block (there is only 1 shared
+            exponent).
     """
 
     def __init__(self, wl: int, dim: int = -1):
