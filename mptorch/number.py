@@ -1,60 +1,81 @@
-__all__ = ["Number", "FloatType", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+__all__ = [
+    "Number",
+    "FloatType",
+    "FixedPoint",
+    "FloatingPoint",
+    "BlockFloatingPoint",
+    "SuperNormalFloat",
+    "Binary8",
+]
 
 
 class Number:
-    """Base class of all number formats."""
+    """Base class for all supported number formats.
+
+    Users should always instantiate one of the derived classes.
+    """
+
     def __init__(self):
         pass
 
     def __str__(self) -> str:
+        """Placeholder __str__ method."""
         raise NotImplementedError
 
     def __repr__(self) -> str:
+        """Placeholder __repr__ method."""
         raise NotImplementedError
 
 
 class FloatType(Number):
-    """Base class of float-like number formats."""
+    """Base class for all float-like number formats.
+
+    Similar to the ``Number`` class, users should not instantiate
+    this class directly. It is useful as a means to determine if
+    a number format is of float type.
+    """
+
     pass
 
 
 class FixedPoint(Number):
     r"""
-    Low-Precision Fixed Point Format. Defined similarly in
-    *Deep Learning with Limited Numerical Precision* (https://arxiv.org/abs/1502.02551)
+    Low-Precision Fixed Point Number Format. Defined similarly to
+    *Deep Learning with Limited Numerical Precision* (https://arxiv.org/abs/1502.02551).
 
-    The representable range is :math:`[-2^{wl-fl-1}, 2^{wl-fl-1}-2^{-fl}]`
-    and a precision unit (smallest nonzero absolute value) is
-    :math:`2^{-fl}`.
-    Numbers outside of the representable range can be clamped
-    (if `clamp` is true).
-    We can also give up the smallest representable number to make the range
-    symmetric, :math:`[-2^{wl-fl-1}^{-fl}, 2^{wl-fl-1}-2^{-fl}]`. (if `symmetric` is true).
+    The representable range is :math:`\left[-2^{\text{wl}-\text{fl}-1},
+    2^{\text{wl}-\text{fl}-1}-2^{-\text{fl}}\right]`
+    and the precision unit (smallest nonzero absolute value) is :math:`2^{-\text{fl}}`.
+    Numbers outside of the representable range can be clamped (if `clamp` is true).
+    We can also give up the smallest representable number to make the range symmetric,
+    :math:`\left[-2^{\text{wl}-\text{fl}-1}+2^{-\text{fl}},
+    2^{\textnormal{wl}-\text{fl}-1}-2^{-\text{fl}}\right]` (if `symmetric` is true).
 
-    Define :math:`\lfloor x \rfloor` to be the largest representable number (multiples of :math:`2^{-fl}`) smaller than :math:`x`.
-    For numbers within the representable range, fixed point quantizatio corresponds to
+    Define :math:`\lfloor x \rfloor` to be the largest representable number (multiples of :math:`2^-\text{fl}`)
+    smaller than :math:`x`. For numbers within the representable range, we support two kinds of fixed point
+    quantization: *round to nearest* (RN) and *stochastic rounding* (SR). They correspond to
 
     .. math::
 
-       NearestRound(x)
+       \text{RN}(x)
        =
        \Biggl \lbrace
        {
-       \lfloor x \rfloor, \text{ if } \lfloor x \rfloor \leq x \leq \lfloor x \rfloor + 2^{-fl-1}
+       \lfloor x \rfloor, \text{ if } \lfloor x \rfloor \leq x \leq \lfloor x \rfloor + 2^{-\text{fl}-1}
        \atop
-        \lfloor x \rfloor + 2^{-fl}, \text{ if } \lfloor x \rfloor + 2^{-fl-1} < x \leq \lfloor x \rfloor + 2^{-fl}
+        \lfloor x \rfloor + 2^{-\text{fl}}, \text{ if } \lfloor x \rfloor + 2^{-\text{fl}-1} < x \leq \lfloor x \rfloor + 2^{-\text{fl}}
        }
 
     or
 
     .. math::
-       StochasticRound(x)
+       \textnormal{SR}(x)
        =
        \Biggl \lbrace
        {
-       \lfloor x \rfloor, \text{ with probabilty } 1 - \frac{x - \lfloor x \rfloor}{2^{-fl}}
+       \lfloor x \rfloor, \text{ with probabilty } 1 - \frac{x - \lfloor x \rfloor}{2^{-\text{fl}}}
        \atop
-        \lfloor x \rfloor + 2^{-fl}, \text{ with probabilty } \frac{x - \lfloor x \rfloor}{2^{-fl}}
+        \lfloor x \rfloor + 2^{-\text{fl}}, \text{ with probabilty } \frac{x - \lfloor x \rfloor}{2^{-\text{fl}}}
        }
 
     Args:
@@ -79,18 +100,21 @@ class FixedPoint(Number):
         self.symmetric = symmetric
 
     def __str__(self):
+        """Print format information in a string format."""
         return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
 
     def __repr__(self):
+        """Custom __repr__ method yielding information about the format."""
         return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
 
 
 class FloatingPoint(FloatType):
-    """
-    Low-Precision Floating Point Format.
+    r"""
+    Low-Precision Floating Point Format. Follows rules set out in the IEEE-754 standard, applying
+    them in the context of custom precision formats.
 
-    We set the exponent bias to be :math:`2^{exp-1} - 1`. For rounding
-    mode, we apply *round to nearest even*.
+    We set the exponent bias to be :math:`2^{\text{exp}-1} - 1`. In terms of rounding mode (see
+    available quantization functions), we offer support for *round to nearest even* and *stochastic rounding*.
 
     Args:
         exp: number of bits allocated for exponent
@@ -100,17 +124,25 @@ class FloatingPoint(FloatType):
         saturate: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp: int, man: int, subnormals: bool = False, saturate: bool = True):
+    def __init__(
+        self, exp: int, man: int, subnormals: bool = False, saturate: bool = True
+    ):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         self.exp = exp
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
-        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man) if subnormals else None
-        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man)) if subnormals else None
-        self.normal_max    = 2.0**(2**(self.exp-1)-1) * (2.0 - 2.0**(-self.man))
-        self.normal_min    = 2.0**(2 - 2**(self.exp-1))
+        self.subnormal_min = (
+            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
+        )
+        self.subnormal_max = (
+            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
+            if subnormals
+            else None
+        )
+        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
+        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
@@ -120,14 +152,17 @@ class FloatingPoint(FloatType):
 
     @property
     def is_fp32(self) -> bool:
+        """Returns if the format is equivalent to the IEEE-754 ``binary32`` format."""
         return self.man == 23 and self.exp == 8
 
     @property
     def is_fp16(self) -> bool:
+        """Returns if the format is equivalent to the IEEE-754 ``binary16`` format."""
         return self.man == 10 and self.exp == 5
 
     @property
     def is_bfloat16(self) -> bool:
+        """Returns if the format is equivalent to the ``bfloat16`` format."""
         return self.man == 7 and self.exp == 8
 
 
@@ -156,27 +191,31 @@ class SuperNormalFloat(FloatType):
         self.saturate = saturate
 
         min_exp = 1 - 2**exp + (binades - 1)
-        max_exp = 2**(exp-1) - 2 - (binades - 1)
-        self.subnormal_min = 2**(min_exp - binades * (2**man) + 2)
-        self.subnormal_max = 2**(min_exp - 1)
+        max_exp = 2 ** (exp - 1) - 2 - (binades - 1)
+        self.subnormal_min = 2 ** (min_exp - binades * (2**man) + 2)
+        self.subnormal_max = 2 ** (min_exp - 1)
         self.normal_min = 2**min_exp
         self.normal_max = 2**max_exp
-        self.supernormal_min = 2**(max_exp + 1)
-        self.supernormal_max = 2**(max_exp + binades * (2**man) - 1 + int(saturate))
+        self.supernormal_min = 2 ** (max_exp + 1)
+        self.supernormal_max = 2 ** (max_exp + binades * (2**man) - 1 + int(saturate))
 
     def __str__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(
+            self.exp, self.man, self.binades
+        )
 
     def __repr__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(
+            self.exp, self.man, self.binades
+        )
 
 
 class BlockFloatingPoint(Number):
     """
     Low-Precision Block Floating Point Format.
 
-    BlockFloatingPoint shares an exponent across a block of numbers. The shared exponent is chosen from
-    the largest magnitude in the block.
+    BlockFloatingPoint shares an exponent across a block of numbers. The shared
+    exponent is chosen from the largest magnitude in the block.
 
     Args:
         wl: word length of the tensor
@@ -203,86 +242,106 @@ class BlockFloatingPoint(Number):
 
 class Binary8(FloatType):
     """
-    Low-Precision Binary8 Format following the P3109 standard.
+    Low-Precision ``binary8`` Format the follows the IEEE-P3109 WG specification.
 
-    Binary8 is a format that takes a value P as an input to determines the number
+    ``binary8`` is a format that takes a value P as an input to determines the number
     of mantissa and exponent bits.
 
     Args:
-        P: integer precision of the binary8 format
+        P: integer precision of the ``binary8`` format
         signed: boolean indicating whether the format is signed or unsigned
         subnormals: allow the use of subnormal values
         overflow_policy: string indicating the overflow policy, one of:
-            `saturate_maxfloat2` (no infinity and +1 normalized value),
-            `saturate_maxfloat` (clamp to maxfloat),
-            `saturate_infty` (use infinity)
+            ``saturate_maxfloat2`` (no infinity and +1 normalized value),
+            ``saturate_maxfloat`` (clamp to maxfloat),
+            ``saturate_infty`` (use infinity)
     """
 
-    def __init__(self,
-                 P: int,
-                 signed: bool = True,
-                 subnormals: int = True,
-                 overflow_policy: str = "saturate_maxfloat2"
-                ):
+    def __init__(
+        self,
+        P: int,
+        signed: bool = True,
+        subnormals: int = True,
+        overflow_policy: str = "saturate_maxfloat2",
+    ):
         assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
-        assert overflow_policy in ("saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"), \
-            "Invalid overflow policy: {}".format(overflow_policy)
+        assert overflow_policy in (
+            "saturate_infty",
+            "saturate_maxfloat",
+            "saturate_maxfloat2",
+        ), "Invalid overflow policy: {}".format(overflow_policy)
 
         self.P = P
         spec_exp = P == 1
-        
+
         # Determine mantissa and exponent bits based on P and signed
         self.man = P - 1
         self.exp = (8 - P) if signed else (9 - P)
-        max_exp = 2**(self.exp - 1) - 1
+        max_exp = 2 ** (self.exp - 1) - 1
         min_exp = -max_exp + spec_exp
 
         # Define the subnormal and normal ranges
         if self.man != 1 and subnormals == True:
-            self.subnormal_min = (2**-self.man) * (2**min_exp)   # this is good
-            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)   # this is also good
+            self.subnormal_min = (2**-self.man) * (2**min_exp)  # this is good
+            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)  # this is also good
         else:
             self.subnormal_min = None
             self.subnormal_max = None
 
         # no subnormal case
         if subnormals == True or self.man == 1:
-            self.normal_min = 2**min_exp   # this is good
-        else:   # values of P with subnormal values will have different normal_min
-            self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
-    
+            self.normal_min = 2**min_exp  # this is good
+        else:  # values of P with subnormal values will have different normal_min
+            self.normal_min = (1 + 2**-self.man) * (2 ** (min_exp - 1))
+
         if signed:
-            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FF not FE
+            if (
+                overflow_policy == "saturate_maxfloat2"
+            ):  # no inf case, so max is FF not FE
                 if self.man > 0:
-                    self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2**-self.man) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**(max_exp + 1)  # 0 mantissa case
-            else:   # normal case where FE is max   
+                    self.normal_max = 2 ** (max_exp + 1)  # 0 mantissa case
+            else:  # normal case where FE is max
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**max_exp    # 0 mantissa case
-        else:   # unsigned case
-            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FE not FD
+                    self.normal_max = 2**max_exp  # 0 mantissa case
+        else:  # unsigned case
+            if (
+                overflow_policy == "saturate_maxfloat2"
+            ):  # no inf case, so max is FE not FD
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**max_exp    # 0 mantissa case
-            else:   # normal case where FD is max
+                    self.normal_max = 2**max_exp  # 0 mantissa case
+            else:  # normal case where FD is max
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-self.man - 2**-(self.man-1)) * (2**max_exp)  # good for more than 1 mantissa
+                    self.normal_max = (2 - 2**-self.man - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 1 mantissa
                 elif self.man == 1:
-                    self.normal_max = 1.5 * (2**(max_exp-1))      # (2 - 2**-self.man) * (2**(max_exp-1))
+                    self.normal_max = 1.5 * (
+                        2 ** (max_exp - 1)
+                    )  # (2 - 2**-self.man) * (2**(max_exp-1))
                 else:
-                    self.normal_max = 2**(max_exp-1)
-        
+                    self.normal_max = 2 ** (max_exp - 1)
+
         self.signed = signed
         self.subnormals = subnormals
         self.overflow_policy = overflow_policy
 
     def __repr__(self):
-        return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
-               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
-    
+        return (
+            f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, "
+            f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
+        )
+
     def __str__(self):
         return self.__repr__()
