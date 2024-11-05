@@ -1,5 +1,4 @@
 from .quant_function import *
-from .quant_module import *
 from .quant_format import *
 from .modules import *
 from .functional import qmatmul
