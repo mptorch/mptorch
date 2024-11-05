@@ -1,8 +1,11 @@
 import torch
+from torch import Tensor
 import torch.nn as nn
-from .quant_function import *
-from .functional import *
+import torch.nn.functional as F
 import math
+
+from torch.nn.common_types import _size_2_t
+from typing import Callable, Optional
 
 __all__ = ["QAvgPool2d"]
 
@@ -43,42 +46,34 @@ class QAvgPool2dFunction(torch.autograd.Function):
                 for w in range(o_w):
                     for kh in range(ctx.k_h):
                         for kw in range(ctx.k_w):
-                            grad_x[
-                                :, :, h * (ctx.s_h) + kh, w * (ctx.s_w) + kw
-                            ] = ctx.bwd_quant(
-                                grad_x[:, :, h * (ctx.s_h) + kh, w * (ctx.s_w) + kw]
-                                + grad_y[:, :, h, w]
+                            grad_x[:, :, h * (ctx.s_h) + kh, w * (ctx.s_w) + kw] = (
+                                ctx.bwd_quant(
+                                    grad_x[:, :, h * (ctx.s_h) + kh, w * (ctx.s_w) + kw]
+                                    + grad_y[:, :, h, w]
+                                )
                             )
         grad_x = ctx.bwd_quant(grad_x / ctx.divisor)
         return grad_x, None, None, None, None, None, None, None, None, None
 
 
-class QAvgPool2d(nn.Module):
+class QAvgPool2d(nn.AvgPool2d):
     def __init__(
         self,
-        kernel_size,
-        fwd_quant,
-        bwd_quant,
-        stride=None,
-        padding=0,
-        ceil_mode=False,
-        count_include_pad=True,
-        divisor_override=None,
-    ):
-        super(QAvgPool2d, self).__init__()
+        kernel_size: _size_2_t,
+        fwd_quant: Callable,
+        bwd_quant: Callable,
+        stride: Optional[_size_2_t] = None,
+        padding: _size_2_t = 0,
+        ceil_mode: bool = False,
+        count_include_pad: bool = True,
+        divisor_override: Optional[int] = None,
+    ) -> None:
+        super(QAvgPool2d).__init__(
+            kernel_size, stride, padding, ceil_mode, count_include_pad, divisor_override
+        )
+
         self.fwd_quant = fwd_quant
         self.bwd_quant = bwd_quant
-        if isinstance(kernel_size, tuple):
-            self.kernel_size = kernel_size
-        else:
-            self.kernel_size = (kernel_size, kernel_size)
-        if stride is not None:
-            if isinstance(stride, tuple):
-                self.stride = stride
-            else:
-                self.stride = (stride, stride)
-        else:
-            self.stride = self.kernel_size
         if isinstance(padding, tuple):
             self.padding = padding
         else:
@@ -86,16 +81,9 @@ class QAvgPool2d(nn.Module):
         self.padF = torch.nn.ZeroPad2d(
             (self.padding[1], self.padding[1], self.padding[0], self.padding[0])
         )
-        # TODO: need to investigate how to handle these cases (ceil_mode and/or count_include_pad)
-        self.ceil_mode = ceil_mode
-        self.count_include_pad = count_include_pad
-        if divisor_override is None:
-            self.divisor = self.kernel_size[0] * self.kernel_size[1]
-        else:
-            self.divisor = divisor_override
 
-    def forward(self, input):
-        batch, in_channel, in_height, in_width = input.shape
+    def forward(self, input: Tensor) -> Tensor:
+        _, _, in_height, in_width = input.shape
         kernel_h, kernel_w = self.kernel_size
         if self.stride is None:
             self.stride = 1
@@ -158,10 +146,10 @@ class QMaxPool2dFunction(torch.autograd.Function):
                     for kw in range(ctx.k_w):
                         tmp = x[:, :, h * ctx.s_h + kh, w * ctx.s_w + kw]
                         mask = tmp == torch.max(tmp)
-                        grad_x[
-                            :, :, h * ctx.s_h + kh, w * ctx.s_w + kw
-                        ] = ctx.bwd_quant(
-                            grad_x[:, :, h * ctx.s_h + kh, w * ctx.s_w + kw]
-                            + grad_y[:, :, h, w] * mask
+                        grad_x[:, :, h * ctx.s_h + kh, w * ctx.s_w + kw] = (
+                            ctx.bwd_quant(
+                                grad_x[:, :, h * ctx.s_h + kh, w * ctx.s_w + kw]
+                                + grad_y[:, :, h, w] * mask
+                            )
                         )
         return grad_x, None, None, None, None, None, None, None

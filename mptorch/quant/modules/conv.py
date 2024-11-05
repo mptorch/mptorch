@@ -202,7 +202,7 @@ class QConv2d(nn.Conv2d):
         )
         self.formats = formats
         # self.quant_parameters()
-        self.params_are_quantized = False # nazar
+        self.params_are_quantized = False  # nazar
         self.reset_quant_function()
 
     def reset_quant_function(self):
@@ -233,7 +233,7 @@ class QConv2d(nn.Conv2d):
         return round.apply
 
     def forward(self, input: Tensor) -> Tensor:
-        if not self.params_are_quantized: # nazar
+        if not self.params_are_quantized:  # nazar
             self.quant_parameters()
             self.params_are_quantized = True
         if self.formats.fwd_use_default_prec:

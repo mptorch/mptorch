@@ -12,6 +12,7 @@ from .batchnorm import QBatchNorm, QBatchNorm1d, QBatchNorm2d
 from .layernorm import QLayerNorm
 from .softmax import QSoftmax
 from .gelu import QGELU
+from .pooling import QAvgPool2d
 
 __all__ = [
     "Quantizer",
@@ -23,6 +24,7 @@ __all__ = [
     "QConvTranspose1d",
     "QConvTranspose2d",
     "QConvTranspose3d",
+    "QAvgPool2d",
     "QBatchNorm",
     "QBatchNorm1d",
     "QBatchNorm2d",
