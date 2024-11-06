@@ -167,10 +167,10 @@ class FloatingPoint(FloatType):
 
 
 class SuperNormalFloat(FloatType):
-    """
+    r"""
     Low-Precision SuperNormal Floating Point Format.
 
-    We set the exponent bias to be :math:`2^{exp-1}`. For rounding
+    We set the exponent bias to be :math:`2^{\text{exp}-1}`. For rounding
     mode, we apply *round to nearest even*.
 
     Args:
@@ -211,7 +211,7 @@ class SuperNormalFloat(FloatType):
 
 
 class BlockFloatingPoint(Number):
-    """
+    r"""
     Low-Precision Block Floating Point Format.
 
     BlockFloatingPoint shares an exponent across a block of numbers. The shared
@@ -241,8 +241,8 @@ class BlockFloatingPoint(Number):
 
 
 class Binary8(FloatType):
-    """
-    Low-Precision ``binary8`` Format the follows the IEEE-P3109 WG specification.
+    r"""
+    Low-Precision ``binary8`` Format the follows the IEEE-P3109 WG specification (https://github.com/P3109/Public/).
 
     ``binary8`` is a format that takes a value P as an input to determines the number
     of mantissa and exponent bits.
