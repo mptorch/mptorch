@@ -7,6 +7,7 @@ __all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats", "QLayerNormForma
 
 id_quant = lambda x: x
 
+
 def make_quant_function(num: Number, rounding: str, prng_bits: int = 0):
     if isinstance(num, FloatingPoint):
         return lambda x: float_quantize(
@@ -21,12 +22,16 @@ def make_quant_function(num: Number, rounding: str, prng_bits: int = 0):
             x, num.exp, num.man, num.binades, rounding, num.saturate
         )
     elif isinstance(num, BlockFloatingPoint):
-        return lambda x: block_quantize(
-            x, num.wl, num.dim, rounding
-        )
+        return lambda x: block_quantize(x, num.wl, num.dim, rounding)
     elif isinstance(num, Binary8):
         return lambda x: binary8_quantize(
-            x, num.P, rounding, num.overflow_policy, num.signed, num.subnormals, prng_bits
+            x,
+            num.P,
+            rounding,
+            num.overflow_policy,
+            num.signed,
+            num.subnormals,
+            prng_bits,
         )
     raise NotImplementedError
 
@@ -56,8 +61,9 @@ class QAffineFormats:
         - :attr: `input_scaled_format` (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         - :attr: `grad_scaled_format` (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
         - :attr: `prng_bits` (int) : number of bits used for random number generation when rounding is stochastic
- 
+
     """
+
     def __init__(
         self,
         fwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
@@ -73,7 +79,7 @@ class QAffineFormats:
         weight_scaled_format: Optional[FloatType] = None,
         input_scaled_format: Optional[FloatType] = None,
         grad_scaled_format: Optional[FloatType] = None,
-        prng_bits: int = 0
+        prng_bits: int = 0,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -122,13 +128,13 @@ class QAffineFormats:
                 self.weight_scaled_format = num
         else:
             self.weight_quant = weight_quant
-        
+
         if isinstance(bias_quant, tuple):
             num, rnd = bias_quant
             self.bias_quant = make_quant_function(num, rnd, prng_bits)
         else:
             self.bias_quant = bias_quant
-        
+
         if isinstance(input_quant, tuple):
             num, rnd = input_quant
             self.input_quant = make_quant_function(num, rnd, prng_bits)
@@ -142,7 +148,7 @@ class QAffineFormats:
             self.output_quant = make_quant_function(num, rnd, prng_bits)
         else:
             self.output_quant = output_quant
-        
+
         if isinstance(grad_quant, tuple):
             num, rnd = grad_quant
             self.grad_quant = make_quant_function(num, rnd, prng_bits)
@@ -150,9 +156,9 @@ class QAffineFormats:
                 self.grad_scaled_format = num
         else:
             self.grad_quant = grad_quant
-        
+
         self.use_scaling = use_scaling
-    
+
     def __repr__(self) -> str:
         out = []
         if self.fwd_use_default_prec:
@@ -181,9 +187,10 @@ class QAffineFormats:
             out.append(f"grad_scaled_format={self.grad_scaled_format}")
         sep = ", "
         return f"QAffineFormats ({sep.join(out)})"
-    
+
     def __str__(self) -> str:
         return self.__repr__()
+
 
 class QLayerNormFormats:
     def __init__(
@@ -192,21 +199,23 @@ class QLayerNormFormats:
         fwd_mul: Optional[Number] = None,
         fwd_div: Optional[Number] = None,
         fwd_sqrt: Optional[Number] = None,
-
         bwd_acc: Optional[Number] = None,
         bwd_mul: Optional[Number] = None,
         bwd_div: Optional[Number] = None,
-        
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
-
-        input_quant = id_quant,
-        output_quant = id_quant,
-        grad_quant = id_quant,
-        weight_quant = id_quant,
-        bias_quant = id_quant,
-    )-> None:
-        if fwd_acc is not None and fwd_mul is not None and fwd_div is not None and fwd_sqrt is not None:
+        input_quant=id_quant,
+        output_quant=id_quant,
+        grad_quant=id_quant,
+        weight_quant=id_quant,
+        bias_quant=id_quant,
+    ) -> None:
+        if (
+            fwd_acc is not None
+            and fwd_mul is not None
+            and fwd_div is not None
+            and fwd_sqrt is not None
+        ):
             self.fwd_acc = fwd_acc
             self.fwd_mul = fwd_mul
             self.fwd_div = fwd_div
@@ -256,6 +265,7 @@ class QLayerNormFormats:
     def __str__(self) -> str:
         return self.__repr__()
 
+
 class QSoftmaxFormats:
     def __init__(
         self,
@@ -263,13 +273,10 @@ class QSoftmaxFormats:
         fwd_exp: Optional[Number] = None,
         fwd_acc: Optional[Number] = None,
         fwd_lse: Optional[Number] = None,
-
         bwd_add: Optional[Number] = None,
         bwd_mul: Optional[Number] = None,
-        
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
-        
         input_quant=id_quant,
         output_quant=id_quant,
         grad_quant=id_quant,
@@ -284,12 +291,13 @@ class QSoftmaxFormats:
                 self.fwd_lse = fwd_lse
                 self.use_lse = True
             else:
-                raise ValueError("Incomplete softmax format, "
-                                 "missing fwd_acc/fwd_exp or fwd_lse.")
+                raise ValueError(
+                    "Incomplete softmax format, " "missing fwd_acc/fwd_exp or fwd_lse."
+                )
             self.fwd_use_default_prec = False
         else:
             self.fwd_use_default_prec = True
-        
+
         if bwd_add is not None and bwd_mul is not None:
             self.bwd_add = bwd_add
             self.bwd_mul = bwd_mul
@@ -302,7 +310,7 @@ class QSoftmaxFormats:
         self.input_quant = input_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
-    
+
     def __repr__(self) -> str:
         out = []
         if self.fwd_use_default_prec:
@@ -324,7 +332,7 @@ class QSoftmaxFormats:
             out.append(f"bwd_rnd={self.bwd_rnd}")
         sep = ", "
         return f"QSoftmaxFormats ({sep.join(out)})"
-    
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -337,7 +345,7 @@ class QGELUFormats:
         output_quant: Callable = id_quant,
         grad_quant: Callable = id_quant,
     ):
-        self.input_quant = input_quant 
+        self.input_quant = input_quant
         self.inter_quant = inter_quant
         self.output_quant = output_quant
         self.grad_quant = grad_quant
