@@ -2,6 +2,7 @@
 #include "bit_helper.h"
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 // extracts exponent from a float value
 uint32_t extract_exponent(float *a) {
@@ -41,7 +42,7 @@ uint32_t round_bitwise_nearest(uint32_t target, int man_bits) {
   // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << std::min((23 - man_bits + offset),23)) - 1);
+  return add_r & ~((1 << std::min<int>((23 - man_bits + offset),23)) - 1);
 }
 
 // rounds up, towards positive infinity
