@@ -1,5 +1,6 @@
 #include "bit_helper.cu"
 #include "quant_kernel.h"
+#include "mm_kernel.h"
 #include "sim_helper.cu"
 #include "layernorm_kernel.h"
 #include "softmax_kernel.h"
@@ -817,9 +818,11 @@ void mm_fp_nearest(float *a, float *b, float *c, int M, int K, int N,
   dim3 const block_dim{
       (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  mm_fp_nearest_impl<SHMEM_SIZE>
-      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
-                                  exp_mul, subnormals, saturate);
+  mm_impl<1u, SHMEM_SIZE>
+      <<<block_dim, thread_dim>>>(a, b, c, M, K, N,
+      [man_add, exp_add, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); }
+  );
 }
 
 void bmm_fp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
@@ -850,8 +853,10 @@ void mm_fp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
   dim3 const block_dim{
       (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  mm_fp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-      a, b, c, M, K, N, man_fma, exp_fma, subnormals, saturate);
+  mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
+      a, b, c, M, K, N, 
+      [man_fma, exp_fma, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); }
+  );
 }
 
 void bmm_fp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,

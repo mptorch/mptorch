@@ -4,7 +4,7 @@
 #include <curand_kernel.h>
 #include <cstdint>
 
-template <class Qadd, class Qmul, size_t BLOCK_FACTOR, size_t SHMEM_SIZE>
+template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
                         float *__restrict__ c, int M, int K, int N,
                         Qadd quant_add, Qmul quant_mul)
@@ -58,7 +58,7 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = outer_sum;
 }
 
-template <class Qfma, size_t BLOCK_FACTOR, size_t SHMEM_SIZE>
+template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
                             float *__restrict__ c, int M, int K, int N,
                             Qfma quant_fma)
@@ -112,7 +112,7 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = outer_sum;
 }
 
-template <class Qadd, class Qmul, size_t SHMEM_SIZE>
+template <size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
                            Qadd quant_add, Qmul quant_mul)
@@ -161,10 +161,10 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = tmp;
 }
 
-template <class Qfma, size_t SHMEM_SIZE>
+template <size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
-                               Qadd quant_fma)
+                               Qfma quant_fma)
 {
 
   // declare shared memory matrices for A and B matrices
