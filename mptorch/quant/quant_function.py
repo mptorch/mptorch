@@ -118,15 +118,15 @@ def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     in the [cuBLAS documentation](https://docs.nvidia.com/cuda/cublas/#cublasgemmex).
 
     Args:
-        `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
-        `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
-        `input_type` (CUBLASMatrixType) : intermediate float format for input matrices
-        `output_type` (CUBLASMatrixType) : intermedtiate float format for the output matrix
-        `compute_type` (CUBLASComputeType) : accumulator type used by cuBLAS GEMM
-        `pedantic` (bool) : whether to hint cuBLAS to use pedantic math or not
+        a: the input of GEMM, with shape (M, K)
+        b: the input of GEMM, with shape (K, N)
+        input_type: intermediate float format for input matrices (`CUBLASMatrixType`)
+        output_type: intermedtiate float format for the output matrix (`CUBLASMatrixType`)
+        compute_type: accumulator type used by cuBLAS GEMM (`CUBLASMatrixType`)
+        pedantic: whether to hint cuBLAS to use pedantic math or not
 
     Returns:
-        - the result of GEMM (torch.Tensor)
+        The result of GEMM (torch.Tensor)
     """
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
@@ -170,15 +170,15 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
     The last dimension in tensor `a` must match the second to last dimension in tensor `b`.
 
     Args:
-        `a` (torch.Tensor): the input to the BGEMM call (2D, 3D and 4D shape possible)
-        `b` (torch.Tensor): the input to the BGEMM call (2D, 3D and 4D shape possible)
-        `input_type` (CUBLASMatrixType) : intermediate float format for input matrices
-        `output_type` (CUBLASMatrixType) : intermedtiate float format for the output matrix
-        `compute_type` (CUBLASComputeType) : accumulator type used by cuBLAS batched GEMM
-        `pedantic` (bool) : whether to hint cuBLAS to use pedantic math or not
+        a: the input to the BGEMM call (2D, 3D and 4D shape possible)
+        b: the input to the BGEMM call (2D, 3D and 4D shape possible)
+        input_type: intermediate float format for input matrices (`CUBLASMatrixType`)
+        output_type: intermedtiate float format for the output matrix (`CUBLASMatrixType`)
+        compute_type: accumulator type used by cuBLAS batched GEMM (`CUBLASMatrixType`)
+        pedantic: whether to hint cuBLAS to use pedantic math or not
 
     Returns:
-        - the result of the batched GEMM (torch.Tensor)
+        The result of the batched GEMM (torch.Tensor)
     """
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
@@ -297,15 +297,18 @@ def match_mac_format_with_cublas_types(
     functions, when possible.
 
     Args:
-        `man_add` (int): mantissa size for addition operations
-        `exp_add` (int): exponent size for addition operations
-        `man_mul` (int): mantissa size for multiply operations
-        `exp_mul` (int): exponent size for multiply operations
-        `rounding` (string): rounding mode used in operations (RN or SR)
-        `fma` (bool): if operations should be performed using FMA
-        `subnormals` (bool): are subnormals supported or not
-        `saturate` (bool): are overflow values satturated or not
-        `fast_mode` (string): whether accelerated accumulations should be used in the cuBLAS calls
+        man_add: mantissa size for addition operations
+        exp_add: exponent size for addition operations
+        man_mul: mantissa size for multiply operations
+        exp_mul: exponent size for multiply operations
+        rounding: rounding mode used in operations (RN or SR)
+        fma: if operations should be performed using FMA
+        subnormals: are subnormals supported or not
+        saturate: are overflow values satturated or not
+        fast_mode: whether accelerated accumulations should be used in the cuBLAS calls
+    
+    Returns:
+        The cuBLAS compute types.
     """
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")

@@ -25,3 +25,10 @@ ______________
 .. automodule:: mptorch.quant.modules
     :members:
     :show-inheritance:
+
+cuBLAS Acceleration
+___________________
+.. automodule:: mptorch.quant.cublas
+    :members:
+    :show-inheritance:
+
