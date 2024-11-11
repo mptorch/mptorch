@@ -58,6 +58,65 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = outer_sum;
 }
 
+template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
+__global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
+                        float *__restrict__ c, int M, int K, int N,
+                        Qadd quant_add, Qmul quant_mul)
+{
+  // declare shared memory matrices for A and B matrices
+  __shared__ float s_a[SHMEM_SIZE];
+  __shared__ float s_b[SHMEM_SIZE];
+
+  int batch_idx = blockIdx.z;
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+  float inner_sum = 0.0f;
+  float outer_sum = 0.0f;
+  int currFactor = 0;
+
+  // Determine the start index of the current batch in the 1D linearized arrays
+  int batch_a = batch_idx * M * K;
+  int batch_b = batch_idx * K * N;
+  int batch_c = batch_idx * M * N;
+
+  // sweep tile across matrix
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+    // load in elements for this tile
+    s_a[ty * blockDim.x + tx] =
+        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
+    s_b[ty * blockDim.x + tx] =
+        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
+
+    // wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // do matrix multiplication on the small matrices
+    for (int j = 0; j < blockDim.x; j++) {
+      inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx])
+                  );
+    }
+    currFactor++;
+    currFactor %= BLOCK_FACTOR;
+    if (currFactor == 0) {
+      outer_sum = quant_add(outer_sum + inner_sum);
+      inner_sum = 0.0f;
+    }
+
+    // wait for all threads to finish using current tiles
+    // before loading in new ones
+    __syncthreads();
+  }
+
+  // write the result back to global memory
+  if (row < M && col < N) {
+    c[batch_c + row * N + col] = outer_sum;
+  }
+}
+
+
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
                             float *__restrict__ c, int M, int K, int N,
@@ -112,6 +171,62 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = outer_sum;
 }
 
+template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
+__global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
+                            float *__restrict__ c, int M, int K, int N,
+                            Qfma quant_fma)
+{
+  // declare shared memory matrices for A and B matrices
+  __shared__ float s_a[SHMEM_SIZE];
+  __shared__ float s_b[SHMEM_SIZE];
+
+  int batch_idx = blockIdx.z;
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+  float inner_sum = 0.0f;
+  float outer_sum = 0.0f;
+  int currFactor = 0;
+
+  // Determine the start index of the current batch in the 1D linearized arrays
+  int batch_a = batch_idx * M * K;
+  int batch_b = batch_idx * K * N;
+  int batch_c = batch_idx * M * N;
+
+  // sweep tile across matrix
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+    // load in elements for this tile
+    s_a[ty * blockDim.x + tx] =
+        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
+    s_b[ty * blockDim.x + tx] =
+        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
+
+    // wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // do matrix multiplication on the small matrices
+    for (int j = 0; j < blockDim.x; j++) {
+      inner_sum = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum));
+    }
+    currFactor++;
+    currFactor %= BLOCK_FACTOR;
+    if (currFactor == 0) {
+      outer_sum = quant_fma(outer_sum + inner_sum);
+      inner_sum = 0.0f;
+    }
+    // wait for all threads to finish using current tiles
+    // before loading in new ones
+    __syncthreads();
+  }
+
+  // write the result back to global memory
+  if (row < M && col < N) {
+    c[batch_c + row * N + col] = outer_sum;
+  }
+}
+
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
@@ -161,6 +276,58 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = tmp;
 }
 
+template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+__global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
+                           float *__restrict__ c, curandState_t *state, int M, int K, int N,
+                           Qadd quant_add, Qmul quant_mul)
+{
+  // declare shared memory matrices for A and B matrices
+  __shared__ float s_a[SHMEM_SIZE];
+  __shared__ float s_b[SHMEM_SIZE];
+
+  int batch_idx = blockIdx.z;
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
+
+  float tmp = 0.0f;
+  uint32_t radd, rmul;
+  // Determine the start index of the current batch in the 1D linearized
+  // arrays
+  int batch_a = batch_idx * M * K;
+  int batch_b = batch_idx * K * N;
+  int batch_c = batch_idx * M * N;
+
+  // sweep tile across matrix
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+    // load in elements for this tile
+    s_a[ty * blockDim.x + tx] =
+        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
+    s_b[ty * blockDim.x + tx] =
+        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
+
+    // wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // do matrix multiplication on the small matrices
+    for (int j = 0; j < blockDim.x; j++) {
+      radd = curand(&state[sidx]);
+      rmul = curand(&state[sidx]);
+      tmp = quant_add(tmp + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul), radd);
+    }
+
+    // wait for all threads to finish using current tiles
+    // before loading in new ones
+    __syncthreads();
+  }
+
+  // write back results
+  if (row < M && col < N)
+    c[batch_c + row * N + col] = tmp;
+}
+
 template <size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
@@ -207,4 +374,56 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
   // write back results
   if (row < M && col < N)
     c[row * N + col] = tmp;
+}
+
+template <size_t SHMEM_SIZE, class Qfma>
+__global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
+                               float *__restrict__ c, curandState_t *state, int M, int K, int N,
+                               Qfma quant_fma)
+{
+  // declare shared memory matrices for A and B matrices
+  __shared__ float s_a[SHMEM_SIZE];
+  __shared__ float s_b[SHMEM_SIZE];
+
+  int batch_idx = blockIdx.z;
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
+
+  float tmp = 0.0f;
+  uint32_t rfma;
+
+  // Determine the start index of the current batch in the 1D linearized
+  // arrays
+  int batch_a = batch_idx * M * K;
+  int batch_b = batch_idx * K * N;
+  int batch_c = batch_idx * M * N;
+
+  // sweep tile across matrix
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+    // load in elements for this tile
+    s_a[ty * blockDim.x + tx] =
+        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
+    s_b[ty * blockDim.x + tx] =
+        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
+
+    // wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // do matrix multiplication on the small matrices
+    for (int j = 0; j < blockDim.x; j++) {
+      rfma = curand(&state[sidx]);
+      tmp = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma);
+    }
+
+    // wait for all threads to finish using current tiles
+    // before loading in new ones
+    __syncthreads();
+  }
+
+  // write back results
+  if (row < M && col < N)
+    c[batch_c + row * N + col] = tmp;
 }

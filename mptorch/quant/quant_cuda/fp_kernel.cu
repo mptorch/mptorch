@@ -151,662 +151,6 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                saturate);
 }
 
-/* template <size_t SHMEM_SIZE>
-__global__ void mm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                                   float *__restrict__ c, int M, int K, int N,
-                                   int man_add, int exp_add, int man_mul,
-                                   int exp_mul, bool subnormals,
-                                   bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float tmp = 0.0f;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                  s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul, subnormals,
-                                                  saturate),
-                            man_add, exp_add, subnormals, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = tmp;
-} */
-
-template <size_t SHMEM_SIZE>
-__global__ void mm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                                   float *__restrict__ c, int M, int K, int N,
-                                   int man_add, int exp_add, int man_mul,
-                                   int exp_mul, bool subnormals,
-                                   bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int blockFactor = 1;
-  int currFactor = 0;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      inner_sum = cast_fp_nearest(inner_sum + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul, subnormals,
-                                                  saturate),
-                            man_add, exp_add, subnormals, saturate);
-    }
-    currFactor++;
-    currFactor %= blockFactor;
-    if (currFactor == 0) {
-      outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_add, exp_add, subnormals, saturate);
-      inner_sum = 0.0f;
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = outer_sum;
-}
-
-/*template <size_t SHMEM_SIZE>
-__global__ void
-bmm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                    float *__restrict__ c, int M, int K, int N, int man_add,
-                    int exp_add, int man_mul, int exp_mul, bool subnormals,
-                    bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float tmp = 0.0f;
-
-  // Determine the start index of the current batch in the 1D linearized arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul, subnormals,
-                                                  saturate),
-                            man_add, exp_add, subnormals, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write the result back to global memory
-  if (row < M && col < N) {
-    c[batch_c + row * N + col] = tmp;
-  }
-}*/
-
-template <size_t SHMEM_SIZE>
-__global__ void
-bmm_fp_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                    float *__restrict__ c, int M, int K, int N, int man_add,
-                    int exp_add, int man_mul, int exp_mul, bool subnormals,
-                    bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int blockFactor = 1;
-  int currFactor = 0;
-
-  // Determine the start index of the current batch in the 1D linearized arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      inner_sum = cast_fp_nearest(inner_sum + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                      s_b[j * blockDim.x + tx],
-                                                  man_mul, exp_mul, subnormals,
-                                                  saturate),
-                            man_add, exp_add, subnormals, saturate);
-    }
-    currFactor++;
-    currFactor %= blockFactor;
-    if (currFactor == 0) {
-      outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_add, exp_add, subnormals, saturate);
-      inner_sum = 0.0f;
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write the result back to global memory
-  if (row < M && col < N) {
-    c[batch_c + row * N + col] = outer_sum;
-  }
-}
-
-/*template <size_t SHMEM_SIZE>
-__global__ void
-mm_fp_fma_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                       float *__restrict__ c, int M, int K, int N, int man_fma,
-                       int exp_fma, bool subnormal_support, bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float tmp = 0.0f;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      tmp = cast_fp_nearest(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp),
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = tmp;
-}*/
-
-template <size_t SHMEM_SIZE>
-__global__ void
-mm_fp_fma_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                       float *__restrict__ c, int M, int K, int N, int man_fma,
-                       int exp_fma, bool subnormal_support, bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int blockFactor = 1;
-  int currFactor = 0;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      inner_sum = cast_fp_nearest(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum),
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-    currFactor++;
-    currFactor %= blockFactor;
-    if (currFactor == 0) {
-      outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_fma, exp_fma, subnormal_support, saturate);
-      inner_sum = 0.0f;
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = outer_sum;
-}
-
-/* template <size_t SHMEM_SIZE>
-__global__ void
-bmm_fp_fma_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N, int man_fma,
-                        int exp_fma, bool subnormal_support, bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float tmp = 0.0f;
-
-  // Determine the start index of the current batch in the 1D linearized arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      tmp = cast_fp_nearest(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp),
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write the result back to global memory
-  if (row < M && col < N) {
-    c[batch_c + row * N + col] = tmp;
-  }
-}*/
-
-template <size_t SHMEM_SIZE>
-__global__ void
-bmm_fp_fma_nearest_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N, int man_fma,
-                        int exp_fma, bool subnormal_support, bool saturate) {
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int blockFactor = 1;
-  int currFactor = 0;
-
-  // Determine the start index of the current batch in the 1D linearized arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      inner_sum = cast_fp_nearest(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum),
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-    currFactor++;
-    currFactor %= blockFactor;
-    if (currFactor == 0) {
-      outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_fma, exp_fma, subnormal_support, saturate);
-      inner_sum = 0.0f;
-    }
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write the result back to global memory
-  if (row < M && col < N) {
-    c[batch_c + row * N + col] = outer_sum;
-  }
-}
-
-template <size_t SHMEM_SIZE>
-__global__ void mm_fp_stochastic_impl(
-    float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
-    curandState_t *state, // int *__restrict__ r,
-    int M, int K, int N, int man_add, int exp_add, int man_mul, int exp_mul,
-    bool subnormal_support, bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x) * 2;
-  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
-
-  float tmp = 0.0f;
-  uint32_t radd, rmul;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      radd = curand(&state[sidx]);
-      rmul = curand(&state[sidx]);
-      // radd = (uint32_t)r[bidx + 2 * (i + j)];
-      // rmul = (uint32_t)r[bidx + 2 * (i + j) + 1];
-      tmp = cast_fp_stochastic(
-          tmp + cast_fp_stochastic(
-                    s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul,
-                    man_mul, exp_mul, subnormal_support, saturate),
-          radd, man_add, exp_add, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = tmp;
-}
-
-template <size_t SHMEM_SIZE>
-__global__ void bmm_fp_stochastic_impl(
-    float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
-    curandState_t *state, // int *__restrict__ r,
-    int M, int K, int N, int man_add, int exp_add, int man_mul, int exp_mul,
-    bool subnormal_support, bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x) * 2;
-  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
-
-  float tmp = 0.0f;
-  uint32_t radd, rmul;
-  // Determine the start index of the current batch in the 1D linearized
-  // arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      radd = curand(&state[sidx]);
-      rmul = curand(&state[sidx]);
-      // radd = (uint32_t)r[bidx + 2 * (i + j)];
-      // rmul = (uint32_t)r[bidx + 2 * (i + j) + 1];
-      tmp = cast_fp_stochastic(
-          tmp + cast_fp_stochastic(
-                    s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul,
-                    man_mul, exp_mul, subnormal_support, saturate),
-          radd, man_add, exp_add, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[batch_c + row * N + col] = tmp;
-}
-
-template <size_t SHMEM_SIZE>
-__global__ void
-mm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
-                          float *__restrict__ c,
-                          curandState_t *state, // int *__restrict__ r,
-                          int M, int K, int N, int man_fma, int exp_fma,
-                          bool subnormal_support, bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x);
-  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
-
-  float tmp = 0.0f;
-  uint32_t rfma;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      // rfma = (uint32_t)r[bidx + i + j];
-      rfma = curand(&state[sidx]);
-      tmp = cast_fp_stochastic(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma,
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[row * N + col] = tmp;
-}
-
-template <size_t SHMEM_SIZE>
-__global__ void
-bmm_fp_fma_stochastic_impl(float *__restrict__ a, float *__restrict__ b,
-                           float *__restrict__ c,
-                           curandState_t *state, // int *__restrict__ r,
-                           int M, int K, int N, int man_fma, int exp_fma,
-                           bool subnormal_support, bool saturate) {
-
-  // declare shared memory matrices for A and B matrices
-  __shared__ float s_a[SHMEM_SIZE];
-  __shared__ float s_b[SHMEM_SIZE];
-
-  int batch_idx = blockIdx.z;
-  int tx = threadIdx.x;
-  int ty = threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  // int bidx = (row * N + col) * (K + blockDim.x - K % blockDim.x);
-  int sidx = blockIdx.x * blockDim.x + blockIdx.y;
-
-  float tmp = 0.0f;
-  uint32_t rfma;
-
-  // Determine the start index of the current batch in the 1D linearized
-  // arrays
-  int batch_a = batch_idx * M * K;
-  int batch_b = batch_idx * K * N;
-  int batch_c = batch_idx * M * N;
-
-  // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load in elements for this tile
-    s_a[ty * blockDim.x + tx] =
-        (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
-    s_b[ty * blockDim.x + tx] =
-        (col < N && i + ty < K) ? b[batch_b + i * N + ty * N + col] : 0.0f;
-
-    // wait for both tiles to be loaded in before doing computation
-    __syncthreads();
-
-    // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
-      // rfma = (uint32_t)r[bidx + i + j];
-      rfma = curand(&state[sidx]);
-      tmp = cast_fp_stochastic(
-          fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma,
-          man_fma, exp_fma, subnormal_support, saturate);
-    }
-
-    // wait for all threads to finish using current tiles
-    // before loading in new ones
-    __syncthreads();
-  }
-
-  // write back results
-  if (row < M && col < N)
-    c[batch_c + row * N + col] = tmp;
-}
-
 void mm_fp_nearest(float *a, float *b, float *c, int M, int K, int N,
                    int man_add, int exp_add, int man_mul, int exp_mul,
                    bool subnormals, bool saturate) {
@@ -837,9 +181,11 @@ void bmm_fp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
       (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
       static_cast<uint32_t>(B)};
-  bmm_fp_nearest_impl<SHMEM_SIZE>
-      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
-                                  exp_mul, subnormals, saturate);
+  bmm_impl<1u, SHMEM_SIZE>
+      <<<block_dim, thread_dim>>>(a, b, c, M, K, N,
+      [man_add, exp_add, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); }
+  );
 }
 
 void mm_fp_fma_nearest(float *a, float *b, float *c, int M, int K, int N,
@@ -871,13 +217,15 @@ void bmm_fp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
       (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
       static_cast<uint32_t>(B)};
-  bmm_fp_fma_nearest_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-      a, b, c, M, K, N, man_fma, exp_fma, subnormals, saturate);
+  bmm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
+      a, b, c, M, K, N, 
+      [man_fma, exp_fma, subnormals, saturate] __device__ (float x) { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); }
+  );
 }
 
 void mm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
                       int man_add, int exp_add, int man_mul, int exp_mul,
-                      bool subnormal_support, bool saturate) {
+                      bool subnormals, bool saturate) {
   constexpr size_t THREADS_X{8U};
   constexpr size_t THREADS_Y{8U};
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
@@ -889,16 +237,19 @@ void mm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  mm_fp_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  mm_sr_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
-      state, // rand_ints.data<int>(),
-      M, K, N, man_add, exp_add, man_mul, exp_mul, subnormal_support, saturate);
+      state, 
+      M, K, N, 
+      [man_add, exp_add, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_mul, exp_mul, subnormals, saturate); }
+  );
   cudaFree(state);
 }
 
 void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
                        int man_add, int exp_add, int man_mul, int exp_mul,
-                       bool subnormal_support, bool saturate) {
+                       bool subnormals, bool saturate) {
   constexpr size_t THREADS_X{8U};
   constexpr size_t THREADS_Y{8U};
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
@@ -911,15 +262,18 @@ void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  bmm_fp_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  bmm_sr_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
-      state, // rand_ints.data<int>(),
-      M, K, N, man_add, exp_add, man_mul, exp_mul, subnormal_support, saturate);
+      state,
+      M, K, N,
+      [man_add, exp_add, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_mul, exp_mul, subnormals, saturate); }
+);
   cudaFree(state);
 }
 
 void mm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
-                          int man_fma, int exp_fma, bool subnormal_support,
+                          int man_fma, int exp_fma, bool subnormals,
                           bool saturate) {
   constexpr size_t THREADS_X{8U};
   constexpr size_t THREADS_Y{8U};
@@ -932,16 +286,18 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  mm_fp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  mm_sr_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
-      state, // rand_ints.data_ptr<int>(),
-      M, K, N, man_fma, exp_fma, subnormal_support, saturate);
+      state, 
+      M, K, N, 
+      [man_fma, exp_fma, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_fma, exp_fma, subnormals, saturate); }
+  );
   cudaFree(state);
 }
 
 void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                            int N, int man_fma, int exp_fma,
-                           bool subnormal_support, bool saturate) {
+                           bool subnormals, bool saturate) {
   constexpr size_t THREADS_X{8U};
   constexpr size_t THREADS_Y{8U};
   constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
@@ -954,10 +310,12 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  bmm_fp_fma_stochastic_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  bmm_sr_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
       a, b, c,
-      state, // rand_ints.data_ptr<int>(),
-      M, K, N, man_fma, exp_fma, subnormal_support, saturate);
+      state,
+      M, K, N,
+      [man_fma, exp_fma, subnormals, saturate] __device__ (float x, uint32_t rnd) { return cast_fp_stochastic(x, rnd, man_fma, exp_fma, subnormals, saturate); }
+  );
   cudaFree(state);
 }
 
