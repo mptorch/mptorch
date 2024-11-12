@@ -237,7 +237,7 @@ void mm_fp_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  mm_sr_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  mm_sr_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
       a, b, c,
       state, 
       M, K, N, 
@@ -262,7 +262,7 @@ void bmm_fp_stochastic(float *a, float *b, float *c, int B, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  bmm_sr_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  bmm_sr_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
       a, b, c,
       state,
       M, K, N,
@@ -286,7 +286,7 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c, int M, int K, int N,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  mm_sr_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  mm_sr_fma_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
       a, b, c,
       state, 
       M, K, N, 
@@ -310,7 +310,7 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
   cudaMalloc((void **)&state,
              block_dim.x * block_dim.y * sizeof(curandState_t));
   seed_init<<<block_dim, 1>>>(state);
-  bmm_sr_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+  bmm_sr_fma_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
       a, b, c,
       state,
       M, K, N,

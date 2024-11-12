@@ -4,6 +4,16 @@
 #include <curand_kernel.h>
 #include <cstdint>
 
+template <class RandType>
+__device__ __forceinline__ RandType gen_rand(curandState_t *state, int sidx) {
+  return curand(&state[sidx]);
+}
+
+template <>
+__device__ __forceinline__ float gen_rand<float>(curandState_t *state, int sidx) {
+  return 1.0f - curand_uniform(&state[sidx]);
+}
+
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
                         float *__restrict__ c, int M, int K, int N,
@@ -227,7 +237,7 @@ __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
   }
 }
 
-template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+template <size_t SHMEM_SIZE, class RandType, class Qadd, class Qmul>
 __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
                            Qadd quant_add, Qmul quant_mul)
@@ -244,7 +254,7 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  uint32_t radd, rmul;
+  RandType radd, rmul;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
@@ -261,8 +271,8 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++)
     {
-      radd = curand(&state[sidx]);
-      rmul = curand(&state[sidx]);
+      radd = gen_rand<RandType>(state, sidx);
+      rmul = gen_rand<RandType>(state, sidx);
       tmp = quant_add(tmp + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul), radd);
     }
 
@@ -276,7 +286,7 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = tmp;
 }
 
-template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+template <size_t SHMEM_SIZE, class RandType, class Qadd, class Qmul>
 __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
                            Qadd quant_add, Qmul quant_mul)
@@ -293,7 +303,7 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  uint32_t radd, rmul;
+  RandType radd, rmul;
   // Determine the start index of the current batch in the 1D linearized
   // arrays
   int batch_a = batch_idx * M * K;
@@ -313,8 +323,8 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      radd = curand(&state[sidx]);
-      rmul = curand(&state[sidx]);
+      radd = gen_rand<RandType>(state, sidx);
+      rmul = gen_rand<RandType>(state, sidx);
       tmp = quant_add(tmp + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul), radd);
     }
 
@@ -328,7 +338,7 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     c[batch_c + row * N + col] = tmp;
 }
 
-template <size_t SHMEM_SIZE, class Qfma>
+template <size_t SHMEM_SIZE, class RandType, class Qfma>
 __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
                                Qfma quant_fma)
@@ -345,7 +355,7 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  uint32_t rfma;
+  RandType rfma;
 
   // sweep tile across matrix
   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
@@ -362,7 +372,7 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++)
     {
-      rfma = curand(&state[sidx]);
+      rfma = gen_rand<RandType>(state, sidx);
       tmp = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma);
     }
 
@@ -376,7 +386,7 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
     c[row * N + col] = tmp;
 }
 
-template <size_t SHMEM_SIZE, class Qfma>
+template <size_t SHMEM_SIZE, class RandType, class Qfma>
 __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
                                Qfma quant_fma)
@@ -393,7 +403,7 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
   int sidx = blockIdx.x * blockDim.x + blockIdx.y;
 
   float tmp = 0.0f;
-  uint32_t rfma;
+  RandType rfma;
 
   // Determine the start index of the current batch in the 1D linearized
   // arrays
@@ -414,7 +424,7 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      rfma = curand(&state[sidx]);
+      rfma = gen_rand<RandType>(state, sidx);
       tmp = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma);
     }
 
