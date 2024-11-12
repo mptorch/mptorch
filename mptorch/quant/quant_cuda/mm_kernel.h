@@ -105,8 +105,7 @@ __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++) {
-      inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx])
-                  );
+      inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]));
     }
     currFactor++;
     currFactor %= BLOCK_FACTOR;
