@@ -411,12 +411,12 @@ int main(int argc, const char **argv) {
     // device tensors (move data to gpu)
     float *d_input, *d_output, *d_weight, *d_bias;
     cudaCheck(cudaMalloc(&d_input, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_weight, numel * sizeof(float)));
-    cudaCheck(cudaMalloc(&d_bias, numel * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_weight, C * sizeof(float)));
+    cudaCheck(cudaMalloc(&d_bias, C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_output, numel * sizeof(float)));
     cudaCheck(cudaMemcpy(d_input, h_input, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_weight, h_weight, numel * sizeof(float), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(d_bias, h_bias, numel * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_weight, h_weight, C * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(d_bias, h_bias, C * sizeof(float), cudaMemcpyHostToDevice));
 
     // time the kernel at different block sizes
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
