@@ -10,14 +10,14 @@ endif
 
 # Compiler flags
 CFLAGS = -O3 --use_fast_math
-NVCCFLAGS = -lcublas -lcublasLt -std=c++17
+NVCCFLAGS = -lcublas -lcublasLt -std=c++17 --extended-lambda
 
 # Default rule for the CUDA files
 %: %.cu 
 	$(NVCC) $(CFLAGS) $(NVCCFLAGS) $< -o $@
 
 # Build all targets (new executables go here)
-TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul superfp_nearest binary8_nearest binary8_stochastic nv_bfloat16 softmax_forward softmax_backward layernorm_forward layernorm_backward
+TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul custom_matmul superfp_nearest binary8_nearest binary8_stochastic nv_bfloat16 softmax_forward softmax_backward layernorm_forward layernorm_backward
 
 all: $(TARGETS)
 
@@ -28,6 +28,7 @@ fp_nearest: fp_nearest.cu
 cublas_gemm: cublas_gemm.cu
 cublas_bgemm: cublas_bgemm.cu
 cublaslt_matmul: cublaslt_matmul.cu
+custom_matmul: custom_matmul.cu
 binary8_nearest: binary8_nearest.cu
 binary8_stochastic: binary8_stochastic.cu
 nv_bfloat16: nv_bfloat16.cu
