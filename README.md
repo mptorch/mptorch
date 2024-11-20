@@ -21,7 +21,7 @@ import torchvision
 from torchvision import datasets, transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 
 """Hyperparameters"""
@@ -104,7 +104,7 @@ Specify the format to be used for updating model parameters
 acc_q = lambda x: qpt.float_quantize(
     x, exp=8, man=15, rounding="nearest"
 )
-optimizer = OptimMP(
+optimizer = QOptim(
     optimizer,
     acc_quant=acc_q,
     momentum_quant=acc_q,

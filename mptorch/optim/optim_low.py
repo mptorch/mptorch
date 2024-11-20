@@ -1,20 +1,20 @@
 import torch
-from torch.optim import Optimizer, SGD, Adam
+import math
+from torch.optim import Optimizer, SGD, Adam, AdamW
 
-__all__ = ["OptimMP"]
+__all__ = ["QOptim"]
 
 
-class OptimMP(Optimizer):
+class QOptim(Optimizer):
     """
     A low-precision optimizer wrapper that handles weight, gradient, accumulator quantization.
     Args:
-        - :attr: `optim`: underlying optimizer to use
-        - :attr: `weight_quant`: a weight quantization function which takes a pytorch tensor and returns a tensor. If None, does not quantize weight.
-        - :attr: `grad_quant`: a gradient quantization function which takes a pytorch tensor and returns a tensor. If None, does not quantize weight.
-        - :attr: `grad_scaling`: float, scaling factor before apply gradient quantization.
-        - :attr: `momentum_quant`: a momentum quantization function which takes a pytorch tensor and returns a tensor.
-                                   If None, does not quantize weight.
-        - :attr: `acc_quant`: a accumulator quantization function which takes
+        `optim` (torch.Optimizer): underlying optimizer to use
+        `weight_quant` (function, optional): a weight quantization function which takes a pytorch tensor and returns a tensor. If None, does not quantize weight.
+        `grad_quant` (function, optional): a gradient quantization function which takes a pytorch tensor and returns a tensor. If None, does not quantize gradient.
+        `momentum_quant` (function, optional): a momentum quantization function which takes a pytorch tensor and returns a tensor.
+                                   If None, does not quantize momentum buffer.
+        `acc_quant` (function, optional): a accumulator quantization function which takes
                               a pytorch tensor and returns a tensor. If not None, a
                               OptimLP object would create memory copies of model parameters that serve as
                               gradient accumulators. If None, does not use gradient accumulators.
@@ -28,22 +28,16 @@ class OptimMP(Optimizer):
         self,
         optim,
         weight_quant=None,
-        # grad_scaling=1.0,
         grad_quant=None,
         momentum_quant=None,
         acc_quant=None,
     ):
         assert isinstance(optim, SGD) or isinstance(optim, Adam)
-        super(OptimMP, self).__init__(
-            optim.param_groups, optim.defaults
-        )  # place holder
+        super(QOptim, self).__init__(optim.param_groups, optim.defaults)  # place holder
 
         # python dictionary does not copy by default
         self.param_groups = optim.param_groups
         self.optim = optim
-
-        # assert grad_scaling > 0, "gradient scaling must be positive"
-        # self.grad_scaling = grad_scaling
 
         self.weight_quant = weight_quant
         self.grad_quant = grad_quant
@@ -67,7 +61,8 @@ class OptimMP(Optimizer):
     def step(self, closure=None):
         """
         Performs one step of optimization with the underlying optimizer.
-        Quantizes gradient and momentum before stepping. Quantizes gradient accumulator and weight after stepping.
+        Quantizes gradient and momentum before stepping (if quantizers are specified).
+        Quantizes gradient accumulator and weight after stepping (if quantizers are specified).
         """
         # quantize gradient
         if not self.grad_quant is None:
@@ -114,7 +109,7 @@ class OptimMP(Optimizer):
         return loss
 
     def __repr__(self):
-        return "MP Optimizer: {}".format(self.optim.__repr__())
+        return "Quantized Optimizer: {}".format(self.optim.__repr__())
 
     def __str__(self):
-        return "MP Optimizer: {}".format(self.optim.__str__())
+        return "Quantized Optimizer: {}".format(self.optim.__str__())

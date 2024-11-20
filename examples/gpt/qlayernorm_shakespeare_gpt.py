@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -77,12 +77,8 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
-parser.add_argument(
-    "--name", type=str, default="Default Name", help="wandb run name"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
+parser.add_argument("--name", type=str, default="Default Name", help="wandb run name")
 parser.add_argument(
     "--expMac",
     type=int,
@@ -137,7 +133,7 @@ fp_format = FloatingPoint(
 if args.binadesMac != 0:
     fp_format = SuperNormalFloat(
         exp=args.expMac, man=args.manMac, binades=args.binadesMac, saturate=False
-)
+    )
 
 quant_fp = lambda x: qpt.superfp_quantize(
     x,
@@ -148,20 +144,18 @@ quant_fp = lambda x: qpt.superfp_quantize(
     saturate=False,
 )
 layernorm_formats = qpt.QLayerNormFormats(
-    fwd_acc = (fp_format),
-    fwd_mul = (fp_format),
-    fwd_div = (fp_format),
-    fwd_sqrt = (fp_format),
-
-    bwd_acc = (fp_format),
-    bwd_mul = (fp_format),
-    bwd_div = (fp_format),
-
-    input_quant = quant_fp,
-    output_quant = quant_fp,
-    grad_quant = quant_fp,
-    weight_quant = quant_fp,
-    bias_quant = quant_fp,
+    fwd_acc=(fp_format),
+    fwd_mul=(fp_format),
+    fwd_div=(fp_format),
+    fwd_sqrt=(fp_format),
+    bwd_acc=(fp_format),
+    bwd_mul=(fp_format),
+    bwd_div=(fp_format),
+    input_quant=quant_fp,
+    output_quant=quant_fp,
+    grad_quant=quant_fp,
+    weight_quant=quant_fp,
+    bias_quant=quant_fp,
 )
 
 # hyperparameters

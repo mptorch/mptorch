@@ -5,7 +5,7 @@ from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
 import mptorch.quant.functional as Q
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -78,9 +78,7 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 parser.add_argument(
     "--expMac",
     type=int,

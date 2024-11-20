@@ -6,7 +6,7 @@ import torchvision
 from torchvision import transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -70,16 +70,14 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 
 parser.add_argument(
     "--wandb_proj_name",
     type=str,
     default="MLP Tests",
     metavar="N",
-    help="name of the project where runs will be logged"
+    help="name of the project where runs will be logged",
 )
 
 # group within project file
@@ -88,7 +86,7 @@ parser.add_argument(
     type=str,
     default="P=3",
     metavar="N",
-    help="name of group the run will reside in"
+    help="name of group the run will reside in",
 )
 
 
@@ -97,7 +95,7 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 
 if args.wandb:
-    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
+    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)
     config = wandb.config.update(args)
 
 torch.manual_seed(args.seed)
@@ -175,7 +173,7 @@ optimizer = SGD(
 )
 
 acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
-optimizer = OptimMP(
+optimizer = QOptim(
     optimizer,
     acc_quant=acc_q,
     momentum_quant=acc_q,

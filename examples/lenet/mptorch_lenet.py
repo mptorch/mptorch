@@ -10,7 +10,7 @@ from mptorch.quant import (
     QAffineFormats,
     cublas_acceleration,
 )
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 import torch.nn.functional as F
 from mptorch.utils import trainer
@@ -158,6 +158,7 @@ layer_formats = QAffineFormats(
     input_quant=param_q,
     output_quant=param_q,
 )
+
 
 class QLenet(nn.Module):
     def __init__(self):

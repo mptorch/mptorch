@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -77,9 +77,7 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 parser.add_argument(
     "--expMac",
     type=int,
@@ -151,17 +149,38 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-w_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
-g_format = SuperNormalFloat(exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False)
-i_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+w_format = SuperNormalFloat(
+    exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False
+)
+g_format = SuperNormalFloat(
+    exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False
+)
+i_format = SuperNormalFloat(
+    exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False
+)
 quant_g = lambda x: qpt.superfp_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
+    x,
+    exp=g_format.exp,
+    man=g_format.man,
+    rounding=rounding,
+    binades=g_format.binades,
+    saturate=False,
 )
 quant_w = lambda x: qpt.superfp_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
+    x,
+    exp=w_format.exp,
+    man=w_format.man,
+    rounding=rounding,
+    binades=w_format.binades,
+    saturate=False,
 )
 quant_b = lambda x: qpt.float_quantize(
-    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
+    x,
+    exp=fp_format.exp,
+    man=fp_format.man,
+    rounding=rounding,
+    subnormals=True,
+    saturate=False,
 )
 
 layer_formats = qpt.QAffineFormats(

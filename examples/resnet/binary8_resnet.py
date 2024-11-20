@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD, AdamW
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -28,7 +28,7 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10, 
+    default=10,
     metavar="N",
     help="number of epochs to train (default: 10)",
 )
@@ -88,22 +88,17 @@ parser.add_argument(
 
 # new parser arguments for binary8 format and testing-----------------------
 # weights and biases
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 
 # Precision (P)
-parser.add_argument(
-    "--P",
-    type=int,
-    default=3,
-    metavar="N",
-    help="precision (1-7)"
-)
+parser.add_argument("--P", type=int, default=3, metavar="N", help="precision (1-7)")
 
 # subnormals
 parser.add_argument(
-    "--subnormals", action="store_true", default=True, help="subnormals or no subnormals"
+    "--subnormals",
+    action="store_true",
+    default=True,
+    help="subnormals or no subnormals",
 )
 
 # signed or unsigned
@@ -117,7 +112,7 @@ parser.add_argument(
     type=int,
     metavar="N",
     default=17,
-    help="number of random bits used for adding in stochatic"
+    help="number of random bits used for adding in stochatic",
 )
 
 # type of rounding
@@ -126,7 +121,7 @@ parser.add_argument(
     type=str,
     default="nearest",
     metavar="N",
-    help="nearest, stochastic, truncate"
+    help="nearest, stochastic, truncate",
 )
 
 # type of saturation mode
@@ -135,7 +130,7 @@ parser.add_argument(
     type=str,
     default="saturate_maxfloat",
     metavar="N",
-    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2",
 )
 
 # name of wandb project run will be in
@@ -144,7 +139,7 @@ parser.add_argument(
     type=str,
     default="ResNet Tests AdamW",
     metavar="N",
-    help="name of the project where runs will be logged"
+    help="name of the project where runs will be logged",
 )
 
 # group within project file
@@ -153,7 +148,7 @@ parser.add_argument(
     type=str,
     default="P=3_Binary8_Testing",
     metavar="N",
-    help="name of group the run will reside in"
+    help="name of group the run will reside in",
 )
 # ------------------------------------------------------------------
 
@@ -163,7 +158,7 @@ device = "cuda" if args.cuda else "cpu"
 
 # weights and biases configuration----------------------------------
 if args.wandb:
-    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
+    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
 
@@ -220,7 +215,7 @@ act_error_quant = lambda: qpt.Quantizer(
 
 param_q = lambda x: qpt.binary8_quantize(
     x,
-    P = args.P,
+    P=args.P,
     rounding=args.rounding,
     overflow_policy=args.overflow_policy,
     is_signed=args.is_signed,
@@ -230,7 +225,7 @@ param_q = lambda x: qpt.binary8_quantize(
 
 input_q = lambda x: qpt.binary8_quantize(
     x,
-    P = args.P,
+    P=args.P,
     rounding=args.rounding,
     overflow_policy=args.overflow_policy,
     is_signed=args.is_signed,
@@ -240,10 +235,10 @@ input_q = lambda x: qpt.binary8_quantize(
 
 grad_q = lambda x: qpt.binary8_quantize(
     x,
-    P = args.P,
+    P=args.P,
     rounding=args.rounding,
     overflow_policy=args.overflow_policy,
-    is_signed=True,      #args.is_signed,
+    is_signed=True,  # args.is_signed,
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
 )
@@ -259,6 +254,7 @@ layer_formats = qpt.QAffineFormats(
     grad_quant=grad_q,
 )
 
+
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
         super(LambdaLayer, self).__init__()
@@ -266,7 +262,10 @@ class LambdaLayer(nn.Module):
 
     def forward(self, x):
         return self.lambd(x)
-# make sure i am not misapplying unsigned quant 
+
+
+# make sure i am not misapplying unsigned quant
+
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -330,8 +329,10 @@ class BasicBlock(nn.Module):
         out = F.relu(out)
         return out
 
+
 # for first layer in network, should be signed input
 # change one at a time (nn.Linear -> Qlinear)
+
 
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
@@ -390,6 +391,7 @@ def resnet110():
 def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
+
 net = resnet20()
 net = net.to(device)
 
@@ -417,7 +419,7 @@ optimizer = SGD(
 # )
 acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
 
-optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
+optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 trainer(
@@ -431,7 +433,7 @@ trainer(
     device=device,
     scheduler=scheduler,
     init_scale=256.0,
-    log_wandb = args.wandb,
+    log_wandb=args.wandb,
 )
 
 wandb.finish()

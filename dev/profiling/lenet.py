@@ -8,9 +8,9 @@ from mptorch.quant import (
     Quantizer,
     QBatchNorm2d,
     QAffineFormats,
-    cublas_acceleration
+    cublas_acceleration,
 )
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 import torch.nn.functional as F
 from mptorch.utils import trainer
@@ -146,7 +146,10 @@ torch.backends.cudnn.deterministic = True
 print("Using seed:", args.seed)
 
 param_format = FloatingPoint(
-    exp=args.exp_param, man=args.man_param, subnormals=args.subnormals, saturate=args.saturate
+    exp=args.exp_param,
+    man=args.man_param,
+    subnormals=args.subnormals,
+    saturate=args.saturate,
 )
 mac_format = FloatingPoint(
     exp=args.exp_mac, man=args.man_mac, subnormals=True, saturate=False
@@ -197,11 +200,13 @@ if not args.no_param_quant:
         subnormals=args.subnormals,
         saturate=args.saturate,
     )
-    print("Using parameter quant: float_quantize("
-    f"man={args.exp_param}, exp={args.man_param}, "
-    f"rounding=nearest, "
-    f"subnormals={args.subnormals}, "
-    f"saturate={args.saturate})")
+    print(
+        "Using parameter quant: float_quantize("
+        f"man={args.exp_param}, exp={args.man_param}, "
+        f"rounding=nearest, "
+        f"subnormals={args.subnormals}, "
+        f"saturate={args.saturate})"
+    )
 else:
     param_q = lambda x: x
     print("Using parameter quant: None")
@@ -227,6 +232,7 @@ else:
         output_quant=param_q,
     )
 print("Using affine formats:", layer_formats)
+
 
 class QLenet(nn.Module):
     def __init__(self):
@@ -265,6 +271,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
+
 def train():
     trainer(
         model,
@@ -278,8 +285,11 @@ def train():
         init_scale=2.0**10,
     )
 
+
 if args.profile:
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True
+    ) as prof:
         train()
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
 else:
