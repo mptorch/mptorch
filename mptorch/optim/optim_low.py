@@ -32,7 +32,11 @@ class QOptim(Optimizer):
         momentum_quant=None,
         acc_quant=None,
     ):
-        assert isinstance(optim, SGD) or isinstance(optim, Adam)
+        assert (
+            isinstance(optim, SGD)
+            or isinstance(optim, Adam)
+            or isinstance(optim, AdamW)
+        )
         super(QOptim, self).__init__(optim.param_groups, optim.defaults)  # place holder
 
         # python dictionary does not copy by default
@@ -46,7 +50,7 @@ class QOptim(Optimizer):
 
         if isinstance(self.optim, SGD):
             self.momentum_keys = ["momentum_buffer"]
-        elif isinstance(self.optim, Adam):
+        elif isinstance(self.optim, Adam) or isinstance(self.optim, AdamW):
             # TODO: support amsgrad
             self.momentum_keys = ["exp_avg", "exp_avg_sq"]
         else:

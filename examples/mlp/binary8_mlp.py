@@ -211,15 +211,11 @@ class Reshape(torch.nn.Module):
 model = nn.Sequential(
     Reshape(),
     qpt.QLinear(784, 128, formats=layer_formats),
-    # qpt.QLazyLinear(128, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(128, 96, formats=layer_formats),
-    # qpt.QLazyLinear(96, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(96, 10, formats=layer_formats),
-    # qpt.QLazyLinear(10, formats=layer_formats),
 )
-# model(train_dataset[0][0])
 
 """Prepare and launch the training process"""
 model = model.to(device)
@@ -252,4 +248,5 @@ trainer(
     log_wandb=args.wandb,
 )
 
-wandb.finish()
+if args.wandb:
+    wandb.finish()

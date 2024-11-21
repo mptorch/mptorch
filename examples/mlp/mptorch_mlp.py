@@ -132,9 +132,9 @@ quant_fp = lambda x: qpt.float_quantize(
 )
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format, fp_format),
+    fwd_mac=(fp_format),
     fwd_rnd=rounding,
-    bwd_mac=(fp_format, fp_format),
+    bwd_mac=(fp_format),
     bwd_rnd=rounding,
     weight_quant=quant_fp,
     input_quant=quant_fp,
@@ -153,15 +153,11 @@ class Reshape(torch.nn.Module):
 model = nn.Sequential(
     Reshape(),
     qpt.QLinear(784, 128, formats=layer_formats),
-    # qpt.QLazyLinear(128, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(128, 96, formats=layer_formats),
-    # qpt.QLazyLinear(96, formats=layer_formats),
     nn.ReLU(),
     qpt.QLinear(96, 10, formats=layer_formats),
-    # qpt.QLazyLinear(10, formats=layer_formats),
 )
-# model(train_dataset[0][0])
 
 """Prepare and launch the training process"""
 model = model.to(device)
@@ -188,8 +184,9 @@ trainer(
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=256.0,
+    init_scale=1024.0,
     log_wandb=args.wandb,
 )
 
-wandb.finish()
+if args.wandb:
+    wandb.finish()
