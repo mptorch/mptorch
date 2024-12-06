@@ -5,6 +5,9 @@ import math
 
 __all__ = ["QAdamW"]
 
+# NOTE: for inspiration, see:
+# https://github.com/huggingface/transformers/blob/main/src/transformers/optimization.py
+
 
 class QAdamW(AdamW):
     def __init__(
