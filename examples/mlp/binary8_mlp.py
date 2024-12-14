@@ -114,11 +114,11 @@ parser.add_argument(
 
 # type of saturation mode
 parser.add_argument(
-    "--saturation_mode",
+    "--overflow_policy",
     type=str,
-    default="overflow",
+    default="saturate_infty",
     metavar="N",
-    help="saturate, overflow, no_overflow"
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
 )
 
 # precision size for accumuluation
@@ -232,7 +232,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.binary8_quantize(x, args.p_q, rounding=args.rounding, saturation_mode=args.saturation_mode)
+acc_q = lambda x: qpt.binary8_quantize(x, args.p_q, rounding=args.rounding, overflow_policy=args.overflow_policy)
 optimizer = OptimMP(
     optimizer,
     acc_quant=acc_q,

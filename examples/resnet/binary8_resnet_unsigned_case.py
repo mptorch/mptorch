@@ -115,6 +115,7 @@ parser.add_argument(
     "--prng_bits",
     type=int,
     metavar="N",
+    default=0,
     help="number of random bits used for adding in stochatic"
 )
 
@@ -129,11 +130,11 @@ parser.add_argument(
 
 # type of saturation mode
 parser.add_argument(
-    "--saturation_mode",
+    "--overflow_policy",
     type=str,
-    default="saturate",
+    default="saturate_infty",
     metavar="N",
-    help="saturate, overflow, no_overflow"
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
 )
 
 # name of wandb project run will be in
@@ -219,7 +220,7 @@ param_q = lambda x: qpt.binary8_quantize(
     x,
     P=args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,  # weights should be signed
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -230,7 +231,7 @@ input_q_first_layer = lambda x: qpt.binary8_quantize(
     x,
     P=args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,  # inputs to the first layer should be signed
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -240,7 +241,7 @@ input_q = lambda x: qpt.binary8_quantize(
     x,
     P=args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=args.is_signed,  # inputs can be unsigned if specified
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -250,7 +251,7 @@ grad_q = lambda x: qpt.binary8_quantize(
     x,
     P=args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,  # gradients should be signed
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
@@ -420,7 +421,7 @@ acc_q = lambda x: qpt.binary8_quantize(
     x,
     P=args.P,
     rounding=args.rounding,
-    saturation_mode=args.saturation_mode,
+    overflow_policy=args.overflow_policy,
     is_signed=True,  # accumulators should be signed
     subnormals=args.subnormals,
     prng_bits=args.prng_bits,
