@@ -15,19 +15,19 @@ Number formats
 .. _api-quant:
 
 Quantization
---------------
+------------
 .. automodule:: mptorch.quant 
     :members:
     :show-inheritance:
 
 Modules
-______________
+-------
 .. automodule:: mptorch.quant.modules
     :members:
     :show-inheritance:
 
 cuBLAS Acceleration
-___________________
+-------------------
 .. automodule:: mptorch.quant.cublas
     :members:
     :show-inheritance:
