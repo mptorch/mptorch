@@ -104,25 +104,27 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
     Args:
         out_features: size of each output sample
         formats: number formats used during compute (addition and multiplication) and
-        quantization functions for signals during forward and back propagation (I/O
-        activations, weights, biases, and neural gradients)
+            quantization functions for signals during forward and back propagation (I/O
+            activations, weights, biases, and neural gradients)
         bias: If set to ``False``, the layer will not learn an additive bias.
             Default: ``True``
-
-    Attributes:
-        weight: the learnable weights of the module of shape
-            :math:`(\text{out\_features}, \text{in\_features})`. The values are
-            initialized from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})`, where
-            :math:`k = \frac{1}{\text{in\_features}}`
-        bias:   the learnable bias of the module of shape :math:`(\text{out\_features})`.
-                If :attr:`bias` is ``True``, the values are initialized from
-                :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
-                :math:`k = \frac{1}{\text{in\_features}}`
     """
 
     cls_to_become = QLinear
     weight: torch.nn.UninitializedParameter
+    """
+        The learnable weights of the module of shape
+        :math:`(\text{out\_features}, \text{in\_features})`. The values are
+        initialized from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})`, where
+        :math:`k = \frac{1}{\text{in\_features}}`
+    """
     bias: torch.nn.UninitializedParameter
+    """
+        The learnable bias of the module of shape :math:`(\text{out\_features})`.
+        If :attr:`bias` is ``True``, the values are initialized from
+        :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+        :math:`k = \frac{1}{\text{in\_features}}`
+    """
 
     def __init__(
         self,
