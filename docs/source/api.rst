@@ -20,6 +20,12 @@ Quantization
     :members:
     :show-inheritance:
 
+Quantization Formats
+--------------------
+.. automodule:: mptorch.quant.quant_format
+    :members:
+    :show-inheritance:
+
 Modules
 -------
 .. automodule:: mptorch.quant.modules

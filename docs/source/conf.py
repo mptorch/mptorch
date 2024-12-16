@@ -27,6 +27,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_autodoc_typehints",
     "sphinx.ext.viewcode",
+    "sphinx.ext.mathjax",
 ]
 
 templates_path = ["_templates"]

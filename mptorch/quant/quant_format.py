@@ -3,7 +3,7 @@ from ..number import *
 from typing import Union, Optional, Tuple, Callable
 from .quant_function import *
 
-__all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats", "QLayerNormFormats"]
+__all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats", "QGELUFormats"]
 
 id_quant = lambda x: x
 
@@ -48,19 +48,19 @@ class QAffineFormats:
     in: https://arxiv.org/pdf/2309.17224
 
     Args:
-        `fwd_mac` (Number or (Number, Number)) : compute configuration (add and multiply) for forward MAC operations
-        `bwd_mac` (Number or (Number, Number)) : compute configuration (add and multiply) for backward MAC operations
-        `fwd_rnd` (str) : rounding mode for FWD computations
-        `bwd_rnd` (str) : rounding mode for BWD computations
-        `weight_quant` (function or (Number, str)) : quantization function or format and rounding on the weight signal inputs
-        `bias_quant` (function or (Number, str)) : quantization function or format and rounding on the bias signal inputs
-        `input_quant` (function or (Number, str)) : quantization function or format and rounding on the output signal from the layer
-        `grad_quant` (function or (Number, str)) : quantization function or format and rounding on the gradient signals in the BWD pass
-        `use_scaling` (bool) : whether to use weight, input and grad scaling during forward/backward pass
-        `weight_scaled_format` (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
-        `input_scaled_format` (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
-        `grad_scaled_format` (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
-        `prng_bits` (int) : number of bits used for random number generation when rounding is stochastic
+        fwd_mac (Number or (Number, Number)) : compute configuration (add and multiply) for forward MAC operations
+        bwd_mac (Number or (Number, Number)) : compute configuration (add and multiply) for backward MAC operations
+        fwd_rnd (str) : rounding mode for FWD computations
+        bwd_rnd (str) : rounding mode for BWD computations
+        weight_quant (function or (Number, str)) : quantization function or format and rounding on the weight signal inputs
+        bias_quant (function or (Number, str)) : quantization function or format and rounding on the bias signal inputs
+        input_quant (function or (Number, str)) : quantization function or format and rounding on the output signal from the layer
+        grad_quant (function or (Number, str)) : quantization function or format and rounding on the gradient signals in the BWD pass
+        use_scaling (bool) : whether to use weight, input and grad scaling during forward/backward pass
+        weight_scaled_format (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
+        input_scaled_format (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
+        grad_scaled_format (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
+        prng_bits (int) : number of bits used for random number generation when rounding is stochastic
 
     """
 
@@ -193,6 +193,31 @@ class QAffineFormats:
 
 
 class QLayerNormFormats:
+    r"""
+    Configuration class for number formats to use during compute (forward
+    and/or backward pass) of layer normalization.
+    One can optionally specify quantizer objects for the signals in the
+    layer (I/O activations, weights/bias terms and weight/error gradients)
+    to facilitate quantization-aware-training (QAT) and post-training
+    quantization (PTQ) workloads.
+
+    Args:
+        fwd_acc (Number) : compute configuration for forward add operations
+        fwd_mul (Number) : compute configuration for forward multiply operations
+        fwd_div (Number) : compute configuration for forward divide operations
+        fwd_sqrt (Number) : compute configuration for forward square root operations
+        bwd_acc (Number) : compute configuration for backward add operations
+        bwd_mul (Number) : compute configuration for backward multiply operations
+        bwd_div (Number) : compute configuration for backward divide operations,
+        fwd_rnd (str) : rounding mode for forward computations
+        bwd_rnd (str) : rounding mode for backward computations
+        input_quant (function) : quantization function on the input signal
+        output_quant (function) : quantization function on the output signal
+        grad_quant (function) : quantization function on the gradients
+        weight_quant (function) : quantization function on the weights when applied to an input
+        bias_quant (function) : quantization function on the bias when applied to an input
+    """
+
     def __init__(
         self,
         fwd_acc: Optional[Number] = None,
@@ -267,6 +292,52 @@ class QLayerNormFormats:
 
 
 class QSoftmaxFormats:
+    r"""
+    Configuration class for number formats to use during compute (forward
+    and/or backward pass) of softmax layers.
+    One can optionally specify quantizer objects for the signals in the
+    layer (I/O activations and weight/error gradients)
+    to facilitate quantization-aware-training (QAT) and post-training
+    quantization (PTQ) workloads.
+
+    Two implementations of the forward softmax are provided: regular and
+    LogSumExp-based (LSE).
+
+    Regular softmax is used when `fwd_off`, `fwd_exp` and `fwd_acc` are
+    set, and is implemented as follows:
+    
+    .. math::
+        \textrm{softmax}(x)_i = \frac{\exp(x_i - \max x)}{
+            \sum_j \exp(x_j - \max x)}
+
+    The LogSumExp implementation is used when `fwd_off` and `fwd_exp` are
+    set, and is implemented as follows:
+
+    .. math::
+        \textrm{softmax}(x)_i = \ln(\textrm{LSE}(x_1, ..., x_n))
+    
+    where :math:`\textrm{LSE}(x_1, ..., x_n)` is computed iteratively
+    with the relation:
+    
+    .. math::
+        \textrm{LSE}(x_1, ..., x_{j+1})
+            = \ln(\exp \textrm{LSE}(x_1, ..., x_{j}) + \exp x_{j+1})
+
+    with the internal part of the log being computed at full precision.
+
+    Args:
+        fwd_off (Number) : compute configuration for forward subtraction
+        fwd_exp (Number) : compute configuration for forward exponential operations
+        fwd_acc (Number) : compute configuration for forward add operations
+        fwd_lse (Number) : compute configuration for forward LSE iteration
+        bwd_add (Number) : compute configuration for backward add operations
+        bwd_mul (Number) : compute configuration for backward multiply operations
+        fwd_rnd (str) : rounding mode for forward computations
+        bwd_rnd (str) : rounding mode for backward computations
+        input_quant (function) : quantization function on the input signal
+        output_quant (function) : quantization function on the output signal
+        grad_quant (function) : quantization function on the gradients
+    """
     def __init__(
         self,
         fwd_off: Optional[Number] = None,
@@ -338,6 +409,18 @@ class QSoftmaxFormats:
 
 
 class QGELUFormats:
+    r"""
+    Configuration class for number formats to use during compute (forward
+    and/or backward pass) of GELU activation.
+
+    Args:
+        input_quant (function) : quantization function on the input signal
+        inter_quant (function) : quantization function on intermediate
+            computation, depends on wether *tanh* approximation is used
+        output_quant (function) : quantization function on the output signal
+        grad_quant (function) : quantization function on the gradients
+    """
+
     def __init__(
         self,
         input_quant: Callable = id_quant,
