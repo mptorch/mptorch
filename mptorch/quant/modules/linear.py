@@ -23,26 +23,26 @@ class QLinear(nn.Linear):
         in_features: size of each input sample
         out_features: size of each output sample
         formats: number formats used during compute (addition and multiplication) and
-        quantization functions for signals during forward and back propagation (I/O
-        activations, weights, biases, and neural gradients)
+            quantization functions for signals during forward and back propagation (I/O
+            activations, weights, biases, and neural gradients)
         bias: If set to ``False``, the layer will not learn an additive bias.
             Default: ``True``
 
     Shape:
         - Input: :math:`(*, H_{in})` where :math:`*` means any number of
-          dimensions including none and :math:`H_{in} = \text{in\_features}`.
+          dimensions including none and :math:`H_{in} = \text{in_features}`.
         - Output: :math:`(*, H_{out})` where all but the last dimension
-          are the same shape as the input and :math:`H_{out} = \text{out\_features}`.
+          are the same shape as the input and :math:`H_{out} = \text{out_features}`.
 
     Attributes:
         weight: the learnable weights of the module of shape
-            :math:`(\text{out\_features}, \text{in\_features})`. The values are
+            :math:`(\text{out_features}, \text{in_features})`. The values are
             initialized from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})`, where
-            :math:`k = \frac{1}{\text{in\_features}}`
-        bias:   the learnable bias of the module of shape :math:`(\text{out\_features})`.
+            :math:`k = \frac{1}{\text{in_features}}`
+        bias:   the learnable bias of the module of shape :math:`(\text{out_features})`.
                 If :attr:`bias` is ``True``, the values are initialized from
                 :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
-                :math:`k = \frac{1}{\text{in\_features}}`
+                :math:`k = \frac{1}{\text{in_features}}`
 
     """
 
