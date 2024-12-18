@@ -8,6 +8,21 @@ from ..functional import qsoftmax
 __all__ = ["QSoftmax",]
 
 class QSoftmax(nn.Softmax):
+    r"""A quantized implementation of the Softmax activation function.
+
+    This class extends PyTorch's :class:`torch.nn.Softmax` and allows one to specify if I/O
+    signals and internal computations should be quantized during inference & training.
+    This allows simulating the effect of custom precision in the internal forward and
+    backward pass computations and is helpful in studying the effect of low precision
+    compute during inference and training (not just data quantization).
+
+    Args:
+        dim (int): The dimension along which Softmax will be applied.
+        formats (QSoftmaxFormats): Number formats specification during compute
+            and quantization functions for signals during forward and back propagation
+            (I/O activations and gradients).
+    """
+
     def __init__(self,
                  dim: int,
                  formats: QSoftmaxFormats) -> None:
