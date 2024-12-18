@@ -16,10 +16,10 @@ def batch_norm(
     else:
         assert len(x.shape) in (2, 4)
         if len(x.shape) == 2:
-            mean = qmean.apply(x, fwd_quant, bwd_quant, 2, False)
-            var = qmean.apply(
-                qpow.apply(
-                    qadd.apply(x, -mean, fwd_quant, bwd_quant),
+            mean = qmean(x, fwd_quant, bwd_quant, 2, False)
+            var = qmean(
+                qpow(
+                    qadd(x, -mean, fwd_quant, bwd_quant),
                     fwd_quant,
                     bwd_quant,
                     2,
@@ -30,10 +30,10 @@ def batch_norm(
                 False,
             )
         else:
-            mean = qmean.apply(x, fwd_quant, bwd_quant, (0, 2, 3), True)
-            var = qmean.apply(
-                qpow.apply(
-                    qadd.apply(x, -mean, fwd_quant, bwd_quant),
+            mean = qmean(x, fwd_quant, bwd_quant, (0, 2, 3), True)
+            var = qmean(
+                qpow(
+                    qadd(x, -mean, fwd_quant, bwd_quant),
                     fwd_quant,
                     bwd_quant,
                     2,
@@ -43,9 +43,9 @@ def batch_norm(
                 (0, 2, 3),
                 True,
             )
-        x_hat = qdiv.apply(
-            qadd.apply(x, -mean, fwd_quant, bwd_quant),
-            qsqrt.apply(var + eps, fwd_quant, bwd_quant),
+        x_hat = qdiv(
+            qadd(x, -mean, fwd_quant, bwd_quant),
+            qsqrt(var + eps, fwd_quant, bwd_quant),
             fwd_quant,
             bwd_quant,
         )
@@ -58,8 +58,8 @@ def batch_norm(
         diff_var = fwd_quant(mfactor * var)
         moving_var = fwd_quant(moving_var + diff_var)
 
-    y = qadd.apply(
-        qmul.apply(weight, x_hat, fwd_quant, bwd_quant),
+    y = qadd(
+        qmul(weight, x_hat, fwd_quant, bwd_quant),
         bias,
         fwd_quant,
         bwd_quant,

@@ -304,7 +304,7 @@ def qmatmul(input, other, formats):
     return qmatmul_kernel.apply(input, other, formats)
 
 
-class qadd(torch.autograd.Function):
+class qadd_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         ctx.save_for_backward(x, y)
@@ -323,8 +323,11 @@ class qadd(torch.autograd.Function):
         grad_y = ctx.bwd_quant(grad_y.contiguous())
         return grad_x, grad_y, None, None
 
+def qadd(x, y, fwd_quant, bwd_quant):
+    return qadd_kernel.apply(x, y, fwd_quant, bwd_quant)
 
-class qmul(torch.autograd.Function):
+
+class qmul_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         ctx.save_for_backward(x, y)
@@ -342,11 +345,15 @@ class qmul(torch.autograd.Function):
         grad_y = ctx.bwd_quant(grad_y.contiguous())
         return grad_x, grad_y, None, None
 
+def qmul(x, y, fwd_quant, bwd_quant):
+    return qmul_kernel.apply(x, y, fwd_quant, bwd_quant)
+
+
 
 # see the following link for a discussion regarding numerical stability of
 # backward propagation for division operations in PyTorch and for the basis
 # of this implementation: https://github.com/pytorch/pytorch/issues/43414
-class qdiv(torch.autograd.Function):
+class qdiv_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         z = fwd_quant(x / y)
@@ -365,8 +372,11 @@ class qdiv(torch.autograd.Function):
             grad_y = ctx.bwd_quant(grad_y / y)
         return grad_x, grad_y, None, None
 
+def qdiv(x, y, fwd_quant, bwd_quant):
+    return qdiv_kernel.apply(x, y, fwd_quant, bwd_quant)
 
-class qpow(torch.autograd.Function):
+
+class qpow_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, n=2):
         ctx.n = n
@@ -383,8 +393,11 @@ class qpow(torch.autograd.Function):
         grad_x = ctx.bwd_quant(grad_y * grad_x)
         return grad_x, None, None, None
 
+def qpow(x, fwd_quant, bwd_quant, n=2):
+    return qpow_kernel.apply(x, fwd_quant, bwd_quant, n)
 
-class qsqrt(torch.autograd.Function):
+
+class qsqrt_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant):
         ctx.bwd_quant = bwd_quant
@@ -399,6 +412,9 @@ class qsqrt(torch.autograd.Function):
         grad_x = ctx.bwd_quant(y * 2)
         grad_x = ctx.bwd_quant(grad_y / grad_x)
         return grad_x, None, None
+
+def qsqrt(x, fwd_quant, bwd_quant):
+    return qsqrt_kernel.apply(x, fwd_quant, bwd_quant)
 
 
 # TODO: need CUDA-accelerated version of this routine
@@ -452,7 +468,7 @@ def qsum(x, dim, quant=lambda x: x, keepdim=False):
 
 
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
-class qmean(torch.autograd.Function):
+class qmean_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, dim=3, keepdim=False):
         ctx.bwd_quant = bwd_quant
@@ -467,7 +483,7 @@ class qmean(torch.autograd.Function):
         sums = x
         numel = 1
         for d in dim:
-            sums = qsum_kernel(sums, d, fwd_quant)
+            sums = qsum(sums, d, fwd_quant)
             numel *= x.shape[d]
         ctx.numel = numel
         sums = fwd_quant(sums / numel)
@@ -489,6 +505,9 @@ class qmean(torch.autograd.Function):
             grad_output * torch.ones_like(x, device=x.device) / ctx.numel
         )
         return grad_x, None, None, None, None
+
+def qmean(x, fwd_quant, bwd_quant, dim=3, keepdim=False):
+    return qmean_kernel.apply(x, fwd_quant, bwd_quant, dim, keepdim)
 
 
 class qlayernorm_kernel(torch.autograd.Function):
