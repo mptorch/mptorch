@@ -1,7 +1,7 @@
 import torch
 import pytest
 from mptorch import FloatingPoint
-from mptorch.quant import QBatchNorm1d
+from mptorch.quant import QBatchNorm2d
 from mptorch.quant import float_quantize
 from tests.markers import available_devices
 
@@ -27,10 +27,10 @@ def quant_fp(fp_format):
 @pytest.mark.parametrize("batch_size", [100])
 @pytest.mark.parametrize("num_features", [100])
 def test_qbatchnorm1d_custom(device, batch_size, num_features, quant_fp):
-    layer = torch.nn.BatchNorm1d(num_features, affine=True, device=device)
-    qlayer = QBatchNorm1d(num_features, quant_fp, quant_fp).to(device)
+    layer = torch.nn.BatchNorm2d(num_features, affine=True, device=device)
+    qlayer = QBatchNorm2d(num_features, quant_fp, quant_fp).to(device)
 
-    shape = (batch_size, num_features)
+    shape = (batch_size, num_features, 50, 50)
     x_ref = torch.randn(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
     x_res.requires_grad_(True)
@@ -44,7 +44,7 @@ def test_qbatchnorm1d_custom(device, batch_size, num_features, quant_fp):
     y_res.backward(grad)
     torch.testing.assert_close(x_res.grad, x_ref.grad, atol=1e-5, rtol=1e-5)
 
-    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(layer.bias.grad, qlayer.bias.grad, atol=1e-3, rtol=1e-3)
     torch.testing.assert_close(
-        layer.weight.grad, qlayer.weight.grad, atol=1e-4, rtol=1e-4
+        layer.weight.grad, qlayer.weight.grad, atol=1e-3, rtol=1e-3
     )

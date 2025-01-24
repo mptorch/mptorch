@@ -74,15 +74,15 @@ class QBatchNorm(nn.Module):
         self.fwd_quant = fwd_quant
         self.bwd_quant = bwd_quant
         if num_dims == 2:
-            shape = num_features
+            self.shape = num_features
         else:
-            shape = (num_features, 1, 1)
+            self.shape = (num_features, 1, 1)
 
-        self.weight = nn.Parameter(torch.ones(shape))
-        self.bias = nn.Parameter(torch.zeros(shape))
+        self.weight = nn.Parameter(torch.ones(num_features))
+        self.bias = nn.Parameter(torch.zeros(num_features))
 
-        self.moving_mean = torch.zeros(shape)
-        self.moving_var = torch.ones(shape)
+        self.moving_mean = torch.zeros(self.shape)
+        self.moving_var = torch.ones(self.shape)
 
     def forward(self, x):
         if self.moving_mean.device != x.device:
@@ -91,8 +91,8 @@ class QBatchNorm(nn.Module):
 
         y, self.moving_mean, self.moving_var = batch_norm(
             x,
-            self.weight,
-            self.bias,
+            self.weight.view(self.shape),
+            self.bias.view(self.shape),
             self.moving_mean,
             self.moving_var,
             eps=1e-5,
