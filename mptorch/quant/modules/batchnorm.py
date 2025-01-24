@@ -16,7 +16,7 @@ def batch_norm(
     else:
         assert len(x.shape) in (2, 4)
         if len(x.shape) == 2:
-            mean = qmean(x, fwd_quant, bwd_quant, 2, False)
+            mean = qmean(x, fwd_quant, bwd_quant, 0, False)
             var = qmean(
                 qpow(
                     qadd(x, -mean, fwd_quant, bwd_quant),
@@ -26,7 +26,7 @@ def batch_norm(
                 ),
                 fwd_quant,
                 bwd_quant,
-                2,
+                0,
                 False,
             )
         else:
@@ -74,9 +74,9 @@ class QBatchNorm(nn.Module):
         self.fwd_quant = fwd_quant
         self.bwd_quant = bwd_quant
         if num_dims == 2:
-            shape = (1, num_features)
+            shape = num_features
         else:
-            shape = (1, num_features, 1, 1)
+            shape = (num_features, 1, 1)
 
         self.weight = nn.Parameter(torch.ones(shape))
         self.bias = nn.Parameter(torch.zeros(shape))
