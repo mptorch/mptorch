@@ -56,7 +56,9 @@ class QSGD(SGD):
             for group in self.param_groups:
                 for p in group["params"]:
                     param_state = self.state[p]
-                    param_state["compensated_buffer"] = torch.zeros_like(p.data)
+                    param_state["compensated_buffer"] = torch.zeros_like(
+                        p.data, device=p.data.device
+                    )
 
     def step(self, closure=None):
         loss = None

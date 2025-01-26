@@ -37,7 +37,9 @@ class QAdamW(AdamW):
             for group in self.param_groups:
                 for p in group["params"]:
                     param_state = self.state[p]
-                    param_state["compensated_buffer"] = torch.zeros_like(p.data)
+                    param_state["compensated_buffer"] = torch.zeros_like(
+                        p.data, device=p.data.device
+                    )
 
     def step(self, closure: Callable = None):
         loss = None
@@ -61,15 +63,21 @@ class QAdamW(AdamW):
                     param_state = self.state[p]
 
                     # state initialization
-                    if len(param_state) == 0:
+                    if len(param_state) == 0 or "compensated_buffer" in param_state:
                         param_state["step"] = 0
                         # exponential moving average of gradient values
-                        param_state["exp_avg"] = torch.zeros_like(p.data)
+                        param_state["exp_avg"] = torch.zeros_like(
+                            p.data, device=p.data.device
+                        )
                         # exponential moving average of squared gradient values
-                        param_state["exp_avg_sq"] = torch.zeros_like(p.data)
+                        param_state["exp_avg_sq"] = torch.zeros_like(
+                            p.data, device=p.data.device
+                        )
                         if amsgrad:
                             # maintains max of all exp. moving avg. of sq. grad. values
-                            param_state["max_exp_avg_sq"] = torch.zeros_like(p.data)
+                            param_state["max_exp_avg_sq"] = torch.zeros_like(
+                                p.data, device=p.data.device
+                            )
 
                     exp_avg, exp_avg_sq = (
                         param_state["exp_avg"],
@@ -84,15 +92,19 @@ class QAdamW(AdamW):
 
                     # decay the first and second moment running average coefficient
                     if self.momentum_quant is not None:
-                        exp_avg = param_state["exp_avg"] = self.momentum_quant(
-                            exp_avg.mul_(beta1), d_p, 1.0 - beta1
+                        param_state["exp_avg"] = exp_avg = self.momentum_quant(
+                            exp_avg.mul_(beta1),
+                            d_p,
+                            (1.0 - beta1) * torch.ones_like(d_p, device=d_p.device),
                         )
-                        exp_avg_sq = param_state["exp_avg_sq"] = self.momentum_quant(
-                            exp_avg_sq.mul_(beta2), d_p**2, 1.0 - beta2
+                        param_state["exp_avg_sq"] = exp_avg_sq = self.momentum_quant(
+                            exp_avg_sq.mul_(beta2),
+                            d_p**2,
+                            (1.0 - beta2) * torch.ones_like(d_p, device=d_p.device),
                         )
                     else:
-                        exp_avg.mul_(beta1).add_(1.0 - beta1, d_p)
-                        exp_avg_sq.mul_(beta2).addcmul_(1.0 - beta2, d_p, d_p)
+                        exp_avg.mul_(beta1).add_(d_p, alpha=1.0 - beta1)
+                        exp_avg_sq.mul_(beta2).addcmul_(d_p, d_p, value=1.0 - beta2)
 
                     bias_correction1 = 1.0 - beta1 ** param_state["step"]
                     bias_correction2 = 1.0 - beta2 ** param_state["step"]
@@ -114,15 +126,31 @@ class QAdamW(AdamW):
                     if self.acc_quant is not None:
                         if "compensated_buffer" not in param_state:
                             p.data.addcdiv_(exp_avg, denom, value=-step_size)
-                            p.data = self.acc_quant(p.data, 0.0, 0.0)
-                        else:
-                            u = self.acc_quant(exp_avg / denom, 0.0, 0.0)
-                            y = -self.acc_quant(
-                                param_state["compensated_buffer"], u, step_size
+                            p.data = self.acc_quant(
+                                p.data,
+                                torch.zeros_like(p.data, device=p.data.device),
+                                torch.zeros_like(p.data, device=p.data.device),
                             )
-                            s = self.acc_quant(p.data, y, 1.0)
+                        else:
+                            u = self.acc_quant(
+                                exp_avg / denom,
+                                torch.zeros_like(exp_avg, device=exp_avg.device),
+                                torch.zeros_like(exp_avg, device=exp_avg.device),
+                            )
+                            y = -self.acc_quant(
+                                param_state["compensated_buffer"],
+                                u,
+                                step_size * torch.ones_like(u, device=u.device),
+                            )
+                            s = self.acc_quant(
+                                p.data, y, torch.ones_like(p.data, device=p.data.device)
+                            )
                             param_state["compensated_buffer"] = self.acc_quant(
-                                self.acc_quant(s, p.data, -1.0), y, -1.0
+                                self.acc_quant(
+                                    s, p.data, -torch.ones_like(s, device=s.device)
+                                ),
+                                y,
+                                -torch.ones_like(y, device=y.device),
                             )
                             p.data = s
                     else:

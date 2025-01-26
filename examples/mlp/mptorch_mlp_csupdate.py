@@ -6,7 +6,7 @@ import torchvision
 from torchvision import transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import QOptim, QSGD
+from mptorch.optim import QOptim, QSGD, QAdamW
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -180,6 +180,15 @@ optimizer = QSGD(
     acc_quant=acc_q,
     compensated=True,
 )
+
+# optimizer = QAdamW(
+#     model.parameters(),
+#     lr=args.lr_init,
+#     weight_decay=args.weight_decay,
+#     momentum_quant=acc_q,
+#     acc_quant=acc_q,
+#     compensated=True,
+# )
 
 trainer(
     model,
