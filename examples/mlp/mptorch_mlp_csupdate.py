@@ -1,0 +1,197 @@
+import torch
+import torch.nn as nn
+from torch.optim import SGD
+from torch.utils.data import DataLoader
+import torchvision
+from torchvision import transforms
+from mptorch import FloatingPoint
+import mptorch.quant as qpt
+from mptorch.optim import QOptim, QSGD
+from mptorch.utils import trainer
+import random
+import numpy as np
+import argparse
+import wandb
+
+parser = argparse.ArgumentParser(description="MLP MNIST Example")
+parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=64,
+    metavar="N",
+    help="input batch size for training (default: 64)",
+)
+parser.add_argument(
+    "--seed", type=int, default=123, metavar="S", help="random seed (default: 123)"
+)
+parser.add_argument(
+    "--epochs",
+    type=int,
+    default=10,
+    metavar="N",
+    help="number of epochs to train (default: 10)",
+)
+parser.add_argument(
+    "--exp",
+    type=int,
+    default=5,
+    metavar="N",
+    help="exponent size (default: 5)",
+)
+parser.add_argument(
+    "--man",
+    type=int,
+    default=2,
+    metavar="N",
+    help="mantissa size (default: 2)",
+)
+parser.add_argument(
+    "--lr_init",
+    type=float,
+    default=0.05,
+    metavar="N",
+    help="initial learning rate (default: 0.05)",
+)
+parser.add_argument(
+    "--momentum",
+    type=float,
+    default=0.9,
+    metavar="N",
+    help="momentum value to be used by the optimizer (default: 0.9)",
+)
+parser.add_argument(
+    "--weight_decay",
+    type=float,
+    default=0,
+    metavar="N",
+    help="weight decay value to be used by the optimizer (default: 0.0)",
+)
+parser.add_argument(
+    "--no-cuda", action="store_true", default=False, help="disables CUDA training"
+)
+
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
+
+parser.add_argument(
+    "--wandb_proj_name",
+    type=str,
+    default="MLP Tests",
+    metavar="N",
+    help="name of the project where runs will be logged",
+)
+
+# group within project file
+parser.add_argument(
+    "--group_name",
+    type=str,
+    default="P=3",
+    metavar="N",
+    help="name of group the run will reside in",
+)
+
+
+args = parser.parse_args()
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = "cuda" if args.cuda else "cpu"
+
+if args.wandb:
+    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)
+    config = wandb.config.update(args)
+
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.backends.cudnn.deterministic = True
+
+
+"""Prepare the transforms on the dataset"""
+device = "cuda" if torch.cuda.is_available() else "cpu"
+transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,)),
+    ]
+)
+
+"""download dataset: MNIST"""
+train_dataset = torchvision.datasets.MNIST(
+    "./data", train=True, transform=transform, download=True
+)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+test_dataset = torchvision.datasets.MNIST(
+    "./data", train=False, transform=transform, download=False
+)
+test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
+
+rounding = "nearest"
+"""Specify the formats and quantization functions for the layer operations and signals"""
+fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
+quant_fp = lambda x: qpt.float_quantize(
+    x, exp=args.exp, man=args.man, rounding=rounding, subnormals=True, saturate=False
+)
+
+layer_formats = qpt.QAffineFormats(
+    fwd_mac=(fp_format),
+    fwd_rnd=rounding,
+    bwd_mac=(fp_format),
+    bwd_rnd=rounding,
+    weight_quant=quant_fp,
+    input_quant=quant_fp,
+    grad_quant=quant_fp,
+    bias_quant=quant_fp,
+)
+
+"""Construct the model"""
+
+
+class Reshape(torch.nn.Module):
+    def forward(self, x):
+        return x.view(-1, 28 * 28)
+
+
+model = nn.Sequential(
+    Reshape(),
+    qpt.QLinear(784, 128, formats=layer_formats),
+    nn.ReLU(),
+    qpt.QLinear(128, 96, formats=layer_formats),
+    nn.ReLU(),
+    qpt.QLinear(96, 10, formats=layer_formats),
+)
+
+"""Prepare and launch the training process"""
+model = model.to(device)
+
+
+def acc_q(x, y, z):
+    out = torch.zeros_like(x, device=x.device)
+    out = qpt.float_quantize(
+        torch.addcmul(x, y, z, value=1.0, out=out), exp=8, man=7, rounding="nearest"
+    )
+    return out
+
+
+optimizer = QSGD(
+    model.parameters(),
+    lr=args.lr_init,
+    momentum=args.momentum,
+    weight_decay=args.weight_decay,
+    momentum_quant=acc_q,
+    acc_quant=acc_q,
+    compensated=True,
+)
+
+trainer(
+    model,
+    train_loader,
+    test_loader,
+    num_epochs=args.epochs,
+    lr=args.lr_init,
+    batch_size=args.batch_size,
+    optimizer=optimizer,
+    device=device,
+    log_wandb=args.wandb,
+)
+
+if args.wandb:
+    wandb.finish()

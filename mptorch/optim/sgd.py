@@ -21,7 +21,7 @@ __all__ = ["QSGD"]
 # inside the optimizer; it is enabled through the `compensated` flag; note that the
 # acc_quant function will be used inside the compensated (Kahan) summation for the
 # parameter updates, so it is the user's responsibility to choose a quantizer that works
-# well in a compensated setting (default precision-p quantization is a recommended default)
+# well in a compensated setting (precision-p quantization is a recommended default)
 # NOTE: if no quantizers are specified, the behaviour of this optimizer should be the same
 # as that of the PyTorch vanilla SGD; that being said, it shouldn't be used if no quantizers
 # are specified
@@ -89,7 +89,9 @@ class QSGD(SGD):
                             if self.momentum_quant is not None:
                                 buf = param_state["momentum_buffer"] = (
                                     self.momentum_quant(
-                                        torch.clone(d_p).detach(), 0.0, 0.0
+                                        torch.clone(d_p).detach(),
+                                        torch.zeros_like(d_p, device=d_p.device),
+                                        torch.zeros_like(d_p, device=d_p.device),
                                     )
                                 )
                             else:
@@ -102,7 +104,10 @@ class QSGD(SGD):
                             if self.momentum_quant is not None:
                                 buf = param_state["momentum_buffer"] = (
                                     self.momentum_quant(
-                                        buf.mul_(momentum), d_p, 1.0 - dampening
+                                        buf.mul_(momentum),
+                                        d_p,
+                                        (1.0 - dampening)
+                                        * torch.ones_like(d_p, device=d_p.device),
                                     )
                                 )
                             else:
@@ -120,14 +125,26 @@ class QSGD(SGD):
                         # NOTE: update rule is
                         # w_{k+1} = Q_w(w_{k} - lr * g_{k})
                         if "compensated_buffer" not in param_state:
-                            p.data = self.acc_quant(p.data, d_p, -lr)
+                            p.data = self.acc_quant(
+                                p.data,
+                                d_p,
+                                -lr * torch.ones_like(p.data, device=p.data.device),
+                            )
                         else:
                             y = -self.acc_quant(
-                                param_state["compensated_buffer"], d_p, lr
+                                param_state["compensated_buffer"],
+                                d_p,
+                                lr * torch.ones_like(d_p, device=d_p.device),
                             )
-                            s = self.acc_quant(p.data, y, 1.0)
+                            s = self.acc_quant(
+                                p.data, y, torch.ones_like(p.data, device=p.data.device)
+                            )
                             param_state["compensated_buffer"] = self.acc_quant(
-                                self.acc_quant(s, p.data, -1.0), y, -1.0
+                                self.acc_quant(
+                                    s, p.data, -torch.ones_like(s, device=s.device)
+                                ),
+                                y,
+                                -torch.ones_like(y, device=y.device),
                             )
                             p.data = s
                     else:

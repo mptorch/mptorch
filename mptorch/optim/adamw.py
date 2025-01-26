@@ -110,5 +110,27 @@ class QAdamW(AdamW):
                             group["eps"]
                         )
 
-                    # TODO: quantize
-                    p.data.addcdiv_(exp_avg, denom, value=-step_size)
+                    # p.data.addcdiv_(exp_avg, denom, value=-step_size)
+                    if self.acc_quant is not None:
+                        if "compensated_buffer" not in param_state:
+                            p.data.addcdiv_(exp_avg, denom, value=-step_size)
+                            p.data = self.acc_quant(p.data, 0.0, 0.0)
+                        else:
+                            u = self.acc_quant(exp_avg / denom, 0.0, 0.0)
+                            y = -self.acc_quant(
+                                param_state["compensated_buffer"], u, step_size
+                            )
+                            s = self.acc_quant(p.data, y, 1.0)
+                            param_state["compensated_buffer"] = self.acc_quant(
+                                self.acc_quant(s, p.data, -1.0), y, -1.0
+                            )
+                            p.data = s
+                    else:
+                        if "compensated_buffer" not in param_state:
+                            p.data.addcdiv_(exp_avg, denom, value=-step_size)
+                        else:
+                            u = -step_size * exp_avg / denom
+                            y = u - param_state["compensated_buffer"]
+                            s = p.data + y
+                            param_state["compensated_buffer"] = (s - p.data) - y
+                            p.data = s
