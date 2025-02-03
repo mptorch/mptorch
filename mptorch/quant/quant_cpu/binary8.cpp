@@ -257,56 +257,6 @@ void binary8_unsigned_truncate(float *a, float *o, int size, int P, OverflowPoli
     }
 }
 
-Tensor binary8_quantize_nearest_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_nearest(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_stochastic_cpu(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  // generate random number on the CPU for the SR operation
-  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_stochastic(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_truncate_cpu(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel(); // gets number of elements in tensor a
-
-  if (is_signed == true){ // signed
-      binary8_signed_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  } else {  // unsigned
-      binary8_unsigned_truncate(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
 void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                           int P_exp, OverflowPolicy op_exp, bool signed_exp,
                                           int P_off, OverflowPolicy op_off, bool signed_off,

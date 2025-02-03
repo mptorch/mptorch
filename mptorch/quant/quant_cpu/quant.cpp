@@ -2,6 +2,7 @@
 #include "bit_helper.h"
 #include "layernorm.h"
 #include "softmax.h"
+#include "binary8.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -706,4 +707,58 @@ void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tenso
       return superfp_quantize(x, man_div, exp_div, binades_div, saturate);
     }
   );
+}
+
+
+Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  CHECK_INPUT(a);
+  auto o = zeros_like(a);
+  // generate random number on the CPU for the SR operation
+  auto rand_ints = randint_like(a, INT_MAX, device(kCPU).dtype(kInt));
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_stochastic(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  CHECK_INPUT(a);
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_truncate(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
+}
+
+Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+{
+  CHECK_INPUT(a);
+  auto o = zeros_like(a);
+  int size = a.numel(); // gets number of elements in tensor a
+
+  if (is_signed == true){ // signed
+      binary8_signed_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  } else {  // unsigned
+      binary8_unsigned_nearest(
+      a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
+  }
+
+  return o;
 }

@@ -3,33 +3,6 @@
 #include <torch/torch.h>
 #include <tuple>
 
-#define CHECK_CPU(x) TORCH_CHECK(!x.is_cuda(), #x " must be a CPU tensor")
-#define CHECK_CONTIGUOUS(x) \
-      TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
-#define CHECK_INPUT(x) \
-      CHECK_CPU(x);   \
-      CHECK_CONTIGUOUS(x)
-
-Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_stochastic_cpu(a, P, prng_bits, is_signed, overflow_policy, subnormals);
-}
-
-Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_truncate_cpu(a, P, is_signed, overflow_policy, subnormals);
-}
-
-Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_nearest_cpu(a, P, is_signed, overflow_policy, subnormals);
-}
-
-
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       m.def("fixed_point_quantize_stochastic_mask",
             &fixed_point_quantize_stochastic_mask,

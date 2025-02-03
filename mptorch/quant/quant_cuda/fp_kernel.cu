@@ -8,8 +8,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <iostream>
-// #include "binary8_kernel.cu"
-// #include "binary8_kernel.h"
 
 __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
                                        bool subnormal_support = true,
