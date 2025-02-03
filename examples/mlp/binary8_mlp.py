@@ -109,11 +109,11 @@ parser.add_argument(
 
 # type of saturation mode
 parser.add_argument(
-    "--saturation_mode",
+    "--overflow_policy",
     type=str,
-    default="overflow",
+    default="saturate_infty",
     metavar="N",
-    help="saturate, overflow, no_overflow",
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2",
 )
 
 # precision size for accumuluation
