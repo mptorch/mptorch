@@ -20,13 +20,14 @@ __all__ = [
     "qgelu",
 ]
 
+
 # Utility functions to perform tensor scaling operations in low precison (8-bit and
 # below) DNN training
 # See: https://arxiv.org/pdf/2309.17224
 # NOTE: using this routine seems quite sensitive to how the margin term is picked,
-# notably the empirical value suggested in the aformentioned reference leads to 
-# divergence (i.e. grad_input computation in the linear layer backward pass is 
-# unstable and produces NaNs right from the start); more investigation is needed 
+# notably the empirical value suggested in the aformentioned reference leads to
+# divergence (i.e. grad_input computation in the linear layer backward pass is
+# unstable and produces NaNs right from the start); more investigation is needed
 # and this might need to be revisited in the case of supernormals
 def compute_bias(x, cast_to: FloatType, margin=11):
     with torch.no_grad():
@@ -34,11 +35,13 @@ def compute_bias(x, cast_to: FloatType, margin=11):
         (amax, _) = torch.max(amax, dim=-2, keepdim=True)
     return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
 
+
 def scale(x, x_scale):
     if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
     else:
         return x
+
 
 def unscale(x, x_scale):
     if isinstance(x_scale, torch.Tensor):
@@ -46,15 +49,21 @@ def unscale(x, x_scale):
     else:
         return x
 
+
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository
 # See: https://github.com/pytorch/pytorch/blob/master/tools/autograd/derivatives.yaml
+
 
 class qlinear_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias, formats):
         ctx.formats = formats
         # NOTE: (optimization) precompute the LP weights and weight scale
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
+        if (
+            (formats.weight_scaled_format is not None)
+            and (formats.input_scaled_format is not None)
+            and formats.use_scaling
+        ):
             ctx.weight_scale = compute_bias(weight, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -136,14 +145,17 @@ class qlinear_kernel(torch.autograd.Function):
                     qgrad_bias = qsum(
                         qgrad_output,
                         dim=tuple([i for i in range(len(qgrad_output.shape) - 1)]),
-                        quant=make_quant_function(ctx.formats.bwd_add, ctx.formats.bwd_rnd, ctx.formats.prng_bits),
+                        quant=make_quant_function(
+                            ctx.formats.bwd_add,
+                            ctx.formats.bwd_rnd,
+                            ctx.formats.prng_bits,
+                        ),
                     ).reshape(qbias.shape)
             qgrad_bias = unscale(qgrad_bias, grad_scale)
             # NOTE: look if this needs to be redesigned (separate grad_quants ?!)
             qgrad_bias = ctx.formats.grad_quant(qgrad_bias)
 
         return qgrad_input, qgrad_weight, qgrad_bias, None, None
-
 
 
 def qlinear(input, weight, bias, formats):
@@ -154,7 +166,11 @@ class qmm_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, other, formats):
         ctx.formats = formats
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
+        if (
+            (formats.weight_scaled_format is not None)
+            and (formats.input_scaled_format is not None)
+            and formats.use_scaling
+        ):
             ctx.weight_scale = compute_bias(other, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -232,7 +248,11 @@ class qmatmul_kernel(torch.autograd.Function):
         ctx.formats = formats
         # NOTE: need to see how we do things for each matrix in
         # the batched version
-        if (formats.weight_scaled_format is not None) and (formats.input_scaled_format is not None) and formats.use_scaling:
+        if (
+            (formats.weight_scaled_format is not None)
+            and (formats.input_scaled_format is not None)
+            and formats.use_scaling
+        ):
             ctx.weight_scale = compute_bias(other, formats.weight_scaled_format)
             ctx.input_scale = compute_bias(input, formats.input_scaled_format)
         else:
@@ -304,7 +324,7 @@ def qmatmul(input, other, formats):
     return qmatmul_kernel.apply(input, other, formats)
 
 
-class qadd(torch.autograd.Function):
+class qadd_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         ctx.save_for_backward(x, y)
@@ -324,7 +344,11 @@ class qadd(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
-class qmul(torch.autograd.Function):
+def qadd(x, y, fwd_quant, bwd_quant):
+    return qadd_kernel.apply(x, y, fwd_quant, bwd_quant)
+
+
+class qmul_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         ctx.save_for_backward(x, y)
@@ -343,10 +367,14 @@ class qmul(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
+def qmul(x, y, fwd_quant, bwd_quant):
+    return qmul_kernel.apply(x, y, fwd_quant, bwd_quant)
+
+
 # see the following link for a discussion regarding numerical stability of
 # backward propagation for division operations in PyTorch and for the basis
 # of this implementation: https://github.com/pytorch/pytorch/issues/43414
-class qdiv(torch.autograd.Function):
+class qdiv_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, y, fwd_quant, bwd_quant):
         z = fwd_quant(x / y)
@@ -366,7 +394,11 @@ class qdiv(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
-class qpow(torch.autograd.Function):
+def qdiv(x, y, fwd_quant, bwd_quant):
+    return qdiv_kernel.apply(x, y, fwd_quant, bwd_quant)
+
+
+class qpow_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, n=2):
         ctx.n = n
@@ -384,7 +416,11 @@ class qpow(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-class qsqrt(torch.autograd.Function):
+def qpow(x, fwd_quant, bwd_quant, n=2):
+    return qpow_kernel.apply(x, fwd_quant, bwd_quant, n)
+
+
+class qsqrt_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant):
         ctx.bwd_quant = bwd_quant
@@ -399,6 +435,10 @@ class qsqrt(torch.autograd.Function):
         grad_x = ctx.bwd_quant(y * 2)
         grad_x = ctx.bwd_quant(grad_y / grad_x)
         return grad_x, None, None
+
+
+def qsqrt(x, fwd_quant, bwd_quant):
+    return qsqrt_kernel.apply(x, fwd_quant, bwd_quant)
 
 
 # TODO: need CUDA-accelerated version of this routine
@@ -446,13 +486,14 @@ class qsum_kernel(torch.autograd.Function):
             grad_output = torch.unsqueeze(grad_output, d)
         grad_x = grad_output * torch.ones_like(x, device=x.device)
         return grad_x, None, None, None
-    
+
+
 def qsum(x, dim, quant=lambda x: x, keepdim=False):
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
 # TODO: similar to sum, look into a CUDA-accelerated version of this routine
-class qmean(torch.autograd.Function):
+class qmean_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, dim=3, keepdim=False):
         ctx.bwd_quant = bwd_quant
@@ -467,16 +508,17 @@ class qmean(torch.autograd.Function):
         sums = x
         numel = 1
         for d in dim:
-            sums = qsum_kernel(sums, d, fwd_quant)
+            sums = qsum(sums, d, fwd_quant, keepdim)
             numel *= x.shape[d]
         ctx.numel = numel
         sums = fwd_quant(sums / numel)
         if keepdim is False:
             for _ in dim:
                 idx = 0
-                while sums.shape[idx] != 1:
+                while idx < len(sums.shape) and sums.shape[idx] != 1:
                     idx += 1
-                sums = torch.squeeze(sums, dim=idx)
+                if idx < len(sums.shape):
+                    sums = torch.squeeze(sums, dim=idx)
         ctx.shape = sums.shape
         return sums
 
@@ -489,6 +531,10 @@ class qmean(torch.autograd.Function):
             grad_output * torch.ones_like(x, device=x.device) / ctx.numel
         )
         return grad_x, None, None, None, None
+
+
+def qmean(x, fwd_quant, bwd_quant, dim=3, keepdim=False):
+    return qmean_kernel.apply(x, fwd_quant, bwd_quant, dim, keepdim)
 
 
 class qlayernorm_kernel(torch.autograd.Function):
@@ -515,7 +561,7 @@ class qlayernorm_kernel(torch.autograd.Function):
             normalized_shape = torch.Size(normalized_shape)
         assert isinstance(normalized_shape, torch.Size)
 
-        assert normalized_shape == x.shape[-len(normalized_shape):]
+        assert normalized_shape == x.shape[-len(normalized_shape) :]
         dims = [-(i + 1) for i in range(len(normalized_shape))]
         ctx.dims = dims
 
@@ -529,10 +575,12 @@ class qlayernorm_kernel(torch.autograd.Function):
 
             rstd = (variance + eps) ** -0.5
             norm = xshift * rstd
-            output = norm * qweight + qbias    
+            output = norm * qweight + qbias
         else:
-            output, mean, rstd = mp_layernorm_forward(qinput, qweight, qbias, eps, dims, formats)
-        
+            output, mean, rstd = mp_layernorm_forward(
+                qinput, qweight, qbias, eps, dims, formats
+            )
+
         qoutput = formats.output_quant(output)
 
         ctx.save_for_backward(qinput, qweight, qbias, mean, rstd)
@@ -541,7 +589,13 @@ class qlayernorm_kernel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        (qinput, qweight, qbias, mean, rstd,) = ctx.saved_tensors
+        (
+            qinput,
+            qweight,
+            qbias,
+            mean,
+            rstd,
+        ) = ctx.saved_tensors
         formats = ctx.formats
         dims = ctx.dims
 
@@ -550,7 +604,7 @@ class qlayernorm_kernel(torch.autograd.Function):
         qgrad_input = None
         qgrad_weight = None
         qgrad_bias = None
-        
+
         if ctx.formats.bwd_use_default_prec:
             norm = (qinput - mean) * rstd
 
@@ -558,10 +612,16 @@ class qlayernorm_kernel(torch.autograd.Function):
             grad_weight = (grad_output * norm).sum((0, 1))
 
             grad_norm = grad_output * grad_weight
-            grad_input = grad_norm - grad_norm.mean(-1, keepdim=True) - norm * (grad_norm * norm).mean(-1, keepdim=True)
+            grad_input = (
+                grad_norm
+                - grad_norm.mean(-1, keepdim=True)
+                - norm * (grad_norm * norm).mean(-1, keepdim=True)
+            )
             grad_input *= rstd
         else:
-            grad_input, grad_weight, grad_bias = mp_layernorm_backward(qinput, qgrad_output, qweight, qbias, mean, rstd, dims, formats)
+            grad_input, grad_weight, grad_bias = mp_layernorm_backward(
+                qinput, qgrad_output, qweight, qbias, mean, rstd, dims, formats
+            )
 
         if ctx.needs_input_grad[0]:
             qgrad_input = formats.grad_quant(grad_input)
@@ -572,7 +632,7 @@ class qlayernorm_kernel(torch.autograd.Function):
 
         return qgrad_input, None, qgrad_weight, qgrad_bias, None, None
 
-        
+
 def qlayernorm(x, normalized_shape, weight, bias, eps, formats):
     return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 
@@ -613,6 +673,7 @@ class qsoftmax_kernel(torch.autograd.Function):
 
         return qgrad_input, None, None
 
+
 def qsoftmax(x, dim, formats):
     return qsoftmax_kernel.apply(x, dim, formats)
 
@@ -625,16 +686,18 @@ class qgelu_kernel(torch.autograd.Function):
         qinput = formats.input_quant(input)
 
         with torch.no_grad():
-            if approximate == 'tanh':
+            if approximate == "tanh":
                 PI = torch.tensor(math.pi, device=qinput.device)
-                intermediate_output = torch.tanh(torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput ** 3))
+                intermediate_output = torch.tanh(
+                    torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput**3)
+                )
             else:
                 SQRT2 = torch.tensor(1.41421356237, device=qinput.device)
                 intermediate_output = torch.erf(qinput / SQRT2)
-            
+
             quantized_intermediate_output = formats.inter_quant(intermediate_output)
             output = 0.5 * qinput * (1 + quantized_intermediate_output)
-        
+
         qoutput = formats.output_quant(output)
         ctx.save_for_backward(qinput, quantized_intermediate_output)
         return qoutput
@@ -646,19 +709,22 @@ class qgelu_kernel(torch.autograd.Function):
 
         PI = torch.tensor(math.pi, device=grad_output.device)
 
-        if ctx.approximate == 'tanh':
-            tanh_term = torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput ** 3)
-            dtanh_term = 1 - quantized_intermediate_output ** 2
-            grad_input = qgrad_output * (0.5 * (1 + quantized_intermediate_output) + 0.5 * qinput * dtanh_term * (tanh_term + 0.134145 * qinput ** 3))
+        if ctx.approximate == "tanh":
+            tanh_term = torch.sqrt(2 / PI) * (qinput + 0.044715 * qinput**3)
+            dtanh_term = 1 - quantized_intermediate_output**2
+            grad_input = qgrad_output * (
+                0.5 * (1 + quantized_intermediate_output)
+                + 0.5 * qinput * dtanh_term * (tanh_term + 0.134145 * qinput**3)
+            )
         else:
             cdf = 0.5 * (1 + quantized_intermediate_output)
-            pdf = torch.exp(-0.5 * qinput ** 2) / torch.sqrt(2.0 * PI)
+            pdf = torch.exp(-0.5 * qinput**2) / torch.sqrt(2.0 * PI)
             grad_input = qgrad_output * (cdf + qinput * pdf)
-        
+
         qgrad_input = ctx.formats.grad_quant(grad_input)
 
         return qgrad_input, None, None
 
-def qgelu(input, formats, approximate='none'):
-    return qgelu_kernel.apply(input, formats, approximate)
 
+def qgelu(input, formats, approximate="none"):
+    return qgelu_kernel.apply(input, formats, approximate)
