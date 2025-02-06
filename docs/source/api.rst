@@ -32,6 +32,12 @@ Modules
     :members:
     :show-inheritance:
 
+Functional
+----------
+.. automodule:: mptorch.quant.functional
+    :members:
+    :show-inheritance:
+
 cuBLAS Acceleration
 -------------------
 .. automodule:: mptorch.quant.cublas
