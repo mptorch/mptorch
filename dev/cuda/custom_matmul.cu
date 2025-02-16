@@ -283,6 +283,140 @@ __global__ void mm_kernel2(float *__restrict__ a, float *__restrict__ b,
         c[row * N + col] = outer_sum;
 }
 
+template <size_t BLOCKSIZE, class Qadd, class Qmul>
+__global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
+                           float *__restrict__ c, int M, int K, int N,
+                           Qadd quant_add, Qmul quant_mul)
+{
+
+    // the output block that we want to compute in this threadblock
+    const int cRow = blockIdx.x;
+    const int cCol = blockIdx.y;
+
+    // allocate buffer for current block in fast shared mem
+    // shared mem is shared between all threads in a block
+    __shared__ float As[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
+
+    // the inner row & col that we're accessing in this thread
+    const int threadCol = threadIdx.x % BLOCKSIZE;
+    const int threadRow = threadIdx.x / BLOCKSIZE;
+
+    // advance pointers to the starting positions
+    a += cRow * BLOCKSIZE * K;                    // row=cRow, col=0
+    b += cCol * BLOCKSIZE;                        // row=0, col=cCol
+    c += cRow * BLOCKSIZE * N + cCol * BLOCKSIZE; // row=cRow, col=cCol
+
+    float tmp = 0.0;
+
+    int cId = cCol * BLOCKSIZE + threadCol;
+    int rId = cRow * BLOCKSIZE + threadRow;
+
+    for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE)
+    {
+        // Have each thread load one of the elements in A & B
+        // Make the threadCol (=threadIdx.x) the consecutive index
+        // to allow global memory access coalescing
+        As[threadRow * BLOCKSIZE + threadCol] = (rId < M && bkIdx + threadCol < K) ? a[threadRow * K + threadCol] : 0.0f;
+        Bs[threadRow * BLOCKSIZE + threadCol] = (bkIdx + threadRow < K && cId < N) ? b[threadRow * N + threadCol] : 0.0f;
+
+        // block threads in this block until cache is fully populated
+        __syncthreads();
+        a += BLOCKSIZE;
+        b += BLOCKSIZE * N;
+
+        // execute the dotproduct on the currently cached block
+        for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
+        {
+            tmp = quant_add(tmp + quant_mul(As[threadRow * BLOCKSIZE + dotIdx] *
+                                            Bs[dotIdx * BLOCKSIZE + threadCol]));
+        }
+        // need to sync again at the end, to avoid faster threads
+        // fetching the next block into the cache before slower threads are done
+        __syncthreads();
+    }
+    if (rId < M && cId < N)
+    {
+        c[threadRow * N + threadCol] = tmp;
+    }
+}
+
+template <size_t BM, size_t BN, size_t BK, size_t TM, class Qadd, class Qmul>
+__global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
+                           float *__restrict__ c, int M, int K, int N,
+                           Qadd quant_add, Qmul quant_mul)
+{
+    // If we flip x and y here we get ~30% less performance for large matrices.
+    // The current, 30% faster configuration ensures that blocks with sequential
+    // blockIDs access columns of B sequentially, while sharing the same row of A.
+    // The slower configuration would share columns of A, but access into B would
+    // be non-sequential. So the faster configuration has better spatial locality
+    // and hence a greater L2 hit race.
+    const uint cRow = blockIdx.y;
+    const uint cCol = blockIdx.x;
+
+    // each warp will calculate 32*TM elements, with 32 being the columnar dim.
+    const int threadCol = threadIdx.x % BN;
+    const int threadRow = threadIdx.x / BN;
+
+    // allocate space for current blocktile in SMEM
+    __shared__ float As[BM * BK];
+    __shared__ float Bs[BK * BN];
+
+    // move block tile at the beginning of A's row and B's column
+    a += cRow * BM * K;
+    b += cCol * BN;
+    c += cRow * BM * N + cCol * BN;
+
+    // TODO: adjust this to each thread to load multiple entries and
+    // better exploit the cache sizes
+    // assert(BM * BK == blockDim.x);
+    // assert(BN * BK == blockDim.x);
+    const uint innerColA = threadIdx.x % BK; // warp-level GMEM coalescing
+    const uint innerRowA = threadIdx.x / BK;
+    const uint innerColB = threadIdx.x % BN; // warp-level GMEM coalescing
+    const uint innerRowB = threadIdx.x / BN;
+
+    // allocate thread-local cache for results in registerfile
+    float threadResults[TM] = {0.0};
+
+    int rId = cRow * BM + threadRow;
+    int cId = cCol * BN + threadCol;
+
+    // outer loop over block tiles
+    for (uint bkIdx = 0; bkIdx < K; bkIdx += BK)
+    {
+        // populate the SMEM caches
+        As[innerRowA * BK + innerColA] = (rId < M && bkIdx + innerColA < K) ? a[innerRowA * K + innerColA] : 0.0f;
+        Bs[innerRowB * BN + innerColB] = (bkIdx + innerRowB < K && cId < N) ? b[innerRowB * N + innerColB] : 0.0f;
+        __syncthreads();
+
+        // advance blocktiles
+        a += BK;
+        b += BK * N;
+
+        // calculate per-thread results
+        for (uint dotIdx = 0; dotIdx < BK; ++dotIdx)
+        {
+            // we make the dot product loop the outside loop, which facilitates
+            // reuse of the Bs entry, which we can later cache in a tmp var.
+            float tmpB = Bs[dotIdx * BN + threadCol];
+            for (uint resIdx = 0; resIdx < TM; ++resIdx)
+            {
+                threadResults[resIdx] = quant_add(threadResults[resIdx] + quant_mul(As[(threadRow * TM + resIdx) * BK + dotIdx] * tmpB));
+            }
+        }
+        __syncthreads();
+    }
+
+    // write out the results
+    for (uint resIdx = 0; resIdx < TM; ++resIdx)
+    {
+        if (rId < M && cId + resIdx < N)
+            c[(threadRow * TM + resIdx) * N + threadCol] = threadResults[resIdx];
+    }
+}
+
 // ------------------------------------------------------------------------------------
 // Kernel Launchers
 
@@ -338,13 +472,41 @@ void mm_cuda2(float *a, float *b, float *c, int M, int K, int N,
                                     { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
+void mm_cuda3(float *a, float *b, float *c, int M, int K, int N,
+              int man_add, int exp_add, int man_mul, int exp_mul,
+              bool subnormals, bool saturate)
+{
+
+    dim3 const thread_dim{1024U, 1U, 1U};
+    dim3 const block_dim{(uint)ceil_div(M, 32), (uint)ceil_div(N, 32), 1U};
+    mm_kernel3<32>
+        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+}
+
+void mm_cuda4(float *a, float *b, float *c, int M, int K, int N,
+              int man_add, int exp_add, int man_mul, int exp_mul,
+              bool subnormals, bool saturate)
+{
+    constexpr int BM = 64;
+    constexpr int BN = 64;
+    constexpr int BK = 8;
+    constexpr int TM = 8;
+    dim3 const block_dim((uint)ceil_div(N, BN), (uint)ceil_div(M, BM));
+    dim3 const thread_dim((BM * BN) / TM);
+    mm_kernel4<BM, BN, BK, TM><<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+}
+
 int main(int argc, const char **argv)
 {
     setup_main();
 
-    int M = 100;
-    int K = 100;
-    int N = 100;
+    int M = 1000;
+    int K = 1000;
+    int N = 1000;
     float *a = make_random_float(M * K);
     float *b = make_random_float(K * N);
     float *c = make_zeros_float(M * N);
@@ -366,17 +528,19 @@ int main(int argc, const char **argv)
     printf("All results match. Starting benchmarks...\n\n");
 
     printf("CPU benchmarking...\n");
-    int repeat_times = 100;
+    int repeat_times = 1;
     float elapsed_time1 = benchmark_cpu_kernel(repeat_times, mm_cpu1, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
     float elapsed_time2 = benchmark_cpu_kernel(repeat_times, mm_cpu2, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
     printf("time mm_cpu1 %.4f ms | time mm_cpu2 %.4f ms\n", elapsed_time1, elapsed_time2);
 
     printf("CUDA benchmarking...\n");
     repeat_times = 1000;
-    elapsed_time1 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    elapsed_time2 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time3 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time4 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
 
-    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms\n", elapsed_time1, elapsed_time2);
+    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda3 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
 
     // free memory
     free(a);
