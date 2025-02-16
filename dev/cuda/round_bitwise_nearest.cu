@@ -228,7 +228,7 @@ int main(int argc, const char **argv)
 
         int repeat_times = 1000;
 
-        float elapsed_time = benchmark_kernel(repeat_times, round_bitwise_nearest, kernel_num, d_y, d_x, N, man_bits, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, round_bitwise_nearest, kernel_num, d_y, d_x, N, man_bits, block_size);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each

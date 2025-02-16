@@ -1,4 +1,4 @@
-/* 
+/*
 Matrix-matrix multiply using cublasLtMatmul function.
 Adapted from:
 https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuBLASLt/LtSgemm/sample_cublasLt_LtSgemm.cu
@@ -10,7 +10,6 @@ Run with:
 ./cublaslt_matmul
 */
 
-
 #include <cublas_v2.h>
 #include <cublasLt.h>
 #include <cuda_runtime.h>
@@ -21,11 +20,15 @@ Run with:
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple version of sgemm */
 static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const float *B,
-                         float beta, float *C) {
-    for (int i = 0; i < M; ++i) {
-        for (int j = 0; j < N; ++j) {
+                         float beta, float *C)
+{
+    for (int i = 0; i < M; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
             float prod = 0.0f;
-            for (int k = 0; k < K; ++k) {
+            for (int k = 0; k < K; ++k)
+            {
                 prod = prod + A[k * M + i] * B[j * K + k];
             }
             C[j * M + i] = alpha * prod + beta * C[j * M + i];
@@ -34,7 +37,8 @@ static void simple_sgemm(int M, int N, int K, float alpha, const float *A, const
 }
 
 // ---------------------------------------------------------------------------------------
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
     setup_main();
 
     const int M = 1024;
@@ -51,19 +55,19 @@ int main(int argc, const char **argv) {
     /* Initialize CUBLASLt */
     cublasCheck(cublasLtCreate(&handle));
 
-    h_A = make_random_float(M*K);
-    h_B = make_random_float(K*N);
-    h_C = (float*)(malloc(M*N * sizeof(h_C[0])));
+    h_A = make_random_float(M * K);
+    h_B = make_random_float(K * N);
+    h_C = (float *)(malloc(M * N * sizeof(h_C[0])));
 
     /* Allocate device memory for the matrices */
-    cudaCheck(cudaMalloc(&d_A, M*K * sizeof(d_A[0])));
-    cudaCheck(cudaMalloc(&d_B, K*N * sizeof(d_B[0])));
-    cudaCheck(cudaMalloc(&d_C, M*N * sizeof(d_C[0])));
+    cudaCheck(cudaMalloc(&d_A, M * K * sizeof(d_A[0])));
+    cudaCheck(cudaMalloc(&d_B, K * N * sizeof(d_B[0])));
+    cudaCheck(cudaMalloc(&d_C, M * N * sizeof(d_C[0])));
 
     /* Copy host matrices content into the device matrices */
-    cublasCheck(cublasSetVector(M*K, sizeof(h_A[0]), h_A, 1, d_A, 1));
-    cublasCheck(cublasSetVector(K*N, sizeof(h_B[0]), h_B, 1, d_B, 1));
-    cublasCheck(cublasSetVector(M*N, sizeof(h_C[0]), h_C, 1, d_C, 1));
+    cublasCheck(cublasSetVector(M * K, sizeof(h_A[0]), h_A, 1, d_A, 1));
+    cublasCheck(cublasSetVector(K * N, sizeof(h_B[0]), h_B, 1, d_B, 1));
+    cublasCheck(cublasSetVector(M * N, sizeof(h_C[0]), h_C, 1, d_C, 1));
 
     /* Perform matrix multiply operation using cublasLt */
     cublasLtMatmulDesc_t operationDesc = NULL;
@@ -96,21 +100,22 @@ int main(int argc, const char **argv) {
     int returnedResults = 0;
     cublasLtMatmulHeuristicResult_t heuristicResult = {};
     cublasCheck(cublasLtMatmulAlgoGetHeuristic(
-        handle, operationDesc, Adesc, Bdesc, Cdesc, Cdesc, preference, 1, &heuristicResult, &returnedResults
-    ));
+        handle, operationDesc, Adesc, Bdesc, Cdesc, Cdesc, preference, 1, &heuristicResult, &returnedResults));
 
-    if (returnedResults == 0) {
+    if (returnedResults == 0)
+    {
         cublasCheck(CUBLAS_STATUS_NOT_SUPPORTED);
     }
 
-    auto cublasLt_matmul = [&]() {
-    cublasCheck(cublasLtMatmul(handle, operationDesc, &alpha,
-                               d_A, Adesc,
-                               d_B, Bdesc, &beta,
-                               d_C, Cdesc,
-                               d_C, Cdesc,
-                               &heuristicResult.algo,
-                               NULL, 0, 0));
+    auto cublasLt_matmul = [&]()
+    {
+        cublasCheck(cublasLtMatmul(handle, operationDesc, &alpha,
+                                   d_A, Adesc,
+                                   d_B, Bdesc, &beta,
+                                   d_C, Cdesc,
+                                   d_C, Cdesc,
+                                   &heuristicResult.algo,
+                                   NULL, 0, 0));
     };
     cublasLt_matmul();
 
@@ -118,22 +123,25 @@ int main(int argc, const char **argv) {
     simple_sgemm(M, N, K, alpha, h_A, h_B, beta, h_C);
 
     /* Check result against reference */
-    validate_result(d_C, h_C, "C", M*N, 1.0e-2f);
+    validate_result(d_C, h_C, "C", M * N, 1.0e-2f);
     printf("All results match. Starting benchmarks.\n\n");
-
 
     /* Benchmark */
     int repeat_times = 1000;
-    float elapsed_time = benchmark_kernel(repeat_times, cublasLt_matmul);
+    float elapsed_time = benchmark_gpu_kernel(repeat_times, cublasLt_matmul);
     printf("time %.4f ms\n", elapsed_time);
 
-
     // descriptors are no longer needed as all GPU work was already enqueued
-    if (preference) cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
-    if (Cdesc) cublasCheck(cublasLtMatrixLayoutDestroy(Cdesc));
-    if (Bdesc) cublasCheck(cublasLtMatrixLayoutDestroy(Bdesc));
-    if (Adesc) cublasCheck(cublasLtMatrixLayoutDestroy(Adesc));
-    if (operationDesc) cublasCheck(cublasLtMatmulDescDestroy(operationDesc));
+    if (preference)
+        cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
+    if (Cdesc)
+        cublasCheck(cublasLtMatrixLayoutDestroy(Cdesc));
+    if (Bdesc)
+        cublasCheck(cublasLtMatrixLayoutDestroy(Bdesc));
+    if (Adesc)
+        cublasCheck(cublasLtMatrixLayoutDestroy(Adesc));
+    if (operationDesc)
+        cublasCheck(cublasLtMatmulDescDestroy(operationDesc));
 
     /* Memory clean up */
     free(h_A);

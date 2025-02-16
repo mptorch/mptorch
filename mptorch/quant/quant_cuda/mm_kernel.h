@@ -5,12 +5,14 @@
 #include <cstdint>
 
 template <class RandType>
-__device__ __forceinline__ RandType gen_rand(curandState_t *state, int sidx) {
+__device__ __forceinline__ RandType gen_rand(curandState_t *state, int sidx)
+{
   return curand(&state[sidx]);
 }
 
 template <>
-__device__ __forceinline__ float gen_rand<float>(curandState_t *state, int sidx) {
+__device__ __forceinline__ float gen_rand<float>(curandState_t *state, int sidx)
+{
   return 1.0f - curand_uniform(&state[sidx]);
 }
 
@@ -70,8 +72,8 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N,
-                        Qadd quant_add, Qmul quant_mul)
+                         float *__restrict__ c, int M, int K, int N,
+                         Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -93,7 +95,8 @@ __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -104,12 +107,14 @@ __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]));
     }
     currFactor++;
     currFactor %= BLOCK_FACTOR;
-    if (currFactor == 0) {
+    if (currFactor == 0)
+    {
       outer_sum = quant_add(outer_sum + inner_sum);
       inner_sum = 0.0f;
     }
@@ -120,11 +125,11 @@ __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
   }
 
   // write the result back to global memory
-  if (row < M && col < N) {
+  if (row < M && col < N)
+  {
     c[batch_c + row * N + col] = outer_sum;
   }
 }
-
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
@@ -182,8 +187,8 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                            float *__restrict__ c, int M, int K, int N,
-                            Qfma quant_fma)
+                             float *__restrict__ c, int M, int K, int N,
+                             Qfma quant_fma)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -205,7 +210,8 @@ __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -216,12 +222,14 @@ __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       inner_sum = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum));
     }
     currFactor++;
     currFactor %= BLOCK_FACTOR;
-    if (currFactor == 0) {
+    if (currFactor == 0)
+    {
       outer_sum = quant_fma(outer_sum + inner_sum);
       inner_sum = 0.0f;
     }
@@ -231,7 +239,8 @@ __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
   }
 
   // write the result back to global memory
-  if (row < M && col < N) {
+  if (row < M && col < N)
+  {
     c[batch_c + row * N + col] = outer_sum;
   }
 }
@@ -287,8 +296,8 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
 
 template <size_t SHMEM_SIZE, class RandType, class Qadd, class Qmul>
 __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
-                           float *__restrict__ c, curandState_t *state, int M, int K, int N,
-                           Qadd quant_add, Qmul quant_mul)
+                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
+                            Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -310,7 +319,8 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -321,7 +331,8 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       radd = gen_rand<RandType>(state, sidx);
       rmul = gen_rand<RandType>(state, sidx);
       tmp = quant_add(tmp + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], rmul), radd);
@@ -387,8 +398,8 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
 
 template <size_t SHMEM_SIZE, class RandType, class Qfma>
 __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                               float *__restrict__ c, curandState_t *state, int M, int K, int N,
-                               Qfma quant_fma)
+                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
+                                Qfma quant_fma)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -411,7 +422,8 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -422,7 +434,8 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       rfma = gen_rand<RandType>(state, sidx);
       tmp = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), rfma);
     }
@@ -437,10 +450,10 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
     c[batch_c + row * N + col] = tmp;
 }
 
-template<size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void mm_kahan_impl(float *__restrict__ a, float *__restric__ b, 
-                        float *__restrict__ c, int M, int K, int N,
-                        Qadd quant_add, Qmul quant_mul)
+template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+__global__ void mm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
+                              float *__restrict__ c, int M, int K, int N,
+                              Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B
   __shared__ float s_a[SHMEM_SIZE];
@@ -458,8 +471,8 @@ __global__ void mm_kahan_impl(float *__restrict__ a, float *__restric__ b,
   float t = 0.0f;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
-    // load the elements for this tile
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
@@ -470,7 +483,8 @@ __global__ void mm_kahan_impl(float *__restrict__ a, float *__restric__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; ++j) {
+    for (int j = 0; j < blockDim.x; ++j)
+    {
       update = quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]);
       y = quant_add(update - comp_term);
       t = quant_add(sum + y);
@@ -478,7 +492,7 @@ __global__ void mm_kahan_impl(float *__restrict__ a, float *__restric__ b,
       sum = t;
     }
 
-    // wait for all threads to finish using current tiles 
+    // wait for all threads to finish using current tiles
     // before landing in new ones
     __syncthreads();
   }
@@ -490,8 +504,8 @@ __global__ void mm_kahan_impl(float *__restrict__ a, float *__restric__ b,
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N,
-                        Qadd quant_add, Qmul quant_mul)
+                               float *__restrict__ c, int M, int K, int N,
+                               Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -515,7 +529,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -526,7 +541,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       update = quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]);
       y = quant_add(update - comp_term);
       t = quant_add(sum + y);
@@ -540,15 +556,16 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
   }
 
   // write the result back to global memory
-  if (row < M && col < N) {
+  if (row < M && col < N)
+  {
     c[batch_c + row * N + col] = sum;
   }
 }
 
-template<size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restric__ b, 
-                        float *__restrict__ c, int M, int K, int N,
-                        Qadd quant_fma)
+template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+__global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b,
+                                  float *__restrict__ c, int M, int K, int N,
+                                  Qadd quant_fma)
 {
   // declare shared memory matrices for A and B
   __shared__ float s_a[SHMEM_SIZE];
@@ -565,7 +582,8 @@ __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restric__ b,
   float t = 0.0f;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load the elements for this tile
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
@@ -577,14 +595,15 @@ __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restric__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; ++j) {
+    for (int j = 0; j < blockDim.x; ++j)
+    {
       y = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], -comp_term));
       t = quant_fma(sum + y);
       comp_term = quant_fma(quant_fma(t - sum) - y);
       sum = t;
     }
 
-    // wait for all threads to finish using current tiles 
+    // wait for all threads to finish using current tiles
     // before landing in new ones
     __syncthreads();
   }
@@ -596,8 +615,8 @@ __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restric__ b,
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N,
-                        Qadd quant_fma)
+                               float *__restrict__ c, int M, int K, int N,
+                               Qadd quant_fma)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];
@@ -620,7 +639,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
   int batch_c = batch_idx * M * N;
 
   // sweep tile across matrix
-  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x) {
+  for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+  {
     // load in elements for this tile
     s_a[ty * blockDim.x + tx] =
         (row < M && i + tx < K) ? a[batch_a + row * K + i + tx] : 0.0f;
@@ -631,7 +651,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
     __syncthreads();
 
     // do matrix multiplication on the small matrices
-    for (int j = 0; j < blockDim.x; j++) {
+    for (int j = 0; j < blockDim.x; j++)
+    {
       y = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], -comp_term));
       t = quant_fma(sum + y);
       comp_term = quant_fma(quant_fma(t - sum) - y);
@@ -644,7 +665,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
   }
 
   // write the result back to global memory
-  if (row < M && col < N) {
+  if (row < M && col < N)
+  {
     c[batch_c + row * N + col] = sum;
   }
 }

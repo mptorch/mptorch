@@ -5,7 +5,7 @@ Payload is still a binary32 value.
 Compile example:
 nvcc -O3 fp_nearest.cu -o fp_nearest -std=c++17 -lcublas
 
-version 1 attempted to make the code as compact as possible, while also 
+version 1 attempted to make the code as compact as possible, while also
 maintaining readability; bit shifts and masking are used aplenty
 ./fp_nearest 1
 
@@ -48,7 +48,7 @@ uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits)
 }
 
 uint32_t clip_subnormal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
-                              uint32_t quantized_num, bool saturate = false)
+                                           uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -69,7 +69,7 @@ uint32_t clip_subnormal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t 
 }
 
 uint32_t clip_normal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
-                                 uint32_t quantized_num, bool saturate = false)
+                                        uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -106,8 +106,8 @@ uint32_t clip_normal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old
 }
 
 float cast_fp_nearest_cpu(float origin_float, int man_bits, int exp_bits,
-                      bool subnormal_support = true,
-                      bool saturate = false)
+                          bool subnormal_support = true,
+                          bool saturate = false)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -152,7 +152,8 @@ float cast_fp_nearest_cpu(float origin_float, int man_bits, int exp_bits,
     return quantized;
 }
 
-void fp_nearest_cpu(float *o, float *a, int N, int man_bits, int exp_bits, bool subnormal_support, bool saturate) {
+void fp_nearest_cpu(float *o, float *a, int N, int man_bits, int exp_bits, bool subnormal_support, bool saturate)
+{
     for (int i = 0; i < N; ++i)
         o[i] = cast_fp_nearest_cpu(a[i], man_bits, exp_bits, subnormal_support, saturate);
 }
@@ -195,7 +196,7 @@ __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bi
 }
 
 __device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
-                                                           uint32_t quantized_num, bool saturate = false)
+                                                     uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -343,7 +344,8 @@ int main(int argc, const char **argv)
         {
             printf("index = %d\n", j);
             printf("input = ");
-            print_uint32(test_inputs[j]); printf("\n");
+            print_uint32(test_inputs[j]);
+            printf("\n");
             printf("Outputs:\n");
             print_uint32(res);
             printf("\nvs\n");
@@ -421,9 +423,9 @@ int main(int argc, const char **argv)
 
         int repeat_times = 1000;
 
-        float elapsed_time = benchmark_kernel(repeat_times, fp_nearest, 
-                kernel_num, d_y, d_x, N, man_bits, exp_bits, 
-                subnormal_support, saturate, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, fp_nearest,
+                                                  kernel_num, d_y, d_x, N, man_bits, exp_bits,
+                                                  subnormal_support, saturate, block_size);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each

@@ -8,12 +8,11 @@ version 1 creates a fixed grid with each thread performing potentially
 more than one operation
 ./vec_add 1
 
-version 2 creates a dynamic grid with total number of threads created 
+version 2 creates a dynamic grid with total number of threads created
 proportional to the number of elements in the vector
 ./vec_add 2
 
 */
-
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +23,8 @@ proportional to the number of elements in the vector
 // ---------------------------------------------------------------------------------------
 // CPU reference code
 
-void vec_add_cpu(float *z, const float *x, const float *y, int N) {
+void vec_add_cpu(float *z, const float *x, const float *y, int N)
+{
     for (int i = 0; i < N; ++i)
         z[i] = x[i] + y[i];
 }
@@ -32,31 +32,35 @@ void vec_add_cpu(float *z, const float *x, const float *y, int N) {
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
-__global__ void vec_add_kernel1(float *z, const float *x, const float *y, int N) {
+__global__ void vec_add_kernel1(float *z, const float *x, const float *y, int N)
+{
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
-    for (int i = index; i < N; i += stride) {
+    for (int i = index; i < N; i += stride)
+    {
         z[i] = x[i] + y[i];
     }
 }
 
-__global__ void vec_add_kernel2(float *z, const float *x, const float *y, int N) {
+__global__ void vec_add_kernel2(float *z, const float *x, const float *y, int N)
+{
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < N)
         z[index] = x[index] + y[index];
 }
 
-
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
 
-void vec_add1(float *z, const float *x, const float *y, int N, const int block_size) {
+void vec_add1(float *z, const float *x, const float *y, int N, const int block_size)
+{
     const int grid_size = ceil_div(N, block_size);
     vec_add_kernel1<<<grid_size, block_size>>>(z, x, y, N);
     cudaCheck(cudaGetLastError());
 }
 
-void vec_add2(float *z, const float *x, const float *y, int N, const int block_size) {
+void vec_add2(float *z, const float *x, const float *y, int N, const int block_size)
+{
     const int grid_size = 16;
     vec_add_kernel2<<<grid_size, block_size>>>(z, x, y, N);
     cudaCheck(cudaGetLastError());
@@ -64,36 +68,39 @@ void vec_add2(float *z, const float *x, const float *y, int N, const int block_s
 
 // kernel version dispatch
 void vec_add(int kernel_num,
-            float *z,
-            const float *x, 
-            const float *y,
-            int N, int block_size
-            ) {
-    
-    switch (kernel_num) {
-        case 1:
-            vec_add1(z, x, y, N, block_size);
-            break;
-        case 2:
-            vec_add2(z, x, y, N, block_size);
-            break;
-        default:
-            printf("Invalid kernel number\n");
-            exit(1);
-    }           
+             float *z,
+             const float *x,
+             const float *y,
+             int N, int block_size)
+{
+
+    switch (kernel_num)
+    {
+    case 1:
+        vec_add1(z, x, y, N, block_size);
+        break;
+    case 2:
+        vec_add2(z, x, y, N, block_size);
+        break;
+    default:
+        printf("Invalid kernel number\n");
+        exit(1);
+    }
 }
 
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
     setup_main();
 
     int N = 1 << 20;
-    float* x = make_random_float(N);
-    float* y = make_random_float(N);
-    float* z = (float*)malloc(N * sizeof(float));
+    float *x = make_random_float(N);
+    float *y = make_random_float(N);
+    float *z = (float *)malloc(N * sizeof(float));
 
     // read the kernel number from the command line
     int kernel_num = 1;
-    if (argc > 1) {
+    if (argc > 1)
+    {
         kernel_num = atoi(argv[1]);
     }
 
@@ -113,7 +120,8 @@ int main(int argc, const char **argv) {
 
     // time the kernel at different block sizes
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
         vec_add(kernel_num, d_z, d_x, d_y, N, block_size);
@@ -124,12 +132,13 @@ int main(int argc, const char **argv) {
 
     printf("All results match. Starting benchmarks.\n\n");
 
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
 
         int repeat_times = 1000;
 
-        float elapsed_time = benchmark_kernel(repeat_times, vec_add, kernel_num, d_z, d_x, d_y, N, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, vec_add, kernel_num, d_z, d_x, d_y, N, block_size);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 2 reads and 1 write, 4 bytes each
