@@ -564,35 +564,57 @@ def superfp_softmax_forward(
     dim,
     man_exp=23,
     exp_exp=8,
-    binades_exp=1,
+    binades_exp: int | tuple[int] = 1,
     man_off=23,
     exp_off=8,
-    binades_off=1,
+    binades_off: int | tuple[int] = 1,
     man_acc=23,
     exp_acc=8,
-    binades_acc=1,
+    binades_acc: int | tuple[int] = 1,
     rounding="nearest",
     saturate=False,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
+
+    if isinstance(binades_exp, int):
+        binades_exp_l, binades_exp_u = binades_exp, binades_exp
+    elif len(binades_exp) == 1:
+        binades_exp_l, binades_exp_u = binades_exp[0], binades_exp[0]
+    else:
+        binades_exp_l, binades_exp_u = binades_exp[0], binades_exp[1]
+
+    if isinstance(binades_off, int):
+        binades_off_l, binades_off_u = binades_off, binades_off
+    elif len(binades_off) == 1:
+        binades_off_l, binades_off_u = binades_off[0], binades_off[0]
+    else:
+        binades_off_l, binades_off_u = binades_off[0], binades_off[1]
+
+    if isinstance(binades_acc, int):
+        binades_acc_l, binades_acc_u = binades_acc, binades_acc
+    elif len(binades_acc) == 1:
+        binades_acc_l, binades_acc_u = binades_acc[0], binades_acc[0]
+    else:
+        binades_acc_l, binades_acc_u = binades_acc[0], binades_acc[1]
+
     quant_module.superfp_quantize_nearest_softmax_forward(
         input.contiguous(),
         output,
         dim,
         man_exp,
         exp_exp,
-        binades_exp,
-        binades_exp,
+        binades_exp_l,
+        binades_exp_u,
         man_off,
         exp_off,
-        binades_off,
-        binades_off,
+        binades_off_l,
+        binades_off_u,
         man_acc,
         exp_acc,
-        binades_acc,
-        binades_acc,
+        binades_acc_l,
+        binades_acc_u,
         saturate,
     )
     return output
@@ -2839,7 +2861,9 @@ def binary8_quantize(
     return out
 
 
-def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
+def superfp_quantize(
+    x, exp, man, binades: int | tuple[int], rounding="nearest", saturate=False
+):
     """
     Quantize a single precision Floating Point into low-precision Super Normal Floating Point
 
@@ -2847,7 +2871,7 @@ def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
         - :attr: `x` (torch.Tensor) : the single precision number(torch.Tensor) to be quantized
         - :attr: `exp` (int) : number of bits allocated for exponent
         - :attr: `man` (int) : number of bits allocated for mantissa, not counting the virtual bit
-        - :attr: `binades` (int) : number of binades that will be transformed into log range
+        - :attr: `binades` (int | tuple[int]) : number of binades that will be transformed into log range
         - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
         - :attr: `saturate` (bool): saturate on overflow or use infinities
 
@@ -2862,9 +2886,17 @@ def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
+        if isinstance(binades, int):
+            binades_l, binades_u = binades, binades
+        elif len(binades) == 1:
+            binades_l, binades_u = binades[0], binades[0]
+        else:
+            binades_l, binades_u = binades[0], binades[1]
+
         out = quant_module.superfp_quantize_nearest(
-            x.contiguous(), man, exp, binades, binades, saturate
+            x.contiguous(), man, exp, binades_l, binades_u, saturate
         )
+
     elif rounding == "stochastic":
         # TODO
         raise NotImplementedError("SR SuperNormalFloat not yet implemented")

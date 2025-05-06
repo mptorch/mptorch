@@ -1,8 +1,17 @@
-__all__ = ["Number", "FloatType", "FixedPoint", "FloatingPoint", "BlockFloatingPoint", "SuperNormalFloat", "Binary8"]
+__all__ = [
+    "Number",
+    "FloatType",
+    "FixedPoint",
+    "FloatingPoint",
+    "BlockFloatingPoint",
+    "SuperNormalFloat",
+    "Binary8",
+]
 
 
 class Number:
     """Base class of all number formats."""
+
     def __init__(self):
         pass
 
@@ -15,6 +24,7 @@ class Number:
 
 class FloatType(Number):
     """Base class of float-like number formats."""
+
     pass
 
 
@@ -107,10 +117,16 @@ class FloatingPoint(FloatType):
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
-        self.subnormal_min = 2.0**(2 - 2**(self.exp-1) - self.man) if subnormals else None
-        self.subnormal_max = 2.0**(2 - 2**(self.exp-1)) * (1.0 - 2.0**(-self.man)) if subnormals else None
-        self.normal_max    = 2.0**(2**(self.exp-1)-1) * (2.0 - 2.0**(-self.man))
-        self.normal_min    = 2.0**(2 - 2**(self.exp-1))
+        self.subnormal_min = (
+            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
+        )
+        self.subnormal_max = (
+            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
+            if subnormals
+            else None
+        )
+        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
+        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
 
     def __str__(self):
         return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
@@ -146,29 +162,48 @@ class SuperNormalFloat(FloatType):
         - :attr: `saturate`: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp, man, binades, saturate=False):
+    def __init__(self, exp: int, man: int, binades: int | tuple[int], saturate=False):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
-        assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
+        if isinstance(binades, int):
+            assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
+        elif len(binades) == 1:
+            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
+        else:
+            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
+            assert 8 >= binades[1] > 0, "invalid binade size:{}".format(binades[1])
         self.exp = exp
         self.man = man
+        if isinstance(binades, int):
+            self.binades_l, self.binades_u = binades, binades
+        elif len(binades) == 1:
+            self.binades_l, self.binades_u = binades[0], binades[0]
+        else:
+            self.binades_l, self.binades_u = binades[0], binades[1]
+        # TODO: to remove
         self.binades = binades
         self.saturate = saturate
 
-        min_exp = 1 - 2**exp + (binades - 1)
-        max_exp = 2**(exp-1) - 2 - (binades - 1)
-        self.subnormal_min = 2**(min_exp - binades * (2**man) + 2)
-        self.subnormal_max = 2**(min_exp - 1)
+        min_exp = 1 - 2 ** (exp - 1) + (self.binades_l - 1)
+        max_exp = 2 ** (exp - 1) - 2 - (self.binades_u - 1)
+        self.subnormal_min = 2 ** (min_exp - self.binades_l * (2**man) + 1)
+        self.subnormal_max = 2 ** (min_exp - 1)
         self.normal_min = 2**min_exp
         self.normal_max = 2**max_exp
-        self.supernormal_min = 2**(max_exp + 1)
-        self.supernormal_max = 2**(max_exp + binades * (2**man) - 1 + int(saturate))
+        self.supernormal_min = 2 ** (max_exp + 1)
+        self.supernormal_max = 2 ** (
+            max_exp + self.binades_u * (2**man) - 1 + int(saturate)
+        )
 
     def __str__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
+            self.exp, self.man, self.binades_l, self.binades_u
+        )
 
     def __repr__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(self.exp, self.man, self.binades)
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
+            self.exp, self.man, self.binades_l, self.binades_u
+        )
 
 
 class BlockFloatingPoint(Number):
@@ -212,72 +247,93 @@ class Binary8(FloatType):
         - :attr: `P`: integer precision of the binary8 format
         - :attr: `signed`: boolean indicating whether the format is signed or unsigned
         - :attr: `subnormals`: allow the use of subnormal values
-        - :attr: `overflow_policy`: string indicating the overflow policy (dictates the max float) 
+        - :attr: `overflow_policy`: string indicating the overflow policy (dictates the max float)
                                     - saturate_maxfloat2 : no infinity and +1 normalized value
                                     - saturate_maxfloat : use infinity
                                     - saturate_infty : use infinity
     """
 
-    def __init__(self, P: int, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"):
+    def __init__(
+        self, P: int, signed=True, subnormals=True, overflow_policy="saturate_maxfloat2"
+    ):
         assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
-        assert overflow_policy in ("saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"), \
-            "Invalid overflow policy: {}".format(overflow_policy)
+        assert overflow_policy in (
+            "saturate_infty",
+            "saturate_maxfloat",
+            "saturate_maxfloat2",
+        ), "Invalid overflow policy: {}".format(overflow_policy)
 
         self.P = P
         spec_exp = P == 1
-        
+
         # Determine mantissa and exponent bits based on P and signed
         self.man = P - 1
         self.exp = (8 - P) if signed else (9 - P)
-        max_exp = 2**(self.exp - 1) - 1
+        max_exp = 2 ** (self.exp - 1) - 1
         min_exp = -max_exp + spec_exp
 
         # Define the subnormal and normal ranges
         if self.man != 1 and subnormals == True:
-            self.subnormal_min = (2**-self.man) * (2**min_exp)   # this is good
-            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)   # this is also good
+            self.subnormal_min = (2**-self.man) * (2**min_exp)  # this is good
+            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)  # this is also good
         else:
             self.subnormal_min = None
             self.subnormal_max = None
 
         # no subnormal case
         if subnormals == True or self.man == 1:
-            self.normal_min = 2**min_exp   # this is good
-        else:   # values of P with subnormal values will have different normal_min
-            self.normal_min = (1 + 2**-self.man) * (2**(min_exp - 1))
-    
+            self.normal_min = 2**min_exp  # this is good
+        else:  # values of P with subnormal values will have different normal_min
+            self.normal_min = (1 + 2**-self.man) * (2 ** (min_exp - 1))
+
         if signed:
-            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FF not FE
+            if (
+                overflow_policy == "saturate_maxfloat2"
+            ):  # no inf case, so max is FF not FE
                 if self.man > 0:
-                    self.normal_max = (2 - 2 **-self.man) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2**-self.man) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**(max_exp + 1)  # 0 mantissa case
-            else:   # normal case where FE is max   
+                    self.normal_max = 2 ** (max_exp + 1)  # 0 mantissa case
+            else:  # normal case where FE is max
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**max_exp    # 0 mantissa case
-        else:   # unsigned case
-            if overflow_policy == "saturate_maxfloat2":    # no inf case, so max is FE not FD
+                    self.normal_max = 2**max_exp  # 0 mantissa case
+        else:  # unsigned case
+            if (
+                overflow_policy == "saturate_maxfloat2"
+            ):  # no inf case, so max is FE not FD
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-(self.man-1)) * (2**max_exp)    # good for more than 0 mantissa 
+                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 0 mantissa
                 else:
-                    self.normal_max = 2**max_exp    # 0 mantissa case
-            else:   # normal case where FD is max
+                    self.normal_max = 2**max_exp  # 0 mantissa case
+            else:  # normal case where FD is max
                 if self.man > 0:
-                    self.normal_max = (2 - 2**-self.man - 2**-(self.man-1)) * (2**max_exp)  # good for more than 1 mantissa
+                    self.normal_max = (2 - 2**-self.man - 2 ** -(self.man - 1)) * (
+                        2**max_exp
+                    )  # good for more than 1 mantissa
                 elif self.man == 1:
-                    self.normal_max = 1.5 * (2**(max_exp-1))      # (2 - 2**-self.man) * (2**(max_exp-1))
+                    self.normal_max = 1.5 * (
+                        2 ** (max_exp - 1)
+                    )  # (2 - 2**-self.man) * (2**(max_exp-1))
                 else:
-                    self.normal_max = 2**(max_exp-1)
-        
+                    self.normal_max = 2 ** (max_exp - 1)
+
         self.signed = signed
         self.subnormals = subnormals
         self.overflow_policy = overflow_policy
 
     def __repr__(self):
-        return f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, " \
-               f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
-    
+        return (
+            f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, "
+            f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
+        )
+
     def __str__(self):
         return self.__repr__()
