@@ -95,7 +95,7 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  * Nearest Rounding.
  **/
 Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
-                                   int binades, bool saturate);
+                                   int binades_l, int binades_u, bool saturate);
 
 /**
  * quantize a FloatTensor into a P3109-compliant floating point
@@ -178,8 +178,10 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
  **/
 void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                     int K, int man_add, int exp_add,
-                                    int man_mul, int exp_mul, int binades_add,
-                                    int binades_mul, bool saturate);
+                                    int man_mul, int exp_mul, 
+                                    int binades_add_l, int binades_add_u,
+                                    int binades_mul_l, int binades_mul_u,
+                                    bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
@@ -191,8 +193,10 @@ void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N
  **/
 void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                      int K, int man_add, int exp_add,
-                                     int man_mul, int exp_mul, int binades_add,
-                                     int binades_mul, bool saturate);
+                                     int man_mul, int exp_mul, 
+                                     int binades_add_l, int binades_add_u,
+                                     int binades_mul_l, int binades_mul_u,
+                                     bool saturate);
 
 /**
  * perform matrix multiplication with quantized FMA operations that simulate
@@ -203,7 +207,8 @@ void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int 
  **/
 void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int man_fma, int exp_fma,
-                                        int binades_fma, bool saturate);
+                                        int binades_fma_l, int binades_fma_u,
+                                        bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized FMA operations that simulate
@@ -214,7 +219,8 @@ void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
  **/
 void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                          int N, int K, int man_fma, int exp_fma,
-                                         int binades_fma, bool saturate);
+                                         int binades_fma_l, int binades_fma_u,
+                                         bool saturate);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
@@ -462,10 +468,10 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
 void superfp_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
                                                 Tensor output, Tensor mean, Tensor rstd,
                                                 float eps, std::vector<int> &dims,
-                                                int man_acc, int exp_acc, int binades_acc,
-                                                int man_mul, int exp_mul, int binades_mul,
-                                                int man_div, int exp_div, int binades_div,
-                                                int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                                int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                                int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                                int man_div, int exp_div, int binades_div_l, int binades_div_u,
+                                                int man_sqrt, int exp_sqrt, int binades_sqrt_l, int binades_sqrt_u,
                                                 bool saturate);
 
 /**
@@ -478,9 +484,9 @@ void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_
                                                     Tensor mean, Tensor rstd, 
                                                     Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
                                                     std::vector<int> &dims,
-                                                    int man_acc, int exp_acc, int binades_acc,
-                                                    int man_mul, int exp_mul, int binades_mul,
-                                                    int man_div, int exp_div, int binades_div,
+                                                    int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                                    int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                                    int man_div, int exp_div, int binades_div_l, int binades_div_u,
                                                     bool saturate);
 
 /**
@@ -548,9 +554,9 @@ void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, 
  * the regular accumulation of exponentials.
  */
 void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_exp, int exp_exp, int binades_exp,
-                                            int man_off, int exp_off, int binades_off,
-                                            int man_acc, int exp_acc, int binades_acc,
+                                            int man_exp, int exp_exp, int binades_exp_l, int binades_exp_u,
+                                            int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                            int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
                                             bool saturate);
 
 /**
@@ -559,8 +565,8 @@ void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
  * sum of exponentials via LogSumExp iterations, and does not use divisons.
  */
 void superfp_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                            int man_off, int exp_off, int binades_off,
-                                            int man_lse, int exp_lse, int binades_lse,
+                                            int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                            int man_lse, int exp_lse, int binades_lse_l, int binades_lse_u,
                                             bool saturate);
 
 /**
@@ -568,8 +574,8 @@ void superfp_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int d
  * super floating-point formats for the intermediate computations.
  */
 void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
-                                            int man_add, int exp_add, int binades_add,
-                                            int man_mul, int exp_mul, int binades_mul,
+                                            int man_add, int exp_add, int binades_add_l, int binades_add_u,
+                                            int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                             bool saturate);
 
 /**

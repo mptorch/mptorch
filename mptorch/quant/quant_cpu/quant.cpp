@@ -184,7 +184,7 @@ uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding)
   uint32_t rand_prob;
   if (rounding == rStochastic)
   {
-    rand_prob = (dis(gen))&mask;
+    rand_prob = (dis(gen)) & mask;
   }
   else
   {
@@ -379,7 +379,7 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
   case Mode::rStochastic:
   {
     uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t rand_prob = (dis(gen))&mask;
+    uint32_t rand_prob = (dis(gen)) & mask;
     quantized = cast_fp_stochastic(
         origin_float, rand_prob, man_bits, exp_bits,
         subnormal_support, saturate);
@@ -410,7 +410,7 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
 
 // TODO: support saturate logic
 // Remark: bias = 2^{e-1}
-float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bool saturate = false)
+float superfp_quantize(float origin, int man_bits, int exp_bits, int binades_l, int binades_u, bool saturate = false)
 {
   int32_t sat = saturate;
   uint32_t target;
@@ -418,13 +418,13 @@ float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bo
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - ((1 << (exp_bits - 1))) + (binades - 1);
-  int32_t max_exp = ((1 << (exp_bits - 1)) - 2) - (binades - 1);
+  int32_t min_exp = 1 - ((1 << (exp_bits - 1))) + (binades_l - 1);
+  int32_t max_exp = ((1 << (exp_bits - 1)) - 2) - (binades_u - 1);
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
   if (subnormal)
   {
-    if (target_exp < min_exp - binades * (1 << man_bits) + 1) // underflow
+    if (target_exp < min_exp - binades_l * (1 << man_bits) + 1) // underflow
       return 0.0f;
     uint32_t mask = (1 << 23) - 1;
     uint32_t eps = 1 << 22;
@@ -440,7 +440,7 @@ float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bo
       {
         if ((target & 0x7FFFFFFF) == 0x7F800000)
         { // inf
-          uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
+          uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades_u * (1 << man_bits) + 127u) << 23);
           return RBITS_TO_FLOAT(&qtarget);
         }
         else
@@ -453,16 +453,16 @@ float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bo
         return origin;
       }
     }
-    else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat)
+    else if (target_exp >= max_exp + binades_u * (1 << man_bits) - 1 + sat)
     { // overflow
       if (saturate)
       {
-        uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
+        uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades_u * (1 << man_bits) + 127u) << 23);
         return RBITS_TO_FLOAT(&qtarget);
       }
       else
       {
-        if (((target << 9) == 0u) && (target_exp == max_exp + binades * (1 << man_bits) - 1))
+        if (((target << 9) == 0u) && (target_exp == max_exp + binades_u * (1 << man_bits) - 1))
           return origin;
         else
         {
@@ -487,7 +487,8 @@ float superfp_quantize(float origin, int man_bits, int exp_bits, int binades, bo
   return ftarget;
 }
 
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades, bool saturate = false)
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits,
+                        int binades_l, int binades_u, bool saturate = false)
 {
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
@@ -496,7 +497,7 @@ Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades, bool 
 
   for (int64_t i = 0; i < size; i++)
   {
-    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, binades, saturate);
+    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, binades_l, binades_u, saturate);
   }
   return o;
 }
@@ -559,10 +560,11 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
   return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
 }
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades,
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+                                int binades_l, int binades_u,
                                 bool saturate)
 {
-  return superfp_quantize(a, man_bits, exp_bits, binades, saturate);
+  return superfp_quantize(a, man_bits, exp_bits, binades_l, binades_u, saturate);
 }
 
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
@@ -625,38 +627,38 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
 }
 
 void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
-                                              int man_exp, int exp_exp, int binades_exp,
-                                              int man_off, int exp_off, int binades_off,
-                                              int man_acc, int exp_acc, int binades_acc,
+                                              int man_exp, int exp_exp, int binades_exp_l, int binades_exp_u,
+                                              int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                              int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
                                               bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
-  softmax_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_exp, exp_exp, binades_exp, saturate](float x)
-                  { return superfp_quantize(x, man_exp, exp_exp, binades_exp, saturate); }, [man_off, exp_off, binades_off, saturate](float x)
-                  { return superfp_quantize(x, man_off, exp_off, binades_off, saturate); }, [man_acc, exp_acc, binades_acc, saturate](float x)
-                  { return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate); });
+  softmax_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_exp, exp_exp, binades_exp_l, binades_exp_u, saturate](float x)
+                  { return superfp_quantize(x, man_exp, exp_exp, binades_exp_l, binades_exp_u, saturate); }, [man_off, exp_off, binades_off_l, binades_off_u, saturate](float x)
+                  { return superfp_quantize(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate](float x)
+                  { return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate); });
 }
 
 void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
-                                                  int man_off, int exp_off, int binades_off,
-                                                  int man_lse, int exp_lse, int binades_lse,
+                                                  int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                                  int man_lse, int exp_lse, int binades_lse_l, int binades_lse_u,
                                                   bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
-  softmax_lse_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_off, exp_off, binades_off, saturate](float x)
-                      { return superfp_quantize(x, man_off, exp_off, binades_off, saturate); }, [man_lse, exp_lse, binades_lse, saturate](float x)
-                      { return superfp_quantize(x, man_lse, exp_lse, binades_lse, saturate); });
+  softmax_lse_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_off, exp_off, binades_off_l, binades_off_u, saturate](float x)
+                      { return superfp_quantize(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate](float x)
+                      { return superfp_quantize(x, man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate); });
 }
 
 void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
-                                               int man_add, int exp_add, int binades_add,
-                                               int man_mul, int exp_mul, int binades_mul,
+                                               int man_add, int exp_add, int binades_add_l, int binades_add_u,
+                                               int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                                bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
-  softmax_backward(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_add, exp_add, binades_add, saturate](float x)
-                   { return superfp_quantize(x, man_add, exp_add, binades_add, saturate); }, [man_mul, exp_mul, binades_mul, saturate](float x)
-                   { return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate); });
+  softmax_backward(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_add, exp_add, binades_add_l, binades_add_u, saturate](float x)
+                   { return superfp_quantize(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
+                   { return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
@@ -721,10 +723,10 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor 
 void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
                                         Tensor output, Tensor mean, Tensor rstd,
                                         float eps, std::vector<int> &dims,
-                                        int man_acc, int exp_acc, int binades_acc,
-                                        int man_mul, int exp_mul, int binades_mul,
-                                        int man_div, int exp_div, int binades_div,
-                                        int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                        int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                        int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                        int man_div, int exp_div, int binades_div_l, int binades_div_u,
+                                        int man_sqrt, int exp_sqrt, int binades_sqrt_l, int binades_sqrt_u,
                                         bool saturate)
 {
   auto sizes = partition_tensor(input, dims);
@@ -732,30 +734,30 @@ void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias
       input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
       output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
       eps, sizes,
-      [saturate, man_acc, exp_acc, binades_acc](float x)
+      [saturate, man_acc, exp_acc, binades_acc_l, binades_acc_u](float x)
       {
-        return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+        return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
       },
-      [saturate, man_mul, exp_mul, binades_mul](float x)
+      [saturate, man_mul, exp_mul, binades_mul_l, binades_mul_u](float x)
       {
-        return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+        return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
       },
-      [saturate, man_div, exp_div, binades_div](float x)
+      [saturate, man_div, exp_div, binades_div_l, binades_div_u](float x)
       {
-        return superfp_quantize(x, man_div, exp_div, binades_div, saturate);
+        return superfp_quantize(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
       },
-      [saturate, man_sqrt, exp_sqrt, binades_sqrt](float x)
+      [saturate, man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u](float x)
       {
-        return superfp_quantize(x, man_sqrt, exp_sqrt, binades_sqrt, saturate);
+        return superfp_quantize(x, man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u, saturate);
       });
 }
 
 void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
                                          Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
                                          std::vector<int> &dims,
-                                         int man_acc, int exp_acc, int binades_acc,
-                                         int man_mul, int exp_mul, int binades_mul,
-                                         int man_div, int exp_div, int binades_div,
+                                         int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                         int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                         int man_div, int exp_div, int binades_div_l, int binades_div_u,
                                          bool saturate)
 {
   auto sizes = partition_tensor(input, dims);
@@ -763,17 +765,17 @@ void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tenso
       input.data_ptr<float>(), grad_output.data_ptr<float>(),
       weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
       grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
-      [saturate, man_acc, exp_acc, binades_acc](float x)
+      [saturate, man_acc, exp_acc, binades_acc_l, binades_acc_u](float x)
       {
-        return superfp_quantize(x, man_acc, exp_acc, binades_acc, saturate);
+        return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
       },
-      [saturate, man_mul, exp_mul, binades_mul](float x)
+      [saturate, man_mul, exp_mul, binades_mul_l, binades_mul_u](float x)
       {
-        return superfp_quantize(x, man_mul, exp_mul, binades_mul, saturate);
+        return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
       },
-      [saturate, man_div, exp_div, binades_div](float x)
+      [saturate, man_div, exp_div, binades_div_l, binades_div_u](float x)
       {
-        return superfp_quantize(x, man_div, exp_div, binades_div, saturate);
+        return superfp_quantize(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
       });
 }
 

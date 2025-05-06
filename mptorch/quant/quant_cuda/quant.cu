@@ -137,7 +137,7 @@ Tensor float_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
 }
 
 Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
-                                    int binades, bool saturate) 
+                                    int binades_l, int binades_u, bool saturate) 
 {
   auto o = zeros_like(a);
   int size = a.numel();
@@ -145,7 +145,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
   int blockNums = (size + blockSize - 1) / blockSize;
 
   superfp_kernel_nearest<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, binades, saturate);
+      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, binades_l, binades_u, saturate);
   return o;
 
 }
@@ -347,51 +347,63 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
 
 void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                     int K, int man_add, int exp_add,
-                                    int man_mul, int exp_mul, int binades_add,
-                                    int binades_mul, bool saturate) 
+                                    int man_mul, int exp_mul, 
+                                    int binades_add_l, int binades_add_u,
+                                    int binades_mul_l, int binades_mul_u,
+                                    bool saturate) 
 {
   mm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                M, K, N, man_add, exp_add, man_mul, exp_mul, binades_add, binades_mul, saturate);  
+                M, K, N, man_add, exp_add, man_mul, exp_mul, 
+                binades_add_l, binades_add_u, 
+                binades_mul_l, binades_mul_u, 
+                saturate);  
 }
 
 void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int man_fma, int exp_fma,
-                                        int binades_fma, bool saturate)
+                                        int binades_fma_l, int binades_fma_u,
+                                        bool saturate)
 {
   mm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
                     c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
-                    binades_fma, saturate);
+                    binades_fma_l, binades_fma_u, 
+                    saturate);
   return;
 }
 
 void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c, int M, int N,
                                      int K, int man_add, int exp_add,
                                      int man_mul, int exp_mul,
-                                     int binades_add, int binades_mul, bool saturate)
+                                     int binades_add_l, int binades_add_u,
+                                     int binades_mul_l, int binades_mul_u,
+                                     bool saturate)
 {
   if (a.sizes().size() > 2)
     bmm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
                    c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add, exp_add,
-                   man_mul, exp_mul, binades_add, binades_mul, saturate);
+                   man_mul, exp_mul, binades_add_l, binades_add_u,
+                   binades_mul_l, binades_mul_u, saturate);
   else
     bmm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
                    c.data_ptr<float>(), 1, M, K, N, man_add, exp_add, man_mul,
-                   exp_mul, binades_add, binades_mul, saturate);
+                   exp_mul, binades_add_l, binades_add_u, 
+                   binades_mul_l, binades_mul_u, saturate);
   return;
 }
 
 void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c, int M,
                                          int N, int K, int man_fma, int exp_fma,
-                                         int binades_fma, bool saturate)
+                                         int binades_fma_l, int binades_fma_u,
+                                         bool saturate)
 {
   if (a.sizes().size() > 2)
     bmm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
                        c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
-                       exp_fma, binades_fma, saturate);
+                       exp_fma, binades_fma_l, binades_fma_u, saturate);
   else
     bmm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
                        c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
-                       binades_fma, saturate);
+                       binades_fma_l, binades_fma_u, saturate);
   return;
 }
 
@@ -674,20 +686,20 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
 void superfp_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
                                                   Tensor output, Tensor mean, Tensor rstd,
                                                   float eps, std::vector<int> &dims,
-                                                  int man_acc, int exp_acc, int binades_acc,
-                                                  int man_mul, int exp_mul, int binades_mul,
-                                                  int man_div, int exp_div, int binades_div,
-                                                  int man_sqrt, int exp_sqrt, int binades_sqrt,
+                                                  int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                                  int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                                  int man_div, int exp_div, int binades_div_l, int binades_div_u,
+                                                  int man_sqrt, int exp_sqrt, int binades_sqrt_l, int binades_sqrt_u,
                                                   bool saturate)
 {
   auto sizes = partition_tensor(input, dims);
   layernorm_forward_superfp_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
                               output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
                               eps, sizes,
-                              man_acc, exp_acc, binades_acc,
-                              man_mul, exp_mul, binades_mul,
-                              man_div, exp_div, binades_div,
-                              man_sqrt, exp_sqrt, binades_sqrt,
+                              man_acc, exp_acc, binades_acc_l, binades_acc_u,
+                              man_mul, exp_mul, binades_mul_l, binades_mul_u,
+                              man_div, exp_div, binades_div_l, binades_div_u,
+                              man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u,
                               saturate);
 }
 
@@ -696,9 +708,9 @@ void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_
                                                     Tensor mean, Tensor rstd, 
                                                     Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
                                                     std::vector<int> &dims,
-                                                    int man_acc, int exp_acc, int binades_acc,
-                                                    int man_mul, int exp_mul, int binades_mul,
-                                                    int man_div, int exp_div, int binades_div,
+                                                    int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
+                                                    int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
+                                                    int man_div, int exp_div, int binades_div_l, int binades_div_u,
                                                     bool saturate)
 {
   auto sizes = partition_tensor(input, dims);
@@ -707,9 +719,9 @@ void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_
                                 mean.data_ptr<float>(), rstd.data_ptr<float>(),
                                 grad_input.data_ptr<float>(), grad_gamma.data_ptr<float>(), grad_beta.data_ptr<float>(),
                                 sizes,
-                                man_acc, exp_acc, binades_acc,
-                                man_mul, exp_mul, binades_mul,
-                                man_div, exp_div, binades_div,
+                                man_acc, exp_acc, binades_acc_l, binades_acc_u,
+                                man_mul, exp_mul, binades_mul_l, binades_mul_u,
+                                man_div, exp_div, binades_div_l, binades_div_u,
                                 saturate);
 }
 
@@ -794,40 +806,40 @@ void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, 
 }
 
 void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                int man_exp, int exp_exp, int binades_exp,
-                                int man_off, int exp_off, int binades_off,
-                                int man_acc, int exp_acc, int binades_acc,
+                                int man_exp, int exp_exp, int binades_exp_l, int binades_exp_u,
+                                int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                int man_acc, int exp_acc, int binades_acc_l, int binades_acc_u,
                                 bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
   softmax_forward_superfp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                  man_exp, exp_exp, binades_exp,
-                                  man_off, exp_off, binades_off,
-                                  man_acc, exp_acc, binades_acc,
+                                  man_exp, exp_exp, binades_exp_l, binades_exp_u,
+                                  man_off, exp_off, binades_off_l, binades_off_u,
+                                  man_acc, exp_acc, binades_acc_l, binades_acc_u,
                                   saturate);
 }
 
 void superfp_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                int man_off, int exp_off, int binades_off,
-                                int man_lse, int exp_lse, int binades_lse,
+                                int man_off, int exp_off, int binades_off_l, int binades_off_u,
+                                int man_lse, int exp_lse, int binades_lse_l, int binades_lse_u,
                                 bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
   softmax_lse_forward_superfp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                      man_off, exp_off, binades_off,
-                                      man_lse, exp_lse, binades_lse,
+                                      man_off, exp_off, binades_off_l, binades_off_u,
+                                      man_lse, exp_lse, binades_lse_l, binades_lse_u,
                                       saturate);
 }
 
 void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
-                                int man_add, int exp_add, int binades_add,
-                                int man_mul, int exp_mul, int binades_mul,
+                                int man_add, int exp_add, int binades_add_l, int binades_add_u,
+                                int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                 bool saturate)
 {
   auto sizes = partition_tensor(a, dim);
   softmax_backward_superfp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                   man_add, exp_add, binades_add,
-                                   man_mul, exp_mul, binades_mul,
+                                   man_add, exp_add, binades_add_l, binades_add_u,
+                                   man_mul, exp_mul, binades_mul_l, binades_mul_u,
                                    saturate);
 }
 

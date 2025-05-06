@@ -5,7 +5,7 @@ from mptorch import (
     FloatingPoint,
     SuperNormalFloat,
     BlockFloatingPoint,
-    Binary8
+    Binary8,
 )
 from torch.utils.cpp_extension import load
 import os
@@ -84,7 +84,7 @@ if torch.cuda.is_available():
             os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
         ],
         extra_ldflags=extra_ldflags,
-        extra_cuda_cflags=["--extended-lambda"]
+        extra_cuda_cflags=["--extended-lambda"],
     )
 else:
     quant_cuda = quant_cpu
@@ -105,9 +105,10 @@ def get_module(x):
 
 if torch.cuda.is_available():
     CUBLASComputeType = quant_cuda.CUBLASComputeType
-    CUBLASMatrixType  = quant_cuda.CUBLASMatrixType
+    CUBLASMatrixType = quant_cuda.CUBLASMatrixType
 else:
     CUBLASComputeType, CUBLASMatrixType = None, None
+
 
 def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     """
@@ -141,9 +142,7 @@ def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     a = a.to(dtype[input_type])
     b = b.to(dtype[input_type])
     c = torch.zeros(
-        b.shape[1], a.shape[0], # transposed
-        device=a.device,
-        dtype=dtype[output_type]
+        b.shape[1], a.shape[0], device=a.device, dtype=dtype[output_type]  # transposed
     )
     quant_cuda.floating_point_mm_cublas(
         a.t().contiguous(),
@@ -155,7 +154,7 @@ def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
         input_type,
         output_type,
         compute_type,
-        pedantic
+        pedantic,
     )
     return c.t().to(torch.float32)
 
@@ -175,9 +174,13 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
     a = a.to(dtype[input_type])
     b = b.to(dtype[input_type])
     if len(a.shape) == 3 and len(b.shape) == 3:
-        c = torch.zeros(a.shape[0], b.shape[2], a.shape[1], # transposed
-                        device=a.device,
-                        dtype=dtype[output_type])
+        c = torch.zeros(
+            a.shape[0],
+            b.shape[2],
+            a.shape[1],  # transposed
+            device=a.device,
+            dtype=dtype[output_type],
+        )
         quant_cuda.floating_point_bmm_cublas(
             a.transpose(-2, -1).contiguous(),
             b.transpose(-2, -1).contiguous(),
@@ -188,14 +191,14 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
             input_type,
             output_type,
             compute_type,
-            pedantic
+            pedantic,
         )
         c = c.transpose(-2, -1)
     elif len(a.shape) == 3 and len(b.shape) == 2:
         a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
-        c_r = torch.zeros(b.shape[1], a_r.shape[0],
-                          device=a.device,
-                          dtype=dtype[output_type])
+        c_r = torch.zeros(
+            b.shape[1], a_r.shape[0], device=a.device, dtype=dtype[output_type]
+        )
         quant_cuda.floating_point_mm_cublas(
             a_r.t().contiguous(),
             b.t().contiguous(),
@@ -206,21 +209,19 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
             input_type,
             output_type,
             compute_type,
-            pedantic
+            pedantic,
         )
         c_r = c_r.transpose(-2, -1)
         c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
     elif len(a.shape) == 4 and len(b.shape) == 4:
-        a_r = torch.reshape(
-            a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3])
-        )
-        b_r = torch.reshape(
-            b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3])
-        )
+        a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2], a.shape[3]))
+        b_r = torch.reshape(b, (b.shape[0] * b.shape[1], b.shape[2], b.shape[3]))
         c_r = torch.zeros(
-            a_r.shape[0], b_r.shape[2], a_r.shape[1],
+            a_r.shape[0],
+            b_r.shape[2],
+            a_r.shape[1],
             device=a.device,
-            dtype=dtype[output_type]
+            dtype=dtype[output_type],
         )
         quant_cuda.floating_point_bmm_cublas(
             a_r.transpose(-2, -1).contiguous(),
@@ -232,14 +233,14 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
             input_type,
             output_type,
             compute_type,
-            pedantic
+            pedantic,
         )
         c_r = c_r.transpose(-2, -1)
         c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
     elif len(a.shape) == 2 and len(b.shape) == 2:
-        c = torch.zeros(b.shape[1], a.shape[0],
-                        device=a.device,
-                        dtype=dtype[output_type])
+        c = torch.zeros(
+            b.shape[1], a.shape[0], device=a.device, dtype=dtype[output_type]
+        )
         quant_cuda.floating_point_mm_cublas(
             a.t().contiguous(),
             b.t().contiguous(),
@@ -250,7 +251,7 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
             input_type,
             output_type,
             compute_type,
-            pedantic
+            pedantic,
         )
         c = c.t()
     else:
@@ -267,17 +268,17 @@ def match_mac_format_with_cublas_types(
     fma,
     subnormals,
     saturate,
-    fast_mode=None
+    fast_mode=None,
 ):
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
-    
+
     if man_mul != man_add or exp_mul != exp_add:
         return None
-    
+
     if (rounding, fma, subnormals, saturate) != ("nearest", True, True, False):
         return None
-    
+
     mt, ct = CUBLASMatrixType, CUBLASComputeType
     if (man_add, exp_add) == (23, 8):
         if fast_mode == "f16":
@@ -299,7 +300,9 @@ def translate_overflow_policy(module, overflow_policy):
         "saturate_maxfloat": module.OverflowPolicy.SATURATE_MAXFLOAT,
         "saturate_maxfloat2": module.OverflowPolicy.SATURATE_MAXFLOAT2,
     }
-    assert overflow_policy in enum_items.keys(), f"invalid overflow policy, {overflow_policy}"
+    assert (
+        overflow_policy in enum_items.keys()
+    ), f"invalid overflow policy, {overflow_policy}"
     return enum_items[overflow_policy]
 
 
@@ -307,10 +310,14 @@ def mp_softmax_forward(a, dim, formats):
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
         if not formats.use_lse:
-            assert formats.fwd_exp.subnormals == off_cfg.subnormals and \
-                formats.fwd_acc.subnormals == off_cfg.subnormals
-            assert formats.fwd_exp.saturate == off_cfg.saturate and \
-                formats.fwd_acc.saturate == off_cfg.saturate
+            assert (
+                formats.fwd_exp.subnormals == off_cfg.subnormals
+                and formats.fwd_acc.subnormals == off_cfg.subnormals
+            )
+            assert (
+                formats.fwd_exp.saturate == off_cfg.saturate
+                and formats.fwd_acc.saturate == off_cfg.saturate
+            )
             return float_softmax_forward(
                 a,
                 dim,
@@ -322,7 +329,8 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_acc.exp,
                 formats.fwd_rnd,
                 off_cfg.subnormals,
-                off_cfg.saturate)
+                off_cfg.saturate,
+            )
         else:
             assert formats.fwd_lse.subnormals == off_cfg.subnormals
             assert formats.fwd_lse.saturate == off_cfg.saturate
@@ -335,11 +343,14 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_lse.exp,
                 formats.fwd_rnd,
                 off_cfg.subnormals,
-                off_cfg.saturate)
+                off_cfg.saturate,
+            )
     elif type(off_cfg) == SuperNormalFloat:
         if not formats.use_lse:
-            assert formats.fwd_exp.saturate == off_cfg.saturate and \
-                formats.fwd_acc.saturate == off_cfg.saturate
+            assert (
+                formats.fwd_exp.saturate == off_cfg.saturate
+                and formats.fwd_acc.saturate == off_cfg.saturate
+            )
             return superfp_softmax_forward(
                 a,
                 dim,
@@ -353,7 +364,7 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_acc.exp,
                 formats.fwd_acc.binades,
                 formats.fwd_rnd,
-                off_cfg.saturate
+                off_cfg.saturate,
             )
         else:
             assert formats.fwd_lse.saturate == off_cfg.saturate
@@ -367,12 +378,14 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_lse.exp,
                 formats.fwd_lse.binades,
                 formats.fwd_rnd,
-                off_cfg.saturate
+                off_cfg.saturate,
             )
     elif type(off_cfg) == Binary8:
         if not formats.use_lse:
-            assert formats.fwd_exp.subnormals == off_cfg.subnormals and \
-                formats.fwd_acc.subnormals == off_cfg.subnormals
+            assert (
+                formats.fwd_exp.subnormals == off_cfg.subnormals
+                and formats.fwd_acc.subnormals == off_cfg.subnormals
+            )
             return binary8_softmax_forward(
                 a,
                 dim,
@@ -386,7 +399,7 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_acc.overflow_policy,
                 formats.fwd_acc.signed,
                 formats.fwd_rnd,
-                off_cfg.subnormals
+                off_cfg.subnormals,
             )
         else:
             assert formats.fwd_lse.subnormals == off_cfg.subnormals
@@ -400,9 +413,10 @@ def mp_softmax_forward(a, dim, formats):
                 formats.fwd_lse.overflow_policy,
                 formats.fwd_lse.signed,
                 formats.fwd_rnd,
-                off_cfg.subnormals
+                off_cfg.subnormals,
             )
     raise NotImplementedError("Unsupported number format.")
+
 
 def mp_softmax_backward(input, grad_output, dim, formats):
     add_cfg = formats.bwd_add
@@ -419,7 +433,7 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             formats.bwd_mul.exp,
             formats.bwd_rnd,
             add_cfg.subnormals,
-            add_cfg.saturate
+            add_cfg.saturate,
         )
     elif type(add_cfg) == SuperNormalFloat:
         assert formats.bwd_mul.saturate == add_cfg.saturate
@@ -434,7 +448,7 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             formats.bwd_mul.exp,
             formats.bwd_mul.binades,
             formats.bwd_rnd,
-            add_cfg.saturate
+            add_cfg.saturate,
         )
     elif type(add_cfg) == Binary8:
         assert formats.bwd_mul.subnormals == add_cfg.subnormals
@@ -449,7 +463,7 @@ def mp_softmax_backward(input, grad_output, dim, formats):
             formats.bwd_mul.overflow_policy,
             formats.bwd_mul.signed,
             formats.bwd_rnd,
-            add_cfg.subnormals
+            add_cfg.subnormals,
         )
     raise NotImplementedError("Unsupported number format.")
 
@@ -465,21 +479,26 @@ def float_softmax_forward(
     exp_acc=8,
     rounding="nearest",
     subnormals=True,
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_forward(
-        input.contiguous(), output, dim,
-        man_exp, exp_exp,
-        man_off, exp_off,
-        man_acc, exp_acc,
+        input.contiguous(),
+        output,
+        dim,
+        man_exp,
+        exp_exp,
+        man_off,
+        exp_off,
+        man_acc,
+        exp_acc,
         subnormals,
-        saturate
+        saturate,
     )
     return output
+
 
 def float_softmax_lse_forward(
     input,
@@ -490,20 +509,24 @@ def float_softmax_lse_forward(
     exp_lse=8,
     rounding="nearest",
     subnormals=True,
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_lse_forward(
-        input.contiguous(), output, dim,
-        man_off, exp_off,
-        man_lse, exp_lse,
+        input.contiguous(),
+        output,
+        dim,
+        man_off,
+        exp_off,
+        man_lse,
+        exp_lse,
         subnormals,
-        saturate
+        saturate,
     )
     return output
+
 
 def float_softmax_backward(
     input,
@@ -515,23 +538,26 @@ def float_softmax_backward(
     exp_mul=8,
     rounding="nearest",
     subnormals=True,
-    saturate=False
+    saturate=False,
 ):
     assert input.device == grad_output.device
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_backward(
         input.contiguous(),
         grad_output.contiguous(),
-        grad_input, dim,
-        man_add, exp_add,
-        man_mul, exp_mul,
+        grad_input,
+        dim,
+        man_add,
+        exp_add,
+        man_mul,
+        exp_mul,
         subnormals,
-        saturate
+        saturate,
     )
     return grad_input
+
 
 def superfp_softmax_forward(
     input,
@@ -546,20 +572,31 @@ def superfp_softmax_forward(
     exp_acc=8,
     binades_acc=1,
     rounding="nearest",
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.superfp_quantize_nearest_softmax_forward(
-        input.contiguous(), output, dim,
-        man_exp, exp_exp, binades_exp,
-        man_off, exp_off, binades_off,
-        man_acc, exp_acc, binades_acc,
-        saturate
+        input.contiguous(),
+        output,
+        dim,
+        man_exp,
+        exp_exp,
+        binades_exp,
+        binades_exp,
+        man_off,
+        exp_off,
+        binades_off,
+        binades_off,
+        man_acc,
+        exp_acc,
+        binades_acc,
+        binades_acc,
+        saturate,
     )
     return output
+
 
 def superfp_softmax_lse_forward(
     input,
@@ -571,19 +608,27 @@ def superfp_softmax_lse_forward(
     exp_lse=8,
     binades_lse=1,
     rounding="nearest",
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.superfp_quantize_nearest_softmax_lse_forward(
-        input.contiguous(), output, dim,
-        man_off, exp_off, binades_off,
-        man_lse, exp_lse, binades_lse,
-        saturate
+        input.contiguous(),
+        output,
+        dim,
+        man_off,
+        exp_off,
+        binades_off,
+        binades_off,
+        man_lse,
+        exp_lse,
+        binades_lse,
+        binades_lse,
+        saturate,
     )
     return output
+
 
 def superfp_softmax_backward(
     input,
@@ -596,22 +641,29 @@ def superfp_softmax_backward(
     exp_mul=8,
     binades_mul=1,
     rounding="nearest",
-    saturate=False
+    saturate=False,
 ):
     assert input.device == grad_output.device
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.superfp_quantize_nearest_softmax_backward(
         input.contiguous(),
         grad_output.contiguous(),
-        grad_input, dim,
-        man_add, exp_add, binades_add,
-        man_mul, exp_mul, binades_mul,
-        saturate
+        grad_input,
+        dim,
+        man_add,
+        exp_add,
+        binades_add,
+        binades_add,
+        man_mul,
+        exp_mul,
+        binades_mul,
+        binades_mul,
+        saturate,
     )
     return grad_input
+
 
 def binary8_softmax_forward(
     input,
@@ -626,20 +678,28 @@ def binary8_softmax_forward(
     op_acc,
     signed_acc,
     rounding,
-    subnormals
+    subnormals,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.binary8_quantize_nearest_softmax_forward(
-        input.contiguous(), output, dim,
-        P_exp, translate_overflow_policy(quant_module, op_exp), signed_exp,
-        P_off, translate_overflow_policy(quant_module, op_off), signed_off,
-        P_acc, translate_overflow_policy(quant_module, op_acc), signed_acc,
-        subnormals
+        input.contiguous(),
+        output,
+        dim,
+        P_exp,
+        translate_overflow_policy(quant_module, op_exp),
+        signed_exp,
+        P_off,
+        translate_overflow_policy(quant_module, op_off),
+        signed_off,
+        P_acc,
+        translate_overflow_policy(quant_module, op_acc),
+        signed_acc,
+        subnormals,
     )
     return output
+
 
 def binary8_softmax_lse_forward(
     input,
@@ -651,19 +711,25 @@ def binary8_softmax_lse_forward(
     op_lse,
     signed_lse,
     rounding,
-    subnormals
+    subnormals,
 ):
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.binary8_quantize_nearest_softmax_lse_forward(
-        input.contiguous(), output, dim,
-        P_off, translate_overflow_policy(quant_module, op_off), signed_off,
-        P_lse, translate_overflow_policy(quant_module, op_lse), signed_lse,
-        subnormals
+        input.contiguous(),
+        output,
+        dim,
+        P_off,
+        translate_overflow_policy(quant_module, op_off),
+        signed_off,
+        P_lse,
+        translate_overflow_policy(quant_module, op_lse),
+        signed_lse,
+        subnormals,
     )
     return output
+
 
 def binary8_softmax_backward(
     input,
@@ -676,103 +742,185 @@ def binary8_softmax_backward(
     op_mul,
     signed_mul,
     rounding,
-    subnormals
+    subnormals,
 ):
     assert input.device == grad_output.device
-    assert rounding == "nearest", \
-        "Only nearest rounding softmax is implemented."
+    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.binary8_quantize_nearest_softmax_backward(
         input.contiguous(),
         grad_output.contiguous(),
-        grad_input, dim,
-        P_add, translate_overflow_policy(quant_module, op_add), signed_add,
-        P_mul, translate_overflow_policy(quant_module, op_mul), signed_mul,
-        subnormals
+        grad_input,
+        dim,
+        P_add,
+        translate_overflow_policy(quant_module, op_add),
+        signed_add,
+        P_mul,
+        translate_overflow_policy(quant_module, op_mul),
+        signed_mul,
+        subnormals,
     )
     return grad_input
+
 
 def mp_layernorm_forward(inp, weight, bias, eps, dims, formats):
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_forward(
-            inp, 
-            weight, bias, 
-            eps, dims, 
-            formats.fwd_acc.man, formats.fwd_acc.exp,
-            formats.fwd_mul.man, formats.fwd_mul.exp,
-            formats.fwd_div.man, formats.fwd_div.exp,
-            formats.fwd_sqrt.man, formats.fwd_sqrt.exp,
-            formats.fwd_rnd, acc_cfg.subnormals, acc_cfg.saturate)
+            inp,
+            weight,
+            bias,
+            eps,
+            dims,
+            formats.fwd_acc.man,
+            formats.fwd_acc.exp,
+            formats.fwd_mul.man,
+            formats.fwd_mul.exp,
+            formats.fwd_div.man,
+            formats.fwd_div.exp,
+            formats.fwd_sqrt.man,
+            formats.fwd_sqrt.exp,
+            formats.fwd_rnd,
+            acc_cfg.subnormals,
+            acc_cfg.saturate,
+        )
 
     elif type(acc_cfg) == SuperNormalFloat:
         return superfp_layernorm_forward(
-            inp, 
-            weight, bias, 
-            eps, dims, 
-            formats.fwd_acc.man, formats.fwd_acc.exp, formats.fwd_acc.binades,
-            formats.fwd_mul.man, formats.fwd_mul.exp, formats.fwd_mul.binades,
-            formats.fwd_div.man, formats.fwd_div.exp, formats.fwd_div.binades,
-            formats.fwd_sqrt.man, formats.fwd_sqrt.exp, formats.fwd_sqrt.binades,
-            formats.fwd_rnd, acc_cfg.saturate)
+            inp,
+            weight,
+            bias,
+            eps,
+            dims,
+            formats.fwd_acc.man,
+            formats.fwd_acc.exp,
+            formats.fwd_acc.binades,
+            formats.fwd_mul.man,
+            formats.fwd_mul.exp,
+            formats.fwd_mul.binades,
+            formats.fwd_div.man,
+            formats.fwd_div.exp,
+            formats.fwd_div.binades,
+            formats.fwd_sqrt.man,
+            formats.fwd_sqrt.exp,
+            formats.fwd_sqrt.binades,
+            formats.fwd_rnd,
+            acc_cfg.saturate,
+        )
 
     elif type(acc_cfg) == Binary8:
         return binary8_layernorm_forward(
-            inp, 
-            weight, bias, 
-            eps, dims, 
-            formats.fwd_acc.P, formats.fwd_acc.overflow_policy, formats.fwd_acc.signed,
-            formats.fwd_mul.P, formats.fwd_mul.overflow_policy, formats.fwd_mul.signed,
-            formats.fwd_div.P, formats.fwd_div.overflow_policy, formats.fwd_div.signed,
-            formats.fwd_sqrt.P, formats.fwd_sqrt.overflow_policy, formats.fwd_sqrt.signed,
-            formats.fwd_rnd, acc_cfg.subnormals)
+            inp,
+            weight,
+            bias,
+            eps,
+            dims,
+            formats.fwd_acc.P,
+            formats.fwd_acc.overflow_policy,
+            formats.fwd_acc.signed,
+            formats.fwd_mul.P,
+            formats.fwd_mul.overflow_policy,
+            formats.fwd_mul.signed,
+            formats.fwd_div.P,
+            formats.fwd_div.overflow_policy,
+            formats.fwd_div.signed,
+            formats.fwd_sqrt.P,
+            formats.fwd_sqrt.overflow_policy,
+            formats.fwd_sqrt.signed,
+            formats.fwd_rnd,
+            acc_cfg.subnormals,
+        )
 
     raise NotImplementedError("Unsupported float type.")
+
 
 def mp_layernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, formats):
     acc_cfg = formats.bwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_backward(
-            inp, grad_output, 
-            weight, bias, mean, rstd, dims, 
-            formats.bwd_acc.man, formats.bwd_acc.exp,
-            formats.bwd_mul.man, formats.bwd_mul.exp,
-            formats.bwd_div.man, formats.bwd_div.exp,
-            formats.bwd_rnd, acc_cfg.subnormals, acc_cfg.saturate)
+            inp,
+            grad_output,
+            weight,
+            bias,
+            mean,
+            rstd,
+            dims,
+            formats.bwd_acc.man,
+            formats.bwd_acc.exp,
+            formats.bwd_mul.man,
+            formats.bwd_mul.exp,
+            formats.bwd_div.man,
+            formats.bwd_div.exp,
+            formats.bwd_rnd,
+            acc_cfg.subnormals,
+            acc_cfg.saturate,
+        )
     elif type(acc_cfg) == SuperNormalFloat:
         return superfp_layernorm_backward(
-            inp, grad_output, 
-            weight, bias, mean, rstd, dims, 
-            formats.bwd_acc.man, formats.bwd_acc.exp, formats.bwd_acc.binades,
-            formats.bwd_mul.man, formats.bwd_mul.exp, formats.bwd_mul.binades,
-            formats.bwd_div.man, formats.bwd_div.exp, formats.bwd_div.binades,
-            formats.bwd_rnd, acc_cfg.saturate)
+            inp,
+            grad_output,
+            weight,
+            bias,
+            mean,
+            rstd,
+            dims,
+            formats.bwd_acc.man,
+            formats.bwd_acc.exp,
+            formats.bwd_acc.binades,
+            formats.bwd_mul.man,
+            formats.bwd_mul.exp,
+            formats.bwd_mul.binades,
+            formats.bwd_div.man,
+            formats.bwd_div.exp,
+            formats.bwd_div.binades,
+            formats.bwd_rnd,
+            acc_cfg.saturate,
+        )
     elif type(acc_cfg) == Binary8:
         return binary8_layernorm_backward(
-            inp, grad_output, 
-            weight, bias, mean, rstd, dims, 
-            formats.bwd_acc.P, formats.bwd_acc.overflow_policy, formats.bwd_acc.signed,
-            formats.bwd_mul.P, formats.bwd_mul.overflow_policy, formats.bwd_mul.signed,
-            formats.bwd_div.P, formats.bwd_div.overflow_policy, formats.bwd_div.signed,
-            formats.bwd_rnd, acc_cfg.subnormals)
+            inp,
+            grad_output,
+            weight,
+            bias,
+            mean,
+            rstd,
+            dims,
+            formats.bwd_acc.P,
+            formats.bwd_acc.overflow_policy,
+            formats.bwd_acc.signed,
+            formats.bwd_mul.P,
+            formats.bwd_mul.overflow_policy,
+            formats.bwd_mul.signed,
+            formats.bwd_div.P,
+            formats.bwd_div.overflow_policy,
+            formats.bwd_div.signed,
+            formats.bwd_rnd,
+            acc_cfg.subnormals,
+        )
 
     raise NotImplementedError("Unsupported float type.")
 
+
 def float_layernorm_forward(
-    inp, 
-    weight, bias, 
-    eps, dims, 
-    man_acc=23, exp_acc=8,
-    man_mul=23, exp_mul=8,
-    man_div=23, exp_div=8,
-    man_sqrt=23, exp_sqrt=8,
+    inp,
+    weight,
+    bias,
+    eps,
+    dims,
+    man_acc=23,
+    exp_acc=8,
+    man_mul=23,
+    exp_mul=8,
+    man_div=23,
+    exp_div=8,
+    man_sqrt=23,
+    exp_sqrt=8,
     rounding="nearest",
     subnormals=True,
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -783,29 +931,51 @@ def float_layernorm_forward(
     rstd = torch.zeros(reduced_shape, device=inp.device)
     output = torch.zeros_like(inp, device=inp.device)
 
-    quant_module.float_quantize_layernorm_forward(inp.contiguous(), weight.contiguous(), bias.contiguous(), 
-                                                output, mean, rstd, 
-                                                eps, dims,
-                                                man_acc, exp_acc,
-                                                man_mul, exp_mul,
-                                                man_div, exp_div,
-                                                man_sqrt, exp_sqrt,
-                                                subnormals, saturate)
+    quant_module.float_quantize_layernorm_forward(
+        inp.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        output,
+        mean,
+        rstd,
+        eps,
+        dims,
+        man_acc,
+        exp_acc,
+        man_mul,
+        exp_mul,
+        man_div,
+        exp_div,
+        man_sqrt,
+        exp_sqrt,
+        subnormals,
+        saturate,
+    )
     return output, mean, rstd
+
 
 def superfp_layernorm_forward(
-    inp, 
-    weight, bias, 
-    eps, dims, 
-    man_acc=23, exp_acc=8, binades_acc=1,
-    man_mul=23, exp_mul=8, binades_mul=1,
-    man_div=23, exp_div=8, binades_div=1,
-    man_sqrt=23, exp_sqrt=8, binades_sqrt=1,
+    inp,
+    weight,
+    bias,
+    eps,
+    dims,
+    man_acc=23,
+    exp_acc=8,
+    binades_acc=1,
+    man_mul=23,
+    exp_mul=8,
+    binades_mul=1,
+    man_div=23,
+    exp_div=8,
+    binades_div=1,
+    man_sqrt=23,
+    exp_sqrt=8,
+    binades_sqrt=1,
     rounding="nearest",
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -816,29 +986,58 @@ def superfp_layernorm_forward(
     rstd = torch.zeros(reduced_shape, device=inp.device)
     output = torch.zeros_like(inp, device=inp.device)
 
-    quant_module.superfp_quantize_layernorm_forward(inp.contiguous(), weight.contiguous(), bias.contiguous(), 
-                                                    output, mean, rstd, 
-                                                    eps, dims,
-                                                    man_acc, exp_acc, binades_acc,
-                                                    man_mul, exp_mul, binades_mul,
-                                                    man_div, exp_div, binades_div,
-                                                    man_sqrt, exp_sqrt, binades_sqrt,
-                                                    saturate)
+    quant_module.superfp_quantize_layernorm_forward(
+        inp.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        output,
+        mean,
+        rstd,
+        eps,
+        dims,
+        man_acc,
+        exp_acc,
+        binades_acc,
+        binades_acc,
+        man_mul,
+        exp_mul,
+        binades_mul,
+        binades_mul,
+        man_div,
+        exp_div,
+        binades_div,
+        binades_div,
+        man_sqrt,
+        exp_sqrt,
+        binades_sqrt,
+        binades_sqrt,
+        saturate,
+    )
     return output, mean, rstd
+
 
 def binary8_layernorm_forward(
-    inp, 
-    weight, bias, 
-    eps, dims, 
-    P_acc, op_acc, signed_acc,
-    P_mul, op_mul, signed_mul,
-    P_div, op_div, signed_div,
-    P_sqrt, op_sqrt, signed_sqrt,
+    inp,
+    weight,
+    bias,
+    eps,
+    dims,
+    P_acc,
+    op_acc,
+    signed_acc,
+    P_mul,
+    op_mul,
+    signed_mul,
+    P_div,
+    op_div,
+    signed_div,
+    P_sqrt,
+    op_sqrt,
+    signed_sqrt,
     rounding,
-    subnormals
+    subnormals,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -849,29 +1048,51 @@ def binary8_layernorm_forward(
     rstd = torch.zeros(reduced_shape, device=inp.device)
     output = torch.zeros_like(inp, device=inp.device)
 
-    quant_module.binary8_quantize_layernorm_forward(inp.contiguous(), weight.contiguous(), bias.contiguous(), 
-                                                output, mean, rstd, 
-                                                eps, dims,
-                                                P_acc, op_acc, signed_acc,
-                                                P_mul, op_mul, signed_mul,
-                                                P_div, op_div, signed_div,
-                                                P_sqrt, op_sqrt, signed_sqrt,
-                                                subnormals)
+    quant_module.binary8_quantize_layernorm_forward(
+        inp.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        output,
+        mean,
+        rstd,
+        eps,
+        dims,
+        P_acc,
+        op_acc,
+        signed_acc,
+        P_mul,
+        op_mul,
+        signed_mul,
+        P_div,
+        op_div,
+        signed_div,
+        P_sqrt,
+        op_sqrt,
+        signed_sqrt,
+        subnormals,
+    )
     return output, mean, rstd
 
+
 def float_layernorm_backward(
-    inp, grad_output, 
-    weight, bias, 
-    mean, rstd, dims,
-    man_acc=23, exp_acc=8,
-    man_mul=23, exp_mul=8,
-    man_div=23, exp_div=8,
+    inp,
+    grad_output,
+    weight,
+    bias,
+    mean,
+    rstd,
+    dims,
+    man_acc=23,
+    exp_acc=8,
+    man_mul=23,
+    exp_mul=8,
+    man_div=23,
+    exp_div=8,
     rounding="nearest",
     subnormals=True,
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -881,27 +1102,50 @@ def float_layernorm_backward(
     grad_weight = torch.zeros_like(weight)
     grad_bias = torch.zeros_like(bias)
 
-    quant_module.float_quantize_layernorm_backward(inp.contiguous(), grad_output.contiguous(), 
-                                                weight.contiguous(), bias.contiguous(), mean.contiguous(), rstd.contiguous(),
-                                                grad_input, grad_weight, grad_bias, dims,
-                                                man_acc, exp_acc,
-                                                man_mul, exp_mul,
-                                                man_div, exp_div,
-                                                subnormals, saturate)
+    quant_module.float_quantize_layernorm_backward(
+        inp.contiguous(),
+        grad_output.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        mean.contiguous(),
+        rstd.contiguous(),
+        grad_input,
+        grad_weight,
+        grad_bias,
+        dims,
+        man_acc,
+        exp_acc,
+        man_mul,
+        exp_mul,
+        man_div,
+        exp_div,
+        subnormals,
+        saturate,
+    )
     return grad_input, grad_weight, grad_bias
+
 
 def superfp_layernorm_backward(
-    inp, grad_output, 
-    weight, bias, 
-    mean, rstd, dims,
-    man_acc=23, exp_acc=8, binades_acc=1,
-    man_mul=23, exp_mul=8, binades_mul=1,
-    man_div=23, exp_div=8, binades_div=1,
+    inp,
+    grad_output,
+    weight,
+    bias,
+    mean,
+    rstd,
+    dims,
+    man_acc=23,
+    exp_acc=8,
+    binades_acc=1,
+    man_mul=23,
+    exp_mul=8,
+    binades_mul=1,
+    man_div=23,
+    exp_div=8,
+    binades_div=1,
     rounding="nearest",
-    saturate=False
+    saturate=False,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -911,27 +1155,55 @@ def superfp_layernorm_backward(
     grad_weight = torch.zeros_like(weight)
     grad_bias = torch.zeros_like(bias)
 
-    quant_module.superfp_quantize_layernorm_backward(inp.contiguous(), grad_output.contiguous(), 
-                                                weight.contiguous(), bias.contiguous(), mean.contiguous(), rstd.contiguous(),
-                                                grad_input, grad_weight, grad_bias, dims,
-                                                man_acc, exp_acc, binades_acc,
-                                                man_mul, exp_mul, binades_mul,
-                                                man_div, exp_div, binades_div,
-                                                saturate)
+    quant_module.superfp_quantize_layernorm_backward(
+        inp.contiguous(),
+        grad_output.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        mean.contiguous(),
+        rstd.contiguous(),
+        grad_input,
+        grad_weight,
+        grad_bias,
+        dims,
+        man_acc,
+        exp_acc,
+        binades_acc,
+        binades_acc,
+        man_mul,
+        exp_mul,
+        binades_mul,
+        binades_mul,
+        man_div,
+        exp_div,
+        binades_div,
+        binades_div,
+        saturate,
+    )
     return grad_input, grad_weight, grad_bias
+
 
 def binary8_layernorm_backward(
-    inp, grad_output, 
-    weight, bias, 
-    mean, rstd, dims,
-    P_acc, op_acc, signed_acc,
-    P_mul, op_mul, signed_mul,
-    P_div, op_div, signed_div,
+    inp,
+    grad_output,
+    weight,
+    bias,
+    mean,
+    rstd,
+    dims,
+    P_acc,
+    op_acc,
+    signed_acc,
+    P_mul,
+    op_mul,
+    signed_mul,
+    P_div,
+    op_div,
+    signed_div,
     rounding,
-    subnormals
+    subnormals,
 ):
-    assert rounding == "nearest", \
-        "Only nearest roudning layernorm is implemented."
+    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -941,14 +1213,30 @@ def binary8_layernorm_backward(
     grad_weight = torch.zeros_like(weight)
     grad_bias = torch.zeros_like(bias)
 
-    quant_module.binary8_quantize_layernorm_backward(inp.contiguous(), grad_output.contiguous(), 
-                                                weight.contiguous(), bias.contiguous(), mean.contiguous(), rstd.contiguous(),
-                                                grad_input, grad_weight, grad_bias, dims,
-                                                P_acc, op_acc, signed_acc,
-                                                P_mul, op_mul, signed_mul,
-                                                P_div, op_div, signed_div,
-                                                subnormals)
+    quant_module.binary8_quantize_layernorm_backward(
+        inp.contiguous(),
+        grad_output.contiguous(),
+        weight.contiguous(),
+        bias.contiguous(),
+        mean.contiguous(),
+        rstd.contiguous(),
+        grad_input,
+        grad_weight,
+        grad_bias,
+        dims,
+        P_acc,
+        op_acc,
+        signed_acc,
+        P_mul,
+        op_mul,
+        signed_mul,
+        P_div,
+        op_div,
+        signed_div,
+        subnormals,
+    )
     return grad_input, grad_weight, grad_bias
+
 
 def mp_mm(a, b, formats, use_forward=True):
     if use_forward:  # FWD format configuration
@@ -1132,18 +1420,11 @@ def float_mm(
             fma,
             subnormals,
             saturate,
-            cublas_acceleration.fast_mode
+            cublas_acceleration.fast_mode,
         )
         if types is not None:
             input_type, output_type, compute_type = types
-            return cublas_mm(
-                a,
-                b,
-                input_type,
-                output_type,
-                compute_type,
-                False
-            )
+            return cublas_mm(a, b, input_type, output_type, compute_type, False)
 
     assert len(a.shape) == 2
     assert len(b.shape) == 2
@@ -1264,6 +1545,8 @@ def superfp_mm(
                 man_mul,
                 exp_mul,
                 binades_add,
+                binades_add,
+                binades_mul,
                 binades_mul,
                 saturate,
             )
@@ -1277,6 +1560,7 @@ def superfp_mm(
                 a.shape[1],
                 man_add,
                 exp_add,
+                binades_add,
                 binades_add,
                 saturate,
             )
@@ -1364,19 +1648,12 @@ def float_bmm(
             fma,
             subnormals,
             saturate,
-            cublas_acceleration.fast_mode
+            cublas_acceleration.fast_mode,
         )
         if types is not None:
             input_type, output_type, compute_type = types
-            return cublas_bmm(
-                a,
-                b,
-                input_type,
-                output_type,
-                compute_type,
-                False
-            )
-    
+            return cublas_bmm(a, b, input_type, output_type, compute_type, False)
+
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
@@ -1714,6 +1991,8 @@ def superfp_bmm(
                     man_mul,
                     exp_mul,
                     binades_add,
+                    binades_add,
+                    binades_mul,
                     binades_mul,
                     saturate,
                 )
@@ -1758,6 +2037,8 @@ def superfp_bmm(
                     man_mul,
                     exp_mul,
                     binades_add,
+                    binades_add,
+                    binades_mul,
                     binades_mul,
                     saturate,
                 )
@@ -1776,6 +2057,8 @@ def superfp_bmm(
                     man_mul,
                     exp_mul,
                     binades_add,
+                    binades_add,
+                    binades_mul,
                     binades_mul,
                     saturate,
                 )
@@ -1793,6 +2076,7 @@ def superfp_bmm(
                     a.shape[2],
                     man_add,
                     exp_add,
+                    binades_add,
                     binades_add,
                     saturate,
                 )
@@ -1832,6 +2116,7 @@ def superfp_bmm(
                     man_add,
                     exp_add,
                     binades_add,
+                    binades_add,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
@@ -1846,6 +2131,7 @@ def superfp_bmm(
                     a.shape[1],
                     man_add,
                     exp_add,
+                    binades_add,
                     binades_add,
                     saturate,
                 )
@@ -2220,6 +2506,7 @@ def quantizer(
                         forward_number.man,
                         forward_number.exp,
                         forward_number.binades,
+                        forward_number.binades,
                         forward_number.saturate,
                     )
                 )
@@ -2300,6 +2587,7 @@ def quantizer(
                     a,
                     backward_number.man,
                     backward_number.exp,
+                    backward_number.binades,
                     backward_number.binades,
                     backward_number.saturate,
                 )
@@ -2488,7 +2776,16 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         )
     return out
 
-def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloat", is_signed=True, subnormals=True, prng_bits=0):
+
+def binary8_quantize(
+    x,
+    P,
+    rounding="nearest",
+    overflow_policy="saturate_maxfloat",
+    is_signed=True,
+    subnormals=True,
+    prng_bits=0,
+):
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -2504,9 +2801,9 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
     Overflow Policies:
         - "saturate_infty": Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float.
                             Infinite inputs will still map to infinities in this mode.
-        - "saturate_maxfloat": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+        - "saturate_maxfloat": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate
                                          to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
-        - "saturate_maxfloat2": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate 
+        - "saturate_maxfloat2": Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate
                                          to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
 
 
@@ -2516,10 +2813,14 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest", "truncate"], "invalid rounding mode, {}".format(
-        rounding
-    )
-    assert 0 <= prng_bits <= 23 - (P - 1), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
+    assert rounding in [
+        "stochastic",
+        "nearest",
+        "truncate",
+    ], "invalid rounding mode, {}".format(rounding)
+    assert (
+        0 <= prng_bits <= 23 - (P - 1)
+    ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
 
     quant_module = get_module(x)
     overflow_enum = translate_overflow_policy(quant_module, overflow_policy)
@@ -2536,6 +2837,7 @@ def binary8_quantize(x, P, rounding="nearest", overflow_policy="saturate_maxfloa
             x.contiguous(), P, is_signed, overflow_enum, subnormals
         )
     return out
+
 
 def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
     """
@@ -2560,7 +2862,9 @@ def superfp_quantize(x, exp, man, binades, rounding="nearest", saturate=False):
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        out = quant_module.superfp_quantize_nearest(x.contiguous(), man, exp, binades, saturate)
+        out = quant_module.superfp_quantize_nearest(
+            x.contiguous(), man, exp, binades, binades, saturate
+        )
     elif rounding == "stochastic":
         # TODO
         raise NotImplementedError("SR SuperNormalFloat not yet implemented")
