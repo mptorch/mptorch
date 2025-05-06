@@ -181,7 +181,7 @@ class SuperNormalFloat(FloatType):
         else:
             self.binades_l, self.binades_u = binades[0], binades[1]
         # TODO: to remove
-        self.binades = binades
+        self.binades = (self.binades_l, self.binades_u)
         self.saturate = saturate
 
         min_exp = 1 - 2 ** (exp - 1) + (self.binades_l - 1)
