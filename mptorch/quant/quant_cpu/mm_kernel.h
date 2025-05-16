@@ -23,7 +23,7 @@ void mm_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma quant
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
-                c[i * N + j] = quant_fma(fmaf((a[i * K + k], b[k * N + j], c[i * N + j]));
+                c[i * N + j] = quant_fma(fmaf(a[i * K + k], b[k * N + j], c[i * N + j]));
 }
 
 template <class Qadd, class Qmul>
