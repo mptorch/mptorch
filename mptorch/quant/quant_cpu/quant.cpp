@@ -3,6 +3,7 @@
 #include "layernorm.h"
 #include "softmax.h"
 #include "binary8.h"
+#include "mm_kernel.h"
 #include <cassert>
 #include <random>
 #include <torch/torch.h>
@@ -408,7 +409,6 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
   return o;
 }
 
-// TODO: support saturate logic
 // Remark: bias = 2^{e-1}
 float superfp_quantize(float origin, int man_bits, int exp_bits, int binades_l, int binades_u, bool saturate = false)
 {
@@ -502,49 +502,22 @@ Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits,
   return o;
 }
 
-void mm_fp(float *a, float *b, float *c, int M, int K, int N, int man_add,
-           int exp_add, int man_mul, int exp_mul, bool subnormals,
-           bool saturate)
-{
-  for (int64_t i = 0; i < M; ++i)
-    for (int64_t j = 0; j < N; ++j)
-      for (int64_t k = 0; k < K; ++k)
-      {
-        c[i * N + j] = float_quantize(
-            c[i * N + j] + float_quantize(a[i * K + k] * b[k * N + j], man_mul,
-                                          exp_mul, rNearest, subnormals,
-                                          saturate),
-            man_add, exp_add, rNearest, subnormals, saturate);
-      }
-}
-
-void mm_fp_fma(float *a, float *b, float *c, int M, int K, int N, int man_fma,
-               int exp_fma, bool subnormals, bool saturate)
-{
-  for (int64_t i = 0; i < M; ++i)
-    for (int64_t j = 0; j < N; ++j)
-      for (int64_t k = 0; k < K; ++k)
-      {
-        c[i * N + j] =
-            float_quantize(fmaf(a[i * K + k], b[k * N + j], c[i * N + j]),
-                           man_fma, exp_fma, rNearest, subnormals, saturate);
-      }
-}
-
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_add, int exp_add, int man_mul,
                                int exp_mul, bool subnormals, bool saturate)
 {
-  mm_fp(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-        man_add, exp_add, man_mul, exp_mul, subnormals, saturate);
+  mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, subnormals, saturate](float x)
+            { return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
+            { return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate); });
 }
 
 void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
                                    int K, int man_fma, int exp_fma,
                                    bool subnormals, bool saturate)
 {
-  mm_fp_fma(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K,
-            N, man_fma, exp_fma, subnormals, saturate);
+  mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+                [man_fma, exp_fma, subnormals, saturate](float x)
+                { return float_quantize(x, man_fma, exp_fma, rNearest, subnormals, saturate); });
 }
 
 Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,

@@ -63,6 +63,7 @@ quant_cpu = load(
         os.path.join(current_path, "quant_cpu/sim_helper.cpp"),
         os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
     ],
+    extra_cflags=["-fopenmp"],
 )
 
 if torch.cuda.is_available():

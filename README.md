@@ -154,6 +154,7 @@ in [QPyTorch](https://github.com/Tiiiger/QPyTorch) and [CPD](https://github.com/
 ## Team
 - [@sfilip](https://github.com/sfilip)
 - [@ubc-guy](https://github.com/ubc-guy)
+- [@samiBENALI](https://github.com/samiBENALI)
 - [@bob-0727](https://github.com/bob-0727)
 - [@carasol0217](https://github.com/carasol0217)
 - [@shingwaipun](https://github.com/shingwaipun)
