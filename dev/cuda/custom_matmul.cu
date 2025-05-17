@@ -540,7 +540,7 @@ int main(int argc, const char **argv)
     float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
     float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
 
-    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda3 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
+    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda4 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
 
     // free memory
     free(a);
