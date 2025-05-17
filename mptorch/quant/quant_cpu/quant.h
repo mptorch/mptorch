@@ -89,6 +89,12 @@ Tensor block_quantize_nearest(Tensor a, int wl, int dim);
  **/
 Tensor block_quantize_stochastic(Tensor a, int wl, int dim);
 
+/**
+ * quantize a FloatTensor into a low bit-width floating-point Tensor with
+ * [man_bits] mantissa and [exp_bits] exponent. Rounding mode is specified
+ * through the [rounding] parameter, whereas subnormal support through
+ * [subnormal_support].
+ */
 Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
                       bool subnormal_support, bool saturate);
 
@@ -130,7 +136,9 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
  * c (size M x N).
  * Nearest Rounding.
  **/
-void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K, int man_fma, int exp_fma, bool subnormals, bool saturate);
+void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                                   int man_fma, int exp_fma,
+                                   bool subnormals, bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized FMA operations that simulate

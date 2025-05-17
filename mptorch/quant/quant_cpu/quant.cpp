@@ -511,6 +511,14 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
             { return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate); });
 }
 
+void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                int K, int man_add, int exp_add,
+                                int man_mul, int exp_mul, bool subnormals,
+                                bool saturate)
+{
+  // TODO
+}
+
 void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
                                    int K, int man_fma, int exp_fma,
                                    bool subnormals, bool saturate)
@@ -518,6 +526,86 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
   mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
                 [man_fma, exp_fma, subnormals, saturate](float x)
                 { return float_quantize(x, man_fma, exp_fma, rNearest, subnormals, saturate); });
+}
+
+void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                    int N, int K, int man_fma, int exp_fma,
+                                    bool subnormals, bool saturate)
+{
+  // TODO
+}
+
+void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c, int M,
+                                  int N, int K, int man_add, int exp_add,
+                                  int man_mul, int exp_mul,
+                                  bool subnormals, bool saturate)
+{
+  mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, subnormals, saturate](float x)
+            { return float_quantize(x, man_add, exp_add, rStochastic, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
+            { return float_quantize(x, man_mul, exp_mul, rStochastic, subnormals, saturate); });
+}
+
+void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c, int M,
+                                   int N, int K, int man_add, int exp_add,
+                                   int man_mul, int exp_mul,
+                                   bool subnormals, bool saturate)
+{
+  // TODO
+}
+
+void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                      int N, int K, int man_fma,
+                                      int exp_fma, bool subnormals,
+                                      bool saturate)
+{
+  // TODO
+}
+
+void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                       int N, int K, int man_fma,
+                                       int exp_fma, bool subnormals,
+                                       bool saturate)
+{
+  // TODO
+}
+
+void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                 int K, int man_add, int exp_add,
+                                 int man_mul, int exp_mul,
+                                 int binades_add_l, int binades_add_u,
+                                 int binades_mul_l, int binades_mul_u,
+                                 bool saturate)
+{
+  mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, binades_add_l, binades_add_u, saturate](float x)
+            { return superfp_quantize(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
+            { return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+}
+
+void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                  int K, int man_add, int exp_add,
+                                  int man_mul, int exp_mul,
+                                  int binades_add_l, int binades_add_u,
+                                  int binades_mul_l, int binades_mul_u,
+                                  bool saturate)
+{
+  // TODO
+}
+
+void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                     int N, int K, int man_fma, int exp_fma,
+                                     int binades_fma_l, int binades_fma_u,
+                                     bool saturate)
+{
+  mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate](float x)
+                { return superfp_quantize(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
+}
+
+void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                      int N, int K, int man_fma, int exp_fma,
+                                      int binades_fma_l, int binades_fma_u,
+                                      bool saturate)
+{
+  // TODO
 }
 
 Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
