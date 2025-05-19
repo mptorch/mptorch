@@ -64,7 +64,7 @@ void mm_kahan_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd qua
 }
 
 template <class Qadd, class Qmul>
-void bmm_kahan_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul) {
+void bmm_kahan_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qadd quant_add, Qmul quant_mul) {
     for (int i = 0; i < B; ++i) {
         float* ia = a + i * M * K;
         float* ib = b + i * K * N;
@@ -88,7 +88,7 @@ void mm_kahan_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma
 }
 
 template <class Qfma>
-void bmm_kahan_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma quant_fma)
+void bmm_kahan_fma_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qfma quant_fma)
 {
     for (int i = 0; i < B; ++i) {
         float* ia = a + i * M * K;
