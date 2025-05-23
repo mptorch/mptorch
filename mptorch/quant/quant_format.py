@@ -1,7 +1,13 @@
 from typing import Optional
 from ..number import *
 from typing import Union, Optional, Tuple, Callable
-from .quant_function import *
+from .quant_function import (
+    float_quantize,
+    fixed_point_quantize,
+    superfp_quantize,
+    block_quantize,
+    binary8_quantize,
+)
 
 __all__ = ["QAffineFormats", "QSoftmaxFormats", "QGELUFormats", "QLayerNormFormats"]
 
@@ -66,8 +72,8 @@ class QAffineFormats:
 
     def __init__(
         self,
-        fwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
-        bwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
+        fwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
+        bwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
         weight_quant: Union[Callable, Tuple[Number, str]] = id_quant,
@@ -75,6 +81,7 @@ class QAffineFormats:
         input_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         output_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         grad_quant: Union[Callable, Tuple[Number, str]] = id_quant,
+        compensated: Optional[bool] = False,
         use_scaling: bool = False,
         weight_scaled_format: Optional[FloatType] = None,
         input_scaled_format: Optional[FloatType] = None,

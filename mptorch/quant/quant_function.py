@@ -9,8 +9,9 @@ from mptorch import (
 )
 from torch.utils.cpp_extension import load
 import os
-from .cublas import cublas_acceleration
+from typing import Literal
 
+from .cublas import cublas_acceleration
 
 __all__ = [
     "fixed_point_quantize",
@@ -91,12 +92,12 @@ else:
     quant_cuda = quant_cpu
 
 
-def assert_wl_fl(wl, fl, stage=""):
+def assert_wl_fl(wl: int, fl: int, stage=""):
     if wl == -1 and fl != -1:
         raise ValueError("fixed point {} wl {}, fl {}".format(stage, wl, fl))
 
 
-def get_module(x):
+def get_module(x: torch.Tensor):
     if x.is_cuda:
         quant_module = quant_cuda
     else:
@@ -111,7 +112,14 @@ else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
 
-def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
+def cublas_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    input_type: CUBLASMatrixType,
+    output_type: CUBLASMatrixType,
+    compute_type: CUBLASComputeType,
+    pedantic: bool,
+):
     """
     Python wrapper for floating-point cuBLAS GEMM (`cublasGemmEx`). This function
     only accepts binary32 (float32) input and output matrices, but allows intermediate
@@ -160,7 +168,14 @@ def cublas_mm(a, b, input_type, output_type, compute_type, pedantic):
     return c.t().to(torch.float32)
 
 
-def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
+def cublas_bmm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    input_type: CUBLASMatrixType,
+    output_type: CUBLASMatrixType,
+    compute_type: CUBLASComputeType,
+    pedantic: bool,
+):
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
     assert a.shape[-1] == b.shape[-2]
@@ -261,15 +276,15 @@ def cublas_bmm(a, b, input_type, output_type, compute_type, pedantic):
 
 
 def match_mac_format_with_cublas_types(
-    man_add,
-    exp_add,
-    man_mul,
-    exp_mul,
-    rounding,
-    fma,
-    subnormals,
-    saturate,
-    fast_mode=None,
+    man_add: int,
+    exp_add: int,
+    man_mul: int,
+    exp_mul: int,
+    rounding: Literal["nearest"],
+    fma: bool,
+    subnormals: bool,
+    saturate: bool,
+    fast_mode: Literal["f16", "bf16", "tf32", "f32"] = "f32",
 ):
     if not torch.cuda.is_available():
         raise NotImplementedError("No CUDA-capable device found. Stopping script.")
@@ -295,7 +310,12 @@ def match_mac_format_with_cublas_types(
     return None
 
 
-def translate_overflow_policy(module, overflow_policy):
+def translate_overflow_policy(
+    module,
+    overflow_policy: Literal[
+        "saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"
+    ],
+):
     enum_items = {
         "saturate_infty": module.OverflowPolicy.SATURATE_INFTY,
         "saturate_maxfloat": module.OverflowPolicy.SATURATE_MAXFLOAT,
@@ -307,7 +327,7 @@ def translate_overflow_policy(module, overflow_policy):
     return enum_items[overflow_policy]
 
 
-def mp_softmax_forward(a, dim, formats):
+def mp_softmax_forward(a: torch.Tensor, dim: int, formats):
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
         if not formats.use_lse:
@@ -470,17 +490,17 @@ def mp_softmax_backward(input, grad_output, dim, formats):
 
 
 def float_softmax_forward(
-    input,
-    dim,
-    man_exp=23,
-    exp_exp=8,
-    man_off=23,
-    exp_off=8,
-    man_acc=23,
-    exp_acc=8,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
+    input: torch.Tensor,
+    dim: int,
+    man_exp: int = 23,
+    exp_exp: int = 8,
+    man_off: int = 23,
+    exp_off: int = 8,
+    man_acc: int = 23,
+    exp_acc: int = 8,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    subnormals: bool = True,
+    saturate: bool = False,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
@@ -530,16 +550,16 @@ def float_softmax_lse_forward(
 
 
 def float_softmax_backward(
-    input,
-    grad_output,
-    dim,
-    man_add=23,
-    exp_add=8,
-    man_mul=23,
-    exp_mul=8,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
+    input: torch.Tensor,
+    grad_output: torch.Tensor,
+    dim: int,
+    man_add: int = 23,
+    exp_add: int = 8,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    subnormals: bool = True,
+    saturate: bool = False,
 ):
     assert input.device == grad_output.device
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
@@ -561,19 +581,19 @@ def float_softmax_backward(
 
 
 def superfp_softmax_forward(
-    input,
-    dim,
-    man_exp=23,
-    exp_exp=8,
+    input: torch.Tensor,
+    dim: int,
+    man_exp: int = 23,
+    exp_exp: int = 8,
     binades_exp: int | tuple[int] = 1,
-    man_off=23,
-    exp_off=8,
+    man_off: int = 23,
+    exp_off: int = 8,
     binades_off: int | tuple[int] = 1,
-    man_acc=23,
-    exp_acc=8,
+    man_acc: int = 23,
+    exp_acc: int = 8,
     binades_acc: int | tuple[int] = 1,
-    rounding="nearest",
-    saturate=False,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    saturate: bool = False,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
@@ -622,16 +642,16 @@ def superfp_softmax_forward(
 
 
 def superfp_softmax_lse_forward(
-    input,
-    dim,
-    man_off=23,
-    exp_off=8,
-    binades_off=1,
-    man_lse=23,
-    exp_lse=8,
-    binades_lse=1,
-    rounding="nearest",
-    saturate=False,
+    input: torch.Tensor,
+    dim: int,
+    man_off: int = 23,
+    exp_off: int = 8,
+    binades_off: int = 1,
+    man_lse: int = 23,
+    exp_lse: int = 8,
+    binades_lse: int = 1,
+    rounding: Literal["nearest", "stohastic"] = "nearest",
+    saturate: bool = False,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
@@ -654,17 +674,17 @@ def superfp_softmax_lse_forward(
 
 
 def superfp_softmax_backward(
-    input,
-    grad_output,
-    dim,
-    man_add=23,
-    exp_add=8,
-    binades_add=1,
-    man_mul=23,
-    exp_mul=8,
-    binades_mul=1,
-    rounding="nearest",
-    saturate=False,
+    input: torch.Tensor,
+    grad_output: torch.Tensor,
+    dim: int,
+    man_add: int = 23,
+    exp_add: int = 8,
+    binades_add: int = 1,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    binades_mul: int = 1,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    saturate: bool = False,
 ):
     assert input.device == grad_output.device
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
@@ -689,19 +709,19 @@ def superfp_softmax_backward(
 
 
 def binary8_softmax_forward(
-    input,
-    dim,
-    P_exp,
-    op_exp,
-    signed_exp,
-    P_off,
-    op_off,
-    signed_off,
-    P_acc,
-    op_acc,
-    signed_acc,
-    rounding,
-    subnormals,
+    inpu: torch.Tensor,
+    dim: int,
+    P_exp: int,
+    op_exp: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_exp: bool,
+    P_off: int,
+    op_off: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_off: bool,
+    P_acc: int,
+    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_acc: bool,
+    rounding: Literal["nearest"],
+    subnormals: bool,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
@@ -725,16 +745,16 @@ def binary8_softmax_forward(
 
 
 def binary8_softmax_lse_forward(
-    input,
-    dim,
-    P_off,
-    op_off,
-    signed_off,
-    P_lse,
-    op_lse,
-    signed_lse,
-    rounding,
-    subnormals,
+    input: torch.Tensor,
+    dim: int,
+    P_off: int,
+    op_off: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_off: bool,
+    P_lse: int,
+    op_lse: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_lse: bool,
+    rounding: Literal["nearest"],
+    subnormals: bool,
 ):
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
@@ -755,17 +775,17 @@ def binary8_softmax_lse_forward(
 
 
 def binary8_softmax_backward(
-    input,
-    grad_output,
-    dim,
-    P_add,
-    op_add,
-    signed_add,
-    P_mul,
-    op_mul,
-    signed_mul,
-    rounding,
-    subnormals,
+    input: torch.Tensor,
+    grad_output: torch.Tensor,
+    dim: int,
+    P_add: int,
+    op_add: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_add: bool,
+    P_mul: int,
+    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_mul: bool,
+    rounding: Literal["nearest"],
+    subnormals: bool,
 ):
     assert input.device == grad_output.device
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
@@ -787,7 +807,9 @@ def binary8_softmax_backward(
     return grad_input
 
 
-def mp_layernorm_forward(inp, weight, bias, eps, dims, formats):
+def mp_layernorm_forward(
+    inp: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps, dims, formats
+):
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_forward(
