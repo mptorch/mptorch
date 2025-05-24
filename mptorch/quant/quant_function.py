@@ -1283,21 +1283,40 @@ def binary8_layernorm_backward(
     return grad_input, grad_weight, grad_bias
 
 
-def mp_mm(a, b, formats, use_forward=True):
+def mp_mm(
+    a: torch.Tensor, b: torch.Tensor, formats, use_forward: bool = True
+) -> torch.Tensor:
+
     if use_forward:  # FWD format configuration
-        add_cfg, mul_cfg, fma, rnd = (
-            formats.fwd_add,
-            formats.fwd_mul,
-            formats.fwd_fma,
-            formats.fwd_rnd,
-        )
+        if formats.fwd_use_default_prec:
+            add_cfg, mul_cfg, fma, rnd = (
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                True,
+                "nearest",
+            )
+        else:
+            add_cfg, mul_cfg, fma, rnd = (
+                formats.fwd_add,
+                formats.fwd_mul,
+                formats.fwd_fma,
+                formats.fwd_rnd,
+            )
     else:  # BWD format configuration
-        add_cfg, mul_cfg, fma, rnd = (
-            formats.bwd_add,
-            formats.bwd_mul,
-            formats.bwd_fma,
-            formats.bwd_rnd,
-        )
+        if formats.bwd_use_default_prec:
+            add_cfg, mul_cfg, fma, rnd = (
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                True,
+                "nearest",
+            )
+        else:
+            add_cfg, mul_cfg, fma, rnd = (
+                formats.bwd_add,
+                formats.bwd_mul,
+                formats.bwd_fma,
+                formats.bwd_rnd,
+            )
     if type(add_cfg) == FloatingPoint:
         return float_mm(
             a,
@@ -1338,16 +1357,16 @@ def mp_mm(a, b, formats, use_forward=True):
 
 
 def fxp_mm(
-    a,
-    b,
-    wl_add=16,
-    fl_add=8,
-    wl_mul=16,
-    fl_mul=8,
-    symmetric=False,
-    rounding="nearest",
-    fma=True,
-):
+    a: torch.Tensor,
+    b: torch.Tensor,
+    wl_add: int = 16,
+    fl_add: int = 8,
+    wl_mul: int = 16,
+    fl_mul: int = 8,
+    symmetric: bool = False,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+) -> torch.Tensor:
     """
     Mixed-precision fixed-point GEMM with customized formats for the multipliers and accumulators
     Args:
@@ -1356,7 +1375,9 @@ def fxp_mm(
         - :attr: `wl_add` (int) : word length of the fixed point number being simulated for addition
         - :attr: `fl_add` (int) : fractional length of the fixed point number being simulated for addition
         - :attr: `wl_mul` (int) : word length of the fixed point number being simulated for multiplication
-        - :attr: `fl_mul` (int) : fractional length of the fixed point number being simulated for multiplicaiton
+        - :attr: `fl_mul` (int) : fractional length of the fixed point number being simulated for multiplication
+        - :attr: `symmetric` (bool) : use a symmetric fixed point encoding
+        - :attr: `rounding` (str) : the rounding mode used in the add-multiply operations
         - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
         wl_add and fl_add parameters for the rounding of the fma results)
     Returns:
@@ -1615,21 +1636,39 @@ def superfp_mm(
     return c
 
 
-def mp_bmm(a, b, formats, use_forward=True):
+def mp_bmm(
+    a: torch.Tensor, b: torch.Tensor, formats, use_forward: bool = True
+) -> torch.Tensor:
     if use_forward:  # FWD format configuration
-        add_cfg, mul_cfg, fma, rnd = (
-            formats.fwd_add,
-            formats.fwd_mul,
-            formats.fwd_fma,
-            formats.fwd_rnd,
-        )
+        if formats.fwd_use_default_prec:
+            add_cfg, mul_cfg, fma, rnd = (
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                True,
+                "nearest",
+            )
+        else:
+            add_cfg, mul_cfg, fma, rnd = (
+                formats.fwd_add,
+                formats.fwd_mul,
+                formats.fwd_fma,
+                formats.fwd_rnd,
+            )
     else:  # BWD format configuration
-        add_cfg, mul_cfg, fma, rnd = (
-            formats.bwd_add,
-            formats.bwd_mul,
-            formats.bwd_fma,
-            formats.bwd_rnd,
-        )
+        if formats.bwd_use_default_prec:
+            add_cfg, mul_cfg, fma, rnd = (
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
+                True,
+                "nearest",
+            )
+        else:
+            add_cfg, mul_cfg, fma, rnd = (
+                formats.bwd_add,
+                formats.bwd_mul,
+                formats.bwd_fma,
+                formats.bwd_rnd,
+            )
     if type(add_cfg) == FloatingPoint:
         return float_bmm(
             a,
@@ -1672,17 +1711,17 @@ def mp_bmm(a, b, formats, use_forward=True):
 
 
 def float_bmm(
-    a,
-    b,
-    man_add=23,
-    exp_add=8,
-    man_mul=23,
-    exp_mul=8,
-    rounding="nearest",
-    fma=True,
-    subnormals=True,
-    saturate=True,
-):
+    a: torch.Tensor,
+    b: torch.Tensor,
+    man_add: int = 23,
+    exp_add: int = 8,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+    subnormals: bool = True,
+    saturate: bool = True,
+) -> torch.Tensor:
     if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
         types = match_mac_format_with_cublas_types(
             man_add,
