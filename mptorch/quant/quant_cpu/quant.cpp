@@ -642,22 +642,6 @@ void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
       { return cast_fxp_nearest(x, sigma_mul, t_min_mul, t_max_mul); });
 }
 
-void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                                     int wl_add, int fl_add, int wl_mul, int fl_mul, bool symmetric)
-{
-  int sigma_add = -fl_add;
-  int sigma_mul = -fl_mul;
-  float t_min_add, t_max_add, t_min_mul, t_max_mul;
-  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
-  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  mm_kernel(
-      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-      [sigma_add, t_min_add, t_max_add](float x)
-      { return cast_fxp_nearest(x, sigma_add, t_min_add, t_max_add); },
-      [sigma_mul, t_min_mul, t_max_mul](float x)
-      { return cast_fxp_nearest(x, sigma_mul, t_min_mul, t_max_mul); });
-}
-
 void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                  int K, int man_add, int exp_add,
                                  int man_mul, int exp_mul,
