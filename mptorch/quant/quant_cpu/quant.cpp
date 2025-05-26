@@ -30,10 +30,6 @@ using namespace at;
   assert(sizeof f == sizeof i); \
   std::memcpy(&f, &i, sizeof f)
 
-std::random_device rd;
-std::mt19937 gen(rd());
-std::uniform_int_distribution<> dis(0);
-
 static uint32_t rn_prob[24] = {
     4194304, 2097152, 1048576, 524288, 262144, 131072, 65536, 32768,
     16384, 8192, 4096, 2048, 1024, 512, 256, 128,
@@ -84,6 +80,30 @@ T clamp_mask_helper(T a, T min, T max, uint8_t *mask)
   }
   else
     return a;
+}
+
+float gen_random()
+{
+  static std::random_device rd;
+  static std::mt19937 generator(rd());
+  static std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+
+  return distribution(generator);
+}
+
+float cast_fxp_nearest(float origin_float, int sigma, float t_min, float t_max)
+{
+  origin_float = round(origin_float, 0.5, sigma);
+  origin_float = clamp_helper(origin_float, t_min, t_max);
+  return origin_float;
+}
+
+float cast_fxp_stochastic(float origin_float, int sigma, float t_min, float t_max)
+{
+  float rand_prob = gen_random();
+  origin_float = round(origin_float, rand_prob, sigma);
+  origin_float = clamp_helper(origin_float, t_min, t_max);
+  return origin_float;
 }
 
 std::tuple<Tensor, Tensor>
@@ -180,6 +200,10 @@ Tensor fixed_point_quantize_nearest(Tensor a, int wl, int fl, bool clamp,
 
 uint32_t round_bitwise(uint32_t target, int man_bits, Mode rounding)
 {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0);
+
   uint32_t mask = (1 << (23 - man_bits)) - 1;
 
   uint32_t rand_prob;
@@ -374,6 +398,10 @@ float float_quantize(float origin_float, int man_bits, int exp_bits,
                      Mode rounding, bool subnormal_support,
                      bool saturate = false)
 {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0);
+
   float quantized;
   switch (rounding)
   {
@@ -502,6 +530,25 @@ Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits,
   return o;
 }
 
+Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
+                                 bool subnormals, bool saturate)
+{
+  return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals, saturate);
+}
+
+Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+                              bool subnormals, bool saturate)
+{
+  return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
+}
+
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+                                int binades_l, int binades_u,
+                                bool saturate)
+{
+  return superfp_quantize(a, man_bits, exp_bits, binades_l, binades_u, saturate);
+}
+
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                int K, int man_add, int exp_add, int man_mul,
                                int exp_mul, bool subnormals, bool saturate)
@@ -579,6 +626,38 @@ void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
                  { return float_quantize(x, man_fma, exp_fma, rStochastic, subnormals, saturate); });
 }
 
+void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                                     int wl_add, int fl_add, int wl_mul, int fl_mul, bool symmetric)
+{
+  int sigma_add = -fl_add;
+  int sigma_mul = -fl_mul;
+  float t_min_add, t_max_add, t_min_mul, t_max_mul;
+  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
+  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
+  mm_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      [sigma_add, t_min_add, t_max_add](float x)
+      { return cast_fxp_nearest(x, sigma_add, t_min_add, t_max_add); },
+      [sigma_mul, t_min_mul, t_max_mul](float x)
+      { return cast_fxp_nearest(x, sigma_mul, t_min_mul, t_max_mul); });
+}
+
+void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+                                     int wl_add, int fl_add, int wl_mul, int fl_mul, bool symmetric)
+{
+  int sigma_add = -fl_add;
+  int sigma_mul = -fl_mul;
+  float t_min_add, t_max_add, t_min_mul, t_max_mul;
+  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
+  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
+  mm_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      [sigma_add, t_min_add, t_max_add](float x)
+      { return cast_fxp_nearest(x, sigma_add, t_min_add, t_max_add); },
+      [sigma_mul, t_min_mul, t_max_mul](float x)
+      { return cast_fxp_nearest(x, sigma_mul, t_min_mul, t_max_mul); });
+}
+
 void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
                                  int K, int man_add, int exp_add,
                                  int man_mul, int exp_mul,
@@ -619,26 +698,6 @@ void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
 {
   bmm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate](float x)
                  { return superfp_quantize(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
-}
-
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
-                                 bool subnormals, bool saturate)
-{
-  return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals,
-                        saturate);
-}
-
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
-                              bool subnormals, bool saturate)
-{
-  return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
-}
-
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
-                                int binades_l, int binades_u,
-                                bool saturate)
-{
-  return superfp_quantize(a, man_bits, exp_bits, binades_l, binades_u, saturate);
 }
 
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
