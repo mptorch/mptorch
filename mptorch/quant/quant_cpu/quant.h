@@ -256,9 +256,6 @@ void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
 void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
                                      int wl_add, int fl_add, int wl_mul, int fl_mul, bool symmetric);
 
-void fixed_point_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                                         int wl_fma, int fl_fma, bool symmetric);
-
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
