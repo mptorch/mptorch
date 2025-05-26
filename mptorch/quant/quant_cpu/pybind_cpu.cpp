@@ -93,9 +93,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("fixed_point_quantize_nearest_mm",
             &fixed_point_quantize_nearest_mm,
             "Low-Bitwidth Fixed Point Number GEMM Quantization (CPU)");
-      m.def("fixed_point_quantize_nearest_mm_fma",
-            &fixed_point_quantize_nearest_mm_fma,
-            "Low-Bitwidth Fixed Point Number FMA-based GEMM Quantization (CPU)");
 
       m.def("float_quantize_nearest_softmax_forward",
             &float_quantize_nearest_softmax_forward,
