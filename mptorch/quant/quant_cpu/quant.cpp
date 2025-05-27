@@ -349,6 +349,43 @@ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
   return quantized;
 }
 
+float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
+                         int rand_bits, int man_bits, int exp_bits,
+                         bool subnormal_support = true,
+                         bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = RFLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+
+  rand_prob = rand_prob << 9 >> 9;
+  rand_prob = rand_prob & ~(1 << (23 - man_bits - rand_bits) - 1);
+
+  if (subnormal && subnormal_support)
+  {
+    float shift_float, val;
+    int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
+    shift_float = RBITS_TO_FLOAT(&shift_bits);
+    val = origin_float + shift_float;
+    target = RFLOAT_TO_BITS(&val);
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantized = RBITS_TO_FLOAT(&quantize_bits) - shift_float;
+  }
+  else
+  {
+    quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
+    quantize_bits =
+        clip_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+    quantized = RBITS_TO_FLOAT(&quantize_bits);
+  }
+
+  return quantized;
+}
+
 float cast_fp_nearest(float origin_float,
                       int man_bits, int exp_bits,
                       bool subnormal_support = true,
@@ -425,6 +462,21 @@ float float_quantize(float origin_float,
         subnormal_support, saturate);
   }
   return quantized;
+}
+
+float float_quantize_stochastic(float origin_float,
+                                int man_bits, int exp_bits, int prng_bits,
+                                bool subnormal_support, bool saturate = false)
+{
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0);
+
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  uint32_t rand_prob = (dis(gen)) & mask;
+  float quantized = cast_fp_stochastic(
+      origin_float, rand_prob, prng_bits, man_bits, exp_bits,
+      subnormal_support, saturate);
 }
 
 Tensor float_quantize(Tensor a,
@@ -544,7 +596,7 @@ Tensor superfp_quantize(Tensor a,
 }
 
 Tensor float_quantize_stochastic(Tensor a,
-                                 int man_bits, int exp_bits,
+                                 int man_bits, int exp_bits, int prng_bits,
                                  bool subnormals, bool saturate)
 {
   return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals, saturate);

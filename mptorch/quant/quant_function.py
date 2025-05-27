@@ -2830,7 +2830,15 @@ def block_quantize(x, wl, dim=-1, rounding="stochastic"):
     return out
 
 
-def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate=True):
+def float_quantize(
+    x: torch.Tensor,
+    exp: int,
+    man: int,
+    rounding: Literal["nearest", "stochastic"] = "stochastic",
+    subnormals: bool = True,
+    saturate: bool = True,
+    prng: int = -1,
+) -> torch.Tensor:
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -2841,6 +2849,7 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
         - :attr: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
         - :attr: `subnormals` (bool): if subnormals are supported or not
         - :attr: `saturate` (bool): saturate on overflow or use infinities
+        - :attr: `prng` (int): number of random bits to use in case of stochastic rounding
 
     Returns:
         - a quantized low-precision floating point number (torch.Tensor)
@@ -2857,8 +2866,10 @@ def float_quantize(x, exp, man, rounding="stochastic", subnormals=True, saturate
             x.contiguous(), man, exp, subnormals, saturate
         )
     elif rounding == "stochastic":
+        if prng == -1:
+            prng = 23 - man
         out = quant_module.float_quantize_stochastic(
-            x.contiguous(), man, exp, subnormals, saturate
+            x.contiguous(), man, exp, prng, subnormals, saturate
         )
     return out
 

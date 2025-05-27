@@ -123,6 +123,23 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
   return o;
 }
 
+Tensor float_quantize_stochastic_cuda(Tensor a,
+                                      int man_bits, int exp_bits, int prng_bits,
+                                      bool subnormals, bool saturate)
+{
+  // use external random number right now
+  auto o = zeros_like(a);
+  auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+  int size = a.numel();
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  float_kernel_stochastic<<<blockNums, blockSize>>>(
+      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
+      man_bits, exp_bits, prng_bits, subnormals, saturate);
+  return o;
+}
+
 Tensor float_quantize_nearest_cuda(Tensor a,
                                    int man_bits, int exp_bits,
                                    bool subnormals, bool saturate)

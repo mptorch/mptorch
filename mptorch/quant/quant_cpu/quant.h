@@ -381,11 +381,12 @@ void fixed_point_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
- * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits. It uses [prng_bits]
+ * random bits to perform the rounding.
  * Stochastic Rounding.
  **/
 Tensor float_quantize_stochastic(Tensor a,
-                                 int man_bits, int exp_bits,
+                                 int man_bits, int exp_bits, int prng_bits,
                                  bool subnormals, bool saturate);
 
 /**

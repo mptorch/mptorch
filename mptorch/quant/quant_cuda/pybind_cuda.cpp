@@ -85,11 +85,11 @@ Tensor block_quantize_sim_stochastic(Tensor a, int wl)
       return block_quantize_sim_stochastic_cuda(a, wl);
 }
 
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
+Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, int prng_bits,
                                  bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
-      return float_quantize_stochastic_cuda(a, man_bits, exp_bits, subnormals,
+      return float_quantize_stochastic_cuda(a, man_bits, exp_bits, prng_bits, subnormals,
                                             saturate);
 }
 

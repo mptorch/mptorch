@@ -88,6 +88,16 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits using
+ * [prng_bits] random bits.
+ * Stochastic Rounding.
+ **/
+Tensor float_quantize_stochastic_cuda(Tensor a,
+                                      int man_bits, int exp_bits, int prng_bits,
+                                      bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding.
  **/
