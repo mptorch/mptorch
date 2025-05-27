@@ -34,10 +34,14 @@ uint32_t clip_max_exponent(int man_bits, uint32_t max_exponent,
                            uint32_t quantized_num);
 
 std::tuple<Tensor, Tensor>
-fixed_point_quantize_stochastic_mask(Tensor a, int wl, int fl, bool symmetric);
+fixed_point_quantize_stochastic_mask(Tensor a,
+                                     int wl, int fl,
+                                     bool symmetric);
 
 std::tuple<Tensor, Tensor>
-fixed_point_quantize_nearest_mask(Tensor a, int wl, int fl, bool symmetric);
+fixed_point_quantize_nearest_mask(Tensor a,
+                                  int wl, int fl,
+                                  bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
@@ -45,8 +49,9 @@ fixed_point_quantize_nearest_mask(Tensor a, int wl, int fl, bool symmetric);
  * having a symmeric number range.
  * Stochastic Rounding.
  **/
-Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool clamp,
-                                       bool symmetric);
+Tensor fixed_point_quantize_stochastic(Tensor a,
+                                       int wl, int fl,
+                                       bool clamp, bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
@@ -54,8 +59,9 @@ Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool clamp,
  * having a symmeric number range.
  * Nearest Rounding.
  **/
-Tensor fixed_point_quantize_nearest(Tensor a, int wl, int fl, bool clamp,
-                                    bool symmetric);
+Tensor fixed_point_quantize_nearest(Tensor a,
+                                    int wl, int fl,
+                                    bool clamp, bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
@@ -64,7 +70,9 @@ Tensor fixed_point_quantize_nearest(Tensor a, int wl, int fl, bool clamp,
  * Stochastic Rounding.
  **/
 std::tuple<Tensor, Tensor>
-fixed_point_quantize_stochastic_mask(Tensor a, int wl, int fl, bool symmetric);
+fixed_point_quantize_stochastic_mask(Tensor a,
+                                     int wl, int fl,
+                                     bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
@@ -95,7 +103,9 @@ Tensor block_quantize_stochastic(Tensor a, int wl, int dim);
  * through the [rounding] parameter, whereas subnormal support through
  * [subnormal_support].
  */
-Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
+Tensor float_quantize(Tensor a,
+                      int man_bits, int exp_bits,
+                      Mode rounding,
                       bool subnormal_support, bool saturate);
 
 /**
@@ -103,7 +113,10 @@ Tensor float_quantize(Tensor a, int man_bits, int exp_bits, Mode rounding,
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding.
  **/
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades_l, int binades_u, bool saturate);
+Tensor superfp_quantize(Tensor a,
+                        int man_bits, int exp_bits,
+                        int binades_l, int binades_u,
+                        bool saturate);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
@@ -112,9 +125,11 @@ Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades_l, int
  * in the output tensor c (size M x N).
  * Nearest Rounding.
  **/
-void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
-                               int K, int man_add, int exp_add, int man_mul,
-                               int exp_mul, bool subnormals, bool saturate);
+void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
+                               int M, int N, int K,
+                               int man_add, int exp_add,
+                               int man_mul, int exp_mul,
+                               bool subnormals, bool saturate);
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
@@ -124,10 +139,11 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
  * of the a and b tensors.
  * Nearest Rounding.
  **/
-void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                int K, int man_add, int exp_add,
-                                int man_mul, int exp_mul, bool subnormals,
-                                bool saturate);
+void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
+                                int M, int N, int K,
+                                int man_add, int exp_add,
+                                int man_mul, int exp_mul,
+                                bool subnormals, bool saturate);
 
 /**
  * perform matrix multiplication with quantized FMA operations that simulate
@@ -136,7 +152,8 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
  * c (size M x N).
  * Nearest Rounding.
  **/
-void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N, int K,
+void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
+                                   int M, int N, int K,
                                    int man_fma, int exp_fma,
                                    bool subnormals, bool saturate);
 
@@ -147,9 +164,61 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N, i
  * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
  * Nearest Rounding.
  **/
-void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                    int N, int K, int man_fma, int exp_fma,
+void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                    int M, int N, int K,
+                                    int man_fma, int exp_fma,
                                     bool subnormals, bool saturate);
+
+/**
+ * perform matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
+ * in the output tensor c (size M x N).
+ * Stochastic Rounding.
+ **/
+void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
+                                  int M, int N, int K,
+                                  int man_add, int exp_add,
+                                  int man_mul, int exp_mul,
+                                  bool subnormals, bool saturate);
+
+/**
+ * perform batch matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision floating-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
+ * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
+ * of the a and b tensors.
+ * Stochastic Rounding.
+ **/
+void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
+                                   int M, int N, int K,
+                                   int man_add, int exp_add,
+                                   int man_mul, int exp_mul,
+                                   bool subnormals, bool saturate);
+
+/**
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
+ * Stochastic Rounding.
+ **/
+void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
+                                      int M, int N, int K,
+                                      int man_fma, int exp_fma,
+                                      bool subnormals, bool saturate);
+
+/**
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision floating-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
+ * Stochastic Rounding.
+ **/
+void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                       int M, int N, int K,
+                                       int man_fma, int exp_fma,
+                                       bool subnormals, bool saturate);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
@@ -158,8 +227,9 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
  * in the output tensor c (size M x N).
  * Nearest Rounding.
  **/
-void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                 int K, int man_add, int exp_add,
+void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
+                                 int M, int N, int K,
+                                 int man_add, int exp_add,
                                  int man_mul, int exp_mul,
                                  int binades_add_l, int binades_add_u,
                                  int binades_mul_l, int binades_mul_u,
@@ -173,8 +243,9 @@ void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
  * of the a and b tensors.
  * Nearest Rounding.
  **/
-void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                  int K, int man_add, int exp_add,
+void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
+                                  int M, int N, int K,
+                                  int man_add, int exp_add,
                                   int man_mul, int exp_mul,
                                   int binades_add_l, int binades_add_u,
                                   int binades_mul_l, int binades_mul_u,
@@ -187,8 +258,9 @@ void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
  * c (size M x N).
  * Nearest Rounding.
  **/
-void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                     int N, int K, int man_fma, int exp_fma,
+void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
+                                     int M, int N, int K,
+                                     int man_fma, int exp_fma,
                                      int binades_fma_l, int binades_fma_u,
                                      bool saturate);
 
@@ -199,83 +271,141 @@ void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M,
  * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
  * Nearest Rounding.
  **/
-void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                      int N, int K, int man_fma, int exp_fma,
+void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                      int M, int N, int K,
+                                      int man_fma, int exp_fma,
                                       int binades_fma_l, int binades_fma_u,
                                       bool saturate);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision floating-point compute; input tensors a
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size M x K) and b (size K x N) are multiplied with the result stored
+ * in the output tensor c (size M x N).
+ * Nearest Rounding.
+ **/
+void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
+                                     int M, int N, int K,
+                                     int wl_add, int fl_add,
+                                     int wl_mul, int fl_mul,
+                                     bool symmetric);
+
+/**
+ * perform batch matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
+ * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
+ * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
+ * of the a and b tensors.
+ * Nearest Rounding.
+ **/
+void fixed_point_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
+                                      int M, int N, int K,
+                                      int wl_add, int fl_add,
+                                      int wl_mul, int fl_mul,
+                                      bool symmetric);
+
+/**
+ * perform matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size M x K) and
+ * b (size K x N) are multiplied with the result stored in the output tensor
+ * c (size M x N).
+ * Nearest Rounding.
+ **/
+void fixed_point_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
+                                         int M, int N, int K,
+                                         int wl_fma, int fl_fma,
+                                         bool symmetric);
+
+/**
+ * perform batch matrix multiplication with quantized FMA operations that simulate
+ * low-precision fixed-point compute; input tensors a (size B x M x K) and
+ * b (size B x K x N) are multiplied with the result stored in the output tensor
+ * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
+ * Nearest Rounding.
+ **/
+void fixed_point_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                          int M, int N, int K,
+                                          int wl_fma, int fl_fma,
+                                          bool symmetric);
+
+/**
+ * perform matrix multiplication with quantized addition and multiplication
+ * operations that simulate low-precision fixed-point compute; input tensors a
  * (size M x K) and b (size K x N) are multiplied with the result stored
  * in the output tensor c (size M x N).
  * Stochastic Rounding.
  **/
-void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c, int M,
-                                  int N, int K, int man_add, int exp_add,
-                                  int man_mul, int exp_mul,
-                                  bool subnormals, bool saturate);
+void fixed_point_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
+                                        int M, int N, int K,
+                                        int wl_add, int fl_add,
+                                        int wl_mul, int fl_mul,
+                                        bool symmetric);
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
- * operations that simulate low-precision floating-point compute; input tensors a
+ * operations that simulate low-precision fixed-point compute; input tensors a
  * (size B x M x K) and b (size B x K x N) are multiplied with the result stored
  * in the output tensor c (size B x M x N); B is inferred from the first dimension(s)
  * of the a and b tensors.
  * Stochastic Rounding.
  **/
-void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c, int M,
-                                   int N, int K, int man_add, int exp_add,
-                                   int man_mul, int exp_mul,
-                                   bool subnormals, bool saturate);
+void fixed_point_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
+                                         int M, int N, int K,
+                                         int wl_add, int fl_add,
+                                         int wl_mul, int fl_mul,
+                                         bool symmetric);
 
 /**
  * perform matrix multiplication with quantized FMA operations that simulate
- * low-precision floating-point compute; input tensors a (size M x K) and
+ * low-precision fixed-point compute; input tensors a (size M x K) and
  * b (size K x N) are multiplied with the result stored in the output tensor
  * c (size M x N).
  * Stochastic Rounding.
  **/
-void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                      int N, int K, int man_fma,
-                                      int exp_fma, bool subnormals,
-                                      bool saturate);
+void fixed_point_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
+                                            int M, int N, int K,
+                                            int wl_fma, int fl_fma,
+                                            bool symmetric);
 
 /**
  * perform batch matrix multiplication with quantized FMA operations that simulate
- * low-precision floating-point compute; input tensors a (size B x M x K) and
+ * low-precision fixed-point compute; input tensors a (size B x M x K) and
  * b (size B x K x N) are multiplied with the result stored in the output tensor
  * c (size B x M x N); B is inferred from the first dimension(s) of the a and b tensors.
  * Stochastic Rounding.
  **/
-void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                       int N, int K, int man_fma,
-                                       int exp_fma, bool subnormals,
-                                       bool saturate);
-
-void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N, int K,
-                                     int wl_add, int fl_add, int wl_mul, int fl_mul, bool symmetric);
+void fixed_point_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                             int M, int N, int K,
+                                             int wl_fma, int fl_fma,
+                                             bool symmetric);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Stochastic Rounding.
  **/
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
+Tensor float_quantize_stochastic(Tensor a,
+                                 int man_bits, int exp_bits,
+                                 bool subnormals, bool saturate);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding.
  **/
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits, bool subnormals, bool saturate);
+Tensor float_quantize_nearest(Tensor a,
+                              int man_bits, int exp_bits,
+                              bool subnormals, bool saturate);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding.
  **/
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades_l, int binades_u, bool saturate);
+Tensor superfp_quantize_nearest(Tensor a,
+                                int man_bits, int exp_bits,
+                                int binades_l, int binades_u,
+                                bool saturate);
 
 /**
  * Quantizes a tensor to binary8 format using nearest rounding.

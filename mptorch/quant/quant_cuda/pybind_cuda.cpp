@@ -283,6 +283,30 @@ void fixed_point_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M,
       return;
 }
 
+void fixed_point_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
+                                      int K, int wl_add, int fl_add, int wl_mul,
+                                      int fl_mul, bool symmetric)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      fixed_point_quantize_nearest_bmm_cuda(a, b, c, M, N, K, wl_add, fl_add, wl_mul,
+                                            fl_mul, symmetric);
+      return;
+}
+
+void fixed_point_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                          int N, int K, int wl_fma, int fl_fma,
+                                          bool symmetric)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      fixed_point_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
+                                                symmetric);
+      return;
+}
+
 void fixed_point_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c, int M,
                                         int N, int K, int wl_add, int fl_add,
                                         int wl_mul, int fl_mul,
@@ -305,6 +329,31 @@ void fixed_point_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
       CHECK_INPUT(c);
       fixed_point_quantize_stochastic_mm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
                                                   symmetric);
+      return;
+}
+
+void fixed_point_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c, int M,
+                                         int N, int K, int wl_add, int fl_add,
+                                         int wl_mul, int fl_mul,
+                                         bool symmetric)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      fixed_point_quantize_stochastic_bmm_cuda(a, b, c, M, N, K, wl_add, fl_add,
+                                               wl_mul, fl_mul, symmetric);
+      return;
+}
+
+void fixed_point_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
+                                             int N, int K, int wl_fma,
+                                             int fl_fma, bool symmetric)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      fixed_point_quantize_stochastic_bmm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
+                                                   symmetric);
       return;
 }
 
@@ -727,14 +776,27 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("fixed_point_quantize_nearest_mm",
             &fixed_point_quantize_nearest_mm,
             "Low-Bitwidth Fixed Point Number GEMM Quantization (CUDA)");
+      m.def("fixed_point_quantize_nearest_bmm",
+            &fixed_point_quantize_nearest_bmm,
+            "Low-Bitwidth Fixed Point Number BGEMM Quantization (CUDA)");
       m.def("fixed_point_quantize_nearest_mm_fma",
             &fixed_point_quantize_nearest_mm_fma,
             "Low-Bitwidth Fixed Point Number FMA-based GEMM Quantization (CUDA)");
+      m.def("fixed_point_quantize_nearest_bmm_fma",
+            &fixed_point_quantize_nearest_bmm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based BGEMM Quantization (CUDA)");
+
       m.def("fixed_point_quantize_stochastic_mm",
             &fixed_point_quantize_stochastic_mm,
             "Low-Bitwidth Fixed Point Number GEMM with Stochastic Quantization (CUDA)");
+      m.def("fixed_point_quantize_stochastic_bmm",
+            &fixed_point_quantize_stochastic_bmm,
+            "Low-Bitwidth Fixed Point Number BGEMM with Stochastic Quantization (CUDA)");
       m.def("fixed_point_quantize_stochastic_mm_fma",
             &fixed_point_quantize_stochastic_mm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic Quantization (CUDA)");
+      m.def("fixed_point_quantize_stochastic_bmm_fma",
+            &fixed_point_quantize_stochastic_bmm_fma,
             "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic Quantization (CUDA)");
 
       py::enum_<CUBLASMatrixType>(m, "CUBLASMatrixType", py::arithmetic())

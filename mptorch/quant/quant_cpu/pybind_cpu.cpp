@@ -93,6 +93,28 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("fixed_point_quantize_nearest_mm",
             &fixed_point_quantize_nearest_mm,
             "Low-Bitwidth Fixed Point Number GEMM Quantization (CPU)");
+      m.def("fixed_point_quantize_nearest_bmm",
+            &fixed_point_quantize_nearest_bmm,
+            "Low-Bitwidth Fixed Point Number BGEMM Quantization (CPU)");
+      m.def("fixed_point_quantize_nearest_mm_fma",
+            &fixed_point_quantize_nearest_mm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based GEMM Quantization (CPU)");
+      m.def("fixed_point_quantize_nearest_mm_fma",
+            &fixed_point_quantize_nearest_mm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based BGEMM Quantization (CPU)");
+
+      m.def("fixed_point_quantize_stochastic_mm",
+            &fixed_point_quantize_stochastic_mm,
+            "Low-Bitwidth Fixed Point Number GEMM with Stochastic Quantization (CPU)");
+      m.def("fixed_point_quantize_stochastic_bmm",
+            &fixed_point_quantize_stochastic_bmm,
+            "Low-Bitwidth Fixed Point Number BGEMM with Stochastic Quantization (CPU)");
+      m.def("fixed_point_quantize_stochastic_mm_fma",
+            &fixed_point_quantize_stochastic_mm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic Quantization (CPU)");
+      m.def("fixed_point_quantize_stochastic_bmm_fma",
+            &fixed_point_quantize_stochastic_bmm_fma,
+            "Low-Bitwidth Fixed Point Number FMA-based GEMM with Stochastic Quantization (CPU)");
 
       m.def("float_quantize_nearest_softmax_forward",
             &float_quantize_nearest_softmax_forward,

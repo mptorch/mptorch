@@ -7,7 +7,9 @@
 using namespace at;
 
 template <class Qadd, class Qmul>
-void mm_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+void mm_kernel(float *a, float *b, float *c,
+               int M, int K, int N,
+               Qadd quant_add, Qmul quant_mul)
 {
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
@@ -18,7 +20,9 @@ void mm_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add
 }
 
 template <class Qadd, class Qmul>
-void bmm_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+void bmm_kernel(float *a, float *b, float *c,
+                int B, int M, int K, int N,
+                Qadd quant_add, Qmul quant_mul)
 {
     for (int i = 0; i < B; ++i)
     {
@@ -30,7 +34,9 @@ void bmm_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qadd q
 }
 
 template <class Qfma>
-void mm_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma quant_fma)
+void mm_fma_kernel(float *a, float *b, float *c,
+                   int M, int K, int N,
+                   Qfma quant_fma)
 {
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
@@ -39,7 +45,9 @@ void mm_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma quant
 }
 
 template <class Qfma>
-void bmm_fma_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qfma quant_fma)
+void bmm_fma_kernel(float *a, float *b, float *c,
+                    int B, int M, int K, int N,
+                    Qfma quant_fma)
 {
     for (int i = 0; i < B; ++i)
     {
@@ -51,7 +59,9 @@ void bmm_fma_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qf
 }
 
 template <class Qadd, class Qmul>
-void mm_kahan_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+void mm_kahan_kernel(float *a, float *b, float *c,
+                     int M, int K, int N,
+                     Qadd quant_add, Qmul quant_mul)
 {
     float comp_term = 0.0f;
     for (int i = 0; i < M; ++i)
@@ -66,7 +76,9 @@ void mm_kahan_kernel(float *a, float *b, float *c, int M, int K, int N, Qadd qua
 }
 
 template <class Qadd, class Qmul>
-void bmm_kahan_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+void bmm_kahan_kernel(float *a, float *b, float *c,
+                      int B, int M, int K, int N,
+                      Qadd quant_add, Qmul quant_mul)
 {
     for (int i = 0; i < B; ++i)
     {
@@ -78,7 +90,9 @@ void bmm_kahan_kernel(float *a, float *b, float *c, int B, int M, int K, int N, 
 }
 
 template <class Qfma>
-void mm_kahan_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma quant_fma)
+void mm_kahan_fma_kernel(float *a, float *b, float *c,
+                         int M, int K, int N,
+                         Qfma quant_fma)
 {
     float comp_term = 0.0f;
     for (int i = 0; i < M; ++i)
@@ -92,7 +106,9 @@ void mm_kahan_fma_kernel(float *a, float *b, float *c, int M, int K, int N, Qfma
 }
 
 template <class Qfma>
-void bmm_kahan_fma_kernel(float *a, float *b, float *c, int B, int M, int K, int N, Qfma quant_fma)
+void bmm_kahan_fma_kernel(float *a, float *b, float *c,
+                          int B, int M, int K, int N,
+                          Qfma quant_fma)
 {
     for (int i = 0; i < B; ++i)
     {

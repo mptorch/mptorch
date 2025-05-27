@@ -17,8 +17,8 @@ __device__ __forceinline__ float gen_rand<float>(curandState_t *state, int sidx)
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
-                        float *__restrict__ c, int M, int K, int N,
+__global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                        int M, int K, int N,
                         Qadd quant_add, Qmul quant_mul)
 {
 
@@ -71,8 +71,8 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
-                         float *__restrict__ c, int M, int K, int N,
+__global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                         int M, int K, int N,
                          Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
@@ -132,8 +132,8 @@ __global__ void bmm_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
-__global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                            float *__restrict__ c, int M, int K, int N,
+__global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                            int M, int K, int N,
                             Qfma quant_fma)
 {
 
@@ -186,8 +186,8 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
-__global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                             float *__restrict__ c, int M, int K, int N,
+__global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                             int M, int K, int N,
                              Qfma quant_fma)
 {
   // declare shared memory matrices for A and B matrices
@@ -246,8 +246,9 @@ __global__ void bmm_fma_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class RandType, class Qadd, class Qmul>
-__global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
-                           float *__restrict__ c, curandState_t *state, int M, int K, int N,
+__global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                           curandState_t *state,
+                           int M, int K, int N,
                            Qadd quant_add, Qmul quant_mul)
 {
 
@@ -295,8 +296,9 @@ __global__ void mm_sr_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class RandType, class Qadd, class Qmul>
-__global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
-                            float *__restrict__ c, curandState_t *state, int M, int K, int N,
+__global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                            curandState_t *state,
+                            int M, int K, int N,
                             Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
@@ -349,8 +351,9 @@ __global__ void bmm_sr_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class RandType, class Qfma>
-__global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                               float *__restrict__ c, curandState_t *state, int M, int K, int N,
+__global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                               curandState_t *state,
+                               int M, int K, int N,
                                Qfma quant_fma)
 {
 
@@ -397,8 +400,9 @@ __global__ void mm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class RandType, class Qfma>
-__global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                                float *__restrict__ c, curandState_t *state, int M, int K, int N,
+__global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                                curandState_t *state,
+                                int M, int K, int N,
                                 Qfma quant_fma)
 {
   // declare shared memory matrices for A and B matrices
@@ -451,8 +455,8 @@ __global__ void bmm_sr_fma_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void mm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
-                              float *__restrict__ c, int M, int K, int N,
+__global__ void mm_kahan_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                              int M, int K, int N,
                               Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B
@@ -503,8 +507,8 @@ __global__ void mm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
-                               float *__restrict__ c, int M, int K, int N,
+__global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                               int M, int K, int N,
                                Qadd quant_add, Qmul quant_mul)
 {
   // declare shared memory matrices for A and B matrices
@@ -563,8 +567,8 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b,
-                                  float *__restrict__ c, int M, int K, int N,
+__global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                                  int M, int K, int N,
                                   Qadd quant_fma)
 {
   // declare shared memory matrices for A and B
@@ -614,8 +618,8 @@ __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b,
 }
 
 template <size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b,
-                               float *__restrict__ c, int M, int K, int N,
+__global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                               int M, int K, int N,
                                Qadd quant_fma)
 {
   // declare shared memory matrices for A and B matrices
