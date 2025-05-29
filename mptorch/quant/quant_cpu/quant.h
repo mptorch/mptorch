@@ -98,15 +98,23 @@ Tensor block_quantize_nearest(Tensor a, int wl, int dim);
 Tensor block_quantize_stochastic(Tensor a, int wl, int dim);
 
 /**
- * quantize a FloatTensor into a low bit-width floating-point Tensor with
- * [man_bits] mantissa and [exp_bits] exponent. Rounding mode is specified
- * through the [rounding] parameter, whereas subnormal support through
- * [subnormal_support].
- */
-Tensor float_quantize(Tensor a,
-                      int man_bits, int exp_bits,
-                      Mode rounding,
-                      bool subnormal_support, bool saturate);
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Nearest Rounding.
+ **/
+Tensor float_quantize_nearest(Tensor a,
+                              int man_bits, int exp_bits,
+                              bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits using
+ * [prng_bits] random bits.
+ * Stochastic Rounding.
+ **/
+Tensor float_quantize_stochastic(Tensor a,
+                                 int man_bits, int exp_bits, int prng_bits,
+                                 bool subnormals, bool saturate);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
@@ -178,8 +186,8 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
                                   int M, int N, int K,
-                                  int man_add, int exp_add,
-                                  int man_mul, int exp_mul,
+                                  int man_add, int exp_add, int rbits_add,
+                                  int man_mul, int exp_mul, int rbits_mul,
                                   bool subnormals, bool saturate);
 
 /**
@@ -192,8 +200,8 @@ void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
                                    int M, int N, int K,
-                                   int man_add, int exp_add,
-                                   int man_mul, int exp_mul,
+                                   int man_add, int exp_add, int rbits_add,
+                                   int man_mul, int exp_mul, int rbits_mul,
                                    bool subnormals, bool saturate);
 
 /**
@@ -205,7 +213,7 @@ void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
                                       int M, int N, int K,
-                                      int man_fma, int exp_fma,
+                                      int man_fma, int exp_fma, int rbits_fma,
                                       bool subnormals, bool saturate);
 
 /**
@@ -217,7 +225,7 @@ void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
                                        int M, int N, int K,
-                                       int man_fma, int exp_fma,
+                                       int man_fma, int exp_fma, int rbits_fma,
                                        bool subnormals, bool saturate);
 
 /**

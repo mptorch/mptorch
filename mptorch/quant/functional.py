@@ -148,7 +148,7 @@ class qlinear_kernel(torch.autograd.Function):
                         quant=make_quant_function(
                             ctx.formats.bwd_add,
                             ctx.formats.bwd_rnd,
-                            ctx.formats.prng_bits,
+                            ctx.formats.rbits_add,
                         ),
                     ).reshape(qbias.shape)
             qgrad_bias = unscale(qgrad_bias, grad_scale)

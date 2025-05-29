@@ -262,8 +262,8 @@ void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                        int M, int N, int K,
-                                       int man_add, int exp_add,
-                                       int man_mul, int exp_mul,
+                                       int man_add, int exp_add, int rbits_add,
+                                       int man_mul, int exp_mul, int rbits_mul,
                                        bool subnormals, bool saturate);
 
 /**
@@ -276,8 +276,8 @@ void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                         int M, int N, int K,
-                                        int man_add, int exp_add,
-                                        int man_mul, int exp_mul,
+                                        int man_add, int exp_add, int rbits_add,
+                                        int man_mul, int exp_mul, int rbits_mul,
                                         bool subnormals, bool saturate);
 
 /**
@@ -289,7 +289,7 @@ void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                            int M, int N, int K,
-                                           int man_fma, int exp_fma,
+                                           int man_fma, int exp_fma, int rbits_fma,
                                            bool subnormals, bool saturate);
 
 /**
@@ -301,7 +301,7 @@ void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
  **/
 void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                             int M, int N, int K,
-                                            int man_fma, int exp_fma,
+                                            int man_fma, int exp_fma, int rbits_fma,
                                             bool subnormals, bool saturate);
 
 /**

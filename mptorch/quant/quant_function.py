@@ -950,23 +950,23 @@ def mp_layernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, form
 
 
 def float_layernorm_forward(
-    inp,
-    weight,
-    bias,
-    eps,
-    dims,
-    man_acc=23,
-    exp_acc=8,
-    man_mul=23,
-    exp_mul=8,
-    man_div=23,
-    exp_div=8,
-    man_sqrt=23,
-    exp_sqrt=8,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
-):
+    inp: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+    dims: list[int],
+    man_acc: int = 23,
+    exp_acc: int = 8,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    man_div: int = 23,
+    exp_div: int = 8,
+    man_sqrt: int = 23,
+    exp_sqrt: int = 8,
+    rounding: Literal["nearest"] = "nearest",
+    subnormals: bool = True,
+    saturate: bool = False,
+) -> torch.Tensor:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1331,6 +1331,8 @@ def mp_mm(
             fma=fma,
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
+            rbits_add=formats.rbits_add,
+            rbits_mul=formats.rbits_mul,
         )
     elif type(add_cfg) == SuperNormalFloat:
         return superfp_mm(
@@ -1450,17 +1452,19 @@ def fxp_mm(
 
 
 def float_mm(
-    a,
-    b,
-    man_add=23,
-    exp_add=8,
-    man_mul=23,
-    exp_mul=8,
-    rounding="nearest",
-    fma=True,
-    subnormals=True,
-    saturate=True,
-):
+    a: torch.Tensor,
+    b: torch.Tensor,
+    man_add: int = 23,
+    exp_add: int = 8,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+    subnormals: bool = True,
+    saturate: bool = True,
+    rbits_add: int = 0,
+    rbits_mul: int = 0,
+) -> torch.Tensor:
     """
     Mixed-precision floating-point GEMM with customized formats for the multipliers and accumulators
     Args:
@@ -1474,6 +1478,8 @@ def float_mm(
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `subnormals` (bool): allow the use of subnormal values
         - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable in the format instead of outputting infinities)
+        - :attr: `rbits_add` (int): number of random bits to use in stochastic rounding addition (in case rounding mode is stochastic)
+        - :attr: `rbits_mul` (int): number of random bits to use in stochastic rounding multiplication (in case rounding mode is stochastic)
     Returns:
         - the result of GEMM (torch.Tensor)
     """
@@ -1530,6 +1536,10 @@ def float_mm(
                 saturate,
             )
     else:
+        if rbits_add <= 0:
+            rbits_add = 23 - man_add
+        if rbits_mul <= 0:
+            rbits_mul == 23 - man_mul
         if not fma:
             quant_module.float_quantize_stochastic_mm(
                 a.contiguous(),
@@ -1540,8 +1550,10 @@ def float_mm(
                 a.shape[1],
                 man_add,
                 exp_add,
+                rbits_add,
                 man_mul,
                 exp_mul,
+                rbits_mul,
                 subnormals,
                 saturate,
             )
@@ -1555,6 +1567,7 @@ def float_mm(
                 a.shape[1],
                 man_add,
                 exp_add,
+                rbits_add,
                 subnormals,
                 saturate,
             )
@@ -1683,6 +1696,8 @@ def mp_bmm(
             fma=fma,
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
+            rbits_add=formats.rbits_add,
+            rbits_mul=formats.rbits_mul,
         )
     elif type(add_cfg) == SuperNormalFloat:
         return superfp_bmm(
@@ -1723,6 +1738,8 @@ def float_bmm(
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = True,
+    rbits_add: int = 0,
+    rbits_mul: int = 0,
 ) -> torch.Tensor:
     if cublas_acceleration.enabled and a.is_cuda and b.is_cuda:
         types = match_mac_format_with_cublas_types(
@@ -1893,6 +1910,10 @@ def float_bmm(
             else:
                 raise Exception("Wrong tensor sizes")
     else:
+        if rbits_add <= 0:
+            rbits_add = 23 - man_add
+        if rbits_mul <= 0:
+            rbits_mul == 23 - man_mul
         if not fma:
             if len(a.shape) == 3 and len(b.shape) == 3:
                 c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
@@ -1905,8 +1926,10 @@ def float_bmm(
                     a.shape[2],
                     man_add,
                     exp_add,
+                    rbits_add,
                     man_mul,
                     exp_mul,
+                    rbits_mul,
                     subnormals,
                     saturate,
                 )
@@ -1922,8 +1945,10 @@ def float_bmm(
                     a_r.shape[1],
                     man_add,
                     exp_add,
+                    rbits_add,
                     man_mul,
                     exp_mul,
+                    rbits_mul,
                     subnormals,
                     saturate,
                 )
@@ -1947,8 +1972,10 @@ def float_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
+                    rbits_add,
                     man_mul,
                     exp_mul,
+                    rbits_mul,
                     subnormals,
                     saturate,
                 )
@@ -1964,8 +1991,10 @@ def float_bmm(
                     a.shape[1],
                     man_add,
                     exp_add,
+                    rbits_add,
                     man_mul,
                     exp_mul,
+                    rbits_mul,
                     subnormals,
                     saturate,
                 )
@@ -1983,6 +2012,7 @@ def float_bmm(
                     a.shape[2],
                     man_add,
                     exp_add,
+                    rbits_add,
                     subnormals,
                     saturate,
                 )
@@ -1998,6 +2028,7 @@ def float_bmm(
                     a_r.shape[1],
                     man_add,
                     exp_add,
+                    rbits_add,
                     subnormals,
                     saturate,
                 )
@@ -2021,6 +2052,7 @@ def float_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
+                    rbits_add,
                     subnormals,
                     saturate,
                 )
@@ -2036,6 +2068,7 @@ def float_bmm(
                     a.shape[1],
                     man_add,
                     exp_add,
+                    rbits_add,
                     subnormals,
                     saturate,
                 )
@@ -2837,7 +2870,7 @@ def float_quantize(
     rounding: Literal["nearest", "stochastic"] = "stochastic",
     subnormals: bool = True,
     saturate: bool = True,
-    prng: int = -1,
+    prng: int = 0,
 ) -> torch.Tensor:
     """
     Quantize a single precision Floating Point into low-precision Floating Point
@@ -2866,7 +2899,7 @@ def float_quantize(
             x.contiguous(), man, exp, subnormals, saturate
         )
     elif rounding == "stochastic":
-        if prng == -1:
+        if prng == 0:
             prng = 23 - man
         out = quant_module.float_quantize_stochastic(
             x.contiguous(), man, exp, prng, subnormals, saturate

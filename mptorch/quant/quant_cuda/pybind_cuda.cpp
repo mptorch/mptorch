@@ -12,15 +12,18 @@ using namespace at;
       CHECK_CUDA(x);   \
       CHECK_CONTIGUOUS(x)
 
-Tensor fixed_point_quantize_nearest(Tensor a, int wl, int fl, bool use_clamp,
-                                    bool symmetric)
+Tensor fixed_point_quantize_nearest(Tensor a,
+                                    int wl, int fl,
+                                    bool use_clamp, bool symmetric)
 {
       CHECK_INPUT(a);
       return fixed_point_quantize_nearest_cuda(a, wl, fl, use_clamp, symmetric);
 }
 
 std::tuple<Tensor, Tensor>
-fixed_point_quantize_nearest_mask(Tensor a, int wl, int fl, bool symmetric)
+fixed_point_quantize_nearest_mask(Tensor a,
+                                  int wl, int fl,
+                                  bool symmetric)
 {
       CHECK_INPUT(a);
       return fixed_point_quantize_nearest_mask_cuda(a, wl, fl, symmetric);
@@ -38,7 +41,8 @@ Tensor block_quantize_sim_nearest(Tensor a, int wl)
       return block_quantize_sim_nearest_cuda(a, wl);
 }
 
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
+Tensor float_quantize_nearest(Tensor a,
+                              int man_bits, int exp_bits,
                               bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -46,28 +50,34 @@ Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                                          saturate);
 }
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades_l, int binades_u,
+Tensor superfp_quantize_nearest(Tensor a,
+                                int man_bits, int exp_bits, int binades_l, int binades_u,
                                 bool saturate)
 {
       CHECK_INPUT(a);
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, binades_l, binades_u, saturate);
 }
 
-Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_nearest(Tensor a,
+                                int P, bool is_signed, OverflowPolicy overflow_policy,
+                                bool subnormals)
 {
       CHECK_INPUT(a);
       return binary8_quantize_nearest_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
-Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
-                                       bool symmetric)
+Tensor fixed_point_quantize_stochastic(Tensor a,
+                                       int wl, int fl,
+                                       bool use_clamp, bool symmetric)
 {
       CHECK_INPUT(a);
       return fixed_point_quantize_stochastic_cuda(a, wl, fl, use_clamp, symmetric);
 }
 
 std::tuple<Tensor, Tensor>
-fixed_point_quantize_stochastic_mask(Tensor a, int wl, int fl, bool symmetric)
+fixed_point_quantize_stochastic_mask(Tensor a,
+                                     int wl, int fl,
+                                     bool symmetric)
 {
       CHECK_INPUT(a);
       return fixed_point_quantize_stochastic_mask_cuda(a, wl, fl, symmetric);
@@ -85,7 +95,8 @@ Tensor block_quantize_sim_stochastic(Tensor a, int wl)
       return block_quantize_sim_stochastic_cuda(a, wl);
 }
 
-Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, int prng_bits,
+Tensor float_quantize_stochastic(Tensor a,
+                                 int man_bits, int exp_bits, int prng_bits,
                                  bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -93,20 +104,26 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits, int prng_
                                             saturate);
 }
 
-Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_stochastic(Tensor a,
+                                   int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy,
+                                   bool subnormals)
 {
       CHECK_INPUT(a);
       return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, overflow_policy, subnormals);
 }
 
-Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals)
+Tensor binary8_quantize_truncate(Tensor a,
+                                 int P, bool is_signed, OverflowPolicy overflow_policy,
+                                 bool subnormals)
 {
       CHECK_INPUT(a);
       return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
-void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
-                               int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
+                               int M, int N, int K,
+                               int man_add, int exp_add,
+                               int man_mul, int exp_mul,
                                bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -117,8 +134,10 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
+                                int M, int N, int K,
+                                int man_add, int exp_add,
+                                int man_mul, int exp_mul,
                                 bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -129,8 +148,9 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                   int K, int man_fma, int exp_fma,
+void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
+                                   int M, int N, int K,
+                                   int man_fma, int exp_fma,
                                    bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -141,8 +161,9 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                    int K, int man_fma, int exp_fma,
+void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                    int M, int N, int K,
+                                    int man_fma, int exp_fma,
                                     bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
@@ -153,8 +174,10 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                 int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
+                                 int M, int N, int K,
+                                 int man_add, int exp_add,
+                                 int man_mul, int exp_mul,
                                  int binades_add_l, int binades_add_u,
                                  int binades_mul_l, int binades_mul_u,
                                  bool saturate)
@@ -169,8 +192,10 @@ void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                  int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
+                                  int M, int N, int K,
+                                  int man_add, int exp_add,
+                                  int man_mul, int exp_mul,
                                   int binades_add_l, int binades_add_u,
                                   int binades_mul_l, int binades_mul_u,
                                   bool saturate)
@@ -184,8 +209,9 @@ void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                     int K, int man_fma, int exp_fma,
+void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
+                                     int M, int N, int K,
+                                     int man_fma, int exp_fma,
                                      int binades_fma_l, int binades_fma_u,
                                      bool saturate)
 {
@@ -197,9 +223,11 @@ void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
       return;
 }
 
-void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N,
-                                      int K, int man_fma, int exp_fma,
-                                      int binades_fma_l, int binades_fma_u, bool saturate)
+void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                      int M, int N, int K,
+                                      int man_fma, int exp_fma,
+                                      int binades_fma_l, int binades_fma_u,
+                                      bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
@@ -211,50 +239,62 @@ void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c, int M, int N
       return;
 }
 
-void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                  int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
+                                  int M, int N, int K,
+                                  int man_add, int exp_add, int rbits_add,
+                                  int man_mul, int exp_mul, int rbits_mul,
                                   bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_stochastic_mm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul, exp_mul,
+      float_quantize_stochastic_mm_cuda(a, b, c, M, N, K,
+                                        man_add, exp_add, rbits_add,
+                                        man_mul, exp_mul, rbits_mul,
                                         subnormals, saturate);
       return;
 }
 
-void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c, int M, int N,
-                                   int K, int man_add, int exp_add, int man_mul, int exp_mul,
+void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
+                                   int M, int N, int K,
+                                   int man_add, int exp_add, int rbits_add,
+                                   int man_mul, int exp_mul, int rbits_mul,
                                    bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_stochastic_bmm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul, exp_mul,
+      float_quantize_stochastic_bmm_cuda(a, b, c, M, N, K,
+                                         man_add, exp_add, rbits_add,
+                                         man_mul, exp_mul, rbits_mul,
                                          subnormals, saturate);
       return;
 }
 
-void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                      int N, int K, int man_fma, int exp_fma,
+void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
+                                      int M, int N, int K,
+                                      int man_fma, int exp_fma, int rbits_fma,
                                       bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_stochastic_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+      float_quantize_stochastic_mm_fma_cuda(a, b, c, M, N, K,
+                                            man_fma, exp_fma, rbits_fma,
                                             subnormals, saturate);
       return;
 }
 
-void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c, int M,
-                                       int N, int K, int man_fma, int exp_fma,
+void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
+                                       int M, int N, int K,
+                                       int man_fma, int exp_fma, int rbits_fma,
                                        bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_stochastic_bmm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+      float_quantize_stochastic_bmm_fma_cuda(a, b, c, M, N, K,
+                                             man_fma, exp_fma, rbits_fma,
                                              subnormals, saturate);
       return;
 }

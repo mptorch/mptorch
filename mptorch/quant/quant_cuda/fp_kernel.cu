@@ -253,8 +253,8 @@ void bmm_fp_fma_nearest(float *a, float *b, float *c,
 
 void mm_fp_stochastic(float *a, float *b, float *c,
                       int M, int K, int N,
-                      int man_add, int exp_add,
-                      int man_mul, int exp_mul,
+                      int man_add, int exp_add, int rbits_add,
+                      int man_mul, int exp_mul, int rbits_mul,
                       bool subnormals, bool saturate)
 {
   constexpr size_t THREADS_X{8U};
@@ -272,17 +272,17 @@ void mm_fp_stochastic(float *a, float *b, float *c,
       a, b, c,
       state,
       M, K, N,
-      [man_add, exp_add, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_add, exp_add, subnormals, saturate); },
-      [man_mul, exp_mul, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_mul, exp_mul, subnormals, saturate); });
+      [man_add, exp_add, rbits_add, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_add, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, rbits_mul, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_mul, man_mul, exp_mul, subnormals, saturate); });
   cudaFree(state);
 }
 
 void bmm_fp_stochastic(float *a, float *b, float *c,
                        int B, int M, int K, int N,
-                       int man_add, int exp_add,
-                       int man_mul, int exp_mul,
+                       int man_add, int exp_add, int rbits_add,
+                       int man_mul, int exp_mul, int rbits_mul,
                        bool subnormals, bool saturate)
 {
   constexpr size_t THREADS_X{8U};
@@ -301,16 +301,16 @@ void bmm_fp_stochastic(float *a, float *b, float *c,
       a, b, c,
       state,
       M, K, N,
-      [man_add, exp_add, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_add, exp_add, subnormals, saturate); },
-      [man_mul, exp_mul, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_mul, exp_mul, subnormals, saturate); });
+      [man_add, exp_add, rbits_add, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_add, man_add, exp_add, subnormals, saturate); },
+      [man_mul, exp_mul, rbits_mul, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_mul, man_mul, exp_mul, subnormals, saturate); });
   cudaFree(state);
 }
 
 void mm_fp_fma_stochastic(float *a, float *b, float *c,
                           int M, int K, int N,
-                          int man_fma, int exp_fma,
+                          int man_fma, int exp_fma, int rbits_fma,
                           bool subnormals, bool saturate)
 {
   constexpr size_t THREADS_X{8U};
@@ -328,14 +328,14 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c,
       a, b, c,
       state,
       M, K, N,
-      [man_fma, exp_fma, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_fma, exp_fma, subnormals, saturate); });
+      [man_fma, exp_fma, rbits_fma, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_fma, man_fma, exp_fma, subnormals, saturate); });
   cudaFree(state);
 }
 
 void bmm_fp_fma_stochastic(float *a, float *b, float *c,
                            int B, int M, int K, int N,
-                           int man_fma, int exp_fma,
+                           int man_fma, int exp_fma, int rbits_fma,
                            bool subnormals, bool saturate)
 {
   constexpr size_t THREADS_X{8U};
@@ -354,8 +354,8 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c,
       a, b, c,
       state,
       M, K, N,
-      [man_fma, exp_fma, subnormals, saturate] __device__(float x, uint32_t rnd)
-      { return cast_fp_stochastic(x, rnd, man_fma, exp_fma, subnormals, saturate); });
+      [man_fma, exp_fma, rbits_fma, subnormals, saturate] __device__(float x, uint32_t rnd)
+      { return cast_fp_stochastic(x, rnd, rbits_fma, man_fma, exp_fma, subnormals, saturate); });
   cudaFree(state);
 }
 

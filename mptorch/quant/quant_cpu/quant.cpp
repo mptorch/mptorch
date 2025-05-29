@@ -434,34 +434,14 @@ float cast_fp_nearest(float origin_float,
   return quantized;
 }
 
-float float_quantize(float origin_float,
-                     int man_bits, int exp_bits,
-                     Mode rounding,
-                     bool subnormal_support,
-                     bool saturate = false)
+float float_quantize_nearest(float origin_float,
+                             int man_bits, int exp_bits,
+                             bool subnormal_support,
+                             bool saturate = false)
 {
-  static std::random_device rd;
-  static std::mt19937 gen(rd());
-  static std::uniform_int_distribution<> dis(0);
-
-  float quantized;
-  switch (rounding)
-  {
-  case Mode::rStochastic:
-  {
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t rand_prob = (dis(gen)) & mask;
-    quantized = cast_fp_stochastic(
-        origin_float, rand_prob, man_bits, exp_bits,
-        subnormal_support, saturate);
-  }
-  break;
-  default:
-    quantized = cast_fp_nearest(
-        origin_float, man_bits, exp_bits,
-        subnormal_support, saturate);
-  }
-  return quantized;
+  return cast_fp_nearest(
+      origin_float, man_bits, exp_bits,
+      subnormal_support, saturate);
 }
 
 float float_quantize_stochastic(float origin_float,
@@ -477,24 +457,7 @@ float float_quantize_stochastic(float origin_float,
   float quantized = cast_fp_stochastic(
       origin_float, rand_prob, prng_bits, man_bits, exp_bits,
       subnormal_support, saturate);
-}
-
-Tensor float_quantize(Tensor a,
-                      int man_bits, int exp_bits,
-                      Mode rounding,
-                      bool subnormal_support,
-                      bool saturate = false)
-{
-  auto a_array = a.data_ptr<float>();
-  auto o = zeros_like(a);
-  auto o_array = o.data_ptr<float>();
-  int size = a.numel();
-
-  for (int64_t i = 0; i < size; i++)
-  {
-    o_array[i] = float_quantize(a_array[i], man_bits, exp_bits, rounding, subnormal_support, saturate);
-  }
-  return o;
+  return quantized;
 }
 
 // Remark: bias = 2^{e-1}
@@ -599,14 +562,32 @@ Tensor float_quantize_stochastic(Tensor a,
                                  int man_bits, int exp_bits, int prng_bits,
                                  bool subnormals, bool saturate)
 {
-  return float_quantize(a, man_bits, exp_bits, rStochastic, subnormals, saturate);
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = float_quantize_stochastic(a_array[i], man_bits, exp_bits, prng_bits, subnormals, saturate);
+  }
+  return o;
 }
 
 Tensor float_quantize_nearest(Tensor a,
                               int man_bits, int exp_bits,
                               bool subnormals, bool saturate)
 {
-  return float_quantize(a, man_bits, exp_bits, rNearest, subnormals, saturate);
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = float_quantize_nearest(a_array[i], man_bits, exp_bits, subnormals, saturate);
+  }
+  return o;
 }
 
 Tensor superfp_quantize_nearest(Tensor a,
@@ -624,8 +605,8 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
                                bool subnormals, bool saturate)
 {
   mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-            { return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-            { return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate); });
+            { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
+            { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
 void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
@@ -635,8 +616,8 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                 bool subnormals, bool saturate)
 {
   bmm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-             { return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-             { return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate); });
+             { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
+             { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
 void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
@@ -646,7 +627,7 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
 {
   mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
                 [man_fma, exp_fma, subnormals, saturate](float x)
-                { return float_quantize(x, man_fma, exp_fma, rNearest, subnormals, saturate); });
+                { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
@@ -656,49 +637,57 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
 {
   bmm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
                  [man_fma, exp_fma, subnormals, saturate](float x)
-                 { return float_quantize(x, man_fma, exp_fma, rNearest, subnormals, saturate); });
+                 { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
                                   int M, int N, int K,
-                                  int man_add, int exp_add,
-                                  int man_mul, int exp_mul,
+                                  int man_add, int exp_add, int rbits_add,
+                                  int man_mul, int exp_mul, int rbits_mul,
                                   bool subnormals, bool saturate)
 {
-  mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-            { return float_quantize(x, man_add, exp_add, rStochastic, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-            { return float_quantize(x, man_mul, exp_mul, rStochastic, subnormals, saturate); });
+  mm_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      [man_add, exp_add, rbits_add, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
+      [man_mul, exp_mul, rbits_mul, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
                                    int M, int N, int K,
-                                   int man_add, int exp_add,
-                                   int man_mul, int exp_mul,
+                                   int man_add, int exp_add, int rbits_add,
+                                   int man_mul, int exp_mul, int rbits_mul,
                                    bool subnormals, bool saturate)
 {
-  bmm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-             { return float_quantize(x, man_add, exp_add, rStochastic, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-             { return float_quantize(x, man_mul, exp_mul, rStochastic, subnormals, saturate); });
+  bmm_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
+      [man_add, exp_add, rbits_add, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
+      [man_mul, exp_mul, rbits_mul, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
                                       int M, int N, int K,
-                                      int man_fma, int exp_fma,
+                                      int man_fma, int exp_fma, int rbits_fma,
                                       bool subnormals, bool saturate)
 {
-  mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-                [man_fma, exp_fma, subnormals, saturate](float x)
-                { return float_quantize(x, man_fma, exp_fma, rStochastic, subnormals, saturate); });
+  mm_fma_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
+      [man_fma, exp_fma, rbits_fma, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
                                        int M, int N, int K,
-                                       int man_fma, int exp_fma,
+                                       int man_fma, int exp_fma, int rbits_fma,
                                        bool subnormals, bool saturate)
 {
-  bmm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
-                 [man_fma, exp_fma, subnormals, saturate](float x)
-                 { return float_quantize(x, man_fma, exp_fma, rStochastic, subnormals, saturate); });
+  bmm_fma_kernel(
+      a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
+      [man_fma, exp_fma, rbits_fma, subnormals, saturate](float x)
+      { return float_quantize_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
 }
 
 void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
@@ -890,15 +879,15 @@ void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_exp, exp_exp](float x)
       {
-        return float_quantize(x, man_exp, exp_exp, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_exp, exp_exp, subnormals, saturate);
       },
       [subnormals, saturate, man_off, exp_off](float x)
       {
-        return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_off, exp_off, subnormals, saturate);
       },
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
       });
 }
 
@@ -912,11 +901,11 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_off, exp_off](float x)
       {
-        return float_quantize(x, man_off, exp_off, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_off, exp_off, subnormals, saturate);
       },
       [subnormals, saturate, man_lse, exp_lse](float x)
       {
-        return float_quantize(x, man_lse, exp_lse, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_lse, exp_lse, subnormals, saturate);
       });
 }
 
@@ -930,11 +919,11 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
       a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_add, exp_add](float x)
       {
-        return float_quantize(x, man_add, exp_add, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
       });
 }
 
@@ -989,19 +978,19 @@ void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
       eps, sizes,
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
       },
       [subnormals, saturate, man_div, exp_div](float x)
       {
-        return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_div, exp_div, subnormals, saturate);
       },
       [subnormals, saturate, man_sqrt, exp_sqrt](float x)
       {
-        return float_quantize(x, man_sqrt, exp_sqrt, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_sqrt, exp_sqrt, subnormals, saturate);
       });
 }
 
@@ -1020,15 +1009,15 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor 
       grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize(x, man_acc, exp_acc, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize(x, man_mul, exp_mul, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
       },
       [subnormals, saturate, man_div, exp_div](float x)
       {
-        return float_quantize(x, man_div, exp_div, rNearest, subnormals, saturate);
+        return float_quantize_nearest(x, man_div, exp_div, subnormals, saturate);
       });
 }
 

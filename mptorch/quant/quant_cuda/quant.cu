@@ -456,56 +456,65 @@ void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
 
 void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                        int M, int N, int K,
-                                       int man_add, int exp_add,
-                                       int man_mul, int exp_mul,
+                                       int man_add, int exp_add, int rbits_add,
+                                       int man_mul, int exp_mul, int rbits_mul,
                                        bool subnormals, bool saturate)
 {
-  mm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                   c.data_ptr<float>(), M, K, N, man_add, exp_add, man_mul,
-                   exp_mul, subnormals, saturate);
+  mm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                   M, K, N,
+                   man_add, exp_add, rbits_add,
+                   man_mul, exp_mul, rbits_mul,
+                   subnormals, saturate);
   return;
 }
 
 void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                            int M, int N, int K,
-                                           int man_fma, int exp_fma,
+                                           int man_fma, int exp_fma, int rbits_fma,
                                            bool subnormals, bool saturate)
 {
-  mm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
+  mm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                       M, K, N,
+                       man_fma, exp_fma, rbits_fma,
                        subnormals, saturate);
   return;
 }
 
 void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                         int M, int N, int K,
-                                        int man_add, int exp_add,
-                                        int man_mul, int exp_mul,
+                                        int man_add, int exp_add, int rbits_add,
+                                        int man_mul, int exp_mul, int rbits_mul,
                                         bool subnormals, bool saturate)
 {
   if (a.sizes().size() > 2)
-    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                      c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add,
-                      exp_add, man_mul, man_add, subnormals, saturate);
+    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                      a.sizes()[0], M, K, N,
+                      man_add, exp_add, rbits_add,
+                      man_mul, exp_mul, rbits_mul,
+                      subnormals, saturate);
   else
-    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                      c.data_ptr<float>(), 1, M, K, N, man_add, exp_add,
-                      man_mul, man_add, subnormals, saturate);
+    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                      1, M, K, N,
+                      man_add, exp_add, rbits_add,
+                      man_mul, exp_mul, rbits_mul,
+                      subnormals, saturate);
 }
 
 void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                             int M, int N, int K,
-                                            int man_fma, int exp_fma,
+                                            int man_fma, int exp_fma, int rbits_fma,
                                             bool subnormals, bool saturate)
 {
 
   if (a.sizes().size() > 2)
-    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                          c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
-                          exp_fma, subnormals, saturate);
+    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                          a.sizes()[0], M, K, N,
+                          man_fma, exp_fma, rbits_fma,
+                          subnormals, saturate);
   else
-    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                          c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
+    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                          1, M, K, N,
+                          man_fma, exp_fma, rbits_fma,
                           subnormals, saturate);
 }
 
