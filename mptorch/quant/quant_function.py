@@ -1331,6 +1331,7 @@ def mp_mm(
             fma=fma,
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
+            compensated=formats.compensated,
             rbits_add=formats.rbits_add,
             rbits_mul=formats.rbits_mul,
         )
@@ -1462,6 +1463,7 @@ def float_mm(
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = True,
+    compensated: bool = False,
     rbits_add: int = 0,
     rbits_mul: int = 0,
 ) -> torch.Tensor:
@@ -1478,6 +1480,7 @@ def float_mm(
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `subnormals` (bool): allow the use of subnormal values
         - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable in the format instead of outputting infinities)
+        - :attr: `compensated` (bool): compensated flag (i.e., use Kahan summation)
         - :attr: `rbits_add` (int): number of random bits to use in stochastic rounding addition (in case rounding mode is stochastic)
         - :attr: `rbits_mul` (int): number of random bits to use in stochastic rounding multiplication (in case rounding mode is stochastic)
     Returns:
@@ -1521,6 +1524,7 @@ def float_mm(
                 exp_mul,
                 subnormals,
                 saturate,
+                compensated,
             )
         else:
             quant_module.float_quantize_nearest_mm_fma(
@@ -1534,6 +1538,7 @@ def float_mm(
                 exp_add,
                 subnormals,
                 saturate,
+                compensated,
             )
     else:
         if rbits_add <= 0:
@@ -1696,6 +1701,7 @@ def mp_bmm(
             fma=fma,
             subnormals=add_cfg.subnormals,
             saturate=add_cfg.saturate,
+            compensated=formats.compensated,
             rbits_add=formats.rbits_add,
             rbits_mul=formats.rbits_mul,
         )
@@ -1738,6 +1744,7 @@ def float_bmm(
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = True,
+    compensated: bool = False,
     rbits_add: int = 0,
     rbits_mul: int = 0,
 ) -> torch.Tensor:
@@ -1777,6 +1784,7 @@ def float_bmm(
                     exp_mul,
                     subnormals,
                     saturate,
+                    compensated,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
                 a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
@@ -1794,6 +1802,7 @@ def float_bmm(
                     exp_mul,
                     subnormals,
                     saturate,
+                    compensated,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
             elif len(a.shape) == 4 and len(b.shape) == 4:
@@ -1819,6 +1828,7 @@ def float_bmm(
                     exp_mul,
                     subnormals,
                     saturate,
+                    compensated,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
             elif len(a.shape) == 2 and len(b.shape) == 2:
@@ -1836,6 +1846,7 @@ def float_bmm(
                     exp_mul,
                     subnormals,
                     saturate,
+                    compensated,
                 )
             else:
                 raise Exception("Wrong tensor sizes")
@@ -1853,6 +1864,7 @@ def float_bmm(
                     exp_add,
                     subnormals,
                     saturate,
+                    compensated,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
                 a_r = torch.reshape(a, (a.shape[0] * a.shape[1], a.shape[2]))
@@ -1868,6 +1880,7 @@ def float_bmm(
                     exp_add,
                     subnormals,
                     saturate,
+                    compensated,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
             elif len(a.shape) == 4 and len(b.shape) == 4:
@@ -1891,6 +1904,7 @@ def float_bmm(
                     exp_add,
                     subnormals,
                     saturate,
+                    compensated,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
             elif len(a.shape) == 2 and len(b.shape) == 2:
@@ -1906,6 +1920,7 @@ def float_bmm(
                     exp_add,
                     subnormals,
                     saturate,
+                    compensated,
                 )
             else:
                 raise Exception("Wrong tensor sizes")

@@ -336,22 +336,26 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                     int M, int N, int K,
                                     int man_add, int exp_add,
                                     int man_mul, int exp_mul,
-                                    bool subnormals, bool saturate)
+                                    bool subnormals,
+                                    bool saturate,
+                                    bool compensated)
 {
   mm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                M, K, N, man_add, exp_add, man_mul, exp_mul, subnormals,
-                saturate);
+                M, K, N, man_add, exp_add, man_mul, exp_mul,
+                subnormals, saturate, compensated);
   return;
 }
 
 void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                         int M, int N, int K,
                                         int man_fma, int exp_fma,
-                                        bool subnormals, bool saturate)
+                                        bool subnormals,
+                                        bool saturate,
+                                        bool compensated)
 {
-  mm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                    c.data_ptr<float>(), M, K, N, man_fma, exp_fma, subnormals,
-                    saturate);
+  mm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                    M, K, N, man_fma, exp_fma,
+                    subnormals, saturate, compensated);
   return;
 }
 
@@ -359,32 +363,40 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                      int M, int N, int K,
                                      int man_add, int exp_add,
                                      int man_mul, int exp_mul,
-                                     bool subnormals, bool saturate)
+                                     bool subnormals,
+                                     bool saturate,
+                                     bool compensated)
 {
   if (a.sizes().size() > 2)
-    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                   c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add, exp_add,
-                   man_mul, man_add, subnormals, saturate);
+    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                   a.sizes()[0], M, K, N,
+                   man_add, exp_add, man_mul, exp_mul,
+                   subnormals, saturate, compensated);
   else
-    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                   c.data_ptr<float>(), 1, M, K, N, man_add, exp_add, man_mul,
-                   man_add, subnormals, saturate);
+    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                   1, M, K, N,
+                   man_add, exp_add, man_mul, exp_mul,
+                   subnormals, saturate, compensated);
   return;
 }
 
 void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                          int M, int N, int K,
                                          int man_fma, int exp_fma,
-                                         bool subnormals, bool saturate)
+                                         bool subnormals,
+                                         bool saturate,
+                                         bool compensated)
 {
   if (a.sizes().size() > 2)
-    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
-                       exp_fma, subnormals, saturate);
+    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                       a.sizes()[0], M, K, N,
+                       man_fma, exp_fma,
+                       subnormals, saturate, compensated);
   else
-    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
-                       subnormals, saturate);
+    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+                       1, M, K, N,
+                       man_fma, exp_fma,
+                       subnormals, saturate, compensated);
   return;
 }
 

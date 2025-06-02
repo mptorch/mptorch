@@ -156,7 +156,9 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                     int M, int N, int K,
                                     int man_add, int exp_add,
                                     int man_mul, int exp_mul,
-                                    bool subnormals, bool saturate);
+                                    bool subnormals,
+                                    bool saturate,
+                                    bool compensated);
 
 /**
  * perform batch matrix multiplication with quantized addition and multiplication
@@ -170,7 +172,9 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                      int M, int N, int K,
                                      int man_add, int exp_add,
                                      int man_mul, int exp_mul,
-                                     bool subnormals, bool saturate);
+                                     bool subnormals,
+                                     bool saturate,
+                                     bool compensated);
 
 /**
  * perform matrix multiplication with quantized FMA operations that simulate
@@ -182,7 +186,9 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
 void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                         int M, int N, int K,
                                         int man_fma, int exp_fma,
-                                        bool subnormals, bool saturate);
+                                        bool subnormals,
+                                        bool saturate,
+                                        bool compensated);
 
 /**
  * perform batch matrix multiplication with quantized FMA operations that simulate
@@ -194,7 +200,9 @@ void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
 void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                          int M, int N, int K,
                                          int man_fma, int exp_fma,
-                                         bool subnormals, bool saturate);
+                                         bool subnormals,
+                                         bool saturate,
+                                         bool compensated);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication

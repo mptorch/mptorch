@@ -82,12 +82,16 @@ void mm_fp_nearest(float *a, float *b, float *c,
                    int M, int K, int N,
                    int man_add, int exp_add,
                    int man_mul, int exp_mul,
-                   bool subnormals, bool saturate);
+                   bool subnormals,
+                   bool saturate,
+                   bool compensated);
 
 void mm_fp_fma_nearest(float *a, float *b, float *c,
                        int M, int K, int N,
                        int man_fma, int exp_fma,
-                       bool subnormals, bool saturate);
+                       bool subnormals,
+                       bool saturate,
+                       bool compensated);
 
 void mm_fp_stochastic(float *a, float *b, float *c,
                       int M, int K, int N,
@@ -104,12 +108,16 @@ void bmm_fp_nearest(float *a, float *b, float *c,
                     int B, int M, int K, int N,
                     int man_add, int exp_add,
                     int man_mul, int exp_mul,
-                    bool subnormals, bool saturate);
+                    bool subnormals,
+                    bool saturate,
+                    bool compensated);
 
 void bmm_fp_fma_nearest(float *a, float *b, float *c,
                         int B, int M, int K, int N,
                         int man_fma, int exp_fma,
-                        bool subnormals, bool saturate);
+                        bool subnormals,
+                        bool saturate,
+                        bool compensated);
 
 void bmm_fp_stochastic(float *a, float *b, float *c,
                        int B, int M, int K, int N,

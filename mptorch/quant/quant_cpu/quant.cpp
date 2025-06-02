@@ -602,42 +602,110 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
                                int M, int N, int K,
                                int man_add, int exp_add,
                                int man_mul, int exp_mul,
-                               bool subnormals, bool saturate)
+                               bool subnormals,
+                               bool saturate,
+                               bool compensated)
 {
-  mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-            { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-            { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  if (compensated)
+  {
+    mm_kahan_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        M, K, N,
+        [man_add, exp_add, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [man_mul, exp_mul, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
+  else
+  {
+    mm_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        M, K, N,
+        [man_add, exp_add, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [man_mul, exp_mul, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
 }
 
 void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                 int M, int N, int K,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
-                                bool subnormals, bool saturate)
+                                bool subnormals,
+                                bool saturate,
+                                bool compensated)
 {
-  bmm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-             { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-             { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  if (compensated)
+  {
+    bmm_kahan_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        a.sizes()[0], M, K, N,
+        [man_add, exp_add, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [man_mul, exp_mul, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
+  else
+  {
+    bmm_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        a.sizes()[0], M, K, N,
+        [man_add, exp_add, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [man_mul, exp_mul, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
 }
 
 void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
                                    int M, int N, int K,
                                    int man_fma, int exp_fma,
-                                   bool subnormals, bool saturate)
+                                   bool subnormals,
+                                   bool saturate,
+                                   bool compensated)
 {
-  mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
-                [man_fma, exp_fma, subnormals, saturate](float x)
-                { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  if (compensated)
+  {
+    mm_kahan_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        M, K, N,
+        [man_fma, exp_fma, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
+  else
+  {
+    mm_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        M, K, N,
+        [man_fma, exp_fma, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
 }
 
 void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
                                     int M, int N, int K,
                                     int man_fma, int exp_fma,
-                                    bool subnormals, bool saturate)
+                                    bool subnormals,
+                                    bool saturate,
+                                    bool compensated)
 {
-  bmm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
-                 [man_fma, exp_fma, subnormals, saturate](float x)
-                 { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  if (compensated)
+  {
+    bmm_kahan_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        a.sizes()[0], M, K, N,
+        [man_fma, exp_fma, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
+  else
+  {
+    bmm_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        a.sizes()[0], M, K, N,
+        [man_fma, exp_fma, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
 }
 
 void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,

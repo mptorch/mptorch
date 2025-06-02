@@ -124,13 +124,16 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
                                int M, int N, int K,
                                int man_add, int exp_add,
                                int man_mul, int exp_mul,
-                               bool subnormals, bool saturate)
+                               bool subnormals,
+                               bool saturate,
+                               bool compensated)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_nearest_mm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul, exp_mul,
-                                     subnormals, saturate);
+      float_quantize_nearest_mm_cuda(a, b, c, M, N, K,
+                                     man_add, exp_add, man_mul, exp_mul,
+                                     subnormals, saturate, compensated);
       return;
 }
 
@@ -138,39 +141,48 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                 int M, int N, int K,
                                 int man_add, int exp_add,
                                 int man_mul, int exp_mul,
-                                bool subnormals, bool saturate)
+                                bool subnormals,
+                                bool saturate,
+                                bool compensated)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_nearest_bmm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul, exp_mul,
-                                      subnormals, saturate);
+      float_quantize_nearest_bmm_cuda(a, b, c, M, N, K,
+                                      man_add, exp_add, man_mul, exp_mul,
+                                      subnormals, saturate, compensated);
       return;
 }
 
 void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
                                    int M, int N, int K,
                                    int man_fma, int exp_fma,
-                                   bool subnormals, bool saturate)
+                                   bool subnormals,
+                                   bool saturate,
+                                   bool compensated)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
-                                         subnormals, saturate);
+      float_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K,
+                                         man_fma, exp_fma,
+                                         subnormals, saturate, compensated);
       return;
 }
 
 void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
                                     int M, int N, int K,
                                     int man_fma, int exp_fma,
-                                    bool subnormals, bool saturate)
+                                    bool subnormals,
+                                    bool saturate,
+                                    bool compensated)
 {
       CHECK_INPUT(a);
       CHECK_INPUT(b);
       CHECK_INPUT(c);
-      float_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
-                                          subnormals, saturate);
+      float_quantize_nearest_bmm_fma_cuda(a, b, c, M, N, K,
+                                          man_fma, exp_fma,
+                                          subnormals, saturate, compensated);
       return;
 }
 

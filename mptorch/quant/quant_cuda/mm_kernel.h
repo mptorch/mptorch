@@ -566,10 +566,10 @@ __global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b, flo
   }
 }
 
-template <size_t SHMEM_SIZE, class Qadd, class Qmul>
+template <size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
                                   int M, int K, int N,
-                                  Qadd quant_fma)
+                                  Qfma quant_fma)
 {
   // declare shared memory matrices for A and B
   __shared__ float s_a[SHMEM_SIZE];
@@ -617,10 +617,10 @@ __global__ void mm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b, 
     c[row * N + col] = sum;
 }
 
-template <size_t SHMEM_SIZE, class Qadd, class Qmul>
-__global__ void bmm_kahan_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
-                               int M, int K, int N,
-                               Qadd quant_fma)
+template <size_t SHMEM_SIZE, class Qfma>
+__global__ void bmm_kahan_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+                                   int M, int K, int N,
+                                   Qfma quant_fma)
 {
   // declare shared memory matrices for A and B matrices
   __shared__ float s_a[SHMEM_SIZE];

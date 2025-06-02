@@ -63,14 +63,15 @@ void mm_kahan_kernel(float *a, float *b, float *c,
                      int M, int K, int N,
                      Qadd quant_add, Qmul quant_mul)
 {
-    float comp_term = 0.0f;
+    float comp_term, update, y, t = 0.0f;
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
             {
-                float update = quant_mul(a[i * K + k] * b[k * N + j]);
-                float y = quant_add(update - comp_term);
-                float t = quant_add(quant_add(t - c[i * N + j]) + y);
+                update = quant_mul(a[i * K + k] * b[k * N + j]);
+                y = quant_add(update - comp_term);
+                t = quant_add(c[i * N + j] + y);
+                comp_term = quant_add(quant_add(t - c[i * N + j]) - y);
                 c[i * N + j] = t;
             }
 }
@@ -94,13 +95,14 @@ void mm_kahan_fma_kernel(float *a, float *b, float *c,
                          int M, int K, int N,
                          Qfma quant_fma)
 {
-    float comp_term = 0.0f;
+    float comp_term, y, t = 0.0f;
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
             {
-                float y = quant_fma(fmaf(a[i * K + k], b[k * N + j], -comp_term));
-                float t = quant_fma(quant_fma(t - c[i * N + j]) + y);
+                y = quant_fma(fmaf(a[i * K + k], b[k * N + j], -comp_term));
+                t = quant_fma(c[i * N + j] + y);
+                comp_term = quant_fma(quant_fma(t - c[i * N + j]) - y);
                 c[i * N + j] = t;
             }
 }
