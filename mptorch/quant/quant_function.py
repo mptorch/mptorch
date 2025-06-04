@@ -112,6 +112,17 @@ else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
 
+def normalize_binades(binades: int | tuple[int]) -> tuple[int]:
+    if isinstance(binades, int):
+        binades_l, binades_u = binades, binades
+    elif len(binades) == 1:
+        binades_l, binades_u = binades[0], binades[0]
+    else:
+        binades_l, binades_u = binades[0], binades[1]
+
+    return (binades_l, binades_u)
+
+
 def cublas_mm(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -601,26 +612,9 @@ def superfp_softmax_forward(
     output = torch.zeros_like(input)
     quant_module = get_module(input)
 
-    if isinstance(binades_exp, int):
-        binades_exp_l, binades_exp_u = binades_exp, binades_exp
-    elif len(binades_exp) == 1:
-        binades_exp_l, binades_exp_u = binades_exp[0], binades_exp[0]
-    else:
-        binades_exp_l, binades_exp_u = binades_exp[0], binades_exp[1]
-
-    if isinstance(binades_off, int):
-        binades_off_l, binades_off_u = binades_off, binades_off
-    elif len(binades_off) == 1:
-        binades_off_l, binades_off_u = binades_off[0], binades_off[0]
-    else:
-        binades_off_l, binades_off_u = binades_off[0], binades_off[1]
-
-    if isinstance(binades_acc, int):
-        binades_acc_l, binades_acc_u = binades_acc, binades_acc
-    elif len(binades_acc) == 1:
-        binades_acc_l, binades_acc_u = binades_acc[0], binades_acc[0]
-    else:
-        binades_acc_l, binades_acc_u = binades_acc[0], binades_acc[1]
+    binades_exp_l, binades_exp_u = normalize_binades(binades_exp)
+    binades_off_l, binades_off_u = normalize_binades(binades_off)
+    binades_acc_l, binades_acc_u = normalize_binades(binades_acc)
 
     quant_module.superfp_quantize_nearest_softmax_forward(
         input.contiguous(),
@@ -648,28 +642,32 @@ def superfp_softmax_lse_forward(
     dim: int,
     man_off: int = 23,
     exp_off: int = 8,
-    binades_off: int = 1,
+    binades_off: int | tuple[int] = 1,
     man_lse: int = 23,
     exp_lse: int = 8,
-    binades_lse: int = 1,
+    binades_lse: int | tuple[int] = 1,
     rounding: Literal["nearest", "stohastic"] = "nearest",
     saturate: bool = False,
 ) -> torch.Tensor:
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
+
+    binades_off_l, binades_off_u = normalize_binades(binades_off)
+    binades_lse_l, binades_lse_u = normalize_binades(binades_lse)
+
     quant_module.superfp_quantize_nearest_softmax_lse_forward(
         input.contiguous(),
         output,
         dim,
         man_off,
         exp_off,
-        binades_off,
-        binades_off,
+        binades_off_l,
+        binades_off_u,
         man_lse,
         exp_lse,
-        binades_lse,
-        binades_lse,
+        binades_lse_l,
+        binades_lse_u,
         saturate,
     )
     return output
@@ -681,10 +679,10 @@ def superfp_softmax_backward(
     dim: int,
     man_add: int = 23,
     exp_add: int = 8,
-    binades_add: int = 1,
+    binades_add: int | tuple[int] = 1,
     man_mul: int = 23,
     exp_mul: int = 8,
-    binades_mul: int = 1,
+    binades_mul: int | tuple[int] = 1,
     rounding: Literal["nearest", "stochastic"] = "nearest",
     saturate: bool = False,
 ) -> torch.Tensor:
@@ -692,6 +690,10 @@ def superfp_softmax_backward(
     assert rounding == "nearest", "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
+
+    binades_add_l, binades_add_u = normalize_binades(binades_add)
+    binades_mul_l, binades_mul_u = normalize_binades(binades_mul)
+
     quant_module.superfp_quantize_nearest_softmax_backward(
         input.contiguous(),
         grad_output.contiguous(),
@@ -699,12 +701,12 @@ def superfp_softmax_backward(
         dim,
         man_add,
         exp_add,
-        binades_add,
-        binades_add,
+        binades_add_l,
+        binades_add_u,
         man_mul,
         exp_mul,
-        binades_mul,
-        binades_mul,
+        binades_mul_l,
+        binades_mul_u,
         saturate,
     )
     return grad_input
@@ -810,8 +812,13 @@ def binary8_softmax_backward(
 
 
 def mp_layernorm_forward(
-    inp: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps, dims, formats
-):
+    inp: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+    dims: list[int],
+    formats,
+) -> torch.Tensor:
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_forward(
@@ -882,7 +889,16 @@ def mp_layernorm_forward(
     raise NotImplementedError("Unsupported float type.")
 
 
-def mp_layernorm_backward(inp, grad_output, weight, bias, mean, rstd, dims, formats):
+def mp_layernorm_backward(
+    inp: torch.Tensor,
+    grad_output: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    mean: torch.Tensor,
+    rstd: torch.Tensor,
+    dims: list[int],
+    formats,
+) -> torch.Tensor:
     acc_cfg = formats.bwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_backward(
@@ -1002,26 +1018,26 @@ def float_layernorm_forward(
 
 
 def superfp_layernorm_forward(
-    inp,
-    weight,
-    bias,
-    eps,
-    dims,
-    man_acc=23,
-    exp_acc=8,
-    binades_acc=1,
-    man_mul=23,
-    exp_mul=8,
-    binades_mul=1,
-    man_div=23,
-    exp_div=8,
-    binades_div=1,
-    man_sqrt=23,
-    exp_sqrt=8,
-    binades_sqrt=1,
-    rounding="nearest",
-    saturate=False,
-):
+    inp: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+    dims: list[int],
+    man_acc: int = 23,
+    exp_acc: int = 8,
+    binades_acc: int | tuple[int] = 1,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    binades_mul: int | tuple[int] = 1,
+    man_div: int = 23,
+    exp_div: int = 8,
+    binades_div: int | tuple[int] = 1,
+    man_sqrt: int = 23,
+    exp_sqrt: int = 8,
+    binades_sqrt: int | tuple[int] = 1,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    saturate: bool = False,
+) -> torch.Tensor:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1064,26 +1080,26 @@ def superfp_layernorm_forward(
 
 
 def binary8_layernorm_forward(
-    inp,
-    weight,
-    bias,
-    eps,
-    dims,
-    P_acc,
-    op_acc,
-    signed_acc,
-    P_mul,
-    op_mul,
-    signed_mul,
-    P_div,
-    op_div,
-    signed_div,
-    P_sqrt,
-    op_sqrt,
-    signed_sqrt,
-    rounding,
-    subnormals,
-):
+    inp: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+    dims: list[int],
+    P_acc: int,
+    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_acc: bool,
+    P_mul: int,
+    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_mul: bool,
+    P_div: int,
+    op_div: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_div: bool,
+    P_sqrt: int,
+    op_sqrt: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_sqrt: bool,
+    rounding: Literal["nearest"],
+    subnormals: bool,
+) -> torch.Tensor:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
