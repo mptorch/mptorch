@@ -215,6 +215,72 @@ __global__ void mm_kahan_kernel1(float *__restrict__ a, float *__restrict__ b,
         c[row * N + col] = sum;
 }
 
+template <size_t BLOCKSIZE, class Qadd, class Qmul>
+__global__ void mm_kahan_kernel2(float *__restrict__ a, float *__restrict__ b,
+                                 float *__restrict__ c, int M, int K, int N,
+                                 Qadd quant_add, Qmul quant_mul)
+{
+
+    // the output block that we want to compute in this threadblock
+    const int cRow = blockIdx.x;
+    const int cCol = blockIdx.y;
+
+    float sum = 0.0f;
+    float comp_term = 0.0f;
+    float update = 0.0f;
+    float y = 0.0f;
+    float t = 0.0f;
+
+    // allocate buffer for current block in fast shared mem
+    // shared mem is shared between all threads in a block
+    __shared__ float As[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
+
+    // the inner row & col that we're accessing in this thread
+    const int threadCol = threadIdx.x % BLOCKSIZE;
+    const int threadRow = threadIdx.x / BLOCKSIZE;
+
+    // advance pointers to the starting positions
+    a += cRow * BLOCKSIZE * K;                    // row=cRow, col=0
+    b += cCol * BLOCKSIZE;                        // row=0, col=cCol
+    c += cRow * BLOCKSIZE * N + cCol * BLOCKSIZE; // row=cRow, col=cCol
+
+    int cId = cCol * BLOCKSIZE + threadCol;
+    int rId = cRow * BLOCKSIZE + threadRow;
+
+    for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE)
+    {
+        // Have each thread load one of the elements in A & B
+        // Make the threadCol (=threadIdx.x) the consecutive index
+        // to allow global memory access coalescing
+        As[threadRow * BLOCKSIZE + threadCol] = (rId < M && bkIdx + threadCol < K) ? a[threadRow * K + threadCol] : 0.0f;
+        Bs[threadRow * BLOCKSIZE + threadCol] = (bkIdx + threadRow < K && cId < N) ? b[threadRow * N + threadCol] : 0.0f;
+
+        // block threads in this block until cache is fully populated
+        __syncthreads();
+        a += BLOCKSIZE;
+        b += BLOCKSIZE * N;
+
+        // execute the dotproduct on the currently cached block
+        for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
+        {
+            update = quant_mul(As[threadRow * BLOCKSIZE + dotIdx] *
+                               Bs[dotIdx * BLOCKSIZE + threadCol]);
+            y = quant_add(update - comp_term);
+            t = quant_add(sum + y);
+            comp_term = quant_add(quant_add(t - sum) - y);
+            sum = t;
+        }
+        // need to sync again at the end, to avoid faster threads
+        // fetching the next block into the cache before slower threads are done
+        __syncthreads();
+    }
+    if (rId < M && cId < N)
+    {
+        c[threadRow * N + threadCol] = sum;
+    }
+}
+
 // --------------------------------------------------------------------------------------------------
 // Kernel Launchers
 
@@ -241,6 +307,19 @@ void mm_kahan_cuda1(float *a, float *b, float *c, int M, int K, int N,
     mm_kahan_kernel1<SHMEM_SIZE><<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
                                                             { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
                                                             { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+}
+
+void mm_kahan_cuda2(float *a, float *b, float *c, int M, int K, int N,
+                    int man_add, int exp_add, int man_mul, int exp_mul,
+                    bool subnormals, bool saturate)
+{
+
+    dim3 const thread_dim{1024U, 1U, 1U};
+    dim3 const block_dim{(uint)ceil_div(M, 32), (uint)ceil_div(N, 32), 1U};
+    mm_kahan_kernel2<32>
+        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
 }
 
 int main(int argc, const char **argv)
@@ -277,8 +356,10 @@ int main(int argc, const char **argv)
 
     printf("CUDA benchmarking...\n");
     repeat_times = 1000;
-    elapsed_time1 = benchmark_gpu_kernel(repeat_times, mm_kahan_cuda1, d_a, d_b, d_c, M, K, N, 7, 8, 7, 8, true, true);
-    printf("time mm_kahan_cuda1 %.4f ms\n", elapsed_time1);
+    float elapsed_time2 = benchmark_gpu_kernel(repeat_times, mm_kahan_cuda1, d_a, d_b, d_c, M, K, N, 7, 8, 7, 8, true, true);
+    float elapsed_time3 = benchmark_gpu_kernel(repeat_times, mm_kahan_cuda2, d_a, d_b, d_c, M, K, N, 7, 8, 7, 8, true, true);
+
+    printf("time mm_kahan_cuda1 %.4f ms | time mm_kahan_cuda2 %.4f ms\n", elapsed_time2, elapsed_time3);
 
     // free memory
     free(a);
