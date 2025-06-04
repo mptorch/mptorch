@@ -818,7 +818,7 @@ def mp_layernorm_forward(
     eps: float,
     dims: list[int],
     formats,
-) -> torch.Tensor:
+):
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_forward(
@@ -898,7 +898,7 @@ def mp_layernorm_backward(
     rstd: torch.Tensor,
     dims: list[int],
     formats,
-) -> torch.Tensor:
+):
     acc_cfg = formats.bwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_backward(
@@ -982,7 +982,7 @@ def float_layernorm_forward(
     rounding: Literal["nearest"] = "nearest",
     subnormals: bool = True,
     saturate: bool = False,
-) -> torch.Tensor:
+):
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1037,7 +1037,7 @@ def superfp_layernorm_forward(
     binades_sqrt: int | tuple[int] = 1,
     rounding: Literal["nearest", "stochastic"] = "nearest",
     saturate: bool = False,
-) -> torch.Tensor:
+):
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1099,7 +1099,7 @@ def binary8_layernorm_forward(
     signed_sqrt: bool,
     rounding: Literal["nearest"],
     subnormals: bool,
-) -> torch.Tensor:
+):
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1138,22 +1138,22 @@ def binary8_layernorm_forward(
 
 
 def float_layernorm_backward(
-    inp,
-    grad_output,
-    weight,
-    bias,
-    mean,
-    rstd,
-    dims,
-    man_acc=23,
-    exp_acc=8,
-    man_mul=23,
-    exp_mul=8,
-    man_div=23,
-    exp_div=8,
-    rounding="nearest",
-    subnormals=True,
-    saturate=False,
+    inp: torch.Tensor,
+    grad_output: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    mean: torch.Tensor,
+    rstd: torch.Tensor,
+    dims: list[int],
+    man_acc: int = 23,
+    exp_acc: int = 8,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    man_div: int = 23,
+    exp_div: int = 8,
+    rounding: Literal["nearest"] = "nearest",
+    subnormals: bool = True,
+    saturate: bool = False,
 ):
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
@@ -1189,24 +1189,24 @@ def float_layernorm_backward(
 
 
 def superfp_layernorm_backward(
-    inp,
-    grad_output,
-    weight,
-    bias,
-    mean,
-    rstd,
-    dims,
-    man_acc=23,
-    exp_acc=8,
-    binades_acc=1,
-    man_mul=23,
-    exp_mul=8,
-    binades_mul=1,
-    man_div=23,
-    exp_div=8,
-    binades_div=1,
-    rounding="nearest",
-    saturate=False,
+    inp: torch.Tensor,
+    grad_output: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    mean: torch.Tensor,
+    rstd: torch.Tensor,
+    dims: list[int],
+    man_acc: int = 23,
+    exp_acc: int = 8,
+    binades_acc: int | tuple[int] = 1,
+    man_mul: int = 23,
+    exp_mul: int = 8,
+    binades_mul: int | tuple[int] = 1,
+    man_div: int = 23,
+    exp_div: int = 8,
+    binades_div: int | tuple[int] = 1,
+    rounding: Literal["nearest"] = "nearest",
+    saturate: bool = False,
 ):
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
@@ -1217,6 +1217,10 @@ def superfp_layernorm_backward(
     grad_input = torch.zeros_like(inp)
     grad_weight = torch.zeros_like(weight)
     grad_bias = torch.zeros_like(bias)
+
+    binades_acc_l, binades_acc_h = normalize_binades(binades_acc)
+    binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
+    binades_div_l, binades_div_h = normalize_binades(binades_div)
 
     quant_module.superfp_quantize_layernorm_backward(
         inp.contiguous(),
@@ -1231,16 +1235,16 @@ def superfp_layernorm_backward(
         dims,
         man_acc,
         exp_acc,
-        binades_acc,
-        binades_acc,
+        binades_acc_l,
+        binades_acc_h,
         man_mul,
         exp_mul,
-        binades_mul,
-        binades_mul,
+        binades_mul_l,
+        binades_mul_h,
         man_div,
         exp_div,
-        binades_div,
-        binades_div,
+        binades_div_l,
+        binades_div_h,
         saturate,
     )
     return grad_input, grad_weight, grad_bias
