@@ -1633,7 +1633,7 @@ def superfp_mm(
         - :attr: `binades_add` (int | tuple[int] | tuple[int, int]) : number of binades in the sub/sup normal range for addition operations
         - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
         - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
-        - :attr: `binades_mul` (int) : number of binades in the sub/sup normal range for multiplication operations
+        - :attr: `binades_mul` (int | tuple[int] | tuple[int, int]) : number of binades in the sub/sup normal range for multiplication operations
         - :attr: `fma` (bool) : use fma operation instead of separate multiply and add (uses the
         man_add and exp_add parameters for the rounding of the fma results)
         - :attr: `saturate` (bool): saturate results (i.e., clamp values at min/max representable
@@ -2133,18 +2133,18 @@ def float_bmm(
 
 
 def superfp_bmm(
-    a,
-    b,
-    man_add=7,
-    exp_add=8,
-    man_mul=7,
-    exp_mul=8,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    man_add: int = 7,
+    exp_add: int = 8,
+    man_mul: int = 7,
+    exp_mul: int = 8,
     binades_add: int | tuple[int] | tuple[int, int] = 1,
     binades_mul: int | tuple[int] | tuple[int, int] = 1,
-    rounding="nearest",
-    fma=True,
-    saturate=True,
-):
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+    saturate: bool = True,
+) -> torch.Tensor:
 
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
@@ -2325,16 +2325,16 @@ def superfp_bmm(
 
 
 def fxp_bmm(
-    a,
-    b,
-    wl_add=16,
-    fl_add=8,
-    wl_mul=16,
-    fl_mul=8,
-    symmetric=False,
-    rounding="nearest",
-    fma=True,
-):
+    a: torch.Tensor,
+    b: torch.Tensor,
+    wl_add: int = 16,
+    fl_add: int = 8,
+    wl_mul: int = 16,
+    fl_mul: int = 8,
+    symmetric: bool = False,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+) -> torch.Tensor:
 
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
@@ -2616,12 +2616,13 @@ def fxp_bmm(
     return c
 
 
+# TODO: create exhaustive tests for the quantizer function
 def quantizer(
-    forward_number=None,
-    backward_number=None,
-    forward_rounding="stochastic",
-    backward_rounding="stochastic",
-    clamping_grad_zero=False,
+    forward_number: Number | None = None,
+    backward_number: Number | None = None,
+    forward_rounding: Literal["nearest", "stochastic"] = "stochastic",
+    backward_rounding: Literal["nearest", "stochastic"] = "stochastic",
+    clamping_grad_zero: bool = False,
     backward_hooks=[],
 ):
     """
