@@ -112,7 +112,7 @@ else:
     CUBLASComputeType, CUBLASMatrixType = None, None
 
 
-def normalize_binades(binades: int | tuple[int]) -> tuple[int]:
+def normalize_binades(binades: int | tuple[int] | tuple[int, int]) -> tuple[int, int]:
     if isinstance(binades, int):
         binades_l, binades_u = binades, binades
     elif len(binades) == 1:
@@ -598,13 +598,13 @@ def superfp_softmax_forward(
     dim: int,
     man_exp: int = 23,
     exp_exp: int = 8,
-    binades_exp: int | tuple[int] = 1,
+    binades_exp: int | tuple[int] | tuple[int, int] = 1,
     man_off: int = 23,
     exp_off: int = 8,
-    binades_off: int | tuple[int] = 1,
+    binades_off: int | tuple[int] | tuple[int, int] = 1,
     man_acc: int = 23,
     exp_acc: int = 8,
-    binades_acc: int | tuple[int] = 1,
+    binades_acc: int | tuple[int] | tuple[int, int] = 1,
     rounding: Literal["nearest", "stochastic"] = "nearest",
     saturate: bool = False,
 ) -> torch.Tensor:
@@ -642,10 +642,10 @@ def superfp_softmax_lse_forward(
     dim: int,
     man_off: int = 23,
     exp_off: int = 8,
-    binades_off: int | tuple[int] = 1,
+    binades_off: int | tuple[int] | tuple[int, int] = 1,
     man_lse: int = 23,
     exp_lse: int = 8,
-    binades_lse: int | tuple[int] = 1,
+    binades_lse: int | tuple[int] | tuple[int, int] = 1,
     rounding: Literal["nearest", "stohastic"] = "nearest",
     saturate: bool = False,
 ) -> torch.Tensor:
@@ -679,10 +679,10 @@ def superfp_softmax_backward(
     dim: int,
     man_add: int = 23,
     exp_add: int = 8,
-    binades_add: int | tuple[int] = 1,
+    binades_add: int | tuple[int] | tuple[int, int] = 1,
     man_mul: int = 23,
     exp_mul: int = 8,
-    binades_mul: int | tuple[int] = 1,
+    binades_mul: int | tuple[int] | tuple[int, int] = 1,
     rounding: Literal["nearest", "stochastic"] = "nearest",
     saturate: bool = False,
 ) -> torch.Tensor:
@@ -818,7 +818,7 @@ def mp_layernorm_forward(
     eps: float,
     dims: list[int],
     formats,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     acc_cfg = formats.fwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_forward(
@@ -898,7 +898,7 @@ def mp_layernorm_backward(
     rstd: torch.Tensor,
     dims: list[int],
     formats,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     acc_cfg = formats.bwd_acc
     if type(acc_cfg) == FloatingPoint:
         return float_layernorm_backward(
@@ -982,7 +982,7 @@ def float_layernorm_forward(
     rounding: Literal["nearest"] = "nearest",
     subnormals: bool = True,
     saturate: bool = False,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1025,19 +1025,19 @@ def superfp_layernorm_forward(
     dims: list[int],
     man_acc: int = 23,
     exp_acc: int = 8,
-    binades_acc: int | tuple[int] = 1,
+    binades_acc: int | tuple[int] | tuple[int, int] = 1,
     man_mul: int = 23,
     exp_mul: int = 8,
-    binades_mul: int | tuple[int] = 1,
+    binades_mul: int | tuple[int] | tuple[int, int] = 1,
     man_div: int = 23,
     exp_div: int = 8,
-    binades_div: int | tuple[int] = 1,
+    binades_div: int | tuple[int] | tuple[int, int] = 1,
     man_sqrt: int = 23,
     exp_sqrt: int = 8,
-    binades_sqrt: int | tuple[int] = 1,
+    binades_sqrt: int | tuple[int] | tuple[int, int] = 1,
     rounding: Literal["nearest", "stochastic"] = "nearest",
     saturate: bool = False,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -1048,6 +1048,11 @@ def superfp_layernorm_forward(
     mean = torch.zeros(reduced_shape, device=inp.device)
     rstd = torch.zeros(reduced_shape, device=inp.device)
     output = torch.zeros_like(inp, device=inp.device)
+
+    binades_acc_l, binades_acc_h = normalize_binades(binades_acc)
+    binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
+    binades_div_l, binades_div_h = normalize_binades(binades_div)
+    binades_sqrt_l, binades_sqrt_h = normalize_binades(binades_sqrt)
 
     quant_module.superfp_quantize_layernorm_forward(
         inp.contiguous(),
@@ -1060,20 +1065,20 @@ def superfp_layernorm_forward(
         dims,
         man_acc,
         exp_acc,
-        binades_acc,
-        binades_acc,
+        binades_acc_l,
+        binades_acc_h,
         man_mul,
         exp_mul,
-        binades_mul,
-        binades_mul,
+        binades_mul_l,
+        binades_mul_h,
         man_div,
         exp_div,
-        binades_div,
-        binades_div,
+        binades_div_l,
+        binades_div_h,
         man_sqrt,
         exp_sqrt,
-        binades_sqrt,
-        binades_sqrt,
+        binades_sqrt_l,
+        binades_sqrt_h,
         saturate,
     )
     return output, mean, rstd
@@ -1099,8 +1104,8 @@ def binary8_layernorm_forward(
     signed_sqrt: bool,
     rounding: Literal["nearest"],
     subnormals: bool,
-):
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -1154,8 +1159,8 @@ def float_layernorm_backward(
     rounding: Literal["nearest"] = "nearest",
     subnormals: bool = True,
     saturate: bool = False,
-):
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -1198,17 +1203,17 @@ def superfp_layernorm_backward(
     dims: list[int],
     man_acc: int = 23,
     exp_acc: int = 8,
-    binades_acc: int | tuple[int] = 1,
+    binades_acc: int | tuple[int] | tuple[int, int] = 1,
     man_mul: int = 23,
     exp_mul: int = 8,
-    binades_mul: int | tuple[int] = 1,
+    binades_mul: int | tuple[int] | tuple[int, int] = 1,
     man_div: int = 23,
     exp_div: int = 8,
-    binades_div: int | tuple[int] = 1,
+    binades_div: int | tuple[int] | tuple[int, int] = 1,
     rounding: Literal["nearest"] = "nearest",
     saturate: bool = False,
-):
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -1251,25 +1256,25 @@ def superfp_layernorm_backward(
 
 
 def binary8_layernorm_backward(
-    inp,
-    grad_output,
-    weight,
-    bias,
-    mean,
-    rstd,
-    dims,
-    P_acc,
-    op_acc,
-    signed_acc,
-    P_mul,
-    op_mul,
-    signed_mul,
-    P_div,
-    op_div,
-    signed_div,
-    rounding,
-    subnormals,
-):
+    inp: torch.Tensor,
+    grad_output: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    mean: torch.Tensor,
+    rstd: torch.Tensor,
+    dims: list[int],
+    P_acc: int,
+    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_acc: bool,
+    P_mul: int,
+    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_mul: bool,
+    P_div: int,
+    op_div: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
+    signed_div: bool,
+    rounding: Literal["nearest", "stochastic"],
+    subnormals: bool,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
 
     assert inp.device == grad_output.device
@@ -1339,6 +1344,10 @@ def mp_mm(
                 formats.bwd_fma,
                 formats.bwd_rnd,
             )
+
+    assert type(add_cfg) == type(
+        mul_cfg
+    ), "Only the same types are currently support for add and mul operations"
     if type(add_cfg) == FloatingPoint:
         return float_mm(
             a,
@@ -1361,8 +1370,10 @@ def mp_mm(
             b,
             man_add=add_cfg.man,
             exp_add=add_cfg.exp,
+            binades_add=add_cfg.binades,
             man_mul=mul_cfg.man,
             exp_mul=mul_cfg.exp,
+            binades_mul=mul_cfg.binades,
             rounding=rnd,
             fma=fma,
             saturate=add_cfg.saturate,
@@ -1600,18 +1611,18 @@ def float_mm(
 
 
 def superfp_mm(
-    a,
-    b,
-    man_add=7,
-    exp_add=8,
-    binades_add=1,
-    man_mul=7,
-    exp_mul=8,
-    binades_mul=1,
-    rounding="nearest",
-    fma=True,
-    saturate=False,
-):
+    a: torch.Tensor,
+    b: torch.Tensor,
+    man_add: int = 7,
+    exp_add: int = 8,
+    binades_add: int | tuple[int] | tuple[int, int] = 1,
+    man_mul: int = 7,
+    exp_mul: int = 8,
+    binades_mul: int | tuple[int] | tuple[int, int] = 1,
+    rounding: Literal["nearest", "stochastic"] = "nearest",
+    fma: bool = True,
+    saturate: bool = False,
+) -> torch.Tensor:
     """
     Mixed-precision super normal floating-point GEMM with customized formats for the multipliers and accumulators
     Args:
@@ -1619,7 +1630,7 @@ def superfp_mm(
         - :attr: `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
         - :attr: `exp_add` (int) : number of bits allocated for exponent in addition result
         - :attr: `man_add` (int) : number of bits allocated for mantissa in addition result, not counting the virtual bit
-        - :attr: `binades_add` (int) : number of binades in the sub/sup normal range for addition operations
+        - :attr: `binades_add` (int | tuple[int] | tuple[int, int]) : number of binades in the sub/sup normal range for addition operations
         - :attr: `exp_mul` (int) : number of bits allocated for exponent in multiplication result
         - :attr: `man_mul` (int) : number of bits allocated for mantissa in multiplication result, not counting the virtual bit
         - :attr: `binades_mul` (int) : number of binades in the sub/sup normal range for multiplication operations
@@ -1637,6 +1648,10 @@ def superfp_mm(
     assert a.device == b.device
     quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+
+    binades_add_l, binades_add_h = normalize_binades(binades_add)
+    binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
+
     if rounding == "nearest":
         if not fma:
             quant_module.superfp_quantize_nearest_mm(
@@ -1650,10 +1665,10 @@ def superfp_mm(
                 exp_add,
                 man_mul,
                 exp_mul,
-                binades_add,
-                binades_add,
-                binades_mul,
-                binades_mul,
+                binades_add_l,
+                binades_add_h,
+                binades_mul_l,
+                binades_mul_h,
                 saturate,
             )
         else:
@@ -1666,8 +1681,8 @@ def superfp_mm(
                 a.shape[1],
                 man_add,
                 exp_add,
-                binades_add,
-                binades_add,
+                binades_add_l,
+                binades_add_h,
                 saturate,
             )
     else:
@@ -1709,6 +1724,11 @@ def mp_bmm(
                 formats.bwd_fma,
                 formats.bwd_rnd,
             )
+
+    assert type(add_cfg) == type(
+        mul_cfg
+    ), "Only the same types are currently support for add and mul operations"
+
     if type(add_cfg) == FloatingPoint:
         return float_bmm(
             a,
@@ -2119,8 +2139,8 @@ def superfp_bmm(
     exp_add=8,
     man_mul=7,
     exp_mul=8,
-    binades_add=1,
-    binades_mul=1,
+    binades_add: int | tuple[int] | tuple[int, int] = 1,
+    binades_mul: int | tuple[int] | tuple[int, int] = 1,
     rounding="nearest",
     fma=True,
     saturate=True,
@@ -2129,6 +2149,10 @@ def superfp_bmm(
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
+
+    binades_add_l, binades_add_h = normalize_binades(binades_add)
+    binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
+
     if rounding == "nearest":
         if not fma:
             if len(a.shape) == 3 and len(b.shape) == 3:
@@ -2144,10 +2168,10 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
-                    binades_add,
-                    binades_add,
-                    binades_mul,
-                    binades_mul,
+                    binades_add_l,
+                    binades_add_h,
+                    binades_mul_l,
+                    binades_mul_h,
                     saturate,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
@@ -2164,8 +2188,10 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
-                    binades_add,
-                    binades_mul,
+                    binades_add_l,
+                    binades_add_h,
+                    binades_mul_l,
+                    binades_mul_h,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
@@ -2190,10 +2216,10 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
-                    binades_add,
-                    binades_add,
-                    binades_mul,
-                    binades_mul,
+                    binades_add_l,
+                    binades_add_h,
+                    binades_mul_l,
+                    binades_mul_h,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
@@ -2210,10 +2236,10 @@ def superfp_bmm(
                     exp_add,
                     man_mul,
                     exp_mul,
-                    binades_add,
-                    binades_add,
-                    binades_mul,
-                    binades_mul,
+                    binades_add_l,
+                    binades_add_h,
+                    binades_mul_l,
+                    binades_mul_h,
                     saturate,
                 )
             else:
@@ -2230,8 +2256,8 @@ def superfp_bmm(
                     a.shape[2],
                     man_add,
                     exp_add,
-                    binades_add,
-                    binades_add,
+                    binades_add_l,
+                    binades_add_h,
                     saturate,
                 )
             elif len(a.shape) == 3 and len(b.shape) == 2:
@@ -2246,7 +2272,8 @@ def superfp_bmm(
                     a_r.shape[1],
                     man_add,
                     exp_add,
-                    binades_add,
+                    binades_add_l,
+                    binades_add_h,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], b.shape[1]))
@@ -2269,8 +2296,8 @@ def superfp_bmm(
                     a_r.shape[2],
                     man_add,
                     exp_add,
-                    binades_add,
-                    binades_add,
+                    binades_add_l,
+                    binades_add_h,
                     saturate,
                 )
                 c = torch.reshape(c_r, (a.shape[0], a.shape[1], a.shape[2], b.shape[3]))
@@ -2285,8 +2312,8 @@ def superfp_bmm(
                     a.shape[1],
                     man_add,
                     exp_add,
-                    binades_add,
-                    binades_add,
+                    binades_add_l,
+                    binades_add_h,
                     saturate,
                 )
             else:
