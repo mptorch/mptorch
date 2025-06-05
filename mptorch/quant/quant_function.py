@@ -2868,7 +2868,14 @@ def quantizer(
     return Rounding.apply
 
 
-def fixed_point_quantize(x, wl, fl, clamp=True, symmetric=False, rounding="stochastic"):
+def fixed_point_quantize(
+    x: torch.Tensor,
+    wl: int,
+    fl: int,
+    clamp: bool = True,
+    symmetric: bool = False,
+    rounding: Literal["nearest", "stochastic"] = "stochastic",
+) -> torch.Tensor:
     """
     Quantize a single precision floating-point tensor into a low-precision fixed-point tensor
 
@@ -2900,13 +2907,19 @@ def fixed_point_quantize(x, wl, fl, clamp=True, symmetric=False, rounding="stoch
     return out
 
 
-def block_quantize(x, wl, dim=-1, rounding="stochastic"):
+def block_quantize(
+    x: torch.Tensor,
+    wl: int,
+    dim: int = -1,
+    rounding: Literal["nearest", "stochastic"] = "stochastic",
+) -> torch.Tensor:
     """
     Quantize a single precision floating-point tensor into a low-precision block floating-point representation
 
     Args:
         - :param: `x` (torch.Tensor) :  the single precision tensor to be quantized
         - :param: `wl` (int) : word length of the block floating-point format being simulated
+        - :param: `dim` (int): dimension over which to apply the block floating point representation
         - :param: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
 
     Returns:
@@ -2971,14 +2984,16 @@ def float_quantize(
 
 
 def binary8_quantize(
-    x,
-    P,
-    rounding="nearest",
-    overflow_policy="saturate_maxfloat",
-    is_signed=True,
-    subnormals=True,
-    prng_bits=0,
-):
+    x: torch.Tensor,
+    P: int,
+    rounding: Literal["nearest", "stochastic", "truncate"] = "nearest",
+    overflow_policy: Literal[
+        "saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"
+    ] = "saturate_maxfloat",
+    is_signed: bool = True,
+    subnormals: bool = True,
+    prng_bits: int = 0,
+) -> torch.Tensor:
     """
     Quantize a single precision Floating Point into low-precision Floating Point
 
@@ -3033,8 +3048,13 @@ def binary8_quantize(
 
 
 def superfp_quantize(
-    x, exp, man, binades: int | tuple[int], rounding="nearest", saturate=False
-):
+    x: torch.Tensor,
+    exp: int,
+    man: int,
+    binades: int | tuple[int] | tuple[int, int],
+    rounding: Literal["stochastic", "nearest"] = "nearest",
+    saturate: bool = False,
+) -> torch.Tensor:
     """
     Quantize a single precision Floating Point into low-precision Super Normal Floating Point
 
@@ -3057,15 +3077,10 @@ def superfp_quantize(
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        if isinstance(binades, int):
-            binades_l, binades_u = binades, binades
-        elif len(binades) == 1:
-            binades_l, binades_u = binades[0], binades[0]
-        else:
-            binades_l, binades_u = binades[0], binades[1]
+        binades_l, binades_h = normalize_binades(binades)
 
         out = quant_module.superfp_quantize_nearest(
-            x.contiguous(), man, exp, binades_l, binades_u, saturate
+            x.contiguous(), man, exp, binades_l, binades_h, saturate
         )
 
     elif rounding == "stochastic":
