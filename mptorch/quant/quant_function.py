@@ -3077,10 +3077,10 @@ def superfp_quantize(
     )
     quant_module = get_module(x)
     if rounding == "nearest":
-        binades_l, binades_h = normalize_binades(binades)
+        binades_l, binades_u = normalize_binades(binades)
 
         out = quant_module.superfp_quantize_nearest(
-            x.contiguous(), man, exp, binades_l, binades_h, saturate
+            x.contiguous(), man, exp, binades_l, binades_u, saturate
         )
 
     elif rounding == "stochastic":
