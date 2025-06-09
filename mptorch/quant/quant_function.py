@@ -2682,13 +2682,14 @@ def quantizer(
                     )
                 )
             elif type(forward_number) == SuperNormalFloat:
+                fwd_binades_l, fwd_binades_h = normalize_binades(forward_number.binades)
                 forward_quant = (
                     lambda x, quant_module: quant_module.superfp_quantize_nearest(
                         x,
                         forward_number.man,
                         forward_number.exp,
-                        forward_number.binades,
-                        forward_number.binades,
+                        fwd_binades_l,
+                        fwd_binades_h,
                         forward_number.saturate,
                     )
                 )
@@ -2718,7 +2719,7 @@ def quantizer(
                     )
                 )
             elif type(forward_number) == SuperNormalFloat:
-                # TODO:
+                # TODO: to implement
                 raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     else:
         if type(forward_number) == FixedPoint or forward_number == None:
@@ -2764,13 +2765,14 @@ def quantizer(
                 )
             )
         elif type(backward_number) == SuperNormalFloat:
+            bwd_binades_l, bwd_binades_h = normalize_binades(backward_number.binades)
             backward_quant = (
                 lambda a, quant_module: quant_module.superfp_quantize_nearest(
                     a,
                     backward_number.man,
                     backward_number.exp,
-                    backward_number.binades,
-                    backward_number.binades,
+                    bwd_binades_l,
+                    bwd_binades_h,
                     backward_number.saturate,
                 )
             )
@@ -2802,7 +2804,7 @@ def quantizer(
                 )
             )
         elif type(backward_number) == SuperNormalFloat:
-            # TODO:
+            # TODO: to be implemented
             raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     if clamping_grad_zero == False:
 
@@ -2919,7 +2921,7 @@ def block_quantize(
     Args:
         - :param: `x` (torch.Tensor) :  the single precision tensor to be quantized
         - :param: `wl` (int) : word length of the block floating-point format being simulated
-        - :param: `dim` (int): dimension over which to apply the block floating point representation
+        - :param: `dim` (int): dimension over which to apply the block floating point representation (-1 applies it to the entire tensor)
         - :param: `rounding` (string) : rounding mode, \"stochastic\" or \"nearest\"
 
     Returns:
