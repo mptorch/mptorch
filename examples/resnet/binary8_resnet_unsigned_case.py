@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -87,22 +87,17 @@ parser.add_argument(
 
 # new parser arguments for binary8 format and testing-----------------------
 # weights and biases
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 
 # Precision (P)
-parser.add_argument(
-    "--P",
-    type=int,
-    default=3,
-    metavar="N",
-    help="precision (1-7)"
-)
+parser.add_argument("--P", type=int, default=3, metavar="N", help="precision (1-7)")
 
 # subnormals
 parser.add_argument(
-    "--subnormals", action="store_true", default=False, help="subnormals or no subnormals"
+    "--subnormals",
+    action="store_true",
+    default=False,
+    help="subnormals or no subnormals",
 )
 
 # signed or unsigned
@@ -116,7 +111,7 @@ parser.add_argument(
     type=int,
     metavar="N",
     default=0,
-    help="number of random bits used for adding in stochatic"
+    help="number of random bits used for adding in stochatic",
 )
 
 # type of rounding
@@ -125,7 +120,7 @@ parser.add_argument(
     type=str,
     default="nearest",
     metavar="N",
-    help="nearest, stochastic, truncate"
+    help="nearest, stochastic, truncate",
 )
 
 # type of saturation mode
@@ -134,7 +129,7 @@ parser.add_argument(
     type=str,
     default="saturate_infty",
     metavar="N",
-    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2"
+    help="saturate_infty, saturate_maxfloat, saturate_maxfloat2",
 )
 
 # name of wandb project run will be in
@@ -143,7 +138,7 @@ parser.add_argument(
     type=str,
     default="ResNet Tests",
     metavar="N",
-    help="name of the project where runs will be logged"
+    help="name of the project where runs will be logged",
 )
 
 # group within project file
@@ -152,7 +147,7 @@ parser.add_argument(
     type=str,
     default="P=4",
     metavar="N",
-    help="name of group the run will reside in"
+    help="name of group the run will reside in",
 )
 # ------------------------------------------------------------------
 args = parser.parse_args()
@@ -161,7 +156,7 @@ device = "cuda" if args.cuda else "cpu"
 
 # weights and biases configuration----------------------------------
 if args.wandb:
-    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
+    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
 
@@ -279,6 +274,7 @@ layer_formats = qpt.QAffineFormats(
     grad_quant=grad_q,
 )
 
+
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
         super(LambdaLayer, self).__init__()
@@ -357,7 +353,13 @@ class ResNet(nn.Module):
         self.in_planes = 16
 
         self.conv1 = qpt.QConv2d(
-            3, 16, kernel_size=3, stride=1, padding=1, bias=False, formats=layer_formats_first_layer
+            3,
+            16,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
+            formats=layer_formats_first_layer,
         )
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
@@ -408,6 +410,7 @@ def resnet110():
 def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
+
 net = resnet20()
 net = net.to(device)
 optimizer = SGD(
@@ -427,7 +430,7 @@ acc_q = lambda x: qpt.binary8_quantize(
     prng_bits=args.prng_bits,
 )
 
-optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
+optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 trainer(

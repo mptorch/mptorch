@@ -136,8 +136,8 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
 }
 // ------------------------------------------------------------------------------------
 // CPU Kernels
-template <class Qadd, class Qmul>
-void mm_cpu_kernel1(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+template <class Qfma>
+void mm_cpu_kernel1(float *a, float *b, float *c, int M, int K, int N, Qfma quant_fma)
 {
     // naive version
     for (int i = 0; i < M; ++i)
@@ -145,13 +145,13 @@ void mm_cpu_kernel1(float *a, float *b, float *c, int M, int K, int N, Qadd quan
         {
             float acc = 0.f;
             for (int k = 0; k < K; ++k)
-                acc = quant_add(acc + quant_mul(a[i * K + k] * b[k * N + j]));
+                acc = quant_fma(fmaf(a[i * K + k], b[k * N + j], acc));
             c[i * N + j] = acc;
         }
 }
 
-template <class Qadd, class Qmul>
-void mm_cpu_kernel2(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+template <class Qfma>
+void mm_cpu_kernel2(float *a, float *b, float *c, int M, int K, int N, Qfma quant_fma)
 {
     // cache-aware version
     for (int i = 0; i < M * N; ++i)
@@ -161,7 +161,7 @@ void mm_cpu_kernel2(float *a, float *b, float *c, int M, int K, int N, Qadd quan
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
             {
-                c[i * N + j] = quant_add(c[i * N + j] + quant_mul(a[i * K + k] * b[k * N + j]));
+                c[i * N + j] = quant_fma(fmaf(a[i * K + k], b[k * N + j], c[i * N + j]));
             }
 }
 
@@ -171,8 +171,7 @@ void mm_cpu_kernel2(float *a, float *b, float *c, int M, int K, int N, Qadd quan
 template <size_t SHMEM_SIZE>
 __global__ void mm_kernel1(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, int M, int K, int N,
-                           int man_add, int exp_add, int man_mul,
-                           int exp_mul, bool subnormals,
+                           int man_fma, int exp_fma, bool subnormals,
                            bool saturate)
 {
 
@@ -205,17 +204,15 @@ __global__ void mm_kernel1(float *__restrict__ a, float *__restrict__ b,
         // do matrix multiplication on the small matrices
         for (int j = 0; j < blockDim.x; j++)
         {
-            inner_sum = cast_fp_nearest(inner_sum + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                                        s_b[j * blockDim.x + tx],
-                                                                    man_mul, exp_mul, subnormals,
-                                                                    saturate),
-                                        man_add, exp_add, subnormals, saturate);
+            inner_sum = cast_fp_nearest(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum),
+                                        man_fma, exp_fma, subnormals,
+                                        saturate);
         }
         currFactor++;
         currFactor %= blockFactor;
         if (currFactor == 0)
         {
-            outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_add, exp_add, subnormals, saturate);
+            outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_fma, exp_fma, subnormals, saturate);
             inner_sum = 0.0f;
         }
 
@@ -229,10 +226,10 @@ __global__ void mm_kernel1(float *__restrict__ a, float *__restrict__ b,
         c[row * N + col] = outer_sum;
 }
 
-template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
+template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_kernel2(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, int M, int K, int N,
-                           Qadd quant_add, Qmul quant_mul)
+                           Qfma quant_fma)
 {
 
     // declare shared memory matrices for A and B matrices
@@ -263,13 +260,13 @@ __global__ void mm_kernel2(float *__restrict__ a, float *__restrict__ b,
         // do matrix multiplication on the small matrices
         for (int j = 0; j < blockDim.x; j++)
         {
-            inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]));
+            inner_sum = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum));
         }
         currFactor++;
         currFactor %= BLOCK_FACTOR;
         if (currFactor == 0)
         {
-            outer_sum = quant_add(outer_sum + inner_sum);
+            outer_sum = quant_fma(outer_sum + inner_sum);
             inner_sum = 0.0f;
         }
 
@@ -283,10 +280,10 @@ __global__ void mm_kernel2(float *__restrict__ a, float *__restrict__ b,
         c[row * N + col] = outer_sum;
 }
 
-template <size_t BLOCKSIZE, class Qadd, class Qmul>
+template <size_t BLOCKSIZE, class Qfma>
 __global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, int M, int K, int N,
-                           Qadd quant_add, Qmul quant_mul)
+                           Qfma quant_fma)
 {
 
     // the output block that we want to compute in this threadblock
@@ -328,8 +325,7 @@ __global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
         // execute the dotproduct on the currently cached block
         for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
         {
-            tmp = quant_add(tmp + quant_mul(As[threadRow * BLOCKSIZE + dotIdx] *
-                                            Bs[dotIdx * BLOCKSIZE + threadCol]));
+            tmp = quant_fma(fmaf(As[threadRow * BLOCKSIZE + dotIdx], Bs[dotIdx * BLOCKSIZE + threadCol], tmp));
         }
         // need to sync again at the end, to avoid faster threads
         // fetching the next block into the cache before slower threads are done
@@ -341,10 +337,10 @@ __global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
     }
 }
 
-template <size_t BM, size_t BN, size_t BK, size_t TM, class Qadd, class Qmul>
+template <size_t BM, size_t BN, size_t BK, size_t TM, class Qfma>
 __global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, int M, int K, int N,
-                           Qadd quant_add, Qmul quant_mul)
+                           Qfma quant_fma)
 {
     // If we flip x and y here we get ~30% less performance for large matrices.
     // The current, 30% faster configuration ensures that blocks with sequential
@@ -403,7 +399,7 @@ __global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
             float tmpB = Bs[dotIdx * BN + threadCol];
             for (uint resIdx = 0; resIdx < TM; ++resIdx)
             {
-                threadResults[resIdx] = quant_add(threadResults[resIdx] + quant_mul(As[(threadRow * TM + resIdx) * BK + dotIdx] * tmpB));
+                threadResults[resIdx] = quant_fma(fmaf(As[(threadRow * TM + resIdx) * BK + dotIdx], tmpB, threadResults[resIdx]));
             }
         }
         __syncthreads();
@@ -421,26 +417,21 @@ __global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
 // Kernel Launchers
 
 void mm_cpu1(float *a, float *b, float *c, int M, int K, int N,
-             int man_add, int exp_add, int man_mul, int exp_mul,
-             bool subnormals, bool saturate)
+             int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
-    mm_cpu_kernel1(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-                   { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-                   { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+    mm_cpu_kernel1(a, b, c, M, K, N, [man_fma, exp_fma, subnormals, saturate](float x)
+                   { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void mm_cpu2(float *a, float *b, float *c, int M, int K, int N,
-             int man_add, int exp_add, int man_mul, int exp_mul,
-             bool subnormals, bool saturate)
+             int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
-    mm_cpu_kernel2(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate](float x)
-                   { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
-                   { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+    mm_cpu_kernel2(a, b, c, M, K, N, [man_fma, exp_fma, subnormals, saturate](float x)
+                   { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void mm_cuda1(float *a, float *b, float *c, int M, int K, int N,
-              int man_add, int exp_add, int man_mul, int exp_mul,
-              bool subnormals, bool saturate)
+              int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
 
     constexpr size_t THREADS_X{8U};
@@ -451,13 +442,11 @@ void mm_cuda1(float *a, float *b, float *c, int M, int K, int N,
         (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
         (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
     mm_kernel1<SHMEM_SIZE>
-        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_add, exp_add, man_mul,
-                                    exp_mul, subnormals, saturate);
+        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, man_fma, exp_fma, subnormals, saturate);
 }
 
 void mm_cuda2(float *a, float *b, float *c, int M, int K, int N,
-              int man_add, int exp_add, int man_mul, int exp_mul,
-              bool subnormals, bool saturate)
+              int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
     constexpr size_t THREADS_X{8U};
     constexpr size_t THREADS_Y{8U};
@@ -467,27 +456,23 @@ void mm_cuda2(float *a, float *b, float *c, int M, int K, int N,
         (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
         (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
     mm_kernel2<1u, SHMEM_SIZE>
-        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_fma, exp_fma, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void mm_cuda3(float *a, float *b, float *c, int M, int K, int N,
-              int man_add, int exp_add, int man_mul, int exp_mul,
-              bool subnormals, bool saturate)
+              int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
 
     dim3 const thread_dim{1024U, 1U, 1U};
     dim3 const block_dim{(uint)ceil_div(M, 32), (uint)ceil_div(N, 32), 1U};
     mm_kernel3<32>
-        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+        <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_fma, exp_fma, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 void mm_cuda4(float *a, float *b, float *c, int M, int K, int N,
-              int man_add, int exp_add, int man_mul, int exp_mul,
-              bool subnormals, bool saturate)
+              int man_fma, int exp_fma, bool subnormals, bool saturate)
 {
     constexpr int BM = 64;
     constexpr int BN = 64;
@@ -495,9 +480,8 @@ void mm_cuda4(float *a, float *b, float *c, int M, int K, int N,
     constexpr int TM = 8;
     dim3 const block_dim((uint)ceil_div(N, BN), (uint)ceil_div(M, BM));
     dim3 const thread_dim((BM * BN) / TM);
-    mm_kernel4<BM, BN, BK, TM><<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+    mm_kernel4<BM, BN, BK, TM><<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_fma, exp_fma, subnormals, saturate] __device__(float x)
+                                                          { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
 }
 
 int main(int argc, const char **argv)
@@ -520,8 +504,8 @@ int main(int argc, const char **argv)
     cudaCheck(cudaMemcpy(d_a, a, M * K * sizeof(float), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(d_b, b, K * N * sizeof(float), cudaMemcpyHostToDevice));
 
-    mm_cpu1(a, b, c, M, K, N, 23, 8, 23, 8, true, true);
-    mm_cuda1(d_a, d_b, d_c, M, K, N, 23, 8, 23, 8, true, true);
+    mm_cpu1(a, b, c, M, K, N, 23, 8, true, true);
+    mm_cuda1(d_a, d_b, d_c, M, K, N, 23, 8, true, true);
     printf("Checking if kernel results match...\n");
     float tol = 1e-4f;
     validate_result(d_c, c, "c", M * N, tol);
@@ -529,18 +513,18 @@ int main(int argc, const char **argv)
 
     printf("CPU benchmarking...\n");
     int repeat_times = 1;
-    float elapsed_time1 = benchmark_cpu_kernel(repeat_times, mm_cpu1, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time2 = benchmark_cpu_kernel(repeat_times, mm_cpu2, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time1 = benchmark_cpu_kernel(repeat_times, mm_cpu1, a, b, c, M, K, N, 10, 5, true, true);
+    float elapsed_time2 = benchmark_cpu_kernel(repeat_times, mm_cpu2, a, b, c, M, K, N, 10, 5, true, true);
     printf("time mm_cpu1 %.4f ms | time mm_cpu2 %.4f ms\n", elapsed_time1, elapsed_time2);
 
     printf("CUDA benchmarking...\n");
     repeat_times = 1000;
-    float elapsed_time3 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time4 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time3 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, true, true);
+    float elapsed_time4 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, true, true);
+    float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, true, true);
+    float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, true, true);
 
-    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda4 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
+    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda3 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
 
     // free memory
     free(a);

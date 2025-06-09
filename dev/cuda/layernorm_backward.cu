@@ -5,31 +5,35 @@
 
 /* Helper function for tensor striding */
 // ---------------------------------------------------------------------------------------
-void dim_striding(const int *norm_dims, int n_norm, const int *dims, int n_dims, int &B, int &T, int &C){
-	int real_dims[n_norm];
-	for (int i = 0; i < n_norm; i++){
-		real_dims[i] = (n_dims + (norm_dims[i] % n_dims)) % n_dims;
-	}
+void dim_striding(const int *norm_dims, int n_norm, const int *dims, int n_dims, int &B, int &T, int &C)
+{
+    int real_dims[n_norm];
+    for (int i = 0; i < n_norm; i++)
+    {
+        real_dims[i] = (n_dims + (norm_dims[i] % n_dims)) % n_dims;
+    }
 
-	C = 1;
-	for (int i : real_dims){
-		C *= dims[i];
-	}
+    C = 1;
+    for (int i : real_dims)
+    {
+        C *= dims[i];
+    }
 
-	int min_dim = real_dims[n_norm - 1];
-	int max_dim = real_dims[0];
+    int min_dim = real_dims[n_norm - 1];
+    int max_dim = real_dims[0];
 
-	B = 1;
-	for (int i = 0; i < min_dim; i++){
-		B *= dims[i];
-	}
+    B = 1;
+    for (int i = 0; i < min_dim; i++)
+    {
+        B *= dims[i];
+    }
 
-	T = 1;
-	for (int i = max_dim + 1; i < n_dims; i++){
-		T *= dims[i];
-	}
+    T = 1;
+    for (int i = max_dim + 1; i < n_dims; i++)
+    {
+        T *= dims[i];
+    }
 }
-
 
 /* Quantization function and wrapper */
 // ---------------------------------------------------------------------------------------
@@ -52,7 +56,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest(uint32_t targ
 }
 
 __host__ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                        uint32_t quantized_num, bool saturate = false)
+                                                           uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -73,7 +77,7 @@ __host__ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man
 }
 
 __host__ __device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                           uint32_t quantized_num, bool saturate = false)
+                                                              uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -109,8 +113,8 @@ __host__ __device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int 
 }
 
 __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                       bool subnormal_support = true,
-                                       bool saturate = false)
+                                          bool subnormal_support = true,
+                                          bool saturate = false)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -155,33 +159,38 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
     return quantized;
 }
 
-__host__ __device__ float quant_acc(float origin_float) {
+__host__ __device__ float quant_acc(float origin_float)
+{
     return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
-__host__ __device__ float quant_mul(float origin_float) {
+__host__ __device__ float quant_mul(float origin_float)
+{
     return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
-__host__ __device__ float quant_div(float origin_float) {
+__host__ __device__ float quant_div(float origin_float)
+{
     return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
 // ---------------------------------------------------------------------------------------
 // CPU version
-static void layernorm_backward_cpu(const float* in_arr, const float* out_grad, 
-                                const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,
-                                float* grad_gamma, float* grad_beta, float* out_arr,
-                                int B, int T, int C){
-    for (int i = 0; i < B * T; i++){
+static void layernorm_backward_cpu(const float *in_arr, const float *out_grad,
+                                   const float *w_array, const float *b_array,
+                                   const float *m_array, const float *r_array,
+                                   float *grad_gamma, float *grad_beta, float *out_arr,
+                                   int B, int T, int C)
+{
+    for (int i = 0; i < B * T; i++)
+    {
         int b = i / T;
         int t = i % T;
 
         int base_index = (b * C * T) + t;
-        const float* input = in_arr + base_index;
-        const float* gradient = out_grad + base_index;
-        float* output = out_arr + base_index;
+        const float *input = in_arr + base_index;
+        const float *gradient = out_grad + base_index;
+        float *output = out_arr + base_index;
 
         float m = m_array[b * T + t];
         float r = r_array[b * T + t];
@@ -189,7 +198,8 @@ static void layernorm_backward_cpu(const float* in_arr, const float* out_grad,
         // two reduce operations
         float grad_sum = 0.0f;
         float grad_sum_xhat = 0.0f;
-        for (int k = 0; k < C; k++){
+        for (int k = 0; k < C; k++)
+        {
             int idx = k * T;
             float in_m = quant_acc(input[idx] - m);
             float xhat = quant_mul(in_m * r);
@@ -197,21 +207,22 @@ static void layernorm_backward_cpu(const float* in_arr, const float* out_grad,
             float dot_xhat = quant_mul(xhat * grad_xhat);
             grad_sum = quant_acc(grad_sum + grad_xhat);
             grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
-            }
-            grad_sum = quant_div(grad_sum/C);
-            grad_sum_xhat = quant_div(grad_sum_xhat/C);
+        }
+        grad_sum = quant_div(grad_sum / C);
+        grad_sum_xhat = quant_div(grad_sum_xhat / C);
 
-        // iterate and accumulate 
-        for (int k = 0; k < C; k++){
+        // iterate and accumulate
+        for (int k = 0; k < C; k++)
+        {
             int idx = k * T;
             float in_m = quant_acc(input[idx] - m);
             float xhat = quant_mul(in_m * r);
             float xhat_gradient = quant_mul(xhat * gradient[idx]);
             float grad_xhat = quant_mul(w_array[k] * gradient[idx]);
-            
+
             grad_gamma[k] = quant_acc(grad_gamma[k] + xhat_gradient);
             grad_beta[k] = quant_acc(grad_beta[k] + gradient[idx]);
-            
+
             float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
             float grad_input = grad_xhat;
             grad_input = quant_acc(grad_input - grad_sum);
@@ -226,23 +237,25 @@ static void layernorm_backward_cpu(const float* in_arr, const float* out_grad,
 // ---------------------------------------------------------------------------------------
 // GPU kernels
 
-__global__ void layernorm_backward_first_pass_kernel1(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
-                                const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,  
-                                float* out_arr, float* xhat_gradient,
-                                int B, int T, int C){
+__global__ void layernorm_backward_first_pass_kernel1(const float *__restrict__ in_arr, const float *__restrict__ out_grad,
+                                                      const float *w_array, const float *b_array,
+                                                      const float *m_array, const float *r_array,
+                                                      float *out_arr, float *xhat_gradient,
+                                                      int B, int T, int C)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (i >= B*T) return;
+    if (i >= B * T)
+        return;
 
     int b = i / T;
     int t = i % T;
 
     int base_index = (b * C * T) + t;
-    const float* input = in_arr + base_index;
-    const float* gradient = out_grad + base_index;
-    float* output = out_arr + base_index;
-    float* xhat_grad = xhat_gradient + base_index;
+    const float *input = in_arr + base_index;
+    const float *gradient = out_grad + base_index;
+    float *output = out_arr + base_index;
+    float *xhat_grad = xhat_gradient + base_index;
 
     float m = m_array[b * T + t];
     float r = r_array[b * T + t];
@@ -250,7 +263,8 @@ __global__ void layernorm_backward_first_pass_kernel1(const float* __restrict__ 
     // two reduce operations
     float grad_sum = 0.0f;
     float grad_sum_xhat = 0.0f;
-    for (int k = 0; k < C; k++){
+    for (int k = 0; k < C; k++)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
@@ -259,16 +273,17 @@ __global__ void layernorm_backward_first_pass_kernel1(const float* __restrict__ 
         grad_sum = quant_acc(grad_sum + norm_grad);
         grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
     }
-    grad_sum = quant_div(grad_sum/C);
-    grad_sum_xhat = quant_div(grad_sum_xhat/C);
+    grad_sum = quant_div(grad_sum / C);
+    grad_sum_xhat = quant_div(grad_sum_xhat / C);
 
-    // iterate and accumulate 
-    for (int k = 0; k < C; k++){
+    // iterate and accumulate
+    for (int k = 0; k < C; k++)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
         xhat_grad[idx] = quant_mul(xhat * gradient[idx]);
-        
+
         float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float weighted_grad_sum = quant_mul(xhat * grad_sum_xhat);
         float grad_input = norm_grad;
@@ -280,24 +295,27 @@ __global__ void layernorm_backward_first_pass_kernel1(const float* __restrict__ 
     }
 }
 
-__global__ void layernorm_backward_second_pass_kernel1(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
-                                                    float* grad_gamma, float* grad_beta,
-                                                    int B, int T, int C){
+__global__ void layernorm_backward_second_pass_kernel1(const float *__restrict__ xhat_gradient, const float *__restrict__ out_grad,
+                                                       float *grad_gamma, float *grad_beta,
+                                                       int B, int T, int C)
+{
     int k = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (k >= C) return;
+    if (k >= C)
+        return;
 
     int idx = k * T;
 
     float grad_gamma_sum = 0.0f;
     float grad_beta_sum = 0.0f;
 
-    for (int i = 0; i < B * T; i++){
+    for (int i = 0; i < B * T; i++)
+    {
         int b = i / T;
         int t = i % T;
         int base_index = (b * C * T) + t;
-        const float* gradient = out_grad + base_index;
-        const float* xhat_grad = xhat_gradient + base_index;
+        const float *gradient = out_grad + base_index;
+        const float *xhat_grad = xhat_gradient + base_index;
 
         grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
         grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
@@ -307,11 +325,11 @@ __global__ void layernorm_backward_second_pass_kernel1(const float* __restrict__
     grad_beta[k] = grad_beta_sum;
 }
 
-__global__ void layernorm_backward_first_pass_kernel2(const float* __restrict__ in_arr, const float* __restrict__ out_grad, 
-                                const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,  
-                                float* out_arr, float* xhat_gradient,
-                                int B, int T, int C)
+__global__ void layernorm_backward_first_pass_kernel2(const float *__restrict__ in_arr, const float *__restrict__ out_grad,
+                                                      const float *w_array, const float *b_array,
+                                                      const float *m_array, const float *r_array,
+                                                      float *out_arr, float *xhat_gradient,
+                                                      int B, int T, int C)
 {
     extern __shared__ float shared[];
 
@@ -325,10 +343,10 @@ __global__ void layernorm_backward_first_pass_kernel2(const float* __restrict__ 
     int t = blockIdx.x % T;
 
     int base_index = (b * C * T) + t;
-    const float* input = in_arr + base_index;
-    const float* gradient = out_grad + base_index;
-    float* output = out_arr + base_index;
-    float* xhat_grad = xhat_gradient + base_index;
+    const float *input = in_arr + base_index;
+    const float *gradient = out_grad + base_index;
+    float *output = out_arr + base_index;
+    float *xhat_grad = xhat_gradient + base_index;
 
     float m = m_array[b * T + t];
     float r = r_array[b * T + t];
@@ -337,51 +355,61 @@ __global__ void layernorm_backward_first_pass_kernel2(const float* __restrict__ 
     // grad_sum
     float grad_sum = 0.0f;
     float grad_sum_xhat = 0.0f;
-    for (int k = tid; k < C; k += blockDim.x){
+    for (int k = tid; k < C; k += blockDim.x)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
         float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float dot_xhat = quant_mul(xhat * norm_grad);
         grad_sum = quant_acc(grad_sum + norm_grad);
-        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat); 
+        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2){
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         grad_sum = quant_acc(grad_sum + __shfl_down_sync(0xffffffff, grad_sum, offset));
     }
-    if (lane == 0){
+    if (lane == 0)
+    {
         shared[warp] = grad_sum;
     }
     __syncthreads();
-    if (tid == 0){
+    if (tid == 0)
+    {
         grad_sum = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++){
+        for (int i = 1; i < warpsPerBlock; i++)
+        {
             grad_sum = quant_acc(grad_sum + shared[i]);
         }
-        shared[0] = quant_div(grad_sum/C);
+        shared[0] = quant_div(grad_sum / C);
     }
     __syncthreads();
     grad_sum = shared[0];
 
     // grad_sum_xhat
-    for (int offset = warpSize/2; offset > 0; offset /= 2){
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         grad_sum_xhat = quant_acc(grad_sum_xhat + __shfl_down_sync(0xffffffff, grad_sum_xhat, offset));
     }
-    if (lane == 0){
+    if (lane == 0)
+    {
         shared[warp] = grad_sum_xhat;
     }
     __syncthreads();
-    if (tid == 0){
+    if (tid == 0)
+    {
         grad_sum_xhat = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++){
+        for (int i = 1; i < warpsPerBlock; i++)
+        {
             grad_sum_xhat = quant_acc(grad_sum_xhat + shared[i]);
         }
-        shared[0] = quant_div(grad_sum_xhat/C);
+        shared[0] = quant_div(grad_sum_xhat / C);
     }
     __syncthreads();
     grad_sum_xhat = shared[0];
 
-    for (int k = tid; k < C; k += blockDim.x){
+    for (int k = tid; k < C; k += blockDim.x)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
@@ -398,24 +426,27 @@ __global__ void layernorm_backward_first_pass_kernel2(const float* __restrict__ 
     }
 }
 
-__global__ void layernorm_backward_second_pass_kernel2(const float* __restrict__ xhat_gradient, const float* __restrict__ out_grad,
-                                                    float* grad_gamma, float* grad_beta,
-                                                    int B, int T, int C){
+__global__ void layernorm_backward_second_pass_kernel2(const float *__restrict__ xhat_gradient, const float *__restrict__ out_grad,
+                                                       float *grad_gamma, float *grad_beta,
+                                                       int B, int T, int C)
+{
     int k = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (k >= C) return;
+    if (k >= C)
+        return;
 
     int idx = k * T;
 
     float grad_gamma_sum = 0.0f;
     float grad_beta_sum = 0.0f;
 
-    for (int i = 0; i < B * T; i++){
+    for (int i = 0; i < B * T; i++)
+    {
         int b = i / T;
         int t = i % T;
         int base_index = (b * C * T) + t;
-        const float* gradient = out_grad + base_index;
-        const float* xhat_grad = xhat_gradient + base_index;
+        const float *gradient = out_grad + base_index;
+        const float *xhat_grad = xhat_gradient + base_index;
 
         grad_gamma_sum = quant_acc(grad_gamma_sum + xhat_grad[idx]);
         grad_beta_sum = quant_acc(grad_beta_sum + gradient[idx]);
@@ -425,14 +456,13 @@ __global__ void layernorm_backward_second_pass_kernel2(const float* __restrict__
     grad_beta[k] = grad_beta_sum;
 }
 
-
-
 // reference kernel using atomicAdd w/o quant
-__global__ void layernorm_backward_kernel0(const float* __restrict__ in_arr, const float* out_grad, 
-                                const float* w_array, const float* b_array,
-                                const float* m_array, const float* r_array,
-                                float* grad_gamma, float* grad_beta, float* out_arr,
-                                int B, int T, int C){
+__global__ void layernorm_backward_kernel0(const float *__restrict__ in_arr, const float *out_grad,
+                                           const float *w_array, const float *b_array,
+                                           const float *m_array, const float *r_array,
+                                           float *grad_gamma, float *grad_beta, float *out_arr,
+                                           int B, int T, int C)
+{
     extern __shared__ float shared[];
 
     int tid = threadIdx.x;
@@ -445,9 +475,9 @@ __global__ void layernorm_backward_kernel0(const float* __restrict__ in_arr, con
     int t = blockIdx.x % T;
 
     int base_index = (b * C * T) + t;
-    const float* input = in_arr + base_index;
-    const float* gradient = out_grad + base_index;
-    float* output = out_arr + base_index;
+    const float *input = in_arr + base_index;
+    const float *gradient = out_grad + base_index;
+    float *output = out_arr + base_index;
 
     float m = m_array[b * T + t];
     float r = r_array[b * T + t];
@@ -456,52 +486,62 @@ __global__ void layernorm_backward_kernel0(const float* __restrict__ in_arr, con
     // grad_sum
     float grad_sum = 0.0f;
     float grad_sum_xhat = 0.0f;
-    for (int k = tid; k < C; k += blockDim.x){
+    for (int k = tid; k < C; k += blockDim.x)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
         float norm_grad = quant_mul(w_array[k] * gradient[idx]);
         float dot_xhat = quant_mul(xhat * norm_grad);
         grad_sum = quant_acc(grad_sum + norm_grad);
-        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat); 
+        grad_sum_xhat = quant_acc(grad_sum_xhat + dot_xhat);
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2){
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         grad_sum = quant_acc(grad_sum + __shfl_down_sync(0xffffffff, grad_sum, offset));
     }
-    if (lane == 0){
+    if (lane == 0)
+    {
         shared[warp] = grad_sum;
     }
     __syncthreads();
-    if (tid == 0){
+    if (tid == 0)
+    {
         grad_sum = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++){
+        for (int i = 1; i < warpsPerBlock; i++)
+        {
             grad_sum = quant_acc(grad_sum + shared[i]);
         }
-        shared[0] = quant_div(grad_sum/C);
+        shared[0] = quant_div(grad_sum / C);
     }
     __syncthreads();
     grad_sum = shared[0];
 
     // grad_sum_xhat
-    for (int offset = warpSize/2; offset > 0; offset /= 2){
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         grad_sum_xhat = quant_acc(grad_sum_xhat + __shfl_down_sync(0xffffffff, grad_sum_xhat, offset));
     }
-    if (lane == 0){
+    if (lane == 0)
+    {
         shared[warp] = grad_sum_xhat;
     }
     __syncthreads();
-    if (tid == 0){
+    if (tid == 0)
+    {
         grad_sum_xhat = shared[0];
-        for (int i = 1; i < warpsPerBlock; i++){
+        for (int i = 1; i < warpsPerBlock; i++)
+        {
             grad_sum_xhat = quant_acc(grad_sum_xhat + shared[i]);
         }
-        shared[0] = quant_div(grad_sum_xhat/C);
+        shared[0] = quant_div(grad_sum_xhat / C);
     }
     __syncthreads();
     grad_sum_xhat = shared[0];
 
-    // iterate and accumulate 
-    for (int k = tid; k < C; k += blockDim.x){
+    // iterate and accumulate
+    for (int k = tid; k < C; k += blockDim.x)
+    {
         int idx = k * T;
         float in_m = quant_acc(input[idx] - m);
         float xhat = quant_mul(in_m * r);
@@ -523,15 +563,15 @@ __global__ void layernorm_backward_kernel0(const float* __restrict__ in_arr, con
 
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
-void layernorm_backward_cuda1(const float* in_arr, const float* out_grad, 
-                            const float* w_array, const float* b_array,
-                            const float* m_array, const float* r_array,
-                            float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size)
+void layernorm_backward_cuda1(const float *in_arr, const float *out_grad,
+                              const float *w_array, const float *b_array,
+                              const float *m_array, const float *r_array,
+                              float *grad_gamma, float *grad_beta, float *out_arr,
+                              int B, int T, int C, int block_size)
 {
     int N = B * T;
     int blocks = N / block_size + (N % block_size != 0);
-    float* xhat_gradient;
+    float *xhat_gradient;
     cudaCheck(cudaMalloc(&xhat_gradient, sizeof(float) * (B * T * C)));
     layernorm_backward_first_pass_kernel1<<<blocks, block_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, out_arr, xhat_gradient, B, T, C);
     blocks = C / block_size + (C % block_size != 0);
@@ -539,15 +579,15 @@ void layernorm_backward_cuda1(const float* in_arr, const float* out_grad,
     cudaCheck(cudaFree(xhat_gradient));
 }
 
-void layernorm_backward_cuda2(const float* in_arr, const float* out_grad, 
-                            const float* w_array, const float* b_array,
-                            const float* m_array, const float* r_array,
-                            float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size)
+void layernorm_backward_cuda2(const float *in_arr, const float *out_grad,
+                              const float *w_array, const float *b_array,
+                              const float *m_array, const float *r_array,
+                              float *grad_gamma, float *grad_beta, float *out_arr,
+                              int B, int T, int C, int block_size)
 {
     int blocks = B * T;
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
-    float* xhat_gradient;
+    float *xhat_gradient;
     cudaCheck(cudaMalloc(&xhat_gradient, sizeof(float) * (B * T * C)));
     layernorm_backward_first_pass_kernel2<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, out_arr, xhat_gradient, B, T, C);
     blocks = C / block_size + (C % block_size != 0);
@@ -556,89 +596,94 @@ void layernorm_backward_cuda2(const float* in_arr, const float* out_grad,
 }
 
 // reference using atomic add
-void layernorm_backward_cuda0(const float* in_arr, const float* out_grad, 
-                            const float* w_array, const float* b_array,
-                            const float* m_array, const float* r_array,
-                            float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size)
+void layernorm_backward_cuda0(const float *in_arr, const float *out_grad,
+                              const float *w_array, const float *b_array,
+                              const float *m_array, const float *r_array,
+                              float *grad_gamma, float *grad_beta, float *out_arr,
+                              int B, int T, int C, int block_size)
 {
     int blocks = B * T;
     size_t shared_mem_size = (block_size / 32) * sizeof(float);
     layernorm_backward_kernel0<<<blocks, block_size, shared_mem_size>>>(in_arr, out_grad, w_array, b_array, m_array, r_array, grad_gamma, grad_beta, out_arr, B, T, C);
 }
 
-void layernorm_backward_cuda(int kernel_num, const float* in_arr, const float* out_grad, 
-                            const float* w_array, const float* b_array,
-                            const float* m_array, const float* r_array,
-                            float* grad_gamma, float* grad_beta, float* out_arr,
-                            int B, int T, int C, int block_size){
-    switch (kernel_num){
-        case 0:
-            layernorm_backward_cuda0(in_arr, out_grad, 
-                            w_array, b_array,
-                            m_array, r_array,
-                            grad_gamma, grad_beta, out_arr,
-                            B, T, C, block_size);
-            break;
-        case 1:
-            layernorm_backward_cuda1(in_arr, out_grad, 
-                            w_array, b_array,
-                            m_array, r_array,
-                            grad_gamma, grad_beta, out_arr,
-                            B, T, C, block_size);
-            break;
-        case 2:
-            layernorm_backward_cuda2(in_arr, out_grad, 
-                            w_array, b_array,
-                            m_array, r_array,
-                            grad_gamma, grad_beta, out_arr,
-                            B, T, C, block_size);
-            break;
-        default:
-            printf("Invalid kernel number\n");
-            exit(1);
+void layernorm_backward_cuda(int kernel_num, const float *in_arr, const float *out_grad,
+                             const float *w_array, const float *b_array,
+                             const float *m_array, const float *r_array,
+                             float *grad_gamma, float *grad_beta, float *out_arr,
+                             int B, int T, int C, int block_size)
+{
+    switch (kernel_num)
+    {
+    case 0:
+        layernorm_backward_cuda0(in_arr, out_grad,
+                                 w_array, b_array,
+                                 m_array, r_array,
+                                 grad_gamma, grad_beta, out_arr,
+                                 B, T, C, block_size);
+        break;
+    case 1:
+        layernorm_backward_cuda1(in_arr, out_grad,
+                                 w_array, b_array,
+                                 m_array, r_array,
+                                 grad_gamma, grad_beta, out_arr,
+                                 B, T, C, block_size);
+        break;
+    case 2:
+        layernorm_backward_cuda2(in_arr, out_grad,
+                                 w_array, b_array,
+                                 m_array, r_array,
+                                 grad_gamma, grad_beta, out_arr,
+                                 B, T, C, block_size);
+        break;
+    default:
+        printf("Invalid kernel number\n");
+        exit(1);
     }
 }
 
 // ---------------------------------------------------------------------------------------
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
     setup_main();
 
     const int norm_dims[] = {-1, -2};
-    const int n_norm = sizeof(norm_dims)/sizeof(norm_dims[0]);
+    const int n_norm = sizeof(norm_dims) / sizeof(norm_dims[0]);
     const int dims[] = {40, 60, 300};
-    const int n_dims = sizeof(dims)/sizeof(dims[0]);
+    const int n_dims = sizeof(dims) / sizeof(dims[0]);
 
     int B, T, C;
     dim_striding(norm_dims, n_norm, dims, n_dims, B, T, C);
 
     // which kernel to use
     int version = 1;
-    if (argc > 1){
+    if (argc > 1)
+    {
         version = atoi(argv[1]);
     }
 
     // host tensors
     int numel = 1;
-    for (int i = 0; i < n_dims; i++){
-    	numel *= dims[i];
+    for (int i = 0; i < n_dims; i++)
+    {
+        numel *= dims[i];
     }
-    float* h_input = make_random_float(numel);
-    float* h_grad = make_random_float(numel);
-    float* h_output = make_zeros_float(numel);
-    float* h_weight = make_ones_float(C);
-    float* h_bias = make_zeros_float(C);
-    float* h_gg = make_zeros_float(C);
-    float* h_gb = make_zeros_float(C);
-    float* h_mean = make_random_float(B * T);
-    float* h_rstd = make_random_float(B * T);
+    float *h_input = make_random_float(numel);
+    float *h_grad = make_random_float(numel);
+    float *h_output = make_zeros_float(numel);
+    float *h_weight = make_ones_float(C);
+    float *h_bias = make_zeros_float(C);
+    float *h_gg = make_zeros_float(C);
+    float *h_gb = make_zeros_float(C);
+    float *h_mean = make_random_float(B * T);
+    float *h_rstd = make_random_float(B * T);
 
     // compute cpu reference
-    layernorm_backward_cpu(h_input, h_grad, 
-                        h_weight, h_bias,
-                        h_mean, h_rstd,
-                        h_gg, h_gb, h_output,
-                        B, T, C);
+    layernorm_backward_cpu(h_input, h_grad,
+                           h_weight, h_bias,
+                           h_mean, h_rstd,
+                           h_gg, h_gb, h_output,
+                           B, T, C);
 
     // device tensors (move data to gpu)
     float *d_input, *d_grad, *d_output, *d_weight, *d_bias, *d_gg, *d_gb, *d_mean, *d_rstd;
@@ -658,20 +703,20 @@ int main(int argc, const char **argv) {
     cudaCheck(cudaMemcpy(d_mean, h_mean, B * T * sizeof(float), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(d_rstd, h_rstd, B * T * sizeof(float), cudaMemcpyHostToDevice));
 
-
     // time the kernel at different block sizes
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         cudaMemset(d_gg, 0, C * sizeof(float));
         cudaMemset(d_gb, 0, C * sizeof(float));
 
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
-        layernorm_backward_cuda(version, d_input, d_grad, 
-                            d_weight, d_bias,
-                            d_mean, d_rstd,
-                            d_gg, d_gb, d_output,
-                            B, T, C, block_size);
+        layernorm_backward_cuda(version, d_input, d_grad,
+                                d_weight, d_bias,
+                                d_mean, d_rstd,
+                                d_gg, d_gb, d_output,
+                                B, T, C, block_size);
 
         float tol = 2e-0f;
         printf("validating input_grad\n");
@@ -684,15 +729,16 @@ int main(int argc, const char **argv) {
 
     printf("All results match. Starting benchmarks.\n\n");
 
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
         int repeat_times = 100;
-        float elapsed_time = benchmark_kernel(repeat_times, layernorm_backward_cuda, 
-                                            version, d_input, d_grad, 
-                                            d_weight, d_bias,
-                                            d_mean, d_rstd,
-                                            d_gg, d_gb, d_output,
-                                            B, T, C, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, layernorm_backward_cuda,
+                                                  version, d_input, d_grad,
+                                                  d_weight, d_bias,
+                                                  d_mean, d_rstd,
+                                                  d_gg, d_gb, d_output,
+                                                  B, T, C, block_size);
         printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
     }
 
@@ -700,18 +746,18 @@ int main(int argc, const char **argv) {
     int repeat_times = 10;
     namespace chr = std::chrono;
     chr::steady_clock::time_point begin = chr::steady_clock::now();
-    for(int i = 0; i < repeat_times; i++) {
-        layernorm_backward_cpu(h_input, h_grad, 
-                        h_weight, h_bias,
-                        h_mean, h_rstd,
-                        h_gg, h_gb, h_output,
-                        B, T, C);
+    for (int i = 0; i < repeat_times; i++)
+    {
+        layernorm_backward_cpu(h_input, h_grad,
+                               h_weight, h_bias,
+                               h_mean, h_rstd,
+                               h_gg, h_gb, h_output,
+                               B, T, C);
     }
     chr::steady_clock::time_point end = chr::steady_clock::now();
     auto elapsed_time_us = chr::duration_cast<chr::microseconds>(end - begin).count();
     float average_time_ms = ((float)elapsed_time_us / (float)repeat_times) / 1000.f;
     printf(" %.4f ms\n ", average_time_ms);
-
 
     free(h_input);
     free(h_grad);

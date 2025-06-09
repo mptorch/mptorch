@@ -1,4 +1,4 @@
-/* 
+/*
 Low-precision float softmax forward along any dimension.
 
 Compile example:
@@ -12,12 +12,10 @@ Efficient version using intra-warp and inter-warp reductions, block_size % 32 = 
 
 */
 
-
 #include <cuda_runtime.h>
 #include <cmath>
 #include <chrono>
 #include "common.h"
-
 
 struct DimSizes
 {
@@ -29,16 +27,19 @@ struct DimSizes
 /* Helper function for tensor striding */
 // ---------------------------------------------------------------------------------------
 
-DimSizes partition_tensor(const int *dims, int n_dims, int dim) {
+DimSizes partition_tensor(const int *dims, int n_dims, int dim)
+{
     DimSizes sizes;
     int real_dim = (n_dims + (dim % n_dims)) % n_dims;
     sizes.outer = 1;
     sizes.channel = dims[real_dim];
     sizes.inner = 1;
-    for (int i = 0; i < real_dim; ++i) {
+    for (int i = 0; i < real_dim; ++i)
+    {
         sizes.outer *= dims[i];
     }
-    for (int i = real_dim + 1; i < n_dims; ++i) {
+    for (int i = real_dim + 1; i < n_dims; ++i)
+    {
         sizes.inner *= dims[i];
     }
     return sizes;
@@ -65,7 +66,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest(uint32_t targ
 }
 
 __host__ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                        uint32_t quantized_num, bool saturate = false)
+                                                           uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -86,7 +87,7 @@ __host__ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man
 }
 
 __host__ __device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                           uint32_t quantized_num, bool saturate = false)
+                                                              uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -122,8 +123,8 @@ __host__ __device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int 
 }
 
 __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                       bool subnormal_support = true,
-                                       bool saturate = false)
+                                          bool subnormal_support = true,
+                                          bool saturate = false)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -168,37 +169,42 @@ __host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int 
     return quantized;
 }
 
-__host__ __device__ float quant_add(float origin_float) {
+__host__ __device__ float quant_add(float origin_float)
+{
     return cast_fp_nearest(origin_float, 22, 8, true, false);
 }
 
-__host__ __device__ float quant_mul(float origin_float) {
+__host__ __device__ float quant_mul(float origin_float)
+{
     return cast_fp_nearest(origin_float, 10, 8, true, false);
 }
 
-
 // ---------------------------------------------------------------------------------------
 /* Host (CPU) implementation of a simple softmax backward */
-static void softmax_backward_cpu(const float* input_array, const float* out_gradient, float* output_array, const int* dims, int n_dims, int dim) {
+static void softmax_backward_cpu(const float *input_array, const float *out_gradient, float *output_array, const int *dims, int n_dims, int dim)
+{
     auto sizes = partition_tensor(dims, n_dims, dim);
 
-    for (int i = 0; i < sizes.outer * sizes.inner; ++i) {
+    for (int i = 0; i < sizes.outer * sizes.inner; ++i)
+    {
         int outer_idx = i / sizes.inner;
         int inner_idx = i % sizes.inner;
 
         int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
-        const float* input = input_array + base_index;
-        const float* grad = out_gradient + base_index;
-        float* output = output_array + base_index;
+        const float *input = input_array + base_index;
+        const float *grad = out_gradient + base_index;
+        float *output = output_array + base_index;
 
         float weighted_grad_sum = 0.f;
-        for (int k = 0; k < sizes.channel; ++k) {
+        for (int k = 0; k < sizes.channel; ++k)
+        {
             int idx = k * sizes.inner;
             float prod = quant_mul(input[idx] * grad[idx]);
             weighted_grad_sum = quant_add(weighted_grad_sum + prod);
         }
 
-        for (int k = 0; k < sizes.channel; ++k) {
+        for (int k = 0; k < sizes.channel; ++k)
+        {
             int idx = k * sizes.inner;
             float a = quant_add(grad[idx] - weighted_grad_sum);
             output[idx] = quant_mul(a * input[idx]);
@@ -209,36 +215,41 @@ static void softmax_backward_cpu(const float* input_array, const float* out_grad
 // ---------------------------------------------------------------------------------------
 /* Device (CUDA) softmax kernels */
 
-__global__ void softmax_backward_kernel1(const float* __restrict__ input_array, const float* __restrict__ out_gradient, float* output_array,
-                                         const DimSizes sizes, int N) {
+__global__ void softmax_backward_kernel1(const float *__restrict__ input_array, const float *__restrict__ out_gradient, float *output_array,
+                                         const DimSizes sizes, int N)
+{
     int id = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if(id >= N) return;
+    if (id >= N)
+        return;
 
     int outer_idx = id / sizes.inner;
     int inner_idx = id % sizes.inner;
 
     int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
-    const float* input = input_array + base_index;
-    const float* grad = out_gradient + base_index;
-    float* output = output_array + base_index;
+    const float *input = input_array + base_index;
+    const float *grad = out_gradient + base_index;
+    float *output = output_array + base_index;
 
     float weighted_grad_sum = 0.f;
-    for (int k = 0; k < sizes.channel; ++k) {
+    for (int k = 0; k < sizes.channel; ++k)
+    {
         int idx = k * sizes.inner;
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
 
-    for (int k = 0; k < sizes.channel; ++k) {
+    for (int k = 0; k < sizes.channel; ++k)
+    {
         int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
         output[idx] = quant_mul(a * input[idx]);
     }
 }
 
-__global__ void softmax_backward_kernel2(const float* __restrict__ input_array, const float* __restrict__ out_gradient, float* output_array,
-                                         const DimSizes sizes) {
+__global__ void softmax_backward_kernel2(const float *__restrict__ input_array, const float *__restrict__ out_gradient, float *output_array,
+                                         const DimSizes sizes)
+{
     extern __shared__ float shared[];
 
     int tid = threadIdx.x;
@@ -249,32 +260,37 @@ __global__ void softmax_backward_kernel2(const float* __restrict__ input_array, 
 
     int outer_idx = blockIdx.x / sizes.inner;
     int inner_idx = blockIdx.x % sizes.inner;
-    
+
     int base_index = outer_idx * sizes.channel * sizes.inner + inner_idx;
-    const float* input = input_array + base_index;
-    const float* grad = out_gradient + base_index;
-    float* output = output_array + base_index;
+    const float *input = input_array + base_index;
+    const float *grad = out_gradient + base_index;
+    float *output = output_array + base_index;
 
     // Compute the input row sum and weighted sum
 
-    float* shared_weighted_grad_sum = &shared[0];
+    float *shared_weighted_grad_sum = &shared[0];
 
     float weighted_grad_sum = 0.f;
-    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+    for (int k = tid; k < sizes.channel; k += blockDim.x)
+    {
         int idx = k * sizes.inner;
         float prod = quant_mul(input[idx] * grad[idx]);
         weighted_grad_sum = quant_add(weighted_grad_sum + prod);
     }
-    for (int offset = warpSize/2; offset > 0; offset /= 2) {
+    for (int offset = warpSize / 2; offset > 0; offset /= 2)
+    {
         weighted_grad_sum = quant_add(weighted_grad_sum + __shfl_down_sync(0xFFFFFFFF, weighted_grad_sum, offset));
     }
-    if (lane == 0) {
+    if (lane == 0)
+    {
         shared_weighted_grad_sum[warp] = weighted_grad_sum;
     }
     __syncthreads();
-    if(tid == 0) {
+    if (tid == 0)
+    {
         weighted_grad_sum = shared_weighted_grad_sum[0];
-        for (int i = 1; i < warpsPerBlock; i++) {
+        for (int i = 1; i < warpsPerBlock; i++)
+        {
             weighted_grad_sum = quant_add(weighted_grad_sum + shared_weighted_grad_sum[i]);
         }
         shared_weighted_grad_sum[0] = weighted_grad_sum;
@@ -283,7 +299,8 @@ __global__ void softmax_backward_kernel2(const float* __restrict__ input_array, 
     weighted_grad_sum = shared_weighted_grad_sum[0];
 
     // Last step, subsrtact the weighted sum from the gradient, and divide by input sum
-    for (int k = tid; k < sizes.channel; k += blockDim.x) {
+    for (int k = tid; k < sizes.channel; k += blockDim.x)
+    {
         int idx = k * sizes.inner;
         float a = quant_add(grad[idx] - weighted_grad_sum);
         output[idx] = quant_mul(a * input[idx]);
@@ -293,7 +310,8 @@ __global__ void softmax_backward_kernel2(const float* __restrict__ input_array, 
 // ---------------------------------------------------------------------------------------
 /* Kernel launchers */
 
-void softmax_backward_cuda1(float *input, float *out_grad, float *output, const int *dims, int n_dims, int dim, int block_size) {
+void softmax_backward_cuda1(float *input, float *out_grad, float *output, const int *dims, int n_dims, int dim, int block_size)
+{
     DimSizes sizes = partition_tensor(dims, n_dims, dim);
     // one thread per row that was softmaxed
     int N = sizes.outer * sizes.inner; // number of rows
@@ -301,7 +319,8 @@ void softmax_backward_cuda1(float *input, float *out_grad, float *output, const 
     softmax_backward_kernel1<<<blocks, block_size>>>(input, out_grad, output, sizes, N);
 }
 
-void softmax_backward_cuda2(float *input, float *out_grad, float *output, const int *dims, int n_dims, int dim, int block_size) {
+void softmax_backward_cuda2(float *input, float *out_grad, float *output, const int *dims, int n_dims, int dim, int block_size)
+{
     DimSizes sizes = partition_tensor(dims, n_dims, dim);
     // one block per row that was softmaxed
     int blocks = sizes.outer * sizes.inner; // number of rows
@@ -311,8 +330,10 @@ void softmax_backward_cuda2(float *input, float *out_grad, float *output, const 
 }
 
 void softmax_backward_cuda(int kernel_num, float *input, float *out_grad, float *output,
-                          const int *dims, int n_dims, int dim, int block_size) {
-    switch (kernel_num) {
+                           const int *dims, int n_dims, int dim, int block_size)
+{
+    switch (kernel_num)
+    {
     case 1:
         softmax_backward_cuda1(input, out_grad, output, dims, n_dims, dim, block_size);
         break;
@@ -326,35 +347,40 @@ void softmax_backward_cuda(int kernel_num, float *input, float *out_grad, float 
 }
 
 // ---------------------------------------------------------------------------------------
-int main(int argc, const char **argv) {
+int main(int argc, const char **argv)
+{
     setup_main();
 
     const int dims[] = {125, 81, 384};
-    const int n_dims = sizeof(dims)/sizeof(dims[0]);
+    const int n_dims = sizeof(dims) / sizeof(dims[0]);
 
     // which kernel version to use
     int version = 1;
-    if(argc > 1) {
+    if (argc > 1)
+    {
         version = atoi(argv[1]);
     }
 
     // which dimension to softmax
     int dim = 1;
-    if (argc > 2) {
+    if (argc > 2)
+    {
         dim = atoi(argv[2]);
     }
-    if(dim <= -n_dims-1 || dim >= n_dims) {
+    if (dim <= -n_dims - 1 || dim >= n_dims)
+    {
         exit(1);
     }
 
     // create host tensors
     int numel = 1;
-    for(int i = 0; i < n_dims; i++) {
+    for (int i = 0; i < n_dims; i++)
+    {
         numel *= dims[i];
     }
     float *h_input = make_random_float(numel);
     float *h_grad = make_random_float(numel);
-    float* h_output = make_zeros_float(numel);
+    float *h_output = make_zeros_float(numel);
 
     // create cuda tensors
     float *d_input, *d_grad, *d_output;
@@ -368,7 +394,8 @@ int main(int argc, const char **argv) {
     softmax_backward_cpu(h_input, h_grad, h_output, dims, n_dims, dim);
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
         printf("Checking block size %d.\n", block_size);
         softmax_backward_cuda(version, d_input, d_grad, d_output, dims, n_dims, dim, block_size);
@@ -379,11 +406,12 @@ int main(int argc, const char **argv) {
 
     printf("All results match. Starting benchmarks.\n\n");
 
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
         int repeat_times = 1000;
-        float elapsed_time = benchmark_kernel(repeat_times, softmax_backward_cuda, version,
-                                              d_input, d_grad, d_output, dims, n_dims, dim, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, softmax_backward_cuda, version,
+                                                  d_input, d_grad, d_output, dims, n_dims, dim, block_size);
 
         printf("block_size %4d | time %.4f ms\n", block_size, elapsed_time);
     }
@@ -392,7 +420,8 @@ int main(int argc, const char **argv) {
     int repeat_times = 10;
     namespace chr = std::chrono;
     chr::steady_clock::time_point begin = chr::steady_clock::now();
-    for(int i = 0; i < repeat_times; i++) {
+    for (int i = 0; i < repeat_times; i++)
+    {
         softmax_backward_cpu(h_input, h_grad, h_output, dims, n_dims, dim);
     }
     chr::steady_clock::time_point end = chr::steady_clock::now();
@@ -404,7 +433,7 @@ int main(int argc, const char **argv) {
     free(h_input);
     free(h_grad);
     free(h_output);
-    
+
     cudaCheck(cudaFree(d_input));
     cudaCheck(cudaFree(d_grad));
     cudaCheck(cudaFree(d_output));

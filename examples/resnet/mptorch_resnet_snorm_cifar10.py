@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD
 from mptorch import FloatingPoint, SuperNormalFloat
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -58,9 +58,7 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 
 parser.add_argument(
     "--resume", "-r", action="store_true", default=False, help="resume from checkpoint"
@@ -136,17 +134,38 @@ rounding = "nearest"
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
 )
-w_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
-g_format = SuperNormalFloat(exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False)
-i_format = SuperNormalFloat(exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False)
+w_format = SuperNormalFloat(
+    exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False
+)
+g_format = SuperNormalFloat(
+    exp=args.expGrad, man=args.manGrad, binades=args.binadeGrad, saturate=False
+)
+i_format = SuperNormalFloat(
+    exp=args.expWeight, man=args.manWeight, binades=args.binadeWeight, saturate=False
+)
 quant_g = lambda x: qpt.superfp_quantize(
-    x, exp=g_format.exp, man=g_format.man, rounding=rounding, binades=g_format.binades, saturate=False
+    x,
+    exp=g_format.exp,
+    man=g_format.man,
+    rounding=rounding,
+    binades=g_format.binades,
+    saturate=False,
 )
 quant_w = lambda x: qpt.superfp_quantize(
-    x, exp=w_format.exp, man=w_format.man, rounding=rounding, binades=w_format.binades, saturate=False
+    x,
+    exp=w_format.exp,
+    man=w_format.man,
+    rounding=rounding,
+    binades=w_format.binades,
+    saturate=False,
 )
 quant_b = lambda x: qpt.float_quantize(
-    x, exp=fp_format.exp, man=fp_format.man, rounding=rounding, subnormals=True, saturate=False
+    x,
+    exp=fp_format.exp,
+    man=fp_format.man,
+    rounding=rounding,
+    subnormals=True,
+    saturate=False,
 )
 
 layer_formats = qpt.QAffineFormats(
@@ -171,16 +190,14 @@ transform_train = transforms.Compose(
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225]),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]
 )
 
 transform_test = transforms.Compose(
     [
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225]),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]
 )
 
@@ -208,6 +225,7 @@ if args.wandb:
             "batch_size": args.batch_size,
         },
     )
+
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -284,7 +302,9 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.in_planes = 16
 
-        self.conv1 = qpt.QConv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False, formats=layer_formats)
+        self.conv1 = qpt.QConv2d(
+            3, 16, kernel_size=3, stride=1, padding=1, bias=False, formats=layer_formats
+        )
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)

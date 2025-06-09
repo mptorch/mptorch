@@ -6,6 +6,7 @@ from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
 
+
 @pytest.fixture
 def signal_q():
     man, exp = 12, 8
@@ -13,13 +14,17 @@ def signal_q():
         x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
     )
 
+
 @pytest.fixture
 def mac_format():
     man, exp = 12, 8
     return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 
+
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("quant_fwd,quant_bwd", [(True, True), (False, True), (True, False)])
+@pytest.mark.parametrize(
+    "quant_fwd,quant_bwd", [(True, True), (False, True), (True, False)]
+)
 def test_qlinear_custom_mm(device, mac_format, signal_q, quant_fwd, quant_bwd):
     formats_q = qt.QAffineFormats(
         fwd_mac=(mac_format, mac_format) if quant_fwd else None,
@@ -52,6 +57,7 @@ def test_qlinear_custom_mm(device, mac_format, signal_q, quant_fwd, quant_bwd):
     res_qm.backward()
     assert_close(m.bias.grad, qm.bias.grad, atol=1e-3, rtol=0.0)
     assert_close(m.weight.grad, qm.weight.grad, atol=1e-3, rtol=0.0)
+
 
 @pytest.mark.parametrize("device", available_devices)
 def test_qlinear_default_mm(device, signal_q):

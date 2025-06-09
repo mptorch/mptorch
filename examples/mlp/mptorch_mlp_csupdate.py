@@ -6,7 +6,7 @@ import torchvision
 from torchvision import transforms
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import QOptim
+from mptorch.optim import QOptim, QSGD, QAdamW
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -161,19 +161,34 @@ model = nn.Sequential(
 
 """Prepare and launch the training process"""
 model = model.to(device)
-optimizer = SGD(
+
+
+def acc_q(x, y, z):
+    out = torch.zeros_like(x, device=x.device)
+    out = qpt.float_quantize(
+        torch.addcmul(x, y, z, value=1.0, out=out), exp=8, man=7, rounding="nearest"
+    )
+    return out
+
+
+optimizer = QSGD(
     model.parameters(),
     lr=args.lr_init,
     momentum=args.momentum,
     weight_decay=args.weight_decay,
+    momentum_quant=acc_q,
+    acc_quant=acc_q,
+    compensated=True,
 )
 
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
-optimizer = QOptim(
-    optimizer,
-    acc_quant=acc_q,
-    momentum_quant=acc_q,
-)
+# optimizer = QAdamW(
+#     model.parameters(),
+#     lr=args.lr_init,
+#     weight_decay=args.weight_decay,
+#     momentum_quant=acc_q,
+#     acc_quant=acc_q,
+#     compensated=True,
+# )
 
 trainer(
     model,
@@ -184,7 +199,6 @@ trainer(
     batch_size=args.batch_size,
     optimizer=optimizer,
     device=device,
-    init_scale=1024.0,
     log_wandb=args.wandb,
 )
 

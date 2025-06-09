@@ -5,6 +5,7 @@
 #include <cublas_v2.h>
 #include <cfloat>
 #include <iostream>
+#include <chrono>
 
 // --------------------------------------------------------------------------------
 // helper functions and formatted printing
@@ -21,49 +22,56 @@
 #define CYN "\e[0;36m"
 #define REDB "\e[41m"
 
-auto print_float = [](float x) {
+auto print_float = [](float x)
+{
     uint32_t u = FLOAT_TO_BITS(&x);
     std::cout << CYN << (u >> 31) << " ";
     for (int i{1}; i < 9; ++i)
         std::cout << GRN << ((u << i) >> 31);
     std::cout << " ";
-    for (int i{9}; i < 32; ++i) 
+    for (int i{9}; i < 32; ++i)
         std::cout << RED << ((u << i) >> 31);
     std::cout << NC;
 };
 
-auto print_uint32 = [](uint32_t u) {
+auto print_uint32 = [](uint32_t u)
+{
     std::cout << CYN << (u >> 31) << " ";
     for (int i{1}; i < 9; ++i)
         std::cout << GRN << ((u << i) >> 31);
     std::cout << " ";
-    for (int i{9}; i < 32; ++i) 
+    for (int i{9}; i < 32; ++i)
         std::cout << RED << ((u << i) >> 31);
     std::cout << NC;
 };
 
-template<class T>
-__host__ __device__ T ceil_div(T dividend, T divisor) {
-    return (dividend + divisor-1) / divisor;
+template <class T>
+__host__ __device__ T ceil_div(T dividend, T divisor)
+{
+    return (dividend + divisor - 1) / divisor;
 }
 
 // --------------------------------------------------------------------------------
 // checking utils
 
 // CUDA error checking code
-void cuda_check(cudaError_t error, const char *file, int line) {
-    if (error != cudaSuccess) {
-        printf("[CUDA ERROR] at file %s:%d:\n%s\n", file, line, 
-            cudaGetErrorString(error));
+void cuda_check(cudaError_t error, const char *file, int line)
+{
+    if (error != cudaSuccess)
+    {
+        printf("[CUDA ERROR] at file %s:%d:\n%s\n", file, line,
+               cudaGetErrorString(error));
         exit(EXIT_FAILURE);
     }
 };
 
 // CUBLAS error checking code
-void cublas_check(cublasStatus_t error, const char* file, int line) {
-    if (error != CUBLAS_STATUS_SUCCESS) {
+void cublas_check(cublasStatus_t error, const char *file, int line)
+{
+    if (error != CUBLAS_STATUS_SUCCESS)
+    {
         fprintf(stderr, "[CUBLAS ERROR] at file %s:%d\n%s\n", file, line,
-            cublasGetStatusString(error));
+                cublasGetStatusString(error));
         exit(EXIT_FAILURE);
     }
 }
@@ -73,25 +81,31 @@ void cublas_check(cublasStatus_t error, const char* file, int line) {
 
 // --------------------------------------------------------------------------------
 // checking utils
-float* make_random_float(size_t N) {
-    float* arr = (float*)malloc(N * sizeof(float));
-    for (size_t i = 0; i < N; i++) {
+float *make_random_float(size_t N)
+{
+    float *arr = (float *)malloc(N * sizeof(float));
+    for (size_t i = 0; i < N; i++)
+    {
         arr[i] = ((float)rand() / RAND_MAX) * 2.0 - 1.0; // range -1..1
     }
     return arr;
 }
 
-float* make_zeros_float(size_t N) {
-    float* arr = (float*)malloc(N * sizeof(float));
-    for (size_t i = 0; i < N; i++) {
+float *make_zeros_float(size_t N)
+{
+    float *arr = (float *)malloc(N * sizeof(float));
+    for (size_t i = 0; i < N; i++)
+    {
         arr[i] = 0.f;
     }
     return arr;
 }
 
-float* make_ones_float(size_t N) {
-    float* arr = (float*)malloc(N * sizeof(float));
-    for (size_t i = 0; i < N; i++) {
+float *make_ones_float(size_t N)
+{
+    float *arr = (float *)malloc(N * sizeof(float));
+    for (size_t i = 0; i < N; i++)
+    {
         arr[i] = 1.f;
     }
     return arr;
@@ -99,16 +113,17 @@ float* make_ones_float(size_t N) {
 
 int cuda_arch_major = 0;
 int cuda_arch_minor = 0;
-int cuda_num_SMs = 0; // for persistent threads where we want 1 threadblock per SM
-int cuda_threads_per_SM = 0;    // needed to calculate how many blocks to launch to fill up the GPU
-
+int cuda_num_SMs = 0;        // for persistent threads where we want 1 threadblock per SM
+int cuda_threads_per_SM = 0; // needed to calculate how many blocks to launch to fill up the GPU
 
 // testing and benchmarking tools
-template<class TargetType>
-[[nodiscard]] cudaError_t memcpy_convert(TargetType* d_ptr, float* h_ptr, size_t count) {
+template <class TargetType>
+[[nodiscard]] cudaError_t memcpy_convert(TargetType *d_ptr, float *h_ptr, size_t count)
+{
     // copy from host to device with data type conversion
-    TargetType* converted = (TargetType*)malloc(count * sizeof(TargetType));
-    for (int i = 0; i < count; i++) {
+    TargetType *converted = (TargetType *)malloc(count * sizeof(TargetType));
+    for (int i = 0; i < count; i++)
+    {
         converted[i] = (TargetType)h_ptr[i];
     }
 
@@ -120,8 +135,9 @@ template<class TargetType>
     return status;
 }
 
-void setup_main() {
-    srand(0);   // ensure reproducibility between runs
+void setup_main()
+{
+    srand(0); // ensure reproducibility between runs
 
     int deviceIdx = 0;
     cudaCheck(cudaSetDevice(deviceIdx));
@@ -132,23 +148,26 @@ void setup_main() {
     cuda_arch_minor = deviceProp.minor;
 }
 
-template<class D, class T>
-void validate_result(D* device_result, const T* cpu_reference, const char* name, 
-                std::size_t num_elements, T tolerance=1e-4, T relative_tolerance=0.0f) {
+template <class D, class T>
+void validate_result(D *device_result, const T *cpu_reference, const char *name,
+                     std::size_t num_elements, T tolerance = 1e-4, T relative_tolerance = 0.0f)
+{
 
-    D* out_gpu = (D*)malloc(num_elements * sizeof(D));
+    D *out_gpu = (D *)malloc(num_elements * sizeof(D));
     cudaCheck(cudaMemcpy(out_gpu, device_result, num_elements * sizeof(D), cudaMemcpyDeviceToHost));
     int nfaults = 0;
 
     float epsilon = FLT_EPSILON;
 
-    for (int i = 0; i < num_elements; ++i) {
+    for (int i = 0; i < num_elements; ++i)
+    {
         // skip masked elements
-        if(!isfinite(cpu_reference[i]))
+        if (!isfinite(cpu_reference[i]))
             continue;
 
         // print the first few comparisons
-        if (i < 5) {
+        if (i < 5)
+        {
             printf("%f %f\n", cpu_reference[i], (T)out_gpu[i]);
         }
 
@@ -157,17 +176,20 @@ void validate_result(D* device_result, const T* cpu_reference, const char* name,
         float abs_ref = fabs(cpu_reference[i]);
         float t_eff = (tolerance + abs_ref * relative_tolerance) + abs_ref * epsilon;
         // ensure correctness for all elements
-        if (fabs(cpu_reference[i] - (T)out_gpu[i]) > t_eff) {
+        if (fabs(cpu_reference[i] - (T)out_gpu[i]) > t_eff)
+        {
             printf("Mismatch of %s at %d: CPU_ref: %f vs GPU: %f\n", name, i, cpu_reference[i], (T)out_gpu[i]);
             nfaults++;
-            if (nfaults >= 10) {
+            if (nfaults >= 10)
+            {
                 free(out_gpu);
                 exit(EXIT_FAILURE);
             }
         }
     }
 
-    if (nfaults > 0) {
+    if (nfaults > 0)
+    {
         free(out_gpu);
         exit(EXIT_FAILURE);
     }
@@ -175,8 +197,9 @@ void validate_result(D* device_result, const T* cpu_reference, const char* name,
     free(out_gpu);
 }
 
-template<class Kernel, class... KernelArgs>
-float benchmark_kernel(int repeats, Kernel kernel, KernelArgs&&... kernel_args) {
+template <class Kernel, class... KernelArgs>
+float benchmark_gpu_kernel(int repeats, Kernel kernel, KernelArgs &&...kernel_args)
+{
     cudaEvent_t start, stop;
     // prepare before to scrub L2 cache between benchmarks
     // just memset a large dummy array. recommended by
@@ -192,7 +215,8 @@ float benchmark_kernel(int repeats, Kernel kernel, KernelArgs&&... kernel_args) 
     cudaCheck(cudaEventCreate(&start));
     cudaCheck(cudaEventCreate(&stop));
     float elapsed_time = 0.f;
-    for (int i = 0; i < repeats; i++) {
+    for (int i = 0; i < repeats; i++)
+    {
         // clear L2
         cudaCheck(cudaMemset(flush_buffer, 0, deviceProp.l2CacheSize));
         // now we can start recording the timing of the kernel
@@ -207,6 +231,25 @@ float benchmark_kernel(int repeats, Kernel kernel, KernelArgs&&... kernel_args) 
     }
 
     cudaCheck(cudaFree(flush_buffer));
+
+    return elapsed_time / repeats;
+}
+
+template <class Kernel, class... KernelArgs>
+float benchmark_cpu_kernel(int repeats, Kernel kernel, KernelArgs &&...kernel_args)
+{
+    using clock_t = std::chrono::high_resolution_clock;
+    float elapsed_time = 0.;
+
+    auto start_time = clock_t::now();
+    auto end_time = start_time;
+    for (int i = 0; i < repeats; ++i)
+    {
+        start_time = clock_t::now();
+        kernel(std::forward<KernelArgs>(kernel_args)...);
+        end_time = clock_t::now();
+        elapsed_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    }
 
     return elapsed_time / repeats;
 }

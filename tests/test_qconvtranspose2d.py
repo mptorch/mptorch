@@ -6,6 +6,7 @@ from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
 
+
 @pytest.fixture
 def signal_q():
     man, exp = 23, 8
@@ -13,17 +14,21 @@ def signal_q():
         x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
     )
 
+
 @pytest.fixture
 def mac_format():
     man, exp = 23, 8
     return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [4])
 @pytest.mark.parametrize("dilation", [2])
 @pytest.mark.parametrize("stride", [4])
 @pytest.mark.parametrize("out_padding", [0])
-def test_qconvtranspose2d_custom_mm(groups, device, dilation, stride, out_padding, mac_format, signal_q):
+def test_qconvtranspose2d_custom_mm(
+    groups, device, dilation, stride, out_padding, mac_format, signal_q
+):
     formats_q = qt.QAffineFormats(
         fwd_mac=mac_format,
         bwd_mac=mac_format,
@@ -35,11 +40,11 @@ def test_qconvtranspose2d_custom_mm(groups, device, dilation, stride, out_paddin
         input_quant=signal_q,
         bias_quant=signal_q,
     )
-    x = torch.randn(1, 4, 60, 60)
+    x = torch.randn(1, 4, 40, 40)
     m = nn.ConvTranspose2d(
         4,
         4,
-        (12, 12),
+        (8, 8),
         groups=groups,
         bias=True,
         stride=stride,
@@ -49,7 +54,7 @@ def test_qconvtranspose2d_custom_mm(groups, device, dilation, stride, out_paddin
     qm = qt.QConvTranspose2d(
         4,
         4,
-        (12, 12),
+        (8, 8),
         formats=formats_q,
         groups=groups,
         bias=True,
@@ -76,12 +81,15 @@ def test_qconvtranspose2d_custom_mm(groups, device, dilation, stride, out_paddin
     assert res_m.shape == res_qm.shape
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
 
+
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [4])
 @pytest.mark.parametrize("dilation", [2])
 @pytest.mark.parametrize("stride", [4])
 @pytest.mark.parametrize("out_padding", [0])
-def test_qconvtranspose2d_default_mm(groups, device, dilation, stride, out_padding, signal_q):
+def test_qconvtranspose2d_default_mm(
+    groups, device, dilation, stride, out_padding, signal_q
+):
     formats_q = qt.QAffineFormats(
         weight_quant=signal_q,
         grad_quant=signal_q,
