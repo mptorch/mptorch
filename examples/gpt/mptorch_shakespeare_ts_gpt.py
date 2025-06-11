@@ -6,7 +6,7 @@ from mptorch import FloatingPoint
 import mptorch.quant as qpt
 from mptorch.quant import cublas_acceleration
 import os
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 import random
 import numpy as np
@@ -81,9 +81,7 @@ parser.add_argument(
 parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 parser.add_argument(
     "--expMac",
     type=int,
@@ -120,7 +118,9 @@ device = "cuda" if args.cuda else "cpu"
 
 """Specify the formats and quantization functions for the layer operations and signals"""
 rounding = "nearest"
-fma_format = FloatingPoint(exp=args.expMac, man=args.manMac, subnormals=True, saturate=False)
+fma_format = FloatingPoint(
+    exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
+)
 w_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
 i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
@@ -134,7 +134,7 @@ layer_formats = qpt.QAffineFormats(
     input_quant=(i_format, rounding),
     grad_quant=(g_format, rounding),
     bias_quant=(fma_format, rounding),
-    use_scaling=True
+    use_scaling=True,
 )
 
 # hyperparameters
@@ -226,7 +226,10 @@ class Head(nn.Module):
             args.n_embd, head_size, bias=False, formats=layer_formats
         )
         self.value = qpt.QLinear(
-            args.n_embd, head_size, bias=False, formats=layer_formats,
+            args.n_embd,
+            head_size,
+            bias=False,
+            formats=layer_formats,
         )
         self.register_buffer(
             "tril", torch.tril(torch.ones(args.block_size, args.block_size))

@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 from mptorch.utils import trainer
 from mptorch.quant import cublas_acceleration
@@ -204,11 +204,13 @@ if not args.no_param_quant:
         subnormals=True,
         saturate=False,
     )
-    print("Using parameter quant: float_quantize("
-    f"man={args.exp_param}, exp={args.man_param}, "
-    f"rounding=nearest, "
-    f"subnormals={True}, "
-    f"saturate={False})")
+    print(
+        "Using parameter quant: float_quantize("
+        f"man={args.exp_param}, exp={args.man_param}, "
+        f"rounding=nearest, "
+        f"subnormals={True}, "
+        f"saturate={False})"
+    )
 else:
     param_q = lambda x: x
     input_q = lambda x: x
@@ -380,7 +382,7 @@ optimizer = SGD(
 acc_q = lambda x: qpt.float_quantize(
     x, exp=8, man=23, rounding="nearest", subnormals=True
 )
-optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
+optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 
@@ -399,8 +401,11 @@ def train():
         init_scale=256.0,
     )
 
+
 if args.profile:
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True
+    ) as prof:
         train()
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
 else:

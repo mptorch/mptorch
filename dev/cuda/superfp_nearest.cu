@@ -5,7 +5,7 @@ Payload is still a binary32 value.
 Compile example:
 nvcc -O3 superfp_nearest.cu -o superfp_nearest -std=c++17 -lcublas
 
-version 1 attempted to make the code as compact as possible, while also 
+version 1 attempted to make the code as compact as possible, while also
 maintaining readability; bit shifts and masking are used aplenty
 ./fp_nearest 1
 
@@ -18,17 +18,17 @@ maintaining readability; bit shifts and masking are used aplenty
 // --------------------------------------------------------------------------------------
 // I/O pairs to sanity check the CPU reference code (superP3 - 1 binade, RNE)
 uint32_t input_binade1[] = {
-    0b11000000010100000000000000000000,  // normalized range value - tie case (round to zero)
-    0b01000000011100000000000000000000,  // normalized range value - tie case (round away from zero)
-    0b10111000000011001100110011001101,  // normalized range value - round to zero case
-    0b11011000100000000000000000000000,  // overflow  range value - round to inf
-    0b10110110100011001100110011001101,  // subnormal range value - round to zero
-    0b00110110111100110011001100110011,  // subnormal range value - round away from zero
-    0b11000111100110011001100110011010,  // supnormal range value - round to zero
-    0b11000111110000000000000000000000,  // supnormal range value - tie case (round away from zero)
-    0b11001000000000000000000000000000,  // supnormal range value - exact
-    0b01111111100000000000000000000000   // infinity
-}; 
+    0b11000000010100000000000000000000, // normalized range value - tie case (round to zero)
+    0b01000000011100000000000000000000, // normalized range value - tie case (round away from zero)
+    0b10111000000011001100110011001101, // normalized range value - round to zero case
+    0b11011000100000000000000000000000, // overflow  range value - round to inf
+    0b10110110100011001100110011001101, // subnormal range value - round to zero
+    0b00110110111100110011001100110011, // subnormal range value - round away from zero
+    0b11000111100110011001100110011010, // supnormal range value - round to zero
+    0b11000111110000000000000000000000, // supnormal range value - tie case (round away from zero)
+    0b11001000000000000000000000000000, // supnormal range value - exact
+    0b01111111100000000000000000000000  // infinity
+};
 
 uint32_t output_binade1[] = {
     0b11000000010000000000000000000000,
@@ -40,22 +40,21 @@ uint32_t output_binade1[] = {
     0b11000111100000000000000000000000,
     0b11001000000000000000000000000000,
     0b11001000000000000000000000000000,
-    0b01111111100000000000000000000000
-};
+    0b01111111100000000000000000000000};
 
 // I/O pairs to sanity check the CPU reference code (superP3 - 2 binades, RNE)
 uint32_t input_binade2[] = {
-    0b11000000010100000000000000000000,  // normalized range value - tie case (round to zero)
-    0b01000000011100000000000000000000,  // normalized range value - tie case (round away from zero)
-    0b01000000100010001111010111000011,  // normalized range value - round to zero case
-    0b11011000100000000000000000000000,  // overflow  range value - round to inf
-    0b10110101001101000111101011100001,  // subnormal range value - round to zero
-    0b00110101110000010100011110101110,  // subnormal range value - round away from zero
-    0b11000111101000000010000011000101,  // supnormal range value - round to zero
-    0b11000111110000000000000000000000,  // supnormal range value - tie case (round away from zero)
-    0b11001000000000000000000000000000,  // supnormal range value - exact
-    0b01111111100000000000000000000000   // infinity
-}; 
+    0b11000000010100000000000000000000, // normalized range value - tie case (round to zero)
+    0b01000000011100000000000000000000, // normalized range value - tie case (round away from zero)
+    0b01000000100010001111010111000011, // normalized range value - round to zero case
+    0b11011000100000000000000000000000, // overflow  range value - round to inf
+    0b10110101001101000111101011100001, // subnormal range value - round to zero
+    0b00110101110000010100011110101110, // subnormal range value - round away from zero
+    0b11000111101000000010000011000101, // supnormal range value - round to zero
+    0b11000111110000000000000000000000, // supnormal range value - tie case (round away from zero)
+    0b11001000000000000000000000000000, // supnormal range value - exact
+    0b01111111100000000000000000000000  // infinity
+};
 
 uint32_t output_binade2[] = {
     0b11000000010000000000000000000000,
@@ -67,26 +66,27 @@ uint32_t output_binade2[] = {
     0b11000111100000000000000000000000,
     0b11001000000000000000000000000000,
     0b11001000000000000000000000000000,
-    0b01111111100000000000000000000000
-};
+    0b01111111100000000000000000000000};
 
 // ---------------------------------------------------------------------------------------
 // CPU reference code
-uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits) {
+uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits)
+{
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
     uint32_t machine_eps = 1 << (22 - man_bits);
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
     // apply the mask
-    // this is the analogue of how you would do round 
-    // to nearest integer using the floor function: 
+    // this is the analogue of how you would do round
+    // to nearest integer using the floor function:
     // round(x) = floor(x + 0.5)
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 };
 
 // Remark: bias = 2^{e-1}
-float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int binades, bool saturate = false) {
+float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int binades, bool saturate = false)
+{
     int32_t sat = saturate;
     uint32_t target;
     target = FLOAT_TO_BITS(&origin);
@@ -97,7 +97,8 @@ float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int bin
     int32_t max_exp = ((1 << (exp_bits - 1)) - 2) - (binades - 1);
     bool subnormal = (target_exp < min_exp);
     bool supnormal = (target_exp > max_exp);
-    if(subnormal) {
+    if (subnormal)
+    {
         if (target_exp < min_exp - binades * (1 << man_bits) + 1) // underflow
             return 0.0f;
         uint32_t mask = (1 << 23) - 1;
@@ -105,26 +106,41 @@ float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int bin
         uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = BITS_TO_FLOAT(&qtarget);
-    } else if (supnormal) {
-        if (target_exp == 128) { // NaN/inf
-            if (saturate) {
-                if ((target & 0x7FFFFFFF) == 0x7F800000) { // inf
+    }
+    else if (supnormal)
+    {
+        if (target_exp == 128)
+        { // NaN/inf
+            if (saturate)
+            {
+                if ((target & 0x7FFFFFFF) == 0x7F800000)
+                { // inf
                     uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
                     return BITS_TO_FLOAT(&qtarget);
-                } else { // NaN
+                }
+                else
+                { // NaN
                     return origin;
                 }
-            } else {
+            }
+            else
+            {
                 return origin;
             }
-        } else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat) { // overflow
-            if (saturate) {
+        }
+        else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat)
+        { // overflow
+            if (saturate)
+            {
                 uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
                 return BITS_TO_FLOAT(&qtarget);
-            } else {
+            }
+            else
+            {
                 if (((target << 9) == 0u) && (target_exp == max_exp + binades * (1 << man_bits) - 1))
                     return origin;
-                else {
+                else
+                {
                     float infty = INFINITY;
                     uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
                     return BITS_TO_FLOAT(&qtarget);
@@ -136,7 +152,9 @@ float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int bin
         uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = BITS_TO_FLOAT(&qtarget);
-    } else {
+    }
+    else
+    {
         uint32_t qtarget = round_bitwise_nearest_cpu(target, man_bits);
         ftarget = BITS_TO_FLOAT(&qtarget);
     }
@@ -144,28 +162,31 @@ float cast_superfp_nearest_cpu(float origin, int man_bits, int exp_bits, int bin
     return ftarget;
 }
 
-void superfp_nearest_cpu(float *o, float *a, int N, int man_bits, int exp_bits, int binades, bool saturate) {
+void superfp_nearest_cpu(float *o, float *a, int N, int man_bits, int exp_bits, int binades, bool saturate)
+{
     for (int i = 0; i < N; ++i)
         o[i] = cast_superfp_nearest_cpu(a[i], man_bits, exp_bits, binades, saturate);
 }
 
 // ---------------------------------------------------------------------------------------
 // GPU kernels
-__device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, int man_bits) {
+__device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, int man_bits)
+{
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
     uint32_t machine_eps = 1 << (22 - man_bits);
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
     // apply the mask
-    // this is the analogue of how you would do round 
-    // to nearest integer using the floor function: 
+    // this is the analogue of how you would do round
+    // to nearest integer using the floor function:
     // round(x) = floor(x + 0.5)
     return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 };
 
 // Remark: bias = 2^{e-1}
-__device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_bits, int binades = 1, bool saturate = false) {
+__device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_bits, int binades = 1, bool saturate = false)
+{
     int32_t sat = saturate;
     uint32_t target;
     target = FLOAT_TO_BITS(&origin);
@@ -176,7 +197,8 @@ __device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_
     int32_t max_exp = ((1 << (exp_bits - 1)) - 2) - (binades - 1);
     bool subnormal = (target_exp < min_exp);
     bool supnormal = (target_exp > max_exp);
-    if(subnormal) {
+    if (subnormal)
+    {
         if (target_exp < min_exp - binades * (1 << man_bits) + 1) // underflow
             return 0.0f;
         uint32_t mask = (1 << 23) - 1;
@@ -184,26 +206,41 @@ __device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_
         uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = BITS_TO_FLOAT(&qtarget);
-    } else if (supnormal) {
-        if (target_exp == 128) { // NaN/inf
-            if (saturate) {
-                if ((target & 0x7FFFFFFF) == 0x7F800000) { // inf
+    }
+    else if (supnormal)
+    {
+        if (target_exp == 128)
+        { // NaN/inf
+            if (saturate)
+            {
+                if ((target & 0x7FFFFFFF) == 0x7F800000)
+                { // inf
                     uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
                     return BITS_TO_FLOAT(&qtarget);
-                } else { // NaN
+                }
+                else
+                { // NaN
                     return origin;
                 }
-            } else {
+            }
+            else
+            {
                 return origin;
             }
-        } else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat) { // overflow
-            if (saturate) {
+        }
+        else if (target_exp >= max_exp + binades * (1 << man_bits) - 1 + sat)
+        { // overflow
+            if (saturate)
+            {
                 uint32_t qtarget = (target >> 31 << 31) | ((max_exp + binades * (1 << man_bits) + 127u) << 23);
                 return BITS_TO_FLOAT(&qtarget);
-            } else {
+            }
+            else
+            {
                 if (((target << 9) == 0u) && (target_exp == max_exp + binades * (1 << man_bits) - 1))
                     return origin;
-                else {
+                else
+                {
                     float infty = INFINITY;
                     uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
                     return BITS_TO_FLOAT(&qtarget);
@@ -215,7 +252,9 @@ __device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_
         uint32_t add_r = target + eps;
         uint32_t qtarget = add_r & ~mask;
         ftarget = BITS_TO_FLOAT(&qtarget);
-    } else {
+    }
+    else
+    {
         uint32_t qtarget = round_bitwise_nearest_impl(target, man_bits);
         ftarget = BITS_TO_FLOAT(&qtarget);
     }
@@ -224,10 +263,10 @@ __device__ float cast_superfp_nearest_impl1(float origin, int man_bits, int exp_
 };
 
 __global__ void superfp_nearest_kernel1(float *o, float *__restrict__ a, int N,
-                    int man_bits, int exp_bits, int binades, bool saturate)
+                                        int man_bits, int exp_bits, int binades, bool saturate)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < N) 
+    if (index < N)
     {
         o[index] = cast_superfp_nearest_impl1(a[index], man_bits, exp_bits, binades, saturate);
     }
@@ -236,7 +275,7 @@ __global__ void superfp_nearest_kernel1(float *o, float *__restrict__ a, int N,
 // ---------------------------------------------------------------------------------------
 // Kernel launchers
 void superfp_nearest1(float *o, float *a, int N, int man_bits, int exp_bits,
-                 int binades, bool saturate, const int block_size)
+                      int binades, bool saturate, const int block_size)
 {
     const int grid_size = ceil_div(N, block_size);
     superfp_nearest_kernel1<<<grid_size, block_size>>>(o, a, N, man_bits, exp_bits, binades, saturate);
@@ -245,14 +284,14 @@ void superfp_nearest1(float *o, float *a, int N, int man_bits, int exp_bits,
 
 // kernel version dispatch
 void superfp_nearest(int kernel_num,
-                float *o,
-                float *a,
-                int N,
-                int man_bits,
-                int exp_bits,
-                int binades,
-                bool saturate,
-                const int block_size)
+                     float *o,
+                     float *a,
+                     int N,
+                     int man_bits,
+                     int exp_bits,
+                     int binades,
+                     bool saturate,
+                     const int block_size)
 {
     switch (kernel_num)
     {
@@ -312,7 +351,6 @@ int main(int argc, const char **argv)
         }
     }
 
-
     int N = 1 << 24;
     int man_bits = 2;
     int exp_bits = 5;
@@ -354,9 +392,9 @@ int main(int argc, const char **argv)
 
         int repeat_times = 1000;
 
-        float elapsed_time = benchmark_kernel(repeat_times, superfp_nearest, 
-                kernel_num, d_y, d_x, N, man_bits, exp_bits, 
-                binades, saturate, block_size);
+        float elapsed_time = benchmark_gpu_kernel(repeat_times, superfp_nearest,
+                                                  kernel_num, d_y, d_x, N, man_bits, exp_bits,
+                                                  binades, saturate, block_size);
 
         // estimate memory bandwidth achieved
         // for each output element, we do 1 read and 1 write, 4 bytes each

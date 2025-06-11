@@ -2,7 +2,7 @@ import torch
 from torch.optim import SGD
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 import torch.nn as nn
 from mptorch.utils import trainer
 import torchvision
@@ -85,24 +85,19 @@ parser.add_argument(
     "--no-cuda", action="store_true", default=False, help="disables CUDA training"
 )
 
-parser.add_argument(
-    "--wandb", action="store_true", default=False, help="wandb logging"
-)
+parser.add_argument("--wandb", action="store_true", default=False, help="wandb logging")
 
 # name of wandb project run will be in
 parser.add_argument(
     "--wandb_proj_name",
     type=str,
     default="ResNet Tests",
-    help="name of the project where runs will be logged"
+    help="name of the project where runs will be logged",
 )
 
 # group within project file
 parser.add_argument(
-    "--group_name",
-    type=str,
-    default="P=3",
-    help="name of group the run will reside in"
+    "--group_name", type=str, default="P=3", help="name of group the run will reside in"
 )
 
 args = parser.parse_args()
@@ -111,7 +106,7 @@ device = "cuda" if args.cuda else "cpu"
 
 # weights and biases configuration----------------------------------
 if args.wandb:
-    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)    
+    wandb.init(project=args.wandb_proj_name, config=args, group=args.group_name)
     config = wandb.config.update(args)
 # ------------------------------------------------------------------
 
@@ -332,6 +327,7 @@ def resnet110():
 def resnet1202():
     return ResNet(BasicBlock, [200, 200, 200])
 
+
 net = resnet20()
 net = net.to(device)
 optimizer = SGD(
@@ -344,7 +340,7 @@ optimizer = SGD(
 acc_q = lambda x: qpt.float_quantize(
     x, exp=5, man=2, rounding="stochastic", subnormals=True
 )
-optimizer = OptimMP(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
+optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 trainer(
@@ -358,7 +354,7 @@ trainer(
     device=device,
     scheduler=scheduler,
     init_scale=256.0,
-    log_wandb = args.wandb,
+    log_wandb=args.wandb,
 )
 
 wandb.finish()

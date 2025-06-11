@@ -29,9 +29,9 @@ class QLinear(nn.Linear):
             Default: ``True``
 
     Shape:
-        - Input: :math:`(*, H_{in})` where :math:`*` means any number of
+        - Input: :math:`(*, H_\text{in})` where :math:`*` means any number of
           dimensions including none and :math:`H_{in} = \text{in_features}`.
-        - Output: :math:`(*, H_{out})` where all but the last dimension
+        - Output: :math:`(*, H_\text{out})` where all but the last dimension
           are the same shape as the input and :math:`H_{out} = \text{out_features}`.
 
     Attributes:
@@ -112,18 +112,18 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
 
     cls_to_become = QLinear
     weight: torch.nn.UninitializedParameter
-    """
+    r"""
         The learnable weights of the module of shape
-        :math:`(\text{out\_features}, \text{in\_features})`. The values are
+        :math:`(\text{out_features}, \text{in_features})`. The values are
         initialized from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})`, where
-        :math:`k = \frac{1}{\text{in\_features}}`
+        :math:`k = \frac{1}{\text{in_features}}`
     """
     bias: torch.nn.UninitializedParameter
-    """
-        The learnable bias of the module of shape :math:`(\text{out\_features})`.
+    r"""
+        The learnable bias of the module of shape :math:`(\text{out_features})`.
         If :attr:`bias` is ``True``, the values are initialized from
         :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
-        :math:`k = \frac{1}{\text{in\_features}}`
+        :math:`k = \frac{1}{\text{in_features}}`
     """
 
     def __init__(

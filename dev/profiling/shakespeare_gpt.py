@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import OptimMP
+from mptorch.optim import QOptim
 from mptorch.utils import trainer
 from mptorch.quant import cublas_acceleration
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -148,11 +148,13 @@ if not args.no_weight_quant:
         subnormals=True,
         saturate=False,
     )
-    print("Using parameter quant: float_quantize("
-    f"man={args.expWeight}, exp={args.manWeight}, "
-    f"rounding=nearest, "
-    f"subnormals={True}, "
-    f"saturate={False})")
+    print(
+        "Using parameter quant: float_quantize("
+        f"man={args.expWeight}, exp={args.manWeight}, "
+        f"rounding=nearest, "
+        f"subnormals={True}, "
+        f"saturate={False})"
+    )
 else:
     weight_q = lambda x: x
     print("Using parameter quant: None")
@@ -412,6 +414,7 @@ tq = tqdm(total=args.batch_size * args.max_iters)
 tq.set_description(f"Training progress")
 losses = estimate_loss()
 
+
 def train():
     for iter in range(args.max_iters):
         # every once in a while evaluate the loss on train and val sets
@@ -442,8 +445,11 @@ def train():
             scaler.step(optimizer)
             scaler.update()
 
+
 if args.profile:
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True
+    ) as prof:
         train()
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=50))
 else:

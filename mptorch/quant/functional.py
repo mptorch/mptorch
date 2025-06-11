@@ -2,7 +2,7 @@ import torch
 import math
 from .quant_function import *
 from ..number import FloatType
-from .quant_format import make_quant_function
+from .quant_format import QAffineFormats, make_quant_function
 
 __all__ = [
     "qlinear",
@@ -148,7 +148,7 @@ class qlinear_kernel(torch.autograd.Function):
                         quant=make_quant_function(
                             ctx.formats.bwd_add,
                             ctx.formats.bwd_rnd,
-                            ctx.formats.prng_bits,
+                            ctx.formats.rbits_add,
                         ),
                     ).reshape(qbias.shape)
             qgrad_bias = unscale(qgrad_bias, grad_scale)
@@ -158,7 +158,13 @@ class qlinear_kernel(torch.autograd.Function):
         return qgrad_input, qgrad_weight, qgrad_bias, None, None
 
 
-def qlinear(input, weight, bias, formats):
+def qlinear(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None,
+    formats: QAffineFormats,
+) -> torch.Tensor:
+    r"""Applies a linear transformation to the incoming data: :math:`y=xA^T + b`"""
     return qlinear_kernel.apply(input, weight, bias, formats)
 
 
@@ -238,8 +244,35 @@ class qmm_kernel(torch.autograd.Function):
         return qgrad_input, qgrad_other, None
 
 
-def qmm(input, other, formats):
-    return qmm_kernel.apply(input, other, formats)
+def qmm(
+    input: torch.Tensor, mat2: torch.Tensor, formats: QAffineFormats
+) -> torch.Tensor:
+    r"""
+    Simulates a mixed-precision computation pipeline for matrix multiplication of the
+    matrices :attr:`input` and :attr:`mat2`.
+
+    If :attr:`input` is a :math:`(n \times m)` tensor, :attr:`mat2` is a
+    :math:`(m \times p)` tensor, the output tensor will be a :math:`(n \times p)`
+    tensor.
+
+    .. note:: This function does not broadcast. For broadcasting quantized matrix
+              products, see :func:`mptorch.quant.functional.qmatmul`.
+
+    Args:
+        input: the first matrix to be multiplied
+        mat2: the second matrix to be multiplied
+        formats: the configuration object for how quantization (if any!) should be handled on the matrix inputs
+            and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)
+
+    Returns:
+        the result of the matrix multiplication between :attr:`input` and :attr:`mat2`.
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
+    return qmm_kernel.apply(input, mat2, formats)
 
 
 class qmatmul_kernel(torch.autograd.Function):
@@ -320,7 +353,52 @@ class qmatmul_kernel(torch.autograd.Function):
         return qgrad_input, qgrad_other, None
 
 
-def qmatmul(input, other, formats):
+def qmatmul(
+    input: torch.Tensor, other: torch.Tensor, formats: QAffineFormats
+) -> torch.Tensor:
+    r"""
+    Simulates a mixed-precision computation pipeline for (batched) matrix multiplication of the
+    tensors :attr:`input` and :attr:`other`.
+
+    The behavior depends on the dimensionality of the tensors as follows:
+
+    - If both tensors are 1-dimensional, the dot product (scalar) is returned.
+    - If both arguments are 2-dimensional, the matrix-matrix product is returned.
+    - If the first argument is 1-dimensional and the second argument is 2-dimensional,
+      a 1 is prepended to its dimension for the purpose of the matrix multiply.
+      After the matrix multiply, the prepended dimension is removed.
+    - If the first argument is 2-dimensional and the second argument is 1-dimensional,
+      the matrix-vector product is returned.
+    - If both arguments are at least 1-dimensional and at least one argument is
+      N-dimensional (where 2 < N < 5), then a batched matrix multiply is returned.  If the first
+      argument is 1-dimensional, a 1 is prepended to its dimension for the purpose of the
+      batched matrix multiply and removed after.  If the second argument is 1-dimensional, a
+      1 is appended to its dimension for the purpose of the batched matrix multiple and removed after.
+      The non-matrix (i.e. batch) dimensions are broadcasted (and thus
+      must be broadcastable in the PyTorch sense).  For example, if :attr:`input` is a
+      :math:`(j \times 1 \times n \times n)` tensor and :attr:`other` is a :math:`(k \times n \times n)`
+      tensor, :attr:`out` will be a :math:`(j \times k \times n \times n)` tensor.
+
+      Note that the broadcasting logic only looks at the batch dimensions when determining if the inputs
+      are broadcastable, and not the matrix dimensions. For example, if :attr:`input` is a
+      :math:`(j \times 1 \times n \times m)` tensor and :attr:`other` is a :math:`(k \times m \times p)`
+      tensor, these inputs are valid for broadcasting even though the final two dimensions (i.e. the
+      matrix dimensions) are different. :attr:`out` will be a :math:`(j \times k \times n \times p)` tensor.
+
+    Args:
+        input: the first tensor to be multiplied
+        other: the second tensor to be multiplied
+        formats: the configuration object for how quantization (if any!) should be handled on the tensor inputs
+            and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)
+
+    Returns:
+        the result of the (batched) matrix multiplication between :attr:`input` and :attr:`other`.
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
     return qmatmul_kernel.apply(input, other, formats)
 
 

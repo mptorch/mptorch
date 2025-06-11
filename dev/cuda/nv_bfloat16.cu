@@ -28,7 +28,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t
 }
 
 __host__ __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
-                                                        uint32_t quantized_num, bool saturate = false)
+                                                                 uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -49,7 +49,7 @@ __host__ __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, i
 }
 
 __host__ __device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
-                                                           uint32_t quantized_num, bool saturate = false)
+                                                              uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -86,8 +86,8 @@ __host__ __device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int 
 }
 
 __host__ __device__ float cast_fp_nearest_impl1(float origin_float, int man_bits, int exp_bits,
-                                       bool subnormal_support = true,
-                                       bool saturate = false)
+                                                bool subnormal_support = true,
+                                                bool saturate = false)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -134,8 +134,10 @@ __host__ __device__ float cast_fp_nearest_impl1(float origin_float, int man_bits
 
 // ---------------------------------------------------------------------------------------
 // CPU reference
-void quantize_bfloat16_custom_cpu(const float *input, float *output, int N) {
-    for (int i = 0; i < N; i++) {
+void quantize_bfloat16_custom_cpu(const float *input, float *output, int N)
+{
+    for (int i = 0; i < N; i++)
+    {
         output[i] = cast_fp_nearest_impl1(input[i], 7, 8, true, false);
     }
 }
@@ -144,43 +146,55 @@ void quantize_bfloat16_custom_cpu(const float *input, float *output, int N) {
 // CUDA kernels
 
 // Use our custom quantization routine
-__global__ void quantize_bfloat16_custom_kernel(const float *input, float *output, int N) {
+__global__ void quantize_bfloat16_custom_kernel(const float *input, float *output, int N)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i >= N) return;
+    if (i >= N)
+        return;
     output[i] = cast_fp_nearest_impl1(input[i], 7, 8, true, false);
 }
 
-void quantize_bfloat16_custom_cuda(const float *input, float *output, int N, int block_size) {
+void quantize_bfloat16_custom_cuda(const float *input, float *output, int N, int block_size)
+{
     int blocks = (N / block_size) + (N % block_size != 0);
     quantize_bfloat16_custom_kernel<<<blocks, block_size>>>(input, output, N);
 }
 
 // Use CUDA builtin __nv_bfloat16 casting
-__global__ void quantize_bfloat16_nvidia_kernel(const float *input, float *output, int N) {
+__global__ void quantize_bfloat16_nvidia_kernel(const float *input, float *output, int N)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i >= N) return;
+    if (i >= N)
+        return;
     output[i] = __bfloat162float(__float2bfloat16(input[i]));
 }
 
-void quantize_bfloat16_nvidia_cuda(const float *input, float *output, int N, int block_size) {
+void quantize_bfloat16_nvidia_cuda(const float *input, float *output, int N, int block_size)
+{
     int blocks = (N / block_size) + (N % block_size != 0);
     quantize_bfloat16_nvidia_kernel<<<blocks, block_size>>>(input, output, N);
 }
 
 // Cast two floats at a time using CUDA __nv_bfloat162 cast
-__global__ void quantize_bfloat16_2_nvidia_kernel(const float *input, float *output, int N) {
+__global__ void quantize_bfloat16_2_nvidia_kernel(const float *input, float *output, int N)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(2*i >= N) return;
-    if(2*i < N-1) {
-        __nv_bfloat162 bf2 = __floats2bfloat162_rn(input[2*i], input[2*i+1]);
-        output[2*i] = __bfloat162float(bf2.x);
-        output[2*i+1] = __bfloat162float(bf2.y);
-    } else {
-        output[2*i] = __bfloat162float(__float2bfloat16(input[2*i]));
+    if (2 * i >= N)
+        return;
+    if (2 * i < N - 1)
+    {
+        __nv_bfloat162 bf2 = __floats2bfloat162_rn(input[2 * i], input[2 * i + 1]);
+        output[2 * i] = __bfloat162float(bf2.x);
+        output[2 * i + 1] = __bfloat162float(bf2.y);
+    }
+    else
+    {
+        output[2 * i] = __bfloat162float(__float2bfloat16(input[2 * i]));
     }
 }
 
-void quantize_bfloat16_2_nvidia_cuda(const float *input, float *output, int N, int block_size) {
+void quantize_bfloat16_2_nvidia_cuda(const float *input, float *output, int N, int block_size)
+{
     int threads = N / 2;
     int blocks = (threads / block_size) + (threads % block_size != 0);
     quantize_bfloat16_2_nvidia_kernel<<<blocks, block_size>>>(input, output, N);
@@ -215,17 +229,18 @@ int main(int argc, const char **argv)
     printf("All results match. Starting benchmarks.\n\n");
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j) {
+    for (int j = 0; j < sizeof(block_sizes) / sizeof(int); ++j)
+    {
         int block_size = block_sizes[j];
 
         int repeat_times = 1000;
 
-        float time_custom = benchmark_kernel(repeat_times, quantize_bfloat16_custom_cuda, d_input, d_output, N, block_size);
-        float time_nvidia = benchmark_kernel(repeat_times, quantize_bfloat16_nvidia_cuda, d_input, d_output, N, block_size);
-        float time_nvidia2 = benchmark_kernel(repeat_times, quantize_bfloat16_2_nvidia_cuda, d_input, d_output, N, block_size);
+        float time_custom = benchmark_gpu_kernel(repeat_times, quantize_bfloat16_custom_cuda, d_input, d_output, N, block_size);
+        float time_nvidia = benchmark_gpu_kernel(repeat_times, quantize_bfloat16_nvidia_cuda, d_input, d_output, N, block_size);
+        float time_nvidia2 = benchmark_gpu_kernel(repeat_times, quantize_bfloat16_2_nvidia_cuda, d_input, d_output, N, block_size);
 
         printf("block_size %4d | time custom %.4f ms | time nvidia %.4f ms | time nvidia2 %.4f ms\n",
-            block_size, time_custom, time_nvidia, time_nvidia2);
+               block_size, time_custom, time_nvidia, time_nvidia2);
     }
 
     // memory cleanup

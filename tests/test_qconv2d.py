@@ -6,6 +6,7 @@ from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
 
+
 @pytest.fixture
 def signal_q():
     man, exp = 23, 8
@@ -13,10 +14,12 @@ def signal_q():
         x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
     )
 
+
 @pytest.fixture
 def mac_format():
     man, exp = 23, 8
     return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2, 4])
@@ -33,8 +36,8 @@ def test_qconv2d_custom_mm(groups, device, mac_format, signal_q):
         bias_quant=signal_q,
     )
     x = torch.randn(1, 4, 100, 100)
-    m = nn.Conv2d(4, 4, (12, 12), groups=groups, bias=True)
-    qm = qt.QConv2d(4, 4, (12, 12), formats=formats_q, groups=groups, bias=True)
+    m = nn.Conv2d(4, 4, (20, 20), groups=groups, bias=True)
+    qm = qt.QConv2d(4, 4, (20, 20), formats=formats_q, groups=groups, bias=True)
     m = m.to(device)
     qm = qm.to(device)
     x = x.to(device)
@@ -47,11 +50,12 @@ def test_qconv2d_custom_mm(groups, device, mac_format, signal_q):
     res_qm = qm(qx).mean()
     res_qm.backward()
     assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-2)
-    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-2)
+    assert_close(m.weight.grad, qm.weight.grad, atol=1e-6, rtol=1e-2)
 
     res_m = m(x)
     res_qm = qm(qx)
-    assert_close(res_m, res_qm, atol=1e-6, rtol=2e-2)
+    assert_close(res_m, res_qm, atol=1e-5, rtol=1e-2)
+
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2, 4])

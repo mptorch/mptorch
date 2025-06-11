@@ -1,7 +1,13 @@
 from typing import Optional
 from ..number import *
 from typing import Union, Optional, Tuple, Callable
-from .quant_function import *
+from .quant_function import (
+    float_quantize,
+    fixed_point_quantize,
+    superfp_quantize,
+    block_quantize,
+    binary8_quantize,
+)
 
 __all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats", "QGELUFormats"]
 
@@ -11,7 +17,7 @@ id_quant = lambda x: x
 def make_quant_function(num: Number, rounding: str, prng_bits: int = 0):
     if isinstance(num, FloatingPoint):
         return lambda x: float_quantize(
-            x, num.exp, num.man, rounding, num.subnormals, num.saturate
+            x, num.exp, num.man, rounding, num.subnormals, num.saturate, prng_bits
         )
     elif isinstance(num, FixedPoint):
         return lambda x: fixed_point_quantize(
@@ -60,14 +66,14 @@ class QAffineFormats:
         weight_scaled_format (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
         input_scaled_format (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         grad_scaled_format (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
-        prng_bits (int) : number of bits used for random number generation when rounding is stochastic
+        rbits (int or (int, int)) : number of bits used for random number generation when rounding is stochastic (for add and multiply)
 
     """
 
     def __init__(
         self,
-        fwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
-        bwd_mac: Optional[Union[Number, Tuple[Number, Number]]] = None,
+        fwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
+        bwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
         fwd_rnd: Optional[str] = "nearest",
         bwd_rnd: Optional[str] = "nearest",
         weight_quant: Union[Callable, Tuple[Number, str]] = id_quant,
@@ -75,11 +81,12 @@ class QAffineFormats:
         input_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         output_quant: Union[Callable, Tuple[Number, str]] = id_quant,
         grad_quant: Union[Callable, Tuple[Number, str]] = id_quant,
+        compensated: Optional[bool] = False,
         use_scaling: bool = False,
         weight_scaled_format: Optional[FloatType] = None,
         input_scaled_format: Optional[FloatType] = None,
         grad_scaled_format: Optional[FloatType] = None,
-        prng_bits: int = 0,
+        rbits: Union[int, Tuple[int], Tuple[int, int]] = 0,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -115,7 +122,13 @@ class QAffineFormats:
 
         self.fwd_rnd = fwd_rnd
         self.bwd_rnd = bwd_rnd
-        self.prng_bits = prng_bits
+        if not isinstance(rbits, tuple):
+            rbits = (rbits,)
+            if len(rbits) > 1:
+                (self.rbits_add, self.rbits_mul) = rbits
+            else:
+                self.rbits_add = self.rbits_mul = rbits[0]
+        self.compensated = compensated
 
         self.weight_scaled_format = weight_scaled_format
         self.input_scaled_format = input_scaled_format
@@ -123,7 +136,7 @@ class QAffineFormats:
 
         if isinstance(weight_quant, tuple):
             num, rnd = weight_quant
-            self.weight_quant = make_quant_function(num, rnd, prng_bits)
+            self.weight_quant = make_quant_function(num, rnd, self.rbits_add)
             if self.weight_scaled_format is None and isinstance(num, FloatType):
                 self.weight_scaled_format = num
         else:
@@ -131,13 +144,13 @@ class QAffineFormats:
 
         if isinstance(bias_quant, tuple):
             num, rnd = bias_quant
-            self.bias_quant = make_quant_function(num, rnd, prng_bits)
+            self.bias_quant = make_quant_function(num, rnd, self.rbits_add)
         else:
             self.bias_quant = bias_quant
 
         if isinstance(input_quant, tuple):
             num, rnd = input_quant
-            self.input_quant = make_quant_function(num, rnd, prng_bits)
+            self.input_quant = make_quant_function(num, rnd, self.rbits_add)
             if self.input_scaled_format is None and isinstance(num, FloatType):
                 self.input_scaled_format = num
         else:
@@ -145,13 +158,13 @@ class QAffineFormats:
 
         if isinstance(output_quant, tuple):
             num, rnd = output_quant
-            self.output_quant = make_quant_function(num, rnd, prng_bits)
+            self.output_quant = make_quant_function(num, rnd, self.rbits_add)
         else:
             self.output_quant = output_quant
 
         if isinstance(grad_quant, tuple):
             num, rnd = grad_quant
-            self.grad_quant = make_quant_function(num, rnd, prng_bits)
+            self.grad_quant = make_quant_function(num, rnd, self.rbits_add)
             if self.grad_scaled_format is None and isinstance(num, FloatType):
                 self.grad_scaled_format = num
         else:
@@ -185,6 +198,8 @@ class QAffineFormats:
             out.append(f"input_scaled_format={self.input_scaled_format}")
         if self.grad_scaled_format is not None:
             out.append(f"grad_scaled_format={self.grad_scaled_format}")
+        out.append(f"rbits_add={self.rbits_add}")
+        out.append(f"rbits_mul={self.rbits_mul}")
         sep = ", "
         return f"QAffineFormats ({sep.join(out)})"
 
@@ -305,7 +320,7 @@ class QSoftmaxFormats:
 
     Regular softmax is used when `fwd_off`, `fwd_exp` and `fwd_acc` are
     set, and is implemented as follows:
-    
+
     .. math::
         \textrm{softmax}(x)_i = \frac{\exp(x_i - \max x)}{
             \sum_j \exp(x_j - \max x)}
@@ -315,10 +330,10 @@ class QSoftmaxFormats:
 
     .. math::
         \textrm{softmax}(x)_i = \ln(\textrm{LSE}(x_1, ..., x_n))
-    
+
     where :math:`\textrm{LSE}(x_1, ..., x_n)` is computed iteratively
     with the relation:
-    
+
     .. math::
         \textrm{LSE}(x_1, ..., x_{j+1})
             = \ln(\exp \textrm{LSE}(x_1, ..., x_{j}) + \exp x_{j+1})
@@ -338,6 +353,7 @@ class QSoftmaxFormats:
         output_quant (function) : quantization function on the output signal
         grad_quant (function) : quantization function on the gradients
     """
+
     def __init__(
         self,
         fwd_off: Optional[Number] = None,

@@ -1,7 +1,6 @@
 from .quant_function import *
 from .quant_format import *
 from .modules import *
-from .functional import qmatmul
 
 __all__ = [
     "fixed_point_quantize",

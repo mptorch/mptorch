@@ -128,11 +128,21 @@ class FloatingPoint(FloatType):
         self, exp: int, man: int, subnormals: bool = False, saturate: bool = True
     ):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
-        assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
+        assert 23 >= man >= 0, "invalid bits for mantissa:{}".format(man)
         self.exp = exp
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
+        self.subnormal_min = (
+            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
+        )
+        self.subnormal_max = (
+            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
+            if subnormals
+            else None
+        )
+        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
+        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
         self.subnormal_min = (
             2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
         )
@@ -168,7 +178,9 @@ class FloatingPoint(FloatType):
 
 class SuperNormalFloat(FloatType):
     r"""
-    Low-Precision SuperNormal Floating Point Format.
+    Low-Precision SuperNormal Floating Point Format. Described in
+    *Range Extension with Supernormals for Mixed-Precision 8-bit DNN Training*
+    (https://www.arith2025.org/proceedings/215900a017.pdf)
 
     We set the exponent bias to be :math:`2^{\text{exp}-1}`. For rounding
     mode, we apply *round to nearest even*.
@@ -177,36 +189,51 @@ class SuperNormalFloat(FloatType):
         exp: number of bits allocated for exponent
         man: number of bits allocated for mantissa, referring to number of bits that are
             supposed to be stored on hardware (not counting the virtual bits)
-        binades: number of binades tranformed into log range
+        binades: number of binades transformed into log range
         saturate: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp: int, man: int, binades: int, saturate: bool = False):
+    def __init__(self, exp: int, man: int, binades: int | tuple[int], saturate=False):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
-        assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
+        if isinstance(binades, int):
+            assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
+        elif len(binades) == 1:
+            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
+        else:
+            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
+            assert 8 >= binades[1] > 0, "invalid binade size:{}".format(binades[1])
         self.exp = exp
         self.man = man
-        self.binades = binades
+        if isinstance(binades, int):
+            self.binades_l, self.binades_u = binades, binades
+        elif len(binades) == 1:
+            self.binades_l, self.binades_u = binades[0], binades[0]
+        else:
+            self.binades_l, self.binades_u = binades[0], binades[1]
+        # TODO: to remove
+        self.binades = (self.binades_l, self.binades_u)
         self.saturate = saturate
 
-        min_exp = 1 - 2**exp + (binades - 1)
-        max_exp = 2 ** (exp - 1) - 2 - (binades - 1)
-        self.subnormal_min = 2 ** (min_exp - binades * (2**man) + 2)
+        min_exp = 1 - 2 ** (exp - 1) + (self.binades_l - 1)
+        max_exp = 2 ** (exp - 1) - 2 - (self.binades_u - 1)
+        self.subnormal_min = 2 ** (min_exp - self.binades_l * (2**man) + 1)
         self.subnormal_max = 2 ** (min_exp - 1)
         self.normal_min = 2**min_exp
         self.normal_max = 2**max_exp
         self.supernormal_min = 2 ** (max_exp + 1)
-        self.supernormal_max = 2 ** (max_exp + binades * (2**man) - 1 + int(saturate))
+        self.supernormal_max = 2 ** (
+            max_exp + self.binades_u * (2**man) - 1 + int(saturate)
+        )
 
     def __str__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(
-            self.exp, self.man, self.binades
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
+            self.exp, self.man, self.binades_l, self.binades_u
         )
 
     def __repr__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades={:d})".format(
-            self.exp, self.man, self.binades
+        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
+            self.exp, self.man, self.binades_l, self.binades_u
         )
 
 
@@ -243,6 +270,7 @@ class BlockFloatingPoint(Number):
 class Binary8(FloatType):
     r"""
     Low-Precision ``binary8`` Format the follows the IEEE-P3109 WG specification (https://github.com/P3109/Public/).
+    This is a format showcasing an evolving standard. Changes are likely in the future.
 
     ``binary8`` is a format that takes a value P as an input to determines the number
     of mantissa and exponent bits.
