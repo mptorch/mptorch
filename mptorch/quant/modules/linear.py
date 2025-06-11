@@ -9,7 +9,7 @@ __all__ = ["QLinear", "QLazyLinear"]
 
 
 class QLinear(nn.Linear):
-    r"""Applies a linear transformation to the incoming data: :math:`y=xA^T + b`
+    r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
 
     It is a subclass of :class:`torch.nn.Linear` and allows one to specify if I/O
     signals should be quantized during inference & training (needed for instance
@@ -30,9 +30,9 @@ class QLinear(nn.Linear):
 
     Shape:
         - Input: :math:`(*, H_\text{in})` where :math:`*` means any number of
-          dimensions including none and :math:`H_{in} = \text{in_features}`.
+          dimensions including none and :math:`H_\text{in} = \text{in_features}`.
         - Output: :math:`(*, H_\text{out})` where all but the last dimension
-          are the same shape as the input and :math:`H_{out} = \text{out_features}`.
+          are the same shape as the input and :math:`H_\text{out} = \text{out_features}`.
 
     Attributes:
         weight: the learnable weights of the module of shape

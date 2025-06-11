@@ -1,3 +1,4 @@
+from typing import Callable
 import torch
 import math
 from .quant_function import *
@@ -21,29 +22,29 @@ __all__ = [
 ]
 
 
-# Utility functions to perform tensor scaling operations in low precison (8-bit and
-# below) DNN training
+# Utility functions to perform tensor scaling operations in low precison
+# (8-bit and below) DNN training
 # See: https://arxiv.org/pdf/2309.17224
 # NOTE: using this routine seems quite sensitive to how the margin term is picked,
 # notably the empirical value suggested in the aformentioned reference leads to
 # divergence (i.e. grad_input computation in the linear layer backward pass is
 # unstable and produces NaNs right from the start); more investigation is needed
 # and this might need to be revisited in the case of supernormals
-def compute_bias(x, cast_to: FloatType, margin=11):
+def compute_bias(x: torch.Tensor, cast_to: FloatType, margin: int = 11) -> torch.Tensor:
     with torch.no_grad():
         (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
         (amax, _) = torch.max(amax, dim=-2, keepdim=True)
     return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
 
 
-def scale(x, x_scale):
+def scale(x: torch.Tensor, x_scale: torch.Tensor | int) -> torch.Tensor:
     if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
     else:
         return x
 
 
-def unscale(x, x_scale):
+def unscale(x: torch.Tensor, x_scale: torch.Tensor | int) -> torch.Tensor:
     if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), -x_scale)
     else:
@@ -161,10 +162,40 @@ class qlinear_kernel(torch.autograd.Function):
 def qlinear(
     input: torch.Tensor,
     weight: torch.Tensor,
-    bias: torch.Tensor | None,
-    formats: QAffineFormats,
+    bias: torch.Tensor | None = None,
+    formats: QAffineFormats = QAffineFormats(),
 ) -> torch.Tensor:
-    r"""Applies a linear transformation to the incoming data: :math:`y=xA^T + b`"""
+    r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
+
+    The :attr:`formats` parameter allows one to specify if I/O signals should be
+    quantized during inference & training (needed for instance in QAT and PTQ methods),
+    but also the precision(s) to be used in internal GEMM computations (addition and
+    multiplication, fused or not). This allows simulating the effect of custom precision
+    during GEMM calls in the forward and backward pass and is helpful in studying the
+    effect of low precision compute during inference and training (not just data
+    quantization).
+
+    This is the functional version of :class:`~mptorch.quant.modules.QLinear`.
+
+    Args:
+        input: the input :math:`x` to the linear layer of the form :math:`(*, H_\text{in})`,
+            where :math:`*` means any number of dimensions including none and
+            :math:`H_{in} = \text{in_features}`.
+        weight: the weight tensor :math:`W` of shape :math:`(\text{out_features}, \text{in_features})`
+        bias: optional bias term of shape :math:`(\text{out_features})`.
+        formats: the configuration object for how quantization (if any!) should be handled
+            on the matrix inputs and how the MAC and summation operations should be performed
+            (e.g. using compensated algorithms or not)
+
+    Returns:
+        the result of the affine operation :math:`xW^T + b`.
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+
+    """
     return qlinear_kernel.apply(input, weight, bias, formats)
 
 
@@ -245,7 +276,7 @@ class qmm_kernel(torch.autograd.Function):
 
 
 def qmm(
-    input: torch.Tensor, mat2: torch.Tensor, formats: QAffineFormats
+    input: torch.Tensor, mat2: torch.Tensor, formats: QAffineFormats = QAffineFormats()
 ) -> torch.Tensor:
     r"""
     Simulates a mixed-precision computation pipeline for matrix multiplication of the
@@ -354,7 +385,7 @@ class qmatmul_kernel(torch.autograd.Function):
 
 
 def qmatmul(
-    input: torch.Tensor, other: torch.Tensor, formats: QAffineFormats
+    input: torch.Tensor, other: torch.Tensor, formats: QAffineFormats = QAffineFormats()
 ) -> torch.Tensor:
     r"""
     Simulates a mixed-precision computation pipeline for (batched) matrix multiplication of the
@@ -422,7 +453,46 @@ class qadd_kernel(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
-def qadd(x, y, fwd_quant, bwd_quant):
+def qadd(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+) -> torch.Tensor:
+    r"""
+    Adds :attr:`x` to :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the addition
+    (e.g. can simulate the execution of the addition in low-precision, assuming the inputs are
+    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients
+    from the operator during the backward pass.
+
+    For the forward computation:
+
+        .. math::
+
+            \text{out} = \mathcal{Q}_\text{fwd}(\text{x} + \text{y})
+
+    For the backward computation:
+
+        .. math::
+
+            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{y})
+
+            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{x})
+
+    Args:
+        x: the input tensor.
+        y: the other tensor to add to :attr:`x`.
+
+    Returns:
+        the quantized result of the addition operation between `x` and `y`.
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
+    # NOTE: see if it makes sense to implement the `alpha` version
+    # NOTE: maybe worthwhile to have a version where `y` can be a number as well (in that case, no gradient for it)
     return qadd_kernel.apply(x, y, fwd_quant, bwd_quant)
 
 
@@ -445,7 +515,12 @@ class qmul_kernel(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
-def qmul(x, y, fwd_quant, bwd_quant):
+def qmul(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+) -> torch.Tensor:
     return qmul_kernel.apply(x, y, fwd_quant, bwd_quant)
 
 
@@ -494,7 +569,12 @@ class qpow_kernel(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-def qpow(x, fwd_quant, bwd_quant, n=2):
+def qpow(
+    x: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    n: int = 2,
+) -> torch.Tensor:
     return qpow_kernel.apply(x, fwd_quant, bwd_quant, n)
 
 
@@ -515,11 +595,15 @@ class qsqrt_kernel(torch.autograd.Function):
         return grad_x, None, None
 
 
-def qsqrt(x, fwd_quant, bwd_quant):
+def qsqrt(
+    x: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+):
     return qsqrt_kernel.apply(x, fwd_quant, bwd_quant)
 
 
-# TODO: need CUDA-accelerated version of this routine
+# NOTE: look into CUDA-accelerated version of this routine
 # and also of sums across multiple dimensions
 def qsum_1d(x, dim, quant):
     shape = list(x.shape)
@@ -570,7 +654,7 @@ def qsum(x, dim, quant=lambda x: x, keepdim=False):
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
-# TODO: similar to sum, look into a CUDA-accelerated version of this routine
+# NOTE: similar to sum, look into a CUDA-accelerated version of this routine
 class qmean_kernel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, fwd_quant, bwd_quant, dim=3, keepdim=False):
