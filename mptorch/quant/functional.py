@@ -180,15 +180,15 @@ def qlinear(
     Args:
         input: the input :math:`x` to the linear layer of the form :math:`(*, H_\text{in})`,
             where :math:`*` means any number of dimensions including none and
-            :math:`H_{in} = \text{in_features}`.
+            :math:`H_{in} = \text{in_features}`
         weight: the weight tensor :math:`W` of shape :math:`(\text{out_features}, \text{in_features})`
-        bias: optional bias term of shape :math:`(\text{out_features})`.
+        bias: optional bias term of shape :math:`(\text{out_features})`
         formats: the configuration object for how quantization (if any!) should be handled
             on the matrix inputs and how the MAC and summation operations should be performed
             (e.g. using compensated algorithms or not)
 
     Returns:
-        the result of the affine operation :math:`xW^T + b`.
+        the result of the affine operation :math:`xW^T + b`
 
     Example:
         .. code-block:: python
@@ -296,7 +296,7 @@ def qmm(
             and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)
 
     Returns:
-        the result of the matrix multiplication between :attr:`input` and :attr:`mat2`.
+        the result of the matrix multiplication between :attr:`input` and :attr:`mat2`
 
     Example:
         .. code-block:: python
@@ -423,7 +423,7 @@ def qmatmul(
             and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)
 
     Returns:
-        the result of the (batched) matrix multiplication between :attr:`input` and :attr:`other`.
+        the result of the (batched) matrix multiplication between :attr:`input` and :attr:`other`
 
     Example:
         .. code-block:: python
@@ -475,16 +475,18 @@ def qadd(
 
         .. math::
 
-            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{y})
+            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{ones_like}(\text{x}))
 
-            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{x})
+            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{ones_like}(\text{y}))
 
     Args:
-        x: the input tensor.
-        y: the other tensor to add to :attr:`x`.
+        x: the input tensor
+        y: the other tensor to add to :attr:`x`
+        fwd_quant: the quantization function to apply on the forward addition
+        bwd_quant: the quantization function to apply on the gradient computations in the backward pass
 
     Returns:
-        the quantized result of the addition operation between `x` and `y`.
+        the quantized result of the addition operation between `x` and `y`
 
     Example:
         .. code-block:: python
@@ -521,6 +523,40 @@ def qmul(
     fwd_quant: Callable[[torch.Tensor], torch.Tensor],
     bwd_quant: Callable[[torch.Tensor], torch.Tensor],
 ) -> torch.Tensor:
+    r"""
+    Multiplies :attr:`x` by :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the multiplication
+    (e.g. can simulate the execution of the multiplication in low-precision, assuming the inputs are
+    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients
+    from the operator during the backward pass.
+
+    For the forward computation:
+
+        .. math::
+
+            \text{out} = \mathcal{Q}_\text{fwd}(\text{x} * \text{y})
+
+    For the backward computation:
+
+        .. math::
+
+            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{y})
+
+            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{x})
+
+    Args:
+        x: the input tensor
+        y: the other tensor to add to :attr:`x`
+        fwd_quant: the quantization function to apply on the forward multiplication
+        bwd_quant: the quantization function to apply on the gradient computations in the backward pass
+
+    Returns:
+        the quantized result of the multiplication operation between `x` and `y`
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
     return qmul_kernel.apply(x, y, fwd_quant, bwd_quant)
 
 
@@ -547,7 +583,46 @@ class qdiv_kernel(torch.autograd.Function):
         return grad_x, grad_y, None, None
 
 
-def qdiv(x, y, fwd_quant, bwd_quant):
+def qdiv(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+) -> torch.Tensor:
+    r"""
+    Divides :attr:`x` by :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the division
+    (e.g. can simulate the execution of the division in low-precision, assuming the inputs are
+    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients
+    from the operator during the backward pass.
+
+    For the forward computation:
+
+        .. math::
+
+            \text{out}_i = \mathcal{Q}_\text{fwd}\left(\frac{\text{x}_i}{\text{y}_i}\right)
+
+    For the backward computation:
+
+        .. math::
+
+            \text{grad_x} = \mathcal{Q}_\text{bwd}\left(\frac{\text{grad_z}}{\text{y}}\right)
+
+            \text{grad_y} = \mathcal{Q}_\text{bwd}\left(\frac{\mathcal{Q}_\text{bwd}\left(-\text{grad_z} * \text{x}\right)}{\text{y}}\right)
+
+    Args:
+        x: the input tensor
+        y: the other tensor to add to :attr:`x`
+        fwd_quant: the quantization function to apply on the forward division
+        bwd_quant: the quantization function to apply on the gradient computations in the backward pass
+
+    Returns:
+        the quantized result of the division operation between `x` and `y`
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
     return qdiv_kernel.apply(x, y, fwd_quant, bwd_quant)
 
 
@@ -573,8 +648,49 @@ def qpow(
     x: torch.Tensor,
     fwd_quant: Callable[[torch.Tensor], torch.Tensor],
     bwd_quant: Callable[[torch.Tensor], torch.Tensor],
-    n: int = 2,
+    n: torch.Tensor | float = 2.0,
 ) -> torch.Tensor:
+    r"""
+    Takes the power of each element in :attr:`x` with :attr:`n` and
+    returns a tensor with the result. :attr:`n` can be either a single
+    ``float`` number or a `torch.Tensor` with the same number of
+    elements as :attr:`x`.
+
+    When :attr:`n` is a scalar value, the forward operation applied is:
+
+    .. math::
+
+        \text{out}_i = \mathcal{Q}_\text{fwd}\left(\text{x}_i^\text{n}\right)
+
+    When :attr:`n` is a tensor, the operation applied is:
+
+    .. math::
+
+        \text{out}_i = \mathcal{Q}_\text{fwd}\left(\text{x}_i^{\text{n}_i}\right)
+
+    When :attr:`n` is a tensor, the shapes of :attr:`x` and
+    :attr:`n` must be broadcastable.
+
+    The backward operation is (applied element-wise):
+
+    .. math::
+
+        \text{out} = \mathcal{Q}_\text{bwd}\left(\text{grad_out} *\mathcal{Q}_\text{bwd}\left(\mathcal{Q}_\text{bwd}\left(\text{x}^{\text{n}-1}\right) * \text{n}\right)\right)
+
+    Args:
+        x: the input tensor
+        fwd_quant: the quantization function to apply on the forward division
+        bwd_quant: the quantization function to apply on the gradient computations in the backward pass
+        n: the exponent value
+
+    Returns:
+        the quantized result of the power operation between `x` and `n`
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
     return qpow_kernel.apply(x, fwd_quant, bwd_quant, n)
 
 
@@ -599,7 +715,26 @@ def qsqrt(
     x: torch.Tensor,
     fwd_quant: Callable[[torch.Tensor], torch.Tensor],
     bwd_quant: Callable[[torch.Tensor], torch.Tensor],
-):
+) -> torch.Tensor:
+    r"""
+    Returns a new tensor with the square-root of the elements of :attr:`x`.
+
+    .. math::
+        \text{out}_{i} = \sqrt{\text{x}_{i}}
+
+    Args:
+        x: the input tensor
+        fwd_quant: the quantization function to apply on the forward square root operation
+        bwd_quant: the quantization function to apply on the gradient computations in the backward pass
+
+    Returns:
+        the quantized result of the square root operation on `x`
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+    """
     return qsqrt_kernel.apply(x, fwd_quant, bwd_quant)
 
 
@@ -650,7 +785,12 @@ class qsum_kernel(torch.autograd.Function):
         return grad_x, None, None, None
 
 
-def qsum(x, dim, quant=lambda x: x, keepdim=False):
+def qsum(
+    x: torch.Tensor,
+    dim,
+    quant: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
+    keepdim: bool = False,
+):
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
@@ -695,7 +835,13 @@ class qmean_kernel(torch.autograd.Function):
         return grad_x, None, None, None, None
 
 
-def qmean(x, fwd_quant, bwd_quant, dim=3, keepdim=False):
+def qmean(
+    x: torch.Tensor,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    dim=3,
+    keepdim: bool = False,
+):
     return qmean_kernel.apply(x, fwd_quant, bwd_quant, dim, keepdim)
 
 
