@@ -1,9 +1,14 @@
-from typing import Callable
+from typing import Callable, Literal
 import torch
 import math
 from .quant_function import *
 from ..number import FloatType
-from .quant_format import QAffineFormats, make_quant_function
+from .quant_format import (
+    QAffineFormats,
+    QGELUFormats,
+    QSoftmaxFormats,
+    make_quant_function,
+)
 
 __all__ = [
     "qlinear",
@@ -787,10 +792,11 @@ class qsum_kernel(torch.autograd.Function):
 
 def qsum(
     x: torch.Tensor,
-    dim,
+    dim: int | tuple[int, ...] | None = None,
     quant: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     keepdim: bool = False,
-):
+) -> torch.Tensor:
+    r""""""
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
@@ -839,9 +845,9 @@ def qmean(
     x: torch.Tensor,
     fwd_quant: Callable[[torch.Tensor], torch.Tensor],
     bwd_quant: Callable[[torch.Tensor], torch.Tensor],
-    dim=3,
+    dim: int | tuple[int, ...] | None = 3,
     keepdim: bool = False,
-):
+) -> torch.Tensor:
     return qmean_kernel.apply(x, fwd_quant, bwd_quant, dim, keepdim)
 
 
@@ -941,7 +947,7 @@ class qlayernorm_kernel(torch.autograd.Function):
         return qgrad_input, None, qgrad_weight, qgrad_bias, None, None
 
 
-def qlayernorm(x, normalized_shape, weight, bias, eps, formats):
+def qlayernorm(x: torch.Tensor, normalized_shape, weight, bias, eps, formats):
     return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 
 
@@ -982,7 +988,9 @@ class qsoftmax_kernel(torch.autograd.Function):
         return qgrad_input, None, None
 
 
-def qsoftmax(x, dim, formats):
+def qsoftmax(
+    x: torch.Tensor, dim: int | None, formats: QSoftmaxFormats
+) -> torch.Tensor:
     return qsoftmax_kernel.apply(x, dim, formats)
 
 
@@ -1034,5 +1042,9 @@ class qgelu_kernel(torch.autograd.Function):
         return qgrad_input, None, None
 
 
-def qgelu(input, formats, approximate="none"):
+def qgelu(
+    input: torch.Tensor,
+    formats: QGELUFormats,
+    approximate: Literal["tanh", "none"] = "none",
+) -> torch.Tensor:
     return qgelu_kernel.apply(input, formats, approximate)
