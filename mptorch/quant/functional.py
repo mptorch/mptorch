@@ -796,7 +796,16 @@ def qsum(
     quant: Callable[[torch.Tensor], torch.Tensor] = lambda x: x,
     keepdim: bool = False,
 ) -> torch.Tensor:
-    r""""""
+    r"""
+    Returns the quantized sum of all elements in the :attr:`x` tensor. It can simulate low
+    precision summation if the elements of :attr:`x` are low precision values. The :attr:`quant`
+    function specifies the accumulator output format and precision as a quantization function.
+
+    Args:
+        x: the input tensor
+        dim: if specified, the dimension or list of dimensions over which the reduction takes place
+
+    """
     return qsum_kernel.apply(x, quant, dim, keepdim)
 
 
