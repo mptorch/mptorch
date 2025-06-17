@@ -15,6 +15,7 @@ def signal_q():
         x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
     )
 
+
 @pytest.fixture
 def formats(signal_q):
     return QGELUFormats(
@@ -35,7 +36,7 @@ def test_qgelu_custom(device, approximate, formats):
 
     x = torch.randn(127, 31, requires_grad=True)
     x = x.to(device)
-    x.retain_grad() # this isn't supposed to be required?
+    x.retain_grad()  # this isn't supposed to be required?
     qx = x.clone().detach()
     qx = qx.requires_grad_(True)
     qx.retain_grad()
@@ -48,5 +49,4 @@ def test_qgelu_custom(device, approximate, formats):
     expected.backward()
     actual = actual.mean()
     actual.backward()
-    print(x.grad)
     assert_close(qx.grad, x.grad, atol=1e-2, rtol=0.0)

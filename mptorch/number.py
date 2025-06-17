@@ -9,6 +9,9 @@ __all__ = [
 ]
 
 
+from typing import Literal
+
+
 class Number:
     """Base class for all supported number formats.
 
@@ -193,7 +196,13 @@ class SuperNormalFloat(FloatType):
         saturate: clamp values instead of using infinities in case of overflow
     """
 
-    def __init__(self, exp: int, man: int, binades: int | tuple[int], saturate=False):
+    def __init__(
+        self,
+        exp: int,
+        man: int,
+        binades: int | tuple[int] | tuple[int, int],
+        saturate=False,
+    ):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
         if isinstance(binades, int):
@@ -290,7 +299,9 @@ class Binary8(FloatType):
         P: int,
         signed: bool = True,
         subnormals: int = True,
-        overflow_policy: str = "saturate_maxfloat2",
+        overflow_policy: Literal[
+            "saturarte_infty", "saturate_maxfloat", "saturate_maxfloat2"
+        ] = "saturate_maxfloat2",
     ):
         assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
         assert overflow_policy in (

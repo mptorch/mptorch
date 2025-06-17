@@ -1,12 +1,21 @@
+from typing import Callable
 import torch
 import torch.nn as nn
 from ..functional import qmean, qadd, qpow, qdiv, qsqrt, qmul
 
-__all__ = ["QBatchNorm", "QBatchNorm1d", "QBatchNorm2d"]
+__all__ = ["QBatchNorm1d", "QBatchNorm2d"]
 
 
 def batch_norm(
-    x, weight, bias, moving_mean, moving_var, eps, momentum, fwd_quant, bwd_quant
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    moving_mean: torch.Tensor,
+    moving_var: torch.Tensor,
+    eps: float,
+    momentum: float,
+    fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    bwd_quant: Callable[[torch.Tensor], torch.Tensor],
 ):
     if not torch.is_grad_enabled():
         x_hat = fwd_quant(
@@ -68,7 +77,13 @@ def batch_norm(
 
 
 class QBatchNorm(nn.Module):
-    def __init__(self, num_features, num_dims, fwd_quant, bwd_quant):
+    def __init__(
+        self,
+        num_features: int,
+        num_dims: int,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
         super().__init__()
 
         self.fwd_quant = fwd_quant
@@ -84,7 +99,7 @@ class QBatchNorm(nn.Module):
         self.moving_mean = torch.zeros(self.shape)
         self.moving_var = torch.ones(self.shape)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         if self.moving_mean.device != x.device:
             self.moving_mean = self.moving_mean.to(x.device)
             self.moving_var = self.moving_var.to(x.device)
@@ -104,14 +119,24 @@ class QBatchNorm(nn.Module):
 
 
 class QBatchNorm1d(QBatchNorm):
-    def __init__(self, num_features, fwd_quant, bwd_quant):
+    def __init__(
+        self,
+        num_features: int,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
         super().__init__(
             num_features, num_dims=2, fwd_quant=fwd_quant, bwd_quant=bwd_quant
         )
 
 
 class QBatchNorm2d(QBatchNorm):
-    def __init__(self, num_features, fwd_quant, bwd_quant):
+    def __init__(
+        self,
+        num_features: int,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
         super().__init__(
             num_features, num_dims=4, fwd_quant=fwd_quant, bwd_quant=bwd_quant
         )

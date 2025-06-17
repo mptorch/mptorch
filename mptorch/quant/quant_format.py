@@ -1,4 +1,6 @@
 from typing import Optional
+
+import torch
 from ..number import *
 from typing import Union, Optional, Tuple, Callable
 from .quant_function import (
@@ -14,7 +16,7 @@ __all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats", "QGELUForma
 id_quant = lambda x: x
 
 
-def make_quant_function(num: Number, rounding: str, prng_bits: int = 0):
+def make_quant_function(num: Number, rounding: str, prng_bits: int = 0) -> Callable:
     if isinstance(num, FloatingPoint):
         return lambda x: float_quantize(
             x, num.exp, num.man, rounding, num.subnormals, num.saturate, prng_bits
@@ -54,39 +56,49 @@ class QAffineFormats:
     in: https://arxiv.org/pdf/2309.17224
 
     Args:
-        fwd_mac (Number or (Number, Number)) : compute configuration (add and multiply) for forward MAC operations
-        bwd_mac (Number or (Number, Number)) : compute configuration (add and multiply) for backward MAC operations
-        fwd_rnd (str) : rounding mode for FWD computations
-        bwd_rnd (str) : rounding mode for BWD computations
-        weight_quant (function or (Number, str)) : quantization function or format and rounding on the weight signal inputs
-        bias_quant (function or (Number, str)) : quantization function or format and rounding on the bias signal inputs
-        input_quant (function or (Number, str)) : quantization function or format and rounding on the output signal from the layer
-        grad_quant (function or (Number, str)) : quantization function or format and rounding on the gradient signals in the BWD pass
-        use_scaling (bool) : whether to use weight, input and grad scaling during forward/backward pass
-        weight_scaled_format (FloatType) : number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
-        input_scaled_format (FloatType) : number format to be used during input tensor scaling (optional, matches input_quant if format specified)
-        grad_scaled_format (FloatType) : number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
-        rbits (int or (int, int)) : number of bits used for random number generation when rounding is stochastic (for add and multiply)
+        fwd_mac: compute configuration (add and multiply) for forward MAC operations
+        bwd_mac: compute configuration (add and multiply) for backward MAC operations
+        fwd_rnd: rounding mode for FWD computations
+        bwd_rnd: rounding mode for BWD computations
+        weight_quant: quantization function or format and rounding on the weight signal inputs
+        bias_quant: quantization function or format and rounding on the bias signal inputs
+        input_quant: quantization function or format and rounding on the output signal from the layer
+        grad_quant: quantization function or format and rounding on the gradient signals in the BWD pass
+        use_scaling: whether to use weight, input and grad scaling during forward/backward pass
+        weight_scaled_format: number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
+        input_scaled_format: number format to be used during input tensor scaling (optional, matches input_quant if format specified)
+        grad_scaled_format: number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
+        rbits: number of bits used for random number generation when rounding is stochastic (for add and multiply)
 
     """
 
     def __init__(
         self,
-        fwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
-        bwd_mac: Optional[Union[Number, Tuple[Number], Tuple[Number, Number]]] = None,
-        fwd_rnd: Optional[str] = "nearest",
-        bwd_rnd: Optional[str] = "nearest",
-        weight_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        bias_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        input_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        output_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        grad_quant: Union[Callable, Tuple[Number, str]] = id_quant,
-        compensated: Optional[bool] = False,
+        fwd_mac: Number | tuple[Number] | tuple[Number, Number] | None = None,
+        bwd_mac: Number | tuple[Number] | tuple[Number, Number] | None = None,
+        fwd_rnd: str | None = None,
+        bwd_rnd: str | None = None,
+        weight_quant: (
+            Callable[[torch.Tensor], torch.Tensor] | tuple[Number, str]
+        ) = id_quant,
+        bias_quant: (
+            Callable[[torch.Tensor], torch.Tensor] | tuple[Number, str]
+        ) = id_quant,
+        input_quant: (
+            Callable[[torch.Tensor], torch.Tensor] | tuple[Number, str]
+        ) = id_quant,
+        output_quant: (
+            Callable[[torch.Tensor], torch.Tensor] | tuple[Number, str]
+        ) = id_quant,
+        grad_quant: (
+            Callable[[torch.Tensor], torch.Tensor] | Tuple[Number, str]
+        ) = id_quant,
+        compensated: bool | None = None,
         use_scaling: bool = False,
-        weight_scaled_format: Optional[FloatType] = None,
-        input_scaled_format: Optional[FloatType] = None,
-        grad_scaled_format: Optional[FloatType] = None,
-        rbits: Union[int, Tuple[int], Tuple[int, int]] = 0,
+        weight_scaled_format: FloatType | None = None,
+        input_scaled_format: FloatType | None = None,
+        grad_scaled_format: FloatType | None = None,
+        rbits: int | tuple[int] | tuple[int, int] = 0,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -217,38 +229,38 @@ class QLayerNormFormats:
     quantization (PTQ) workloads.
 
     Args:
-        fwd_acc (Number) : compute configuration for forward add operations
-        fwd_mul (Number) : compute configuration for forward multiply operations
-        fwd_div (Number) : compute configuration for forward divide operations
-        fwd_sqrt (Number) : compute configuration for forward square root operations
-        bwd_acc (Number) : compute configuration for backward add operations
-        bwd_mul (Number) : compute configuration for backward multiply operations
-        bwd_div (Number) : compute configuration for backward divide operations,
-        fwd_rnd (str) : rounding mode for forward computations
-        bwd_rnd (str) : rounding mode for backward computations
-        input_quant (function) : quantization function on the input signal
-        output_quant (function) : quantization function on the output signal
-        grad_quant (function) : quantization function on the gradients
-        weight_quant (function) : quantization function on the weights when applied to an input
-        bias_quant (function) : quantization function on the bias when applied to an input
+        fwd_acc: compute configuration for forward add operations
+        fwd_mul: compute configuration for forward multiply operations
+        fwd_div: compute configuration for forward divide operations
+        fwd_sqrt: compute configuration for forward square root operations
+        bwd_acc: compute configuration for backward add operations
+        bwd_mul: compute configuration for backward multiply operations
+        bwd_div: compute configuration for backward divide operations,
+        fwd_rnd: rounding mode for forward computations
+        bwd_rnd: rounding mode for backward computations
+        input_quant: quantization function on the input signal
+        output_quant: quantization function on the output signal
+        grad_quant: quantization function on the gradients
+        weight_quant: quantization function on the weights when applied to an input
+        bias_quant: quantization function on the bias when applied to an input
     """
 
     def __init__(
         self,
-        fwd_acc: Optional[Number] = None,
-        fwd_mul: Optional[Number] = None,
-        fwd_div: Optional[Number] = None,
-        fwd_sqrt: Optional[Number] = None,
-        bwd_acc: Optional[Number] = None,
-        bwd_mul: Optional[Number] = None,
-        bwd_div: Optional[Number] = None,
-        fwd_rnd: Optional[str] = "nearest",
-        bwd_rnd: Optional[str] = "nearest",
-        input_quant=id_quant,
-        output_quant=id_quant,
-        grad_quant=id_quant,
-        weight_quant=id_quant,
-        bias_quant=id_quant,
+        fwd_acc: Number | None = None,
+        fwd_mul: Number | None = None,
+        fwd_div: Number | None = None,
+        fwd_sqrt: Number | None = None,
+        bwd_acc: Number | None = None,
+        bwd_mul: Number | None = None,
+        bwd_div: Number | None = None,
+        fwd_rnd: str | None = "nearest",
+        bwd_rnd: str | None = "nearest",
+        input_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        output_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        grad_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        weight_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        bias_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
     ) -> None:
         if (
             fwd_acc is not None
@@ -341,32 +353,32 @@ class QSoftmaxFormats:
     with the internal part of the log being computed at full precision.
 
     Args:
-        fwd_off (Number) : compute configuration for forward subtraction
-        fwd_exp (Number) : compute configuration for forward exponential operations
-        fwd_acc (Number) : compute configuration for forward add operations
-        fwd_lse (Number) : compute configuration for forward LSE iteration
-        bwd_add (Number) : compute configuration for backward add operations
-        bwd_mul (Number) : compute configuration for backward multiply operations
-        fwd_rnd (str) : rounding mode for forward computations
-        bwd_rnd (str) : rounding mode for backward computations
-        input_quant (function) : quantization function on the input signal
-        output_quant (function) : quantization function on the output signal
-        grad_quant (function) : quantization function on the gradients
+        fwd_off: compute configuration for forward subtraction
+        fwd_exp: compute configuration for forward exponential operations
+        fwd_acc: compute configuration for forward add operations
+        fwd_lse: compute configuration for forward LSE iteration
+        bwd_add: compute configuration for backward add operations
+        bwd_mul: compute configuration for backward multiply operations
+        fwd_rnd: rounding mode for forward computations
+        bwd_rnd: rounding mode for backward computations
+        input_quant: quantization function on the input signal
+        output_quant: quantization function on the output signal
+        grad_quant: quantization function on the gradients
     """
 
     def __init__(
         self,
-        fwd_off: Optional[Number] = None,
-        fwd_exp: Optional[Number] = None,
-        fwd_acc: Optional[Number] = None,
-        fwd_lse: Optional[Number] = None,
-        bwd_add: Optional[Number] = None,
-        bwd_mul: Optional[Number] = None,
-        fwd_rnd: Optional[str] = "nearest",
-        bwd_rnd: Optional[str] = "nearest",
-        input_quant=id_quant,
-        output_quant=id_quant,
-        grad_quant=id_quant,
+        fwd_off: Number | None = None,
+        fwd_exp: Number | None = None,
+        fwd_acc: Number | None = None,
+        fwd_lse: Number | None = None,
+        bwd_add: Number | None = None,
+        bwd_mul: Number | None = None,
+        fwd_rnd: str | None = "nearest",
+        bwd_rnd: str | None = "nearest",
+        input_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        output_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        grad_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
     ) -> None:
         if fwd_off is not None:
             self.fwd_off = fwd_off
@@ -430,19 +442,19 @@ class QGELUFormats:
     and/or backward pass) of GELU activation.
 
     Args:
-        input_quant (function) : quantization function on the input signal
-        inter_quant (function) : quantization function on intermediate
+        input_quant: quantization function on the input signal
+        inter_quant: quantization function on intermediate
             computation, depends on wether *tanh* approximation is used
-        output_quant (function) : quantization function on the output signal
-        grad_quant (function) : quantization function on the gradients
+        output_quant: quantization function on the output signal
+        grad_quant: quantization function on the gradients
     """
 
     def __init__(
         self,
-        input_quant: Callable = id_quant,
-        inter_quant: Optional[Callable] = None,
-        output_quant: Callable = id_quant,
-        grad_quant: Callable = id_quant,
+        input_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        inter_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        output_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
+        grad_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
     ):
         self.input_quant = input_quant
         self.inter_quant = inter_quant

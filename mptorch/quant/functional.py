@@ -6,6 +6,7 @@ from ..number import FloatType
 from .quant_format import (
     QAffineFormats,
     QGELUFormats,
+    QLayerNormFormats,
     QSoftmaxFormats,
     make_quant_function,
 )
@@ -195,11 +196,6 @@ def qlinear(
     Returns:
         the result of the affine operation :math:`xW^T + b`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
-
     """
     return qlinear_kernel.apply(input, weight, bias, formats)
 
@@ -303,10 +299,6 @@ def qmm(
     Returns:
         the result of the matrix multiplication between :attr:`input` and :attr:`mat2`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qmm_kernel.apply(input, mat2, formats)
 
@@ -430,10 +422,6 @@ def qmatmul(
     Returns:
         the result of the (batched) matrix multiplication between :attr:`input` and :attr:`other`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qmatmul_kernel.apply(input, other, formats)
 
@@ -493,10 +481,6 @@ def qadd(
     Returns:
         the quantized result of the addition operation between `x` and `y`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     # NOTE: see if it makes sense to implement the `alpha` version
     # NOTE: maybe worthwhile to have a version where `y` can be a number as well (in that case, no gradient for it)
@@ -557,10 +541,6 @@ def qmul(
     Returns:
         the quantized result of the multiplication operation between `x` and `y`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qmul_kernel.apply(x, y, fwd_quant, bwd_quant)
 
@@ -623,10 +603,6 @@ def qdiv(
     Returns:
         the quantized result of the division operation between `x` and `y`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qdiv_kernel.apply(x, y, fwd_quant, bwd_quant)
 
@@ -691,10 +667,6 @@ def qpow(
     Returns:
         the quantized result of the power operation between `x` and `n`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qpow_kernel.apply(x, fwd_quant, bwd_quant, n)
 
@@ -735,17 +707,15 @@ def qsqrt(
     Returns:
         the quantized result of the square root operation on `x`
 
-    Example:
-        .. code-block:: python
-
-            # TODO
     """
     return qsqrt_kernel.apply(x, fwd_quant, bwd_quant)
 
 
 # NOTE: look into CUDA-accelerated version of this routine
 # and also of sums across multiple dimensions
-def qsum_1d(x, dim, quant):
+def qsum_1d(
+    x: torch.Tensor, dim: int, quant: Callable[[torch.Tensor], torch.Tensor]
+) -> torch.Tensor:
     shape = list(x.shape)
     shape[dim] = 1
     vs = torch.zeros(shape, device=x.device)
@@ -803,7 +773,12 @@ def qsum(
 
     Args:
         x: the input tensor
-        dim: if specified, the dimension or list of dimensions over which the reduction takes place
+        dim: the dimension or dimensions to reduce. If ``None``, all dimensions are reduced
+        quant: the quantization function specifying how accumulation results should be stored
+        keepdim: whether the output tensor has :attr:`dim` retained or not
+
+    Returns:
+        the quantized result of the sum operation operation on `x`
 
     """
     return qsum_kernel.apply(x, quant, dim, keepdim)
@@ -857,6 +832,24 @@ def qmean(
     dim: int | tuple[int, ...] | None = 3,
     keepdim: bool = False,
 ) -> torch.Tensor:
+    r"""
+    Returns the mean value of all the elements in the :attr:`x` tensor. Input must be a floating point tensor.
+    It can simulate low precision summation if the elements of :attr:`x` are low precision values.
+    The :attr:`fwd_quant` function specifies the accumulator (and final division) output format and
+    precision as a quantization function in the forward pass. The :attr:`bwd_quant` function specifies how
+    the arithmetic should be performed in the backward pass through this operator.
+
+    Args:
+        x: the input tensor
+        dim: the dimension or dimensions to reduce. If ``None``, all dimensions are reduced
+        fwd_quant: the quantization function specifying how accumulation and division results should be stored in the forward pass
+        bwd_quant: the quantization function specifying how operations should be performed in the backward pass
+        keepdim: whether the output tensor has :attr:`dim` retained or not
+
+    Returns:
+        the quantized result of the mean operation operation on `x`
+
+    """
     return qmean_kernel.apply(x, fwd_quant, bwd_quant, dim, keepdim)
 
 
@@ -956,7 +949,55 @@ class qlayernorm_kernel(torch.autograd.Function):
         return qgrad_input, None, qgrad_weight, qgrad_bias, None, None
 
 
-def qlayernorm(x: torch.Tensor, normalized_shape, weight, bias, eps, formats):
+def qlayernorm(
+    x: torch.Tensor,
+    normalized_shape: int | list[int] | torch.Size,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float = 1.0e-5,
+    formats: QLayerNormFormats = QLayerNormFormats(),
+) -> torch.Tensor:
+    r"""
+    Implements the operation as described in the paper *Layer Normalization* (https://arxiv.org/abs/1607.06450),
+    giving the user control over how the arithmetic is performed during the forward and backward passes through
+    the :attr:`formats` parameter.
+
+    .. math::
+        y = \frac{x-\mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \epsilon}}\gamma + \beta
+
+    The mean and standard deviation are computed over the last `D` dimensions, where `D` is the dimension
+    of :attr:`normalized_shape`. For instance, if :attr:`normalized_shape` is ``(3, 5)`` (ad 2-D shape),
+    the mean and standard deviation are computed over the last 2 dimension of the input (i.e., ``x.mean((-2, -1))``).
+    In a training context, :math:`\gamma` and :math:`\beta` are learnable affine transform paremeters of
+    :attr:`normalized_shape`.
+
+    .. note::
+        Unlike Batch Normalization and Instance Normalization, which applies scalar scale and bias for each
+        entire channel/plane with the :attr:`affine` option, Layer Normalization applies per-element scale and
+        bias with :attr:`elementwise_affine`.
+
+    It uses statistics computed from input data in both training and evaluation modes.
+
+    Args:
+        x: the input tensor
+        normalized_shape: input shape from an expected input of size
+
+            .. math::
+                [* \times \text{n_shape}[0] \times \text{n_shape}[1]
+                    \times \ldots \times \text{n_shape}[-1]]
+
+            If a single integer is used, it is treated as a singleton list, and this function will
+            normalize over the last dimension which is expected to be of that specific size
+        weight: the learnable weights :math:`\gamma` of shape :math:`\text{n_shape}`
+        bias: the learnable bias :math:`\beta` of shape :math:`\text{n_shape}`
+        eps: a small value added to the denominator for numerical stability. Default: 1e-5
+        formats: configuration class for number formats and quantizers to use during
+            forward and backward computations in layer normalization.
+
+    Returns:
+        the quantized result of the mean operation operation on :attr:`x`. Has the same shape as :attr:`x`.
+
+    """
     return qlayernorm_kernel.apply(x, normalized_shape, weight, bias, eps, formats)
 
 
@@ -1000,6 +1041,33 @@ class qsoftmax_kernel(torch.autograd.Function):
 def qsoftmax(
     x: torch.Tensor, dim: int | None, formats: QSoftmaxFormats
 ) -> torch.Tensor:
+    r"""
+    Applies the Softmax function to an n-dimensional input tensor :attr:`x`. Through the
+    :attr:`formats` parameter it allows one to specify if I/O signals and internal mathematical
+    operations should be quantized during forward and backward compute chains.
+
+    Rescales the elements in the input tensor so that they lie in the range :math:`[0, 1]` and sum to :math:`1`.
+    It is defined as:
+
+    .. math::
+        \text{Softmax}(x_i) = \frac{\exp(x_i)}{\sum_j\exp(x_j)}
+
+    Args:
+        x: the input tensor
+        dim: a dimension along which Softmax will be computed (so every slice along :attr:`dim`
+            will sum to 1)
+        formats: configuration class for number formats and quantizers to use during
+            forward and backward computations in Softmax
+
+    Returns:
+        a :attr:`torch.Tensor` of the same dimension and shape as the input with values in the range :math:`[0, 1]`
+
+    Example:
+        .. code-block:: python
+
+            # TODO
+
+    """
     return qsoftmax_kernel.apply(x, dim, formats)
 
 
@@ -1052,8 +1120,47 @@ class qgelu_kernel(torch.autograd.Function):
 
 
 def qgelu(
-    input: torch.Tensor,
+    x: torch.Tensor,
     formats: QGELUFormats,
     approximate: Literal["tanh", "none"] = "none",
 ) -> torch.Tensor:
-    return qgelu_kernel.apply(input, formats, approximate)
+    r"""
+    Applies the Gaussian Error Linear Units function to the input :math:`x`:
+
+    .. math:: \text{GELU}(x) = x * \Phi(x)
+
+    where :math:`\Phi(x)` is the Cumulative Distribution Function for Gaussian Distribution.
+
+    When the approximate argument is ``'tanh'``, GELU is estimated with:
+
+    .. math:: \text{GELU}(x) = 0.5 * x * (1 + \tanh(\sqrt{2 / \pi} * (x + 0.044715 * x^3)))
+
+    Args:
+        x: the input tensor
+        formats: configuration class for number formats and quantizers to use during
+            forward and backward computations in GELU
+        approximate: the gelu approximation algorithm to use:
+            ``'none'`` | ``'tanh'``. Default: ``'none'``
+
+    Returns:
+        a :attr:`torch.Tensor` of the same dimension and shape as the input where the GELU function is applied element-wise
+
+    Example:
+        .. code-block:: python
+
+            import torch
+            import mptorch.quant as qt
+            from torch.testing import assert_close
+
+            quant_func = lambda x: qt.float_quantize(x, man=7, exp=8, rounding="nearest")
+            formats = qt.QGELUFormats(
+                input_quant=quant_func,
+                output_quant=quant_func,
+            )
+
+            x = torch.randn(3, 2)
+            y = torch.nn.functional.gelu(x)
+            qy = qt.functional.qgelu(x, formats=formats)
+            assert_close(y, qy, rtol=1e-2, atol=1e-5)
+    """
+    return qgelu_kernel.apply(x, formats, approximate)
