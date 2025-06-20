@@ -5,7 +5,7 @@ from mptorch.quant import QGELUFormats
 from mptorch.quant import float_quantize
 from torch.testing import assert_close
 import pytest
-from markers import available_devices
+from tests.markers import available_devices
 
 
 @pytest.fixture

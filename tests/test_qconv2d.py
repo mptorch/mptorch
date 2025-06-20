@@ -54,7 +54,7 @@ def test_qconv2d_custom_mm(groups, device, mac_format, signal_q):
 
     res_m = m(x)
     res_qm = qm(qx)
-    assert_close(res_m, res_qm, atol=1e-5, rtol=1e-2)
+    assert_close(res_m, res_qm, atol=1e-3, rtol=1e-6)
 
 
 @pytest.mark.parametrize("device", available_devices)

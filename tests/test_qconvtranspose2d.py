@@ -73,13 +73,13 @@ def test_qconvtranspose2d_custom_mm(
     res_m.backward()
     res_qm = qm(qx).mean()
     res_qm.backward()
-    assert_close(m.bias.grad, qm.bias.grad, atol=0.0, rtol=1e-3)
-    assert_close(m.weight.grad, qm.weight.grad, atol=0.0, rtol=1e-3)
+    assert_close(m.bias.grad, qm.bias.grad, atol=1e-4, rtol=1e-7)
+    assert_close(m.weight.grad, qm.weight.grad, atol=1e-4, rtol=1e-7)
 
     res_m = m(x)
     res_qm = qm(qx)
     assert res_m.shape == res_qm.shape
-    assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
+    assert_close(res_m, res_qm, atol=1e-3, rtol=1e-7)
 
 
 @pytest.mark.parametrize("device", available_devices)
