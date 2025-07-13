@@ -39,6 +39,18 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      int man_bits, int exp_bits,
                                      bool subnormals, bool saturate);
 
+__global__ void float_kernel_nearest_mp(float *__restrict__ a, 
+                                     int *__restrict__ s,
+                                     float *o, int size,
+                                     bool subnormal_support, bool saturate);
+
+__global__ void float_kernel_nearest_mpv2(float *__restrict__ a, 
+                                     int *__restrict__ s,
+                                     int *__restrict__ mans,
+                                     int *__restrict__ exps,
+                                     float *o, int size,
+                                     bool subnormal_support, bool saturate);
+
 __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size,
                                        int man_bits, int exp_bits,
                                        int binades_l, int binades_u,
@@ -86,9 +98,39 @@ void mm_fp_nearest(float *a, float *b, float *c,
                    bool saturate,
                    bool compensated);
 
+void mm_fp_nearest(float *a, float *b, float *c,
+                   int M, int K, int N,
+                   int *s,
+                   bool subnormals,
+                   bool saturate,
+                   bool compensated);
+
+void mm_fp_nearest_v2(float *a, float *b, float *c,
+                   int M, int K, int N,
+                   int *s,
+                   int *mans, int *exps,
+                   bool subnormals,
+                   bool saturate,
+                   bool compensated);
+
 void mm_fp_fma_nearest(float *a, float *b, float *c,
                        int M, int K, int N,
                        int man_fma, int exp_fma,
+                       bool subnormals,
+                       bool saturate,
+                       bool compensated);
+
+void mm_fp_fma_nearest(float *a, float *b, float *c,
+                       int M, int K, int N,
+                       int *s,
+                       bool subnormals,
+                       bool saturate,
+                       bool compensated);
+
+void mm_fp_fma_nearest_v2(float *a, float *b, float *c,
+                       int M, int K, int N,
+                       int *s,
+                       int *mans, int *exps,
                        bool subnormals,
                        bool saturate,
                        bool compensated);

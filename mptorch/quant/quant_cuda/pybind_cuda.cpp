@@ -50,6 +50,22 @@ Tensor float_quantize_nearest(Tensor a,
                                          saturate);
 }
 
+Tensor float_quantize_nearest_mp(Tensor a, Tensor s, bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(s);
+      return float_quantize_nearest_mp_cuda(a, s, subnormals, saturate);
+}
+
+Tensor float_quantize_nearest_mpv2(Tensor a, Tensor s, Tensor mans, Tensor exps, bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(s);
+      CHECK_INPUT(mans);
+      CHECK_INPUT(exps);
+      return float_quantize_nearest_mpv2_cuda(a, s, mans, exps, subnormals, saturate);
+}
+
 Tensor superfp_quantize_nearest(Tensor a,
                                 int man_bits, int exp_bits, int binades_l, int binades_u,
                                 bool saturate)
@@ -134,7 +150,37 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
       float_quantize_nearest_mm_cuda(a, b, c, M, N, K,
                                      man_add, exp_add, man_mul, exp_mul,
                                      subnormals, saturate, compensated);
-      return;
+}
+
+void float_quantize_nearest_mm_mp(Tensor a, Tensor b, Tensor c, Tensor s,
+                                  int M, int N, int K,
+                                  bool subnormals,
+                                  bool saturate,
+                                  bool compensated)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      CHECK_INPUT(s);
+      float_quantize_nearest_mm_cuda(a, b, c, s, M, N, K,
+                                     subnormals, saturate, compensated);
+}
+
+void float_quantize_nearest_mm_mpv2(Tensor a, Tensor b, Tensor c, Tensor s,
+                                    Tensor mans, Tensor exps,
+                                    int M, int N, int K,
+                                    bool subnormals,
+                                    bool saturate,
+                                    bool compensated)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      CHECK_INPUT(s);
+      CHECK_INPUT(mans);
+      CHECK_INPUT(exps);
+      float_quantize_nearest_mm_v2_cuda(a, b, c, s, mans, exps, M, N, K,
+                                        subnormals, saturate, compensated);
 }
 
 void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
@@ -168,6 +214,37 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
                                          man_fma, exp_fma,
                                          subnormals, saturate, compensated);
       return;
+}
+
+void float_quantize_nearest_mm_fma_mp(Tensor a, Tensor b, Tensor c, Tensor s,
+                                      int M, int N, int K,
+                                      bool subnormals,
+                                      bool saturate,
+                                      bool compensated)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      CHECK_INPUT(s);
+      float_quantize_nearest_mm_fma_cuda(a, b, c, s, M, N, K,
+                                         subnormals, saturate, compensated);
+}
+
+void float_quantize_nearest_mm_fma_mpv2(Tensor a, Tensor b, Tensor c, Tensor s,
+                                        Tensor mans, Tensor exps,
+                                        int M, int N, int K,
+                                        bool subnormals,
+                                        bool saturate,
+                                        bool compensated)
+{
+      CHECK_INPUT(a);
+      CHECK_INPUT(b);
+      CHECK_INPUT(c);
+      CHECK_INPUT(s);
+      CHECK_INPUT(mans);
+      CHECK_INPUT(exps);
+      float_quantize_nearest_mm_fma_v2_cuda(a, b, c, s, mans, exps, M, N, K,
+                                            subnormals, saturate, compensated);
 }
 
 void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
@@ -736,6 +813,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("float_quantize_nearest",
             &float_quantize_nearest,
             "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CUDA)");
+      m.def("float_quantize_nearest_mp",
+            &float_quantize_nearest_mp,
+            "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CUDA)");
+      m.def("float_quantize_nearest_mpv2",
+            &float_quantize_nearest_mpv2,
+            "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CUDA)");
       m.def("float_quantize_stochastic",
             &float_quantize_stochastic,
             "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
@@ -789,11 +872,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("float_quantize_nearest_mm",
             &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
+      m.def("float_quantize_nearest_mm_mp",
+            &float_quantize_nearest_mm_mp,
+            "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
+      m.def("float_quantize_nearest_mm_mpv2",
+            &float_quantize_nearest_mm_mpv2,
+            "Low-Bitwidth Floating Point Number GEMM Quantization (CUDA)");
       m.def("float_quantize_nearest_bmm",
             &float_quantize_nearest_bmm,
             "Low-Bitwidth Floating Point Number BGEMM Quantization (CUDA)");
       m.def("float_quantize_nearest_mm_fma",
             &float_quantize_nearest_mm_fma,
+            "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CUDA)");
+      m.def("float_quantize_nearest_mm_fma_mp",
+            &float_quantize_nearest_mm_fma_mp,
+            "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CUDA)");
+      m.def("float_quantize_nearest_mm_fma_mpv2",
+            &float_quantize_nearest_mm_fma_mpv2,
             "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CUDA)");
       m.def("float_quantize_nearest_bmm_fma",
             &float_quantize_nearest_bmm_fma,

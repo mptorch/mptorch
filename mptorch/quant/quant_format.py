@@ -99,6 +99,7 @@ class QAffineFormats:
         input_scaled_format: FloatType | None = None,
         grad_scaled_format: FloatType | None = None,
         rbits: int | tuple[int] | tuple[int, int] = 0,
+        s=None,
     ) -> None:
         if fwd_mac is not None:
             if not isinstance(fwd_mac, tuple):
@@ -183,6 +184,7 @@ class QAffineFormats:
             self.grad_quant = grad_quant
 
         self.use_scaling = use_scaling
+        self.s = s
 
     def __repr__(self) -> str:
         out = []

@@ -1,4 +1,4 @@
-from .linear import QLinear, QLazyLinear
+from .linear import QLinear, QLazyLinear, QLinearMP
 from .conv import (
     QConv1d,
     QConv2d,
@@ -18,6 +18,7 @@ __all__ = [
     "Quantizer",
     "QLinear",
     "QLazyLinear",
+    "QLinearMP",
     "QConv1d",
     "QConv2d",
     "QConv3d",
