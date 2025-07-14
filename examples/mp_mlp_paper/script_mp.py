@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -498,6 +499,8 @@ def accuracy_info(analyser, tol):
 def generate_statistics(analyser, num_examples, tol):
     for ex in range(num_examples):
         input = next(iter(train_loader))
+        if not os.path.exists("temp"):
+            os.makedirs("temp")
         savetxt(
             f"temp/input{ex}.csv", input[0].view(-1, 28 * 28).detach().cpu().numpy()
         )
@@ -514,14 +517,16 @@ test_acc_fp8 = None
 test_acc_fp16 = None
 
 # open a CSV file to store results for each tolerance
+if not os.path.exists("results"):
+    os.makedirs("results")
 with open("results/mixed_precision.csv", mode="w", newline="") as mp_file:
     writer = csv.writer(mp_file)
     writer.writerow(["tol", "test_acc", "mean"])
 
-    for tol in tolerances:
+    for i, tol in enumerate(tolerances):
         print(f"Running mixed precision tests for tol {tol}...")
         analyser = ErrorAnalyzer(tol=tol)
-        if args.train:
+        if args.train and i == 0:
             analyser.train(train_loader, test_loader)  # uncomment to train network
         else:
             analyser.load(network_name)  # load network
