@@ -1,5 +1,4 @@
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from unfoldNd import unfoldNd
@@ -20,7 +19,9 @@ __all__ = [
 ]
 
 
-def tmp_matmul(X: Tensor, W: Tensor, b: Optional[Tensor], formats: QAffineFormats):
+def tmp_matmul(
+    X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None, formats: QAffineFormats
+) -> torch.Tensor:
     assert len(X.shape) == 3
     assert len(W.shape) == 2
     assert X.shape[2] == W.shape[1]
@@ -40,12 +41,12 @@ class QConv1d(nn.Conv1d):
         kernel_size: _size_1_t,
         formats: QAffineFormats,
         stride: _size_1_t = 1,
-        padding: Union[str, _size_1_t] = 0,
+        padding: str | _size_1_t = 0,
         dilation: _size_1_t = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
         super(QConv1d, self).__init__(
             in_channels,
             out_channels,
@@ -67,7 +68,7 @@ class QConv1d(nn.Conv1d):
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
@@ -88,7 +89,7 @@ class QConv1d(nn.Conv1d):
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
@@ -125,7 +126,9 @@ class QConv1d(nn.Conv1d):
                 input_w + 2 * self.padding[0] - self.dilation[0] * (kernel_w - 1) - 1
             ) // self.stride[0] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -183,12 +186,12 @@ class QConv2d(nn.Conv2d):
         kernel_size: _size_2_t,
         formats: QAffineFormats,
         stride: _size_2_t = 1,
-        padding: Union[str, _size_2_t] = 0,
+        padding: str | _size_2_t = 0,
         dilation: _size_2_t = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
         super(QConv2d, self).__init__(
             in_channels,
             out_channels,
@@ -211,7 +214,7 @@ class QConv2d(nn.Conv2d):
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
@@ -232,7 +235,7 @@ class QConv2d(nn.Conv2d):
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         if not self.params_are_quantized:  # nazar
             self.quant_parameters()
             self.params_are_quantized = True
@@ -275,7 +278,9 @@ class QConv2d(nn.Conv2d):
                 in_w + 2 * self.padding[1] - self.dilation[1] * (kernel_w - 1) - 1
             ) // self.stride[1] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -333,12 +338,12 @@ class QConv3d(nn.Conv3d):
         kernel_size: _size_3_t,
         formats: QAffineFormats,
         stride: _size_3_t = 1,
-        padding: Union[str, _size_3_t] = 0,
+        padding: str | _size_3_t = 0,
         dilation: _size_3_t = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
         super(QConv3d, self).__init__(
             in_channels,
             out_channels,
@@ -360,7 +365,7 @@ class QConv3d(nn.Conv3d):
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
@@ -381,7 +386,7 @@ class QConv3d(nn.Conv3d):
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
@@ -424,7 +429,9 @@ class QConv3d(nn.Conv3d):
                 in_w + 2 * self.padding[2] - self.dilation[2] * (kernel_w - 1) - 1
             ) // self.stride[2] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -490,7 +497,7 @@ class QConvTranspose1d(nn.ConvTranspose1d):
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
         super(QConvTranspose1d, self).__init__(
             in_channels,
             out_channels,
@@ -536,7 +543,9 @@ class QConvTranspose1d(nn.ConvTranspose1d):
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
         num_spatial_dims = 1
         output_padding = self._output_padding(
             input,
@@ -572,7 +581,9 @@ class QConvTranspose1d(nn.ConvTranspose1d):
             nW_w = (kernel_w - 1) * self.dilation[0] + 1
             padding_w = nW_w - 1 - self.padding[0]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_w),
                     dtype=X.dtype,
@@ -652,7 +663,7 @@ class QConvTranspose2d(nn.ConvTranspose2d):
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
         super(QConvTranspose2d, self).__init__(
             in_channels,
             out_channels,
@@ -677,7 +688,7 @@ class QConvTranspose2d(nn.ConvTranspose2d):
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
@@ -698,7 +709,9 @@ class QConvTranspose2d(nn.ConvTranspose2d):
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
         num_spatial_dims = 2
         output_padding = self._output_padding(
             input,
@@ -737,7 +750,9 @@ class QConvTranspose2d(nn.ConvTranspose2d):
             padding_h = nW_h - 1 - self.padding[0]
             padding_w = nW_w - 1 - self.padding[1]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_h, nin_w),
                     dtype=X.dtype,
@@ -819,7 +834,7 @@ class QConvTranspose3d(nn.ConvTranspose3d):
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
         super(QConvTranspose3d, self).__init__(
             in_channels,
             out_channels,
@@ -844,7 +859,7 @@ class QConvTranspose3d(nn.ConvTranspose3d):
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
@@ -865,7 +880,9 @@ class QConvTranspose3d(nn.ConvTranspose3d):
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
         num_spatial_dims = 3
         output_padding = self._output_padding(
             input,
@@ -907,7 +924,9 @@ class QConvTranspose3d(nn.ConvTranspose3d):
             padding_h = nW_h - 1 - self.padding[1]
             padding_w = nW_w - 1 - self.padding[2]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_d, nin_h, nin_w),
                     dtype=X.dtype,

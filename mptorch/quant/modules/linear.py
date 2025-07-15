@@ -1,3 +1,4 @@
+from typing import Callable
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -52,7 +53,7 @@ class QLinear(nn.Linear):
         out_features: int,
         formats: QAffineFormats,
         bias: bool = True,
-    ) -> None:
+    ):
         super(QLinear, self).__init__(in_features, out_features, bias)
         self.formats = formats
         self.quant_parameters()
@@ -64,10 +65,14 @@ class QLinear(nn.Linear):
         and/or output signals), depending if quantizers are specified in the
         associated :class:`QAffineFormats` :attr:`formats` parameter.
         """
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
     def quant_parameters(self):
         r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
@@ -77,14 +82,22 @@ class QLinear(nn.Linear):
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
-        r"""Defines a straight-through estimator-like function that applies
-        potentially different quantization functions in the forward and backward
-        passes through the input signal.
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
 
         Args:
             fwd_quant: the quantization function to apply during the forward pass
                 through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
         """
 
         class round(torch.autograd.Function):
@@ -98,11 +111,22 @@ class QLinear(nn.Linear):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+            Must adhere to the input shape requirements.
+
+        Returns:
+            the result of the :math:`xW^T + b` operation.
+        """
         if self.formats.fwd_use_default_prec and self.formats.bwd_use_default_prec:
             return self.Qo(
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
@@ -153,7 +177,7 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
         bias: bool = True,
         device=None,
         dtype=None,
-    ) -> None:
+    ):
         factory_kwargs = {"device": device, "dtype": dtype}
         # similar to nn.LazyLinear, bias is hardcoded to avoid
         # creating tensor that will soon be overwritten
@@ -163,11 +187,21 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
         if bias:
             self.bias = torch.nn.UninitializedParameter(**factory_kwargs)
 
-    def reset_parameters(self) -> None:
+    def reset_parameters(self):
         if not self.has_uninitialized_params() and self.in_features != 0:
             super().reset_parameters()
 
-    def initialize_parameters(self, input) -> None:
+    def initialize_parameters(self, input: torch.Tensor):
+        r"""Initialize parameters according to the input
+        batch properties.
+
+        This adds an interface to isolate parameter initialization from the forward
+        pass when doing parameter shape inference.
+
+        Args:
+            input: the input tensor on which to perform the layer operations. It's shape
+                is used to determine the value of the :attr:`in_features` member variable.
+        """
         if self.has_uninitialized_params():
             with torch.no_grad():
                 self.in_features = input.shape[-1]
