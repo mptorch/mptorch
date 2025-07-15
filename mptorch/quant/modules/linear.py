@@ -9,7 +9,7 @@ __all__ = ["QLinear", "QLazyLinear"]
 
 
 class QLinear(nn.Linear):
-    r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
+    __doc__ = r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
 
     It is a subclass of :class:`torch.nn.Linear` and allows one to specify if I/O
     signals should be quantized during inference & training (needed for instance
@@ -59,17 +59,34 @@ class QLinear(nn.Linear):
         self.reset_quant_function()
 
     def reset_quant_function(self):
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
         self.Qw = self.quant_function(self.formats.weight_quant)
         self.Qb = self.quant_function(self.formats.bias_quant)
         self.Qi = self.quant_function(self.formats.input_quant)
         self.Qo = self.quant_function(self.formats.output_quant)
 
     def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
     def quant_function(self, fwd_quant):
+        r"""Defines a straight-through estimator-like function that applies
+        potentially different quantization functions in the forward and backward
+        passes through the input signal.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -99,7 +116,10 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
 
     In this module (an analogue to :class:`torch.nn.LazyLinear`), the
     ``in_features`` parameter of the quantized linear layer is inferred
-    from the input's last dimension (i.e., ``input.shape[-1]``).
+    from the input's last dimension (i.e., ``input.shape[-1]``). The `weight`
+    and `bias` layer parameters are of :class:`torch.nn.UninitializedParameter`
+    class. They are initialized after the first call to ``forward`` and the
+    module becomes a regular :class:`torch.nn.Linear` module.
 
     Args:
         out_features: size of each output sample
