@@ -2666,8 +2666,7 @@ def quantizer(
     clamping_grad_zero: bool = False,
     backward_hooks=[],
 ):
-    """
-    Creates a quantization function to support quantizing forward and backward process differently.
+    r"""Creates a quantization function to support quantizing forward and backward process differently.
 
     Args:
         forward_number: the number format used for forward quantization.

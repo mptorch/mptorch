@@ -1060,7 +1060,7 @@ def qsoftmax(
             forward and backward computations in Softmax
 
     Returns:
-        a :attr:`torch.Tensor` of the same dimension and shape as the input with values in the range :math:`[0, 1]`
+        a :attr:`Tensor` of the same dimension and shape as the input with values in the range :math:`[0, 1]`
 
     Example:
         .. code-block:: python
@@ -1139,11 +1139,11 @@ def qgelu(
         x: the input tensor
         formats: configuration class for number formats and quantizers to use during
             forward and backward computations in GELU
-        approximate: the gelu approximation algorithm to use:
+        approximate: the GELU approximation algorithm to use:
             ``'none'`` | ``'tanh'``. Default: ``'none'``
 
     Returns:
-        a :attr:`torch.Tensor` of the same dimension and shape as the input where the GELU function is applied element-wise
+        a :attr:`Tensor` of the same dimension and shape as the input where the GELU function is applied element-wise
 
     Example:
         .. code-block:: python

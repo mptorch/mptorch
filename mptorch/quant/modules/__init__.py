@@ -8,7 +8,7 @@ from .conv import (
     QConvTranspose3d,
 )
 from .quantizer import Quantizer
-from .batchnorm import QBatchNorm, QBatchNorm1d, QBatchNorm2d
+from .batchnorm import QBatchNorm1d, QBatchNorm2d
 from .layernorm import QLayerNorm
 from .softmax import QSoftmax
 from .gelu import QGELU
@@ -25,7 +25,6 @@ __all__ = [
     "QConvTranspose2d",
     "QConvTranspose3d",
     "QAvgPool2d",
-    "QBatchNorm",
     "QBatchNorm1d",
     "QBatchNorm2d",
     "QLayerNorm",

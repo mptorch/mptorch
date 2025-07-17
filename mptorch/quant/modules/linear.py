@@ -10,7 +10,7 @@ __all__ = ["QLinear", "QLazyLinear"]
 
 
 class QLinear(nn.Linear):
-    __doc__ = r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
+    r"""Applies a linear transformation to the incoming data: :math:`y=xW^T + b`
 
     It is a subclass of :class:`torch.nn.Linear` and allows one to specify if I/O
     signals should be quantized during inference & training (needed for instance
@@ -36,11 +36,11 @@ class QLinear(nn.Linear):
           are the same shape as the input and :math:`H_\text{out} = \text{out_features}`.
 
     Attributes:
-        weight: the learnable weights of the module of shape
+        weight (Tensor): the learnable weights of the module of shape
             :math:`(\text{out_features}, \text{in_features})`. The values are
             initialized from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})`, where
             :math:`k = \frac{1}{\text{in_features}}`
-        bias:   the learnable bias of the module of shape :math:`(\text{out_features})`.
+        bias (Tensor):   the learnable bias of the module of shape :math:`(\text{out_features})`.
                 If :attr:`bias` is ``True``, the values are initialized from
                 :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
                 :math:`k = \frac{1}{\text{in_features}}`
@@ -121,8 +121,8 @@ class QLinear(nn.Linear):
         and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
 
         Args:
-            input: the input tensor on which to perform the layer operations.
-            Must adhere to the input shape requirements.
+            input: the input tensor over which to perform the layer operations.
+                Must adhere to the input shape requirements.
 
         Returns:
             the result of the :math:`xW^T + b` operation.
@@ -188,6 +188,7 @@ class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
             self.bias = torch.nn.UninitializedParameter(**factory_kwargs)
 
     def reset_parameters(self):
+        r"""Resets parameter values in case parameters have been initialized"""
         if not self.has_uninitialized_params() and self.in_features != 0:
             super().reset_parameters()
 
