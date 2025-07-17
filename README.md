@@ -132,15 +132,10 @@ trainer(
 
 Requirements:
 
-- Python >= 3.6
-- PyTorch >= 1.5.0
+- Python >= 3.9
+- PyTorch >= 2.1
 - GCC >= 4.9 on Linux
-- CUDA >= 10.1 on Linux
-
-Install other requirements by:
-```bash
-pip3 install -r requirements.txt
-```
+- CUDA >= 12.0 on Linux
 
 Install MPTorch through pip (from the base directory):
 ```
