@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mptorch"
+dynamic = ["dependencies", "version"]
+license = "GPL-3.0"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/mptorch/mptorch"
+Issues = "https://github.com/mptorch/mptorch/issues"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+version = {attr = "mptorch.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
