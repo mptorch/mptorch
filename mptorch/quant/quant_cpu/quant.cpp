@@ -411,7 +411,11 @@ float cast_fp_nearest(float origin_float,
     {
       int exp_diff = man_bits - (min_exp - target_exp);
       int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-      quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+      if (man_bits != 23) {
+        quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+      } else {
+        quantize_bits = not_uflow * target;
+      }
       quantize_bits =
           clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
@@ -424,7 +428,11 @@ float cast_fp_nearest(float origin_float,
     // normal value range or overflow
     else
     {
-      quantize_bits = round_bitwise_nearest(target, man_bits);
+      if (man_bits != 23) {
+        quantize_bits = round_bitwise_nearest(target, man_bits);
+      } else {
+        quantize_bits = target;
+      }
       quantize_bits =
           clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
