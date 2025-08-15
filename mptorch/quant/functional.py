@@ -36,11 +36,11 @@ __all__ = [
 # divergence (i.e. grad_input computation in the linear layer backward pass is
 # unstable and produces NaNs right from the start); more investigation is needed
 # and this might need to be revisited in the case of supernormals
-def compute_bias(x: torch.Tensor, cast_to: FloatType, margin: int = 11) -> torch.Tensor:
+def compute_bias(x: torch.Tensor, cast_to: FloatType, margin: int = 0) -> torch.Tensor:
     with torch.no_grad():
         (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
         (amax, _) = torch.max(amax, dim=-2, keepdim=True)
-    return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
+    return torch.floor(torch.log2(cast_to.normal_max / amax.double())).float() - margin #log2 must be done in fp64 precision or NaNs will show up in training
 
 
 def scale(x: torch.Tensor, x_scale: torch.Tensor | int) -> torch.Tensor:
