@@ -40,21 +40,23 @@ def compute_bias(x: torch.Tensor, cast_to: FloatType, margin: int = 11) -> torch
     with torch.no_grad():
         (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
         (amax, _) = torch.max(amax, dim=-2, keepdim=True)
-    return torch.floor(torch.log2(cast_to.normal_max / amax)) - margin
+    return (
+        torch.floor(torch.log2(cast_to.normal_max / amax.double())).float() - margin
+    )  # log2 must be done in fp64 precision or NaNs will show up in training
 
 
 def scale(x: torch.Tensor, x_scale: torch.Tensor | int) -> torch.Tensor:
     if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), x_scale)
     else:
-        return x
+        return x * 2**x_scale
 
 
 def unscale(x: torch.Tensor, x_scale: torch.Tensor | int) -> torch.Tensor:
     if isinstance(x_scale, torch.Tensor):
         return x * torch.pow(2.0 * torch.ones_like(x), -x_scale)
     else:
-        return x
+        return x * 2 ** (-x_scale)
 
 
 # Take inspiration for defining the custom derivation formulas from the PyTorch repository

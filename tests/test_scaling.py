@@ -5,6 +5,7 @@ from mptorch.quant import QLinear
 import torch
 from torch.testing import assert_close
 from unittest.mock import MagicMock, PropertyMock
+from tests.markers import available_devices
 import pytest
 
 
@@ -17,7 +18,7 @@ def test_scaling_format_deduction():
         output_quant=(fp_format, "nearest"),
         weight_quant=(fp_format, "nearest"),
         bias_quant=(fp_format, "nearest"),
-        grad_quant=(fp_format, "nearest")
+        grad_quant=(fp_format, "nearest"),
     )
     assert formats.input_scaled_format.exp == 3
     assert formats.input_scaled_format.man == 4
@@ -36,15 +37,17 @@ def test_scaling_format_deduction_non_float():
         output_quant=(fp_format, "nearest"),
         weight_quant=(fp_format, "nearest"),
         bias_quant=(fp_format, "nearest"),
-        grad_quant=(fp_format, "nearest")
+        grad_quant=(fp_format, "nearest"),
     )
     assert formats.input_scaled_format is None
     assert formats.weight_scaled_format is None
     assert formats.grad_scaled_format is None
 
 
-@pytest.mark.parametrize("device", ["cpu"])
-@pytest.mark.parametrize("mm", [lambda x,w,fmt: qlinear(x,w,None,fmt), qmatmul, qmm])
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "mm", [lambda x, w, fmt: qlinear(x, w, None, fmt), qmatmul, qmm]
+)
 @pytest.mark.parametrize("use_scaling", [True, False])
 def test_scaling_is_used(device, mm, use_scaling):
     mac_format = FloatingPoint(exp=5, man=10)
@@ -63,7 +66,7 @@ def test_scaling_is_used(device, mm, use_scaling):
         input_scaled_format=input_scaled_format,
         weight_scaled_format=weight_scaled_format,
         grad_scaled_format=grad_scaled_format,
-        use_scaling=use_scaling
+        use_scaling=use_scaling,
     )
 
     assert not formats.fwd_use_default_prec
@@ -97,7 +100,7 @@ def test_scaling_is_used(device, mm, use_scaling):
         normal_max_grad.assert_not_called()
 
 
-@pytest.mark.parametrize("device", ["cpu"])
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("exp_1, man_1, exp_2, man_2", [(4, 3, 5, 2), (5, 10, 5, 10)])
 def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
     mac_format = FloatingPoint(exp=5, man=10, subnormals=True, saturate=False)
@@ -112,7 +115,7 @@ def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
         grad_quant=(fp_format_2, "nearest"),
         input_quant=(fp_format_1, "nearest"),
         bias_quant=(mac_format, "nearest"),
-        use_scaling=True
+        use_scaling=True,
     )
     x = torch.randn(11, 1034)
     m = torch.nn.Linear(1034, 542, bias=True)
