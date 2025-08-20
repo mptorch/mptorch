@@ -24,6 +24,11 @@ def test_32_to_E2M23_quantization(device, mode):
         a, exp=2, man=23, rounding=mode, subnormals=True, saturate=True
     )
     assert out.item() == 3.999999761581421
+    a = torch.tensor(8.0, device=device)
+    out = float_quantize(
+        a, exp=3, man=23, rounding="nearest", subnormals=False, saturate=False
+    )
+    assert out.item() == 8.0
 
 
 @pytest.mark.parametrize("device", available_devices)
