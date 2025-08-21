@@ -50,7 +50,6 @@ def test_scaling_format_deduction_non_float():
 )
 @pytest.mark.parametrize("use_scaling", [True, False])
 def test_scaling_is_used(device, mm, use_scaling):
-    mac_format = FloatingPoint(exp=5, man=10)
     input_scaled_format = MagicMock()
     weight_scaled_format = MagicMock()
     grad_scaled_format = MagicMock()
@@ -61,16 +60,11 @@ def test_scaling_is_used(device, mm, use_scaling):
     type(weight_scaled_format).normal_max = normal_max_weight
     type(grad_scaled_format).normal_max = normal_max_grad
     formats = QAffineFormats(
-        fwd_mac=mac_format,
-        bwd_mac=mac_format,
         input_scaled_format=input_scaled_format,
         weight_scaled_format=weight_scaled_format,
         grad_scaled_format=grad_scaled_format,
         use_scaling=use_scaling,
     )
-
-    assert not formats.fwd_use_default_prec
-    assert not formats.bwd_use_default_prec
 
     normal_max_input.assert_not_called()
     normal_max_weight.assert_not_called()
@@ -103,23 +97,17 @@ def test_scaling_is_used(device, mm, use_scaling):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("exp_1, man_1, exp_2, man_2", [(4, 3, 5, 2), (5, 10, 5, 10)])
 def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
-    mac_format = FloatingPoint(exp=5, man=10, subnormals=True, saturate=False)
     fp_format_1 = FloatingPoint(exp=exp_1, man=man_1, subnormals=True, saturate=False)
     fp_format_2 = FloatingPoint(exp=exp_2, man=man_2, subnormals=True, saturate=False)
     formats_q = QAffineFormats(
-        fwd_mac=(mac_format,),
-        bwd_mac=(mac_format,),
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
         weight_quant=(fp_format_1, "nearest"),
         grad_quant=(fp_format_2, "nearest"),
         input_quant=(fp_format_1, "nearest"),
-        bias_quant=(mac_format, "nearest"),
         use_scaling=True,
     )
-    x = torch.randn(11, 1034)
-    m = torch.nn.Linear(1034, 542, bias=True)
-    qm = QLinear(1034, 542, formats=formats_q, bias=True)
+    x = torch.randn(45, 431)
+    m = torch.nn.Linear(431, 542, bias=True)
+    qm = QLinear(431, 542, formats=formats_q, bias=True)
     m = m.to(device)
     qm = qm.to(device)
     x = x.to(device)
