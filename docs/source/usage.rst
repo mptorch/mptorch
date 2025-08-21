@@ -4,14 +4,8 @@ Usage
 Installation
 ------------
 
-There are some basic requirements in order to install mptorch
+There are some basic requirements in order to install MPTorch
 which can normally be handled through `pip` from the root directory:
-
-.. code-block:: console
-
-    $ pip3 install -r requirements.txt
-
-mptorch can then be installed (again from the root directory) using:
 
 .. code-block:: console
 

@@ -5,6 +5,8 @@ from ..functional import qmean, qadd, qpow, qdiv, qsqrt, qmul
 
 __all__ = ["QBatchNorm1d", "QBatchNorm2d"]
 
+# TODO: arrive at parity with the PyTorch baseline implementation, add support for the 3D version
+
 
 def batch_norm(
     x: torch.Tensor,
@@ -77,6 +79,7 @@ def batch_norm(
 
 
 class QBatchNorm(nn.Module):
+
     def __init__(
         self,
         num_features: int,
@@ -99,7 +102,16 @@ class QBatchNorm(nn.Module):
         self.moving_mean = torch.zeros(self.shape)
         self.moving_var = torch.ones(self.shape)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        r"""Applies the batch normalization operation on the input tensor.
+
+        Args:
+            x: input tensor
+
+        Returns:
+            the result of the batch normalization operation over the input. Behaves differently
+            depending if the module is in inference or train mode.
+        """
         if self.moving_mean.device != x.device:
             self.moving_mean = self.moving_mean.to(x.device)
             self.moving_var = self.moving_var.to(x.device)
@@ -119,24 +131,117 @@ class QBatchNorm(nn.Module):
 
 
 class QBatchNorm1d(QBatchNorm):
+    r"""Applies Batch Normalization over a 2D input.
+
+    Method described in the paper
+    `Batch Normalization: Accelerating Deep Network Training by Reducing
+    Internal Covariate Shift <https://arxiv.org/abs/1502.03167>`__ .
+
+    .. math::
+
+        y = \frac{x - \mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and :math:`\gamma` and :math:`\beta` are learnable parameter vectors
+    of size `C` (where `C` is the number of features or channels of the input). By default, the
+    elements of :math:`\gamma` are set to 1 and the elements of :math:`\beta` are set to 0.
+    At train time in the forward pass, the variance is calculated via the biased estimator,
+    equivalent to ``torch.var(input, unbiased=False)``. However, the value stored in the
+    moving average of the variance is calculated via the unbiased  estimator, equivalent to
+    ``torch.var(input, unbiased=True)``.
+
+    Also by default, during training this layer keeps running estimates of its
+    computed mean and variance, which are then used for normalization during
+    evaluation. The running estimates are kept with a default momentum of 0.1.
+
+    .. note::
+        This momentum is different from one used in optimizer
+        classes and the conventional notion of momentum. Mathematically, the
+        update rule for running statistics here is
+        :math:`\hat{x}_\text{new} = (1 - \text{momentum}) \times \hat{x} + \text{momentum} \times x_t`,
+        where :math:`\hat{x}` is the estimated statistic and :math:`x_t` is the
+        new observed value.
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`, where :math:`N` is the batch size,
+          :math:`C` is the number of features or channels, and :math:`L` is the sequence length
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+    """
+
     def __init__(
         self,
         num_features: int,
         fwd_quant: Callable[[torch.Tensor], torch.Tensor],
         bwd_quant: Callable[[torch.Tensor], torch.Tensor],
     ):
+        r"""Because the Batch Normalization is done over the `C` dimension, computing statistics
+        on `(N, L)` slices, it's common terminology to call this Temporal Batch Normalization.
+
+        Args:
+            num_features: number of features or channels :math:`C` of the input
+            fwd_quant: quantization function to use during FWD operations
+            bwd_quant: quantization function to use during BWD operations
+        """
         super().__init__(
             num_features, num_dims=2, fwd_quant=fwd_quant, bwd_quant=bwd_quant
         )
 
 
 class QBatchNorm2d(QBatchNorm):
+    r"""Applies Batch Normalization over a 4D input.
+
+    4D is a mini-batch of 2D inputs
+    with additional channel dimension. Method described in the paper
+    `Batch Normalization: Accelerating Deep Network Training by Reducing
+    Internal Covariate Shift <https://arxiv.org/abs/1502.03167>`__ .
+
+    .. math::
+
+        y = \frac{x - \mathrm{E}[x]}{ \sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and :math:`\gamma` and :math:`\beta` are learnable parameter vectors
+    of size `C` (where `C` is the input size). By default, the elements of :math:`\gamma` are set
+    to 1 and the elements of :math:`\beta` are set to 0. At train time in the forward pass, the
+    standard-deviation is calculated via the biased estimator, equivalent to
+    ``torch.var(input, unbiased=False)``. However, the value stored in the moving average of the
+    standard-deviation is calculated via the unbiased  estimator, equivalent to
+    ``torch.var(input, unbiased=True)``.
+
+    Also by default, during training this layer keeps running estimates of its
+    computed mean and variance, which are then used for normalization during
+    evaluation. The running estimates are kept with a default momentum
+    of 0.1.
+
+    .. note::
+        This momentum different from one used in optimizer
+        classes and the conventional notion of momentum. Mathematically, the
+        update rule for running statistics here is
+        :math:`\hat{x}_\text{new} = (1 - \text{momentum}) \times \hat{x} + \text{momentum} \times x_t`,
+        where :math:`\hat{x}` is the estimated statistic and :math:`x_t` is the
+        new observed value.
+
+    Because the Batch Normalization is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial Batch Normalization.
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+    """
+
     def __init__(
         self,
         num_features: int,
         fwd_quant: Callable[[torch.Tensor], torch.Tensor],
         bwd_quant: Callable[[torch.Tensor], torch.Tensor],
     ):
+        r"""
+        Args:
+            num_features: :math:`C` from an expected input of size
+                :math:`(N, C, H, W)`
+            fwd_quant: quantization function to use during FWD operations
+            bwd_quant: quantization function to use during BWD operations
+        """
         super().__init__(
             num_features, num_dims=4, fwd_quant=fwd_quant, bwd_quant=bwd_quant
         )

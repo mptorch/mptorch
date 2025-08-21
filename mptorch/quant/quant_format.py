@@ -68,6 +68,7 @@ class QAffineFormats:
         weight_scaled_format: number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)
         input_scaled_format: number format to be used during input tensor scaling (optional, matches input_quant if format specified)
         grad_scaled_format: number format to be used during output tensor scaling (optional, matches grad_quant if format specified)
+        scale_margin: margin to reduce scaling bias when casting down to FP8 formats
         rbits: number of bits used for random number generation when rounding is stochastic (for add and multiply)
 
     """
@@ -98,6 +99,7 @@ class QAffineFormats:
         weight_scaled_format: FloatType | None = None,
         input_scaled_format: FloatType | None = None,
         grad_scaled_format: FloatType | None = None,
+        scale_margin: int = 0,
         rbits: int | tuple[int] | tuple[int, int] = 0,
     ) -> None:
         if fwd_mac is not None:
@@ -134,6 +136,12 @@ class QAffineFormats:
 
         self.fwd_rnd = fwd_rnd
         self.bwd_rnd = bwd_rnd
+
+        if fwd_mac and not fwd_rnd:
+            self.fwd_rnd = "nearest"
+        if bwd_mac and not bwd_rnd:
+            self.bwd_rnd = "nearest"
+
         if not isinstance(rbits, tuple):
             rbits = (rbits,)
             if len(rbits) > 1:
@@ -183,6 +191,7 @@ class QAffineFormats:
             self.grad_quant = grad_quant
 
         self.use_scaling = use_scaling
+        self.scale_margin = scale_margin
 
     def __repr__(self) -> str:
         out = []
@@ -210,6 +219,8 @@ class QAffineFormats:
             out.append(f"input_scaled_format={self.input_scaled_format}")
         if self.grad_scaled_format is not None:
             out.append(f"grad_scaled_format={self.grad_scaled_format}")
+        if self.use_scaling:
+            out.append(f"scale bias margin={self.scale_margin}")
         out.append(f"rbits_add={self.rbits_add}")
         out.append(f"rbits_mul={self.rbits_mul}")
         sep = ", "

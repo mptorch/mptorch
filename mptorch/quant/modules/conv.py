@@ -1,11 +1,8 @@
+from typing import Callable
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from unfoldNd import unfoldNd
-
-from torch.nn.common_types import _size_1_t, _size_2_t, _size_3_t
-from typing import Union, Optional, List
 
 from ..functional import qlinear
 from ..quant_format import QAffineFormats
@@ -19,8 +16,12 @@ __all__ = [
     "QConvTranspose3d",
 ]
 
+# TODO: support for Lazy variants
 
-def tmp_matmul(X: Tensor, W: Tensor, b: Optional[Tensor], formats: QAffineFormats):
+
+def tmp_matmul(
+    X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None, formats: QAffineFormats
+) -> torch.Tensor:
     assert len(X.shape) == 3
     assert len(W.shape) == 2
     assert X.shape[2] == W.shape[1]
@@ -33,19 +34,124 @@ def tmp_matmul(X: Tensor, W: Tensor, b: Optional[Tensor], formats: QAffineFormat
 
 
 class QConv1d(nn.Conv1d):
+    r"""Applies a 1D convolution over an input signal composed of several input planes.
+
+    It is a subclass of :class:`torch.nn.Conv1d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    In the simplest case, the output value of the layer with input size
+    :math:`(N, C_{\text{in}}, L)` and output :math:`(N, C_{\text{out}}, L_{\text{out}})` can be
+    precisely described as:
+
+    .. math::
+        \text{out}(N_i, C_{\text{out}_j}) = \text{bias}(C_{\text{out}_j}) +
+        \sum_{k = 0}^{C_\text{in} - 1} \text{weight}(C_{\text{out}_j}, k)
+        \star \text{input}(N_i, k)
+
+    where :math:`\star` is the valid `cross-correlation`_ operator,
+    :math:`N` is a batch size, :math:`C` denotes a number of channels,
+    :math:`L` is a length of signal sequence.
+
+    * :attr:`stride` controls the stride for the cross-correlation, a single
+      number or a one-element tuple.
+
+    * :attr:`padding` controls the amount of padding applied to the input. It
+      can be either a string `valid` or `same` or a tuple of ints giving the
+      amount of implicit padding applied on both sides.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also
+      known as the à trous algorithm. It is harder to describe, but this `link`_
+      has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`groups` controls the connections between inputs and outputs.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    Note:
+        When `groups == in_channels` and `out_channels == K * in_channels`,
+        where `K` is a positive integer, this operation is also known as a "depthwise convolution".
+
+        In other words, for an input of size :math:`(N, C_\text{in}, L_\text{in})`,
+        a depthwise convolution with a depthwise multiplier `K` can be performed with the arguments
+        :math:`(C_\text{in}=C_\text{in}, C_\text{out}=C_\text{in} \times \text{K}, ..., \text{groups}=C_\text{in})`.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, L_\text{in})` or :math:`(C_\text{in}, L_\text{in})`
+        - Output: :math:`(N, C_\text{out}, L_\text{out})` or :math:`(C_\text{out}, L_\text{out})`, where
+
+          .. math::
+              L_\text{out} = \left\lfloor\frac{L_\text{in} + 2 \times \text{padding} - \text{dilation}
+                        \times (\text{kernel_size} - 1) - 1}{\text{stride}} + 1\right\rfloor
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+            :math:`(\text{out_channels},
+            \frac{\text{in_channels}}{\text{groups}}, \text{kernel_size})`.
+            The values of these weights are sampled from
+            :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+            :math:`k = \frac{\text{groups}}{C_\text{in} * \text{kernel_size}}`
+        bias (Tensor):   the learnable bias of the module of shape
+            (out_channels). If :attr:`bias` is ``True``, then the values of these weights are
+            sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+            :math:`k = \frac{\text{groups}}{C_\text{in} * \text{kernel_size}}`
+
+    .. _cross-correlation:
+        https://en.wikipedia.org/wiki/Cross-correlation
+
+    .. _link:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_1_t,
+        kernel_size: int | tuple[int],
         formats: QAffineFormats,
-        stride: _size_1_t = 1,
-        padding: Union[str, _size_1_t] = 0,
-        dilation: _size_1_t = 1,
+        stride: int | tuple[int] = 1,
+        padding: str | int | tuple[int] = 0,
+        dilation: int | tuple[int] = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: Padding added to both sides of the input. Default: 0
+            dilation: Spacing between kernel elements. Default: 1
+            groups: Number of blocked connections from input
+                channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the output. Default: ``True``
+            padding_mode: ``'zeros'``, ``'reflect'``,
+                ``'replicate'`` or ``'circular'``. Default: ``'zeros'``
+        """
         super(QConv1d, self).__init__(
             in_channels,
             out_channels,
@@ -62,17 +168,46 @@ class QConv1d(nn.Conv1d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -84,11 +219,22 @@ class QConv1d(nn.Conv1d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+
+        Returns:
+            the result of the 1D cross-correlation operation.
+        """
         if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
@@ -125,7 +271,9 @@ class QConv1d(nn.Conv1d):
                 input_w + 2 * self.padding[0] - self.dilation[0] * (kernel_w - 1) - 1
             ) // self.stride[0] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -176,19 +324,144 @@ class QConv1d(nn.Conv1d):
 
 
 class QConv2d(nn.Conv2d):
+    r"""Applies a 2D convolution over an input signal composed of several input
+    planes.
+
+    It is a subclass of :class:`torch.nn.Conv2d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    In the simplest case, the output value of the layer with input size
+    :math:`(N, C_{\text{in}}, H, W)` and output :math:`(N, C_{\text{out}}, H_{\text{out}}, W_{\text{out}})`
+    can be precisely described as:
+
+    .. math::
+        \text{out}(N_i, C_{\text{out}_j}) = \text{bias}(C_{\text{out}_j}) +
+        \sum_{k = 0}^{C_{\text{in}} - 1} \text{weight}(C_{\text{out}_j}, k) \star \text{input}(N_i, k)
+
+
+    where :math:`\star` is the valid 2D `cross-correlation`_ operator,
+    :math:`N` is a batch size, :math:`C` denotes a number of channels,
+    :math:`H` is a height of input planes in pixels, and :math:`W` is
+    width in pixels.
+
+    * :attr:`stride` controls the stride for the cross-correlation, a single
+      number or a tuple.
+
+    * :attr:`padding` controls the amount of padding applied to the input. It
+      can be either a string {{'valid', 'same'}} or an int / a tuple of ints giving the
+      amount of implicit padding applied on both sides.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also
+      known as the à trous algorithm. It is harder to describe, but this `link`_
+      has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`groups` controls the connections between inputs and outputs.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    The parameters :attr:`kernel_size`, :attr:`stride`, :attr:`padding`, :attr:`dilation` can either be:
+
+        - a single ``int`` -- in which case the same value is used for the height and width dimension
+        - a ``tuple`` of two ints -- in which case, the first `int` is used for the height dimension,
+          and the second `int` for the width dimension
+
+    Note:
+        When `groups == in_channels` and `out_channels == K * in_channels`,
+        where `K` is a positive integer, this operation is also known as a "depthwise convolution".
+
+        In other words, for an input of size :math:`(N, C_\text{in}, L_\text{in})`,
+        a depthwise convolution with a depthwise multiplier `K` can be performed with the arguments
+        :math:`(C_\text{in}=C_\text{in}, C_\text{out}=C_\text{in} \times \text{K}, ..., \text{groups}=C_\text{in})`.
+
+    Note:
+        ``padding='valid'`` is the same as no padding. ``padding='same'`` pads
+        the input so the output has the shape as the input. However, this mode
+        doesn't support any stride values other than 1.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, H_\text{in}, W_\text{in})` or :math:`(C_\text{in}, H_\text{in}, W_\text{in})`
+        - Output: :math:`(N, C_\text{out}, H_\text{out}, W_\text{out})` or :math:`(C_\text{out}, H_\text{out}, W_\text{out})`, where
+
+          .. math::
+              H_\text{out} = \left\lfloor\frac{H_\text{in}  + 2 \times \text{padding}[0] - \text{dilation}[0]
+                        \times (\text{kernel_size}[0] - 1) - 1}{\text{stride}[0]} + 1\right\rfloor
+
+          .. math::
+              W_\text{out} = \left\lfloor\frac{W_\text{in}  + 2 \times \text{padding}[1] - \text{dilation}[1]
+                        \times (\text{kernel_size}[1] - 1) - 1}{\text{stride}[1]} + 1\right\rfloor
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+            :math:`(\text{out_channels}, \frac{\text{in_channels}}{\text{groups}},`
+            :math:`\text{kernel_size[0]}, \text{kernel_size[1]})`.
+            The values of these weights are sampled from
+            :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+            :math:`k = \frac{\text{groups}}{C_\text{in} * \prod_{i=0}^{1}\text{kernel_size}[i]}`
+        bias (Tensor):   the learnable bias of the module of shape
+            (out_channels). If :attr:`bias` is ``True``,
+            then the values of these weights are
+            sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+            :math:`k = \frac{\text{groups}}{C_\text{in} * \prod_{i=0}^{1}\text{kernel_size}[i]}`
+
+    .. _cross-correlation:
+        https://en.wikipedia.org/wiki/Cross-correlation
+
+    .. _link:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_2_t,
+        kernel_size: int | tuple[int, int],
         formats: QAffineFormats,
-        stride: _size_2_t = 1,
-        padding: Union[str, _size_2_t] = 0,
-        dilation: _size_2_t = 1,
+        stride: int | tuple[int, int] = 1,
+        padding: str | int | tuple[int, int] = 0,
+        dilation: int | tuple[int, int] = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: Padding added to all four sides of
+                the input. Default: 0
+            dilation: Spacing between kernel elements. Default: 1
+            groups: Number of blocked connections from input
+                channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the
+                output. Default: ``True``
+            padding_mode: ``'zeros'``, ``'reflect'``,
+                ``'replicate'`` or ``'circular'``. Default: ``'zeros'``
+        """
         super(QConv2d, self).__init__(
             in_channels,
             out_channels,
@@ -206,17 +479,46 @@ class QConv2d(nn.Conv2d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -228,11 +530,22 @@ class QConv2d(nn.Conv2d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+
+        Returns:
+            the result of the 2D cross-correlation operation.
+        """
         if not self.params_are_quantized:  # nazar
             self.quant_parameters()
             self.params_are_quantized = True
@@ -275,7 +588,9 @@ class QConv2d(nn.Conv2d):
                 in_w + 2 * self.padding[1] - self.dilation[1] * (kernel_w - 1) - 1
             ) // self.stride[1] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -326,19 +641,148 @@ class QConv2d(nn.Conv2d):
 
 
 class QConv3d(nn.Conv3d):
+    r"""Applies a 3D convolution over an input signal composed of several input
+    planes.
+
+    It is a subclass of :class:`torch.nn.Conv3d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    In the simplest case, the output value of the layer with input size :math:`(N, C_{\text{in}}, D, H, W)`
+    and output :math:`(N, C_{\text{out}}, D_{\text{out}}, H_{\text{out}}, W_{\text{out}})` can be
+    precisely described as:
+
+    .. math::
+        \text{out}(N_i, C_{\text{out}_j}) = \text{bias}(C_{\text{out}_j}) +
+                                \sum_{k = 0}^{C_{\text{in}} - 1} \text{weight}(C_{\text{out}_j}, k) \star \text{input}(N_i, k)
+
+
+    where :math:`\star` is the valid 3D `cross-correlation`_ operator,
+    :math:`N` is a batch size, :math:`C` denotes a number of channels,
+    :math:`D` is a depth of input planes in pixels, :math:`H` is a height
+    of input planes in pixels, and :math:`W` is width in pixels.
+
+    * :attr:`stride` controls the stride for the cross-correlation, a single
+      number or a tuple.
+
+    * :attr:`padding` controls the amount of padding applied to the input. It
+      can be either a string {{'valid', 'same'}} or an int / a tuple of ints giving the
+      amount of implicit padding applied on both sides.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also
+      known as the à trous algorithm. It is harder to describe, but this `link`_
+      has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`groups` controls the connections between inputs and outputs.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    The parameters :attr:`kernel_size`, :attr:`stride`, :attr:`padding`, :attr:`dilation` can either be:
+
+        - a single ``int`` -- in which case the same value is used for the height and width dimension
+        - a ``tuple`` of two ints -- in which case, the first `int` is used for the height dimension,
+          and the second `int` for the width dimension
+
+    Note:
+        When `groups == in_channels` and `out_channels == K * in_channels`,
+        where `K` is a positive integer, this operation is also known as a "depthwise convolution".
+
+        In other words, for an input of size :math:`(N, C_\text{in}, L_\text{in})`,
+        a depthwise convolution with a depthwise multiplier `K` can be performed with the arguments
+        :math:`(C_\text{in}=C_\text{in}, C_\text{out}=C_\text{in} \times \text{K}, ..., \text{groups}=C_\text{in})`.
+
+    Note:
+        ``padding='valid'`` is the same as no padding. ``padding='same'`` pads
+        the input so the output has the shape as the input. However, this mode
+        doesn't support any stride values other than 1.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, D_\text{in}, H_\text{in}, W_\text{in})` or :math:`(C_\text{in}, D_\text{in}, H_\text{in}, W_\text{in})`
+        - Output: :math:`(N, C_\text{out}, D_\text{out}, H_\text{out}, W_\text{out})` or :math:`(C_\text{out}, D_\text{out}, H_\text{out}, W_\text{out})`,
+          where
+
+          .. math::
+              D_\text{out} = \left\lfloor\frac{D_\text{in} + 2 \times \text{padding}[0] - \text{dilation}[0]
+                    \times (\text{kernel_size}[0] - 1) - 1}{\text{stride}[0]} + 1\right\rfloor
+
+          .. math::
+              H_\text{out} = \left\lfloor\frac{H_\text{in} + 2 \times \text{padding}[1] - \text{dilation}[1]
+                    \times (\text{kernel_size}[1] - 1) - 1}{\text{stride}[1]} + 1\right\rfloor
+
+          .. math::
+              W_\text{out} = \left\lfloor\frac{W_\text{in} + 2 \times \text{padding}[2] - \text{dilation}[2]
+                    \times (\text{kernel_size}[2] - 1) - 1}{\text{stride}[2]} + 1\right\rfloor
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+                         :math:`(\text{out_channels}, \frac{\text{in_channels}}{\text{groups}},`
+                         :math:`\text{kernel_size[0]}, \text{kernel_size[1]}, \text{kernel_size[2]})`.
+                         The values of these weights are sampled from
+                         :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{in} * \prod_{i=0}^{2}\text{kernel_size}[i]}`
+        bias (Tensor):   the learnable bias of the module of shape (out_channels). If :attr:`bias` is ``True``,
+                         then the values of these weights are
+                         sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{in} * \prod_{i=0}^{2}\text{kernel_size}[i]}`
+
+    .. _cross-correlation:
+        https://en.wikipedia.org/wiki/Cross-correlation
+
+    .. _link:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_3_t,
+        kernel_size: int | tuple[int, int, int],
         formats: QAffineFormats,
-        stride: _size_3_t = 1,
-        padding: Union[str, _size_3_t] = 0,
-        dilation: _size_3_t = 1,
+        stride: int | tuple[int, int, int] = 1,
+        padding: str | int | tuple[int, int, int] = 0,
+        dilation: int | tuple[int, int, int] = 1,
         groups: int = 1,
         bias: bool = True,
         padding_mode: str = "zeros",
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: Padding added to all four sides of
+                the input. Default: 0
+            dilation: Spacing between kernel elements. Default: 1
+            groups: Number of blocked connections from input
+                channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the
+                output. Default: ``True``
+            padding_mode: ``'zeros'``, ``'reflect'``,
+                ``'replicate'`` or ``'circular'``. Default: ``'zeros'``
+        """
         super(QConv3d, self).__init__(
             in_channels,
             out_channels,
@@ -355,17 +799,46 @@ class QConv3d(nn.Conv3d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -377,11 +850,22 @@ class QConv3d(nn.Conv3d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+
+        Returns:
+            the result of the 3D cross-correlation operation.
+        """
         if self.formats.fwd_use_default_prec:
             if self.padding_mode != "zeros":
                 return self.Qo(
@@ -424,7 +908,9 @@ class QConv3d(nn.Conv3d):
                 in_w + 2 * self.padding[2] - self.dilation[2] * (kernel_w - 1) - 1
             ) // self.stride[2] + 1
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 if self.padding_mode != "zeros":
                     X_unf = unfoldNd(
                         torch.functional.pad(
@@ -475,22 +961,123 @@ class QConv3d(nn.Conv3d):
 
 
 class QConvTranspose1d(nn.ConvTranspose1d):
+    r"""Applies a 1D transposed convolution operator over an input image
+    composed of several input planes.
+
+    This module can be seen as the gradient of Conv1d with respect to its input.
+    It is also known as a fractionally-strided convolution or
+    a deconvolution (although it is not an actual deconvolution operation as it does
+    not compute a true inverse of convolution). For more information, see the visualizations
+    `here`_ and the `Deconvolutional Networks`_ paper.
+
+    It is a subclass of :class:`torch.nn.ConvTranspose1d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    * :attr:`stride` controls the stride for the cross-correlation.
+
+    * :attr:`padding` controls the amount of implicit zero padding on both
+      sides for ``dilation * (kernel_size - 1) - padding`` number of points. See note
+      below for details.
+
+    * :attr:`output_padding` controls the additional size added to one side
+      of the output shape. See note below for details.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also known as the à trous algorithm.
+      It is harder to describe, but the link `here`_ has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    Note:
+        The :attr:`padding` argument effectively adds ``dilation * (kernel_size - 1) - padding``
+        amount of zero padding to both sizes of the input. This is set so that
+        when a :class:`torch.nn.Conv1d` and a :class:`torch.nn.ConvTranspose1d`
+        are initialized with same parameters, they are inverses of each other in
+        regard to the input and output shapes. However, when ``stride > 1``,
+        :class:`torch.nn.Conv1d` maps multiple input shapes to the same output
+        shape. :attr:`output_padding` is provided to resolve this ambiguity by
+        effectively increasing the calculated output shape on one side. Note
+        that :attr:`output_padding` is only used to find output shape, but does
+        not actually add zero-padding to output.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, L_\text{in})` or :math:`(C_\text{in}, L_\text{in})`
+        - Output: :math:`(N, C_\text{out}, L_\text{out})` or :math:`(C_\text{out}, L_\text{out})`, where
+
+          .. math::
+              L_\text{out} = (L_\text{in} - 1) \times \text{stride} - 2 \times \text{padding} + \text{dilation}
+                        \times (\text{kernel_size} - 1) + \text{output_padding} + 1
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+                         :math:`(\text{in_channels}, \frac{\text{out_channels}}{\text{groups}},`
+                         :math:`\text{kernel_size})`.
+                         The values of these weights are sampled from
+                         :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \text{kernel_size}}`
+        bias (Tensor):   the learnable bias of the module of shape (`out_channels`).
+                         If :attr:`bias` is ``True``, then the values of these weights are
+                         sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \text{kernel_size}}`
+
+    .. _`here`:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _`Deconvolutional Networks`:
+        https://www.matthewzeiler.com/mattzeiler/deconvolutionalnetworks.pdf
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_1_t,
+        kernel_size: int | tuple[int],
         formats: QAffineFormats,
-        stride: _size_1_t = 1,
-        padding: _size_1_t = 0,
-        output_padding: _size_1_t = 0,
+        stride: int | tuple[int] = 1,
+        padding: int | tuple[int] = 0,
+        output_padding: int | tuple[int] = 0,
         groups: int = 1,
         bias: bool = True,
-        dilation: _size_1_t = 1,
+        dilation: int | tuple[int] = 1,
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: ``dilation * (kernel_size - 1) - padding`` zero-padding
+                will be added to both sides of the input. Default: 0
+            output_padding: Additional size added to one side
+                of the output shape. Default: 0
+            groups: Number of blocked connections from input channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the output. Default: ``True``
+            dilation: Spacing between kernel elements. Default: 1
+        """
         super(QConvTranspose1d, self).__init__(
             in_channels,
             out_channels,
@@ -510,17 +1097,46 @@ class QConvTranspose1d(nn.ConvTranspose1d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -532,11 +1148,25 @@ class QConvTranspose1d(nn.ConvTranspose1d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+            output_size: specifies how the output should be padded
+
+        Returns:
+            the result of the 1D transposed convolution operation.
+        """
         num_spatial_dims = 1
         output_padding = self._output_padding(
             input,
@@ -572,7 +1202,9 @@ class QConvTranspose1d(nn.ConvTranspose1d):
             nW_w = (kernel_w - 1) * self.dilation[0] + 1
             padding_w = nW_w - 1 - self.padding[0]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_w),
                     dtype=X.dtype,
@@ -637,22 +1269,133 @@ class QConvTranspose1d(nn.ConvTranspose1d):
 
 
 class QConvTranspose2d(nn.ConvTranspose2d):
+    r"""Applies a 2D transposed convolution operator over an input image
+    composed of several input planes.
+
+    This module can be seen as the gradient of Conv2d with respect to its input.
+    It is also known as a fractionally-strided convolution or
+    a deconvolution (although it is not an actual deconvolution operation as it does
+    not compute a true inverse of convolution). For more information, see the visualizations
+    `here`_ and the `Deconvolutional Networks`_ paper.
+
+    It is a subclass of :class:`torch.nn.ConvTranspose2d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    * :attr:`stride` controls the stride for the cross-correlation.
+
+    * :attr:`padding` controls the amount of implicit zero padding on both
+      sides for ``dilation * (kernel_size - 1) - padding`` number of points. See note
+      below for details.
+
+    * :attr:`output_padding` controls the additional size added to one side
+      of the output shape. See note below for details.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also known as the à trous algorithm.
+      It is harder to describe, but the link `here`_ has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    The parameters :attr:`kernel_size`, :attr:`stride`, :attr:`padding`, :attr:`output_padding`
+    can either be:
+
+        - a single ``int`` -- in which case the same value is used for the height and width dimensions
+        - a ``tuple`` of two ints -- in which case, the first `int` is used for the height dimension,
+          and the second `int` for the width dimension
+
+    Note:
+        The :attr:`padding` argument effectively adds ``dilation * (kernel_size - 1) - padding``
+        amount of zero padding to both sizes of the input. This is set so that
+        when a :class:`torch.nn.Conv2d` and a :class:`torch.nn.ConvTranspose2d`
+        are initialized with same parameters, they are inverses of each other in
+        regard to the input and output shapes. However, when ``stride > 1``,
+        :class:`torch.nn.Conv2d` maps multiple input shapes to the same output
+        shape. :attr:`output_padding` is provided to resolve this ambiguity by
+        effectively increasing the calculated output shape on one side. Note
+        that :attr:`output_padding` is only used to find output shape, but does
+        not actually add zero-padding to output.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, H_\text{in}, W_\text{in})` or :math:`(C_\text{in}, H_\text{in}, W_\text{in})`
+        - Output: :math:`(N, C_\text{out}, H_\text{out}, W_\text{out})` or :math:`(C_\text{out}, H_\text{out}, W_\text{out})`, where
+
+        .. math::
+              H_\text{out} = (H_\text{in} - 1) \times \text{stride}[0] - 2 \times \text{padding}[0] + \text{dilation}[0]
+                        \times (\text{kernel_size}[0] - 1) + \text{output_padding}[0] + 1
+        .. math::
+              W_\text{out} = (W_\text{in} - 1) \times \text{stride}[1] - 2 \times \text{padding}[1] + \text{dilation}[1]
+                        \times (\text{kernel_size}[1] - 1) + \text{output_padding}[1] + 1
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+                         :math:`(\text{in_channels}, \frac{\text{out_channels}}{\text{groups}},`
+                         :math:`\text{kernel_size[0]}, \text{kernel_size[1]})`.
+                         The values of these weights are sampled from
+                         :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \prod_{i=0}^{1}\text{kernel_size}[i]}`
+        bias (Tensor):   the learnable bias of the module of shape (out_channels)
+                         If :attr:`bias` is ``True``, then the values of these weights are
+                         sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \prod_{i=0}^{1}\text{kernel_size}[i]}`
+
+    .. _`here`:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _`Deconvolutional Networks`:
+        https://www.matthewzeiler.com/mattzeiler/deconvolutionalnetworks.pdf
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_2_t,
+        kernel_size: int | tuple[int, int],
         formats: QAffineFormats,
-        stride: _size_2_t = 1,
-        padding: _size_2_t = 0,
-        output_padding: _size_2_t = 0,
+        stride: int | tuple[int, int] = 1,
+        padding: int | tuple[int, int] = 0,
+        output_padding: int | tuple[int, int] = 0,
         groups: int = 1,
         bias: bool = True,
-        dilation: _size_2_t = 1,
+        dilation: int | tuple[int, int] = 1,
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: ``dilation * (kernel_size - 1) - padding`` zero-padding
+                will be added to both sides of the input. Default: 0
+            output_padding: Additional size added to one side
+                of the output shape. Default: 0
+            groups: Number of blocked connections from input channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the output. Default: ``True``
+            dilation: Spacing between kernel elements. Default: 1
+        """
         super(QConvTranspose2d, self).__init__(
             in_channels,
             out_channels,
@@ -672,17 +1415,46 @@ class QConvTranspose2d(nn.ConvTranspose2d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -694,11 +1466,25 @@ class QConvTranspose2d(nn.ConvTranspose2d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+            output_size: specifies how the output should be padded
+
+        Returns:
+            the result of the 2D transposed convolution operation.
+        """
         num_spatial_dims = 2
         output_padding = self._output_padding(
             input,
@@ -737,7 +1523,9 @@ class QConvTranspose2d(nn.ConvTranspose2d):
             padding_h = nW_h - 1 - self.padding[0]
             padding_w = nW_w - 1 - self.padding[1]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_h, nin_w),
                     dtype=X.dtype,
@@ -804,22 +1592,140 @@ class QConvTranspose2d(nn.ConvTranspose2d):
 
 
 class QConvTranspose3d(nn.ConvTranspose3d):
+    r"""Applies a 3D transposed convolution operator over an input image
+    composed of several input planes. The transposed convolution operator multiplies
+    each input value element-wise by a learnable kernel, and sums over the outputs
+    from all input feature planes.
+
+    This module can be seen as the gradient of Conv2d with respect to its input.
+    It is also known as a fractionally-strided convolution or
+    a deconvolution (although it is not an actual deconvolution operation as it does
+    not compute a true inverse of convolution). For more information, see the visualizations
+    `here`_ and the `Deconvolutional Networks`_ paper.
+
+    It is a subclass of :class:`torch.nn.ConvTranspose3d` and allows one to specify if I/O
+    signals should be quantized during inference & training (needed for instance
+    in QAT and PTQ methods), but also the precision(s) to be used in internal GEMM
+    computations (addition and multiplication, fused or not). This allows simulating
+    the effect of custom precision during GEMM calls in the forward and backward pass
+    (which are performed using the `im2col` and `col2im` algorithms implemented in the
+    `unfoldNd`_ library) and is helpful in studying the effect of low precision compute
+    during inference and training (not just data quantization).
+
+    * :attr:`stride` controls the stride for the cross-correlation.
+
+    * :attr:`padding` controls the amount of implicit zero padding on both
+      sides for ``dilation * (kernel_size - 1) - padding`` number of points. See note
+      below for details.
+
+    * :attr:`output_padding` controls the additional size added to one side
+      of the output shape. See note below for details.
+
+    * :attr:`dilation` controls the spacing between the kernel points; also known as the à trous algorithm.
+      It is harder to describe, but the link `here`_ has a nice visualization of what :attr:`dilation` does.
+
+    * :attr:`in_channels` and :attr:`out_channels` must both be divisible by :attr:`groups`.
+      For example,
+
+        * At groups=1, all inputs are convolved to all outputs.
+        * At groups=2, the operation becomes equivalent to having two conv
+          layers side by side, each seeing half the input channels
+          and producing half the output channels, and both subsequently
+          concatenated.
+        * At groups= :attr:`in_channels`, each input channel is convolved with
+          its own set of filters (of size
+          :math:`\frac{\text{out_channels}}{\text{in_channels}}`).
+
+    The parameters :attr:`kernel_size`, :attr:`stride`, :attr:`padding`, :attr:`output_padding`
+    can either be:
+
+        - a single ``int`` -- in which case the same value is used for the depth, height and width dimensions
+        - a ``tuple`` of three ints -- in which case, the first `int` is used for the depth dimension,
+          the second `int` for the height dimension and the third `int` for the width dimension
+
+    Note:
+        The :attr:`padding` argument effectively adds ``dilation * (kernel_size - 1) - padding``
+        amount of zero padding to both sizes of the input. This is set so that
+        when a :class:`torch.nn.Conv3d` and a :class:`torch.nn.ConvTranspose3d`
+        are initialized with same parameters, they are inverses of each other in
+        regard to the input and output shapes. However, when ``stride > 1``,
+        :class:`torch.nn.Conv3d` maps multiple input shapes to the same output
+        shape. :attr:`output_padding` is provided to resolve this ambiguity by
+        effectively increasing the calculated output shape on one side. Note
+        that :attr:`output_padding` is only used to find output shape, but does
+        not actually add zero-padding to output.
+
+    Shape:
+        - Input: :math:`(N, C_\text{in}, D_\text{in}, H_\text{in}, W_\text{in})` or :math:`(C_\text{in}, D_\text{in}, H_\text{in}, W_\text{in})`
+        - Output: :math:`(N, C_\text{out}, D_\text{out}, H_\text{out}, W_\text{out})` or
+          :math:`(C_\text{out}, D_\text{out}, H_\text{out}, W_\text{out})`, where
+
+        .. math::
+              D_\text{out} = (D_\text{in} - 1) \times \text{stride}[0] - 2 \times \text{padding}[0] + \text{dilation}[0]
+                        \times (\text{kernel_size}[0] - 1) + \text{output_padding}[0] + 1
+        .. math::
+              H_\text{out} = (H_\text{in} - 1) \times \text{stride}[1] - 2 \times \text{padding}[1] + \text{dilation}[1]
+                        \times (\text{kernel_size}[1] - 1) + \text{output_padding}[1] + 1
+        .. math::
+              W_\text{out} = (W_\text{in} - 1) \times \text{stride}[2] - 2 \times \text{padding}[2] + \text{dilation}[2]
+                        \times (\text{kernel_size}[2] - 1) + \text{output_padding}[2] + 1
+
+
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape
+                         :math:`(\text{in_channels}, \frac{\text{out_channels}}{\text{groups}},`
+                         :math:`\text{kernel_size[0]}, \text{kernel_size[1]}, \text{kernel_size[2]})`.
+                         The values of these weights are sampled from
+                         :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \prod_{i=0}^{2}\text{kernel_size}[i]}`
+        bias (Tensor):   the learnable bias of the module of shape (out_channels)
+                         If :attr:`bias` is ``True``, then the values of these weights are
+                         sampled from :math:`\mathcal{U}(-\sqrt{k}, \sqrt{k})` where
+                         :math:`k = \frac{\text{groups}}{C_\text{out} * \prod_{i=0}^{2}\text{kernel_size}[i]}`
+
+    .. _`here`:
+        https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
+
+    .. _`Deconvolutional Networks`:
+        https://www.matthewzeiler.com/mattzeiler/deconvolutionalnetworks.pdf
+
+    .. _unfoldNd:
+        https://github.com/f-dangel/unfoldNd
+    """
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: _size_2_t,
+        kernel_size: int | tuple[int, int, int],
         formats: QAffineFormats,
-        stride: _size_2_t = 1,
-        padding: _size_2_t = 0,
-        output_padding: _size_2_t = 0,
+        stride: int | tuple[int, int, int] = 1,
+        padding: int | tuple[int, int, int] = 0,
+        output_padding: int | tuple[int, int, int] = 0,
         groups: int = 1,
         bias: bool = True,
-        dilation: _size_2_t = 1,
+        dilation: int | tuple[int, int, int] = 1,
         padding_mode: str = "zeros",
         device=None,
         dtype=None,
-    ) -> None:
+    ):
+        r"""
+        Args:
+            in_channels: Number of channels in the input image
+            out_channels: Number of channels produced by the convolution
+            kernel_size: Size of the convolving kernel
+            formats: Number formats used during compute (addition and multiplication) and
+                quantization functions for signals during forward and back propagation (I/O
+                activations, weights, biases, and neural gradients)
+            stride: Stride of the convolution. Default: 1
+            padding: ``dilation * (kernel_size - 1) - padding`` zero-padding
+                will be added to both sides of the input. Default: 0
+            output_padding: Additional size added to one side
+                of the output shape. Default: 0
+            groups: Number of blocked connections from input channels to output channels. Default: 1
+            bias: If ``True``, adds a learnable bias to the output. Default: ``True``
+            dilation: Spacing between kernel elements. Default: 1
+        """
         super(QConvTranspose3d, self).__init__(
             in_channels,
             out_channels,
@@ -839,17 +1745,46 @@ class QConvTranspose3d(nn.ConvTranspose3d):
         self.reset_quant_function()
 
     def reset_quant_function(self):
-        self.Qw = self.quant_function(self.formats.weight_quant)
-        self.Qb = self.quant_function(self.formats.bias_quant)
-        self.Qi = self.quant_function(self.formats.input_quant)
-        self.Qo = self.quant_function(self.formats.output_quant)
+        r"""Sets a straight-through estimator-like function to all the
+        quantized signals in the module (these can be the weight, bias, input,
+        and/or output signals), depending if quantizers are specified in the
+        associated :class:`QAffineFormats` :attr:`formats` parameter.
+        """
+        self.Qw = self.quant_function(
+            self.formats.weight_quant, self.formats.grad_quant
+        )
+        self.Qb = self.quant_function(self.formats.bias_quant, self.formats.grad_quant)
+        self.Qi = self.quant_function(self.formats.input_quant, self.formats.grad_quant)
+        self.Qo = self.quant_function(
+            self.formats.output_quant, self.formats.grad_quant
+        )
 
-    def quant_parameters(self) -> None:
+    def quant_parameters(self):
+        r"""Quantizes the module parameters :attr:`weight` and :attr:`bias` using
+        the quantization functions specified in :attr:`formats.weight_quant` and
+        :attr:`formats.bias_quant`, respectively."""
         self.weight.data = self.formats.weight_quant(self.weight.data)
         if self.bias is not None:
             self.bias.data = self.formats.bias_quant(self.bias.data)
 
-    def quant_function(self, fwd_quant):
+    def quant_function(
+        self,
+        fwd_quant: Callable[[torch.Tensor], torch.Tensor],
+        bwd_quant: Callable[[torch.Tensor], torch.Tensor],
+    ):
+        r"""Defines a straight-through estimator-like function (see *Estimating or
+        Propagating Gradients Through Stochastic Neurons for Conditional Computation*
+        (https://arxiv.org/abs/1308.3432)) that applies potentially different
+        quantization functions in the forward and backward passes through the
+        input and output gradient signals, respectively.
+
+        Args:
+            fwd_quant: the quantization function to apply during the forward pass
+                through the input signal
+            bwd_quant: the quantization function to apply during the backward pass
+                through the output gradient signal
+        """
+
         class round(torch.autograd.Function):
             @staticmethod
             def forward(ctx, x):
@@ -861,11 +1796,25 @@ class QConvTranspose3d(nn.ConvTranspose3d):
 
             @staticmethod
             def backward(ctx, grad_output):
-                return self.formats.grad_quant(grad_output)
+                return bwd_quant(grad_output)
 
         return round.apply
 
-    def forward(self, input: Tensor, output_size: Optional[List[int]] = None) -> Tensor:
+    def forward(
+        self, input: torch.Tensor, output_size: list[int] | None = None
+    ) -> torch.Tensor:
+        r"""Describes the computations that get performed at every call of the module. The use
+        of quantized elementary operations (i.e., additions and multiplications) in the FWD
+        and BWD passes are controlled through the :attr:`formats` argument to the module constructor.
+
+        Args:
+            input: the input tensor on which to perform the layer operations.
+                Must adhere to the input shape requirements.
+            output_size: specifies how the output should be padded
+
+        Returns:
+            the result of the 3D transposed convolution operation.
+        """
         num_spatial_dims = 3
         output_padding = self._output_padding(
             input,
@@ -907,7 +1856,9 @@ class QConvTranspose3d(nn.ConvTranspose3d):
             padding_h = nW_h - 1 - self.padding[1]
             padding_w = nW_w - 1 - self.padding[2]
 
-            def group_conv(X: Tensor, W: Tensor, b: Optional[Tensor]):
+            def group_conv(
+                X: torch.Tensor, W: torch.Tensor, b: torch.Tensor | None
+            ) -> torch.Tensor:
                 nX = torch.zeros(
                     (X.shape[0], X.shape[1], nin_d, nin_h, nin_w),
                     dtype=X.dtype,
