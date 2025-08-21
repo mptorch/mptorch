@@ -66,13 +66,13 @@ parser.add_argument(
     type=int,
     default=1,
     metavar="N",
-    help="number of test examples to analyze (default: 3)",
+    help="number of test examples to analyze (default: 1)",
 )
 parser.add_argument(
     "--seed", type=int, default=1234, metavar="S", help="random seed (default: 1234)"
 )
 parser.add_argument(
-    "--train", action="store_true", default=False, help="trains the model beforehand"
+    "--train", action="store_true", default=True, help="trains the model beforehand"
 )
 parser.add_argument(
     "--cls",
