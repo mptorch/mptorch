@@ -36,7 +36,7 @@ uint32_t test_outputs[] = {
 uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits)
 {
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t machine_eps = 1 << (22 - man_bits);
+    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
@@ -44,7 +44,7 @@ uint32_t round_bitwise_nearest_cpu(uint32_t target, int man_bits)
     // this is the analogue of how you would do round
     // to nearest integer using the floor function:
     // round(x) = floor(x + 0.5)
-    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+    return add_r & ~((1 << std::min((23 - man_bits + offset), 23)) - 1);
 }
 
 uint32_t clip_subnormal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old_num,
@@ -163,7 +163,7 @@ void fp_nearest_cpu(float *o, float *a, int N, int man_bits, int exp_bits, bool 
 __device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, int man_bits)
 {
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t machine_eps = 1 << (22 - man_bits);
+    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
@@ -171,7 +171,7 @@ __device__ __forceinline__ uint32_t round_bitwise_nearest_impl(uint32_t target, 
     // this is the analogue of how you would do round
     // to nearest integer using the floor function:
     // round(x) = floor(x + 0.5)
-    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+    return add_r & ~((1 << min((23 - man_bits + offset), 23)) - 1);
 }
 
 __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bits, uint32_t old_num,
