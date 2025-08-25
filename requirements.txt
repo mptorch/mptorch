@@ -26,6 +26,6 @@ tqdm>=4.62.3
 typing-extensions>=3.10.0.2
 wheel>=0.37.0
 unfoldNd>=0.1.0
-gfloat>=0.3
+gfloat=0.4
 matplotlib>=3.8.0
 wandb>=0.20.1
