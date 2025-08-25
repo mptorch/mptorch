@@ -1,0 +1,618 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.modules.pooling &#8212; mptorch 0.3.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../../_static/documentation_options.js?v=e259d695"></script>
+    <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/modules/pooling';</script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">mptorch 0.3.0 documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.modules.pooling</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.modules.pooling</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;QAvgPool2d&quot;</span><span class="p">]</span>
+
+<span class="c1"># TODO: interface changes and support for other layers</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">QAvgPool2dFunction</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+        <span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">,</span> <span class="n">k_h</span><span class="p">,</span> <span class="n">k_w</span><span class="p">,</span> <span class="n">s_h</span><span class="p">,</span> <span class="n">s_w</span><span class="p">,</span> <span class="n">divisor</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span>
+    <span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">divisor</span> <span class="o">=</span> <span class="n">divisor</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">k_h</span> <span class="o">=</span> <span class="n">k_h</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">k_w</span> <span class="o">=</span> <span class="n">k_w</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">s_h</span> <span class="o">=</span> <span class="n">s_h</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">s_w</span> <span class="o">=</span> <span class="n">s_w</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">batch</span><span class="p">,</span> <span class="n">in_channel</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">batch</span><span class="p">,</span> <span class="n">in_channel</span><span class="p">,</span> <span class="n">out_h</span><span class="p">,</span> <span class="n">out_w</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">out_h</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">out_w</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k_h</span><span class="p">):</span>
+                    <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k_w</span><span class="p">):</span>
+                        <span class="n">y</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">]</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span>
+                            <span class="n">y</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">]</span> <span class="o">+</span> <span class="n">x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">s_h</span> <span class="o">*</span> <span class="n">h</span> <span class="o">+</span> <span class="n">m</span><span class="p">,</span> <span class="n">s_w</span> <span class="o">*</span> <span class="n">w</span> <span class="o">+</span> <span class="n">n</span><span class="p">]</span>
+                        <span class="p">)</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">y</span> <span class="o">/</span> <span class="n">divisor</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">y</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">grad_x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">grad_y</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">o_h</span><span class="p">,</span> <span class="n">o_w</span> <span class="o">=</span> <span class="n">grad_y</span><span class="o">.</span><span class="n">shape</span>
+            <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">o_h</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">o_w</span><span class="p">):</span>
+                    <span class="k">for</span> <span class="n">kh</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">k_h</span><span class="p">):</span>
+                        <span class="k">for</span> <span class="n">kw</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">k_w</span><span class="p">):</span>
+                            <span class="n">grad_x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">h</span> <span class="o">*</span> <span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">s_h</span><span class="p">)</span> <span class="o">+</span> <span class="n">kh</span><span class="p">,</span> <span class="n">w</span> <span class="o">*</span> <span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">s_w</span><span class="p">)</span> <span class="o">+</span> <span class="n">kw</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                                <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span>
+                                    <span class="n">grad_x</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">h</span> <span class="o">*</span> <span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">s_h</span><span class="p">)</span> <span class="o">+</span> <span class="n">kh</span><span class="p">,</span> <span class="n">w</span> <span class="o">*</span> <span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">s_w</span><span class="p">)</span> <span class="o">+</span> <span class="n">kw</span><span class="p">]</span>
+                                    <span class="o">+</span> <span class="n">grad_y</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">]</span>
+                                <span class="p">)</span>
+                            <span class="p">)</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_x</span> <span class="o">/</span> <span class="n">ctx</span><span class="o">.</span><span class="n">divisor</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="QAvgPool2d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.modules.QAvgPool2d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QAvgPool2d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">AvgPool2d</span><span class="p">):</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Applies a 2D average pooling over an input signal composed of several input planes. Performs</span>
+<span class="sd">    the addition operations in the FWD and BWD passes using quantized operators given as parameters.</span>
+
+<span class="sd">    In the simplest case, the output value of the layer with input size :math:`(N, C, H, W)`,</span>
+<span class="sd">    output :math:`(N, C, H_\text{out}, W_\text{out})` and :attr:`kernel_size` :math:`(kH, kW)`</span>
+<span class="sd">    can be precisely described as:</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        \text{out}(N_i, C_j, h, w)  = \frac{1}{kH * kW} \sum_{m=0}^{kH-1} \sum_{n=0}^{kW-1}</span>
+<span class="sd">                               \text{input}(N_i, C_j, \text{stride}[0] \times h + m, \text{stride}[1] \times w + n)</span>
+
+<span class="sd">    If :attr:`padding` is non-zero, then the input is implicitly zero-padded on both sides</span>
+<span class="sd">    for :attr:`padding` number of points.</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        When ceil_mode=True, sliding windows are allowed to go off-bounds if they start within the left padding</span>
+<span class="sd">        or the input. Sliding windows that would start in the right padded region are ignored.</span>
+
+<span class="sd">    The parameters :attr:`kernel_size`, :attr:`stride`, :attr:`padding` can either be:</span>
+
+<span class="sd">        - a single ``int`` -- in which case the same value is used for the height and width dimension</span>
+<span class="sd">        - a ``tuple`` of two ints -- in which case, the first `int` is used for the height dimension,</span>
+<span class="sd">          and the second `int` for the width dimension</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: :math:`(N, C, H_\text{in}, W_\text{in})` or :math:`(C, H_\text{in}, W_\text{in})`.</span>
+<span class="sd">        - Output: :math:`(N, C, H_\text{out}, W_\text{out})` or :math:`(C, H_\text{out}, W_\text{out})`, where</span>
+
+<span class="sd">          .. math::</span>
+<span class="sd">              H_\text{out} = \left\lfloor\frac{H_\text{in}  + 2 \times \text{padding}[0] -</span>
+<span class="sd">                \text{kernel_size}[0]}{\text{stride}[0]} + 1\right\rfloor</span>
+
+<span class="sd">          .. math::</span>
+<span class="sd">              W_\text{out} = \left\lfloor\frac{W_\text{in}  + 2 \times \text{padding}[1] -</span>
+<span class="sd">                \text{kernel_size}[1]}{\text{stride}[1]} + 1\right\rfloor</span>
+
+<span class="sd">          Per the note above, if ``ceil_mode`` is True and :math:`(H_\text{out} - 1)\times \text{stride}[0]\geq H_\text{in}</span>
+<span class="sd">          + \text{padding}[0]`, we skip the last window as it would start in the bottom padded region,</span>
+<span class="sd">          resulting in :math:`H_\text{out}` being reduced by one.</span>
+
+<span class="sd">          The same applies for :math:`W_\text{out}`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+        <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">ceil_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">count_include_pad</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">divisor_override</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Args:</span>
+<span class="sd">            kernel_size: the size of the window</span>
+<span class="sd">            fwd_quant: quantization function to use during FWD addition operations</span>
+<span class="sd">            bwd_quant: quantization function to use during BWD addition operations</span>
+<span class="sd">            stride: the stride of the window. Default value is :attr:`kernel_size`</span>
+<span class="sd">            padding: implicit zero padding to be added on both sides</span>
+<span class="sd">            ceil_mode: when True, will use `ceil` instead of `floor` to compute the output shape</span>
+<span class="sd">            count_include_pad: when True, will include the zero-padding in the averaging calculation</span>
+<span class="sd">            divisor_override: if specified, it will be used as divisor, otherwise size of the pooling region will be used.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">QAvgPool2d</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">kernel_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">ceil_mode</span><span class="p">,</span> <span class="n">count_include_pad</span><span class="p">,</span> <span class="n">divisor_override</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_quant</span> <span class="o">=</span> <span class="n">fwd_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">padding</span> <span class="o">=</span> <span class="n">padding</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">padding</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">padF</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">ZeroPad2d</span><span class="p">(</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="QAvgPool2d.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.modules.QAvgPool2d.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Performs the pooling operation over the :attr:`input` tensor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            input: the input tensor over which to perform the pooling operation.</span>
+<span class="sd">                Must adhere to the input shape requirements.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the result of the pooling operation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">in_height</span><span class="p">,</span> <span class="n">in_width</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">kernel_h</span><span class="p">,</span> <span class="n">kernel_w</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel_size</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stride</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ceil_mode</span><span class="p">:</span>
+            <span class="n">out_height</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">in_height</span> <span class="o">-</span> <span class="n">kernel_h</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="p">)</span>
+            <span class="n">out_width</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">in_width</span> <span class="o">-</span> <span class="n">kernel_w</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out_height</span> <span class="o">=</span> <span class="p">(</span><span class="n">in_height</span> <span class="o">-</span> <span class="n">kernel_h</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span>
+                <span class="mi">0</span>
+            <span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="n">out_width</span> <span class="o">=</span> <span class="p">(</span><span class="n">in_width</span> <span class="o">-</span> <span class="n">kernel_w</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span>
+                <span class="mi">1</span>
+            <span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">pinput</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">padF</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">QAvgPool2dFunction</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+            <span class="n">pinput</span><span class="p">,</span>
+            <span class="n">out_height</span><span class="p">,</span>
+            <span class="n">out_width</span><span class="p">,</span>
+            <span class="n">kernel_h</span><span class="p">,</span>
+            <span class="n">kernel_w</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">divisor</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_quant</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2025, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

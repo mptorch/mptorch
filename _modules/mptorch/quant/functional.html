@@ -1,0 +1,1759 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.functional &#8212; mptorch 0.3.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=e259d695"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/functional';</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">mptorch 0.3.0 documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.functional</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.functional</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Literal</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.quant_function</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..number</span><span class="w"> </span><span class="kn">import</span> <span class="n">FloatType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.quant_format</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">QAffineFormats</span><span class="p">,</span>
+    <span class="n">QGELUFormats</span><span class="p">,</span>
+    <span class="n">QLayerNormFormats</span><span class="p">,</span>
+    <span class="n">QSoftmaxFormats</span><span class="p">,</span>
+    <span class="n">make_quant_function</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;qlinear&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qlinear_mp&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qmatmul&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qmm&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qadd&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qmul&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qsqrt&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qdiv&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qpow&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qsum&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qmean&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qlayernorm&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qsoftmax&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;qgelu&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<span class="c1"># Utility functions to perform tensor scaling operations in low precison</span>
+<span class="c1"># (8-bit and below) DNN training</span>
+<span class="c1"># See: https://arxiv.org/pdf/2309.17224</span>
+<span class="c1"># NOTE: using this routine seems quite sensitive to how the margin term is picked,</span>
+<span class="c1"># notably the empirical value suggested in the aformentioned reference leads to</span>
+<span class="c1"># divergence (i.e. grad_input computation in the linear layer backward pass is</span>
+<span class="c1"># unstable and produces NaNs right from the start); more investigation is needed</span>
+<span class="c1"># and this might need to be revisited in the case of supernormals</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_bias</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">cast_to</span><span class="p">:</span> <span class="n">FloatType</span><span class="p">,</span> <span class="n">margin</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="p">(</span><span class="n">amax</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="p">(</span><span class="n">amax</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">amax</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">2</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span><span class="n">cast_to</span><span class="o">.</span><span class="n">normal_max</span> <span class="o">/</span> <span class="n">amax</span><span class="o">.</span><span class="n">double</span><span class="p">()))</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">-</span> <span class="n">margin</span>
+    <span class="p">)</span>  <span class="c1"># log2 must be done in fp64 precision or NaNs will show up in training</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">scale</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">x_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x_scale</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">x_scale</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span><span class="o">**</span><span class="n">x_scale</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">unscale</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">x_scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x_scale</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="o">-</span><span class="n">x_scale</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="n">x_scale</span><span class="p">)</span>
+
+
+<span class="c1"># Take inspiration for defining the custom derivation formulas from the PyTorch repository</span>
+<span class="c1"># See: https://github.com/pytorch/pytorch/blob/master/tools/autograd/derivatives.yaml</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qlinear_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="c1"># NOTE: (optimization) precompute the LP weights and weight scale</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span>
+        <span class="p">):</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">weight</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">))</span>
+        <span class="n">qweight</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">))</span>
+        <span class="c1"># NOTE: investigate if the bias term needs to be scaled as well</span>
+        <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">qbias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span><span class="p">(</span><span class="n">bias</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">qbias</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span> <span class="n">formats</span><span class="p">,</span> <span class="n">use_forward</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">output</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">qbias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">+=</span> <span class="n">qbias</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+                <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">qbias</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="p">)</span>  <span class="c1"># broadcasting should be done automatically</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span><span class="p">)</span>
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_weight</span><span class="p">,</span> <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">grad_output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">grad_output</span><span class="p">,</span> <span class="n">grad_scale</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qgrad_output</span><span class="p">,</span> <span class="n">qweight</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span>
+                    <span class="n">qgrad_output</span><span class="p">,</span>
+                    <span class="n">qweight</span><span class="p">,</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">qgrad_input</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">qgrad_input</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qgrad_output</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">qinput</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span>
+                    <span class="n">qgrad_output</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">qinput</span><span class="p">,</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">qgrad_weight</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
+
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">qgrad_weight</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">qbias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">qgrad_output</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
+                    <span class="n">dim</span><span class="o">=</span><span class="nb">tuple</span><span class="p">([</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">qgrad_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)])</span>
+                <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">qbias</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                    <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">qsum</span><span class="p">(</span>
+                        <span class="n">qgrad_output</span><span class="p">,</span>
+                        <span class="n">dim</span><span class="o">=</span><span class="nb">tuple</span><span class="p">([</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">qgrad_output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]),</span>
+                        <span class="n">quant</span><span class="o">=</span><span class="n">make_quant_function</span><span class="p">(</span>
+                            <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="p">,</span>
+                            <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_rnd</span><span class="p">,</span>
+                            <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">,</span>
+                        <span class="p">),</span>
+                    <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">qbias</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">qgrad_bias</span><span class="p">,</span> <span class="n">grad_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">qgrad_bias</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_weight</span><span class="p">,</span> <span class="n">qgrad_bias</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qlinear">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qlinear">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qlinear</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Applies a linear transformation to the incoming data: :math:`y=xW^T + b`</span>
+
+<span class="sd">    The :attr:`formats` parameter allows one to specify if I/O signals should be</span>
+<span class="sd">    quantized during inference &amp; training (needed for instance in QAT and PTQ methods),</span>
+<span class="sd">    but also the precision(s) to be used in internal GEMM computations (addition and</span>
+<span class="sd">    multiplication, fused or not). This allows simulating the effect of custom precision</span>
+<span class="sd">    during GEMM calls in the forward and backward pass and is helpful in studying the</span>
+<span class="sd">    effect of low precision compute during inference and training (not just data</span>
+<span class="sd">    quantization).</span>
+
+<span class="sd">    This is the functional version of :class:`~mptorch.quant.modules.QLinear`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input: the input :math:`x` to the linear layer of the form :math:`(*, H_\text{in})`,</span>
+<span class="sd">            where :math:`*` means any number of dimensions including none and</span>
+<span class="sd">            :math:`H_{in} = \text{in_features}`</span>
+<span class="sd">        weight: the weight tensor :math:`W` of shape :math:`(\text{out_features}, \text{in_features})`</span>
+<span class="sd">        bias: optional bias term of shape :math:`(\text{out_features})`</span>
+<span class="sd">        formats: the configuration object for how quantization (if any!) should be handled</span>
+<span class="sd">            on the matrix inputs and how the MAC and summation operations should be performed</span>
+<span class="sd">            (e.g. using compensated algorithms or not)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the result of the affine operation :math:`xW^T + b`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qlinear_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="qlinear_mp">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qlinear_mp">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">qlinear_mp</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+
+<div class="viewcode-block" id="qlinear_mp.forward">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qlinear_mp.forward">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">mans</span><span class="p">,</span> <span class="n">exps</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">s</span> <span class="o">=</span> <span class="p">(</span><span class="n">s</span><span class="p">,)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">mans</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">exps</span> <span class="o">=</span> <span class="n">mans</span><span class="p">,</span> <span class="n">exps</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+        <span class="n">qweight</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">float_mm_mp</span><span class="p">(</span>
+            <span class="n">qinput</span><span class="p">,</span>
+            <span class="n">qweight</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span>
+            <span class="n">s</span><span class="p">,</span>
+            <span class="n">mans</span><span class="p">,</span>
+            <span class="n">exps</span><span class="p">,</span>
+            <span class="n">fma</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_fma</span><span class="p">,</span>
+            <span class="n">subnormals</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_add</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+            <span class="n">saturate</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_add</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">qbias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span><span class="p">(</span><span class="n">bias</span><span class="p">)</span>
+            <span class="n">output</span> <span class="o">+=</span> <span class="n">qbias</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">expand_as</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+
+            <span class="n">output</span> <span class="o">=</span> <span class="n">float_quantize_mp</span><span class="p">(</span>
+                <span class="n">output</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span>
+                <span class="n">s</span><span class="p">,</span>
+                <span class="n">mans</span><span class="p">,</span>
+                <span class="n">exps</span><span class="p">,</span>
+                <span class="n">rounding</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="p">,</span>
+                <span class="n">subnormals</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_add</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+                <span class="n">saturate</span><span class="o">=</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_add</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">qoutput</span></div>
+
+
+<div class="viewcode-block" id="qlinear_mp.backward">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qlinear_mp.backward">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_input</span> <span class="o">=</span> <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">grad_bias</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span>
+
+        <span class="c1"># FIXME: this should be rewritten for when we have a BP mixed precision strategy</span>
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">float_mm_mp</span><span class="p">(</span>
+                <span class="n">qgrad_output</span><span class="p">,</span>
+                <span class="n">qweight</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">s</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">mans</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">exps</span><span class="p">,</span>
+                <span class="n">fma</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_fma</span><span class="p">,</span>
+                <span class="n">subnormals</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+                <span class="n">saturate</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">float_mm_mp</span><span class="p">(</span>
+                <span class="n">qgrad_output</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span>
+                <span class="n">qinput</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">s</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">mans</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">exps</span><span class="p">,</span>
+                <span class="n">fma</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_fma</span><span class="p">,</span>
+                <span class="n">subnormals</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+                <span class="n">saturate</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">qbias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span>
+            <span class="n">ones</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">qgrad_output</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="n">grad_output</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">grad_bias</span> <span class="o">=</span> <span class="n">float_mm_mp</span><span class="p">(</span>
+                <span class="n">ones</span><span class="p">,</span>
+                <span class="n">qgrad_output</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">s</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">mans</span><span class="p">,</span>
+                <span class="n">ctx</span><span class="o">.</span><span class="n">exps</span><span class="p">,</span>
+                <span class="n">fma</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_fma</span><span class="p">,</span>
+                <span class="n">subnormals</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+                <span class="n">saturate</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_add</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_input</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_weight</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">grad_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_bias</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_weight</span><span class="p">,</span> <span class="n">qgrad_bias</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span></div>
+</div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qmm_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">other</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span>
+        <span class="p">):</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">other</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
+
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">))</span>
+        <span class="n">qother</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">mp_mm</span><span class="p">(</span>
+                <span class="n">qinput</span><span class="p">,</span>
+                <span class="n">qother</span><span class="p">,</span>
+                <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">,</span>
+                <span class="n">use_forward</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="n">output</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span><span class="p">)</span>
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_other</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">grad_output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">grad_output</span><span class="p">,</span> <span class="n">grad_scale</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">grad_input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">qgrad_output</span><span class="p">,</span> <span class="n">qother</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">grad_input</span> <span class="o">=</span> <span class="n">mp_mm</span><span class="p">(</span>
+                    <span class="n">qgrad_output</span><span class="p">,</span>
+                    <span class="n">qother</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">grad_input</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_input</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">grad_other</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">qinput</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">qgrad_output</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">grad_other</span> <span class="o">=</span> <span class="n">mp_mm</span><span class="p">(</span>
+                    <span class="n">qinput</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">qgrad_output</span><span class="p">,</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">qgrad_other</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">grad_other</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_other</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_other</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_other</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qmm">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qmm">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmm</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mat2</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Simulates a mixed-precision computation pipeline for matrix multiplication of the</span>
+<span class="sd">    matrices :attr:`input` and :attr:`mat2`.</span>
+
+<span class="sd">    If :attr:`input` is a :math:`(n \times m)` tensor, :attr:`mat2` is a</span>
+<span class="sd">    :math:`(m \times p)` tensor, the output tensor will be a :math:`(n \times p)`</span>
+<span class="sd">    tensor.</span>
+
+<span class="sd">    .. note:: This function does not broadcast. For broadcasting quantized matrix</span>
+<span class="sd">              products, see :func:`mptorch.quant.functional.qmatmul`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input: the first matrix to be multiplied</span>
+<span class="sd">        mat2: the second matrix to be multiplied</span>
+<span class="sd">        formats: the configuration object for how quantization (if any!) should be handled on the matrix inputs</span>
+<span class="sd">            and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the result of the matrix multiplication between :attr:`input` and :attr:`mat2`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qmm_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">mat2</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qmatmul_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">other</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="c1"># NOTE: need to see how we do things for each matrix in</span>
+        <span class="c1"># the batched version</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span>
+            <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span>
+        <span class="p">):</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">other</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_scaled_format</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">))</span>
+        <span class="n">qother</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span>
+                <span class="n">qinput</span><span class="p">,</span>
+                <span class="n">qother</span><span class="p">,</span>
+                <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">,</span>
+                <span class="n">use_forward</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span><span class="p">)</span>
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="n">qinput</span><span class="p">,</span> <span class="n">qother</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_other</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">use_scaling</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="n">compute_bias</span><span class="p">(</span>
+                <span class="n">grad_output</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_scaled_format</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">scale_margin</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">grad_scale</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">scale</span><span class="p">(</span><span class="n">grad_output</span><span class="p">,</span> <span class="n">grad_scale</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">grad_input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qgrad_output</span><span class="p">,</span> <span class="n">qother</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+                <span class="n">grad_input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qgrad_output</span><span class="p">,</span> <span class="n">qother</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">grad_input</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span>
+                    <span class="n">qgrad_output</span><span class="p">,</span>
+                    <span class="n">qother</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">grad_input</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">qgrad_input</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+                <span class="n">grad_other</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qinput</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">qgrad_output</span><span class="p">)</span>
+                <span class="n">grad_other</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">qinput</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">qgrad_output</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">grad_other</span> <span class="o">=</span> <span class="n">mp_bmm</span><span class="p">(</span>
+                    <span class="n">qinput</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">qgrad_output</span><span class="p">,</span>
+                    <span class="n">formats</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+                    <span class="n">use_forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">qgrad_other</span> <span class="o">=</span> <span class="n">unscale</span><span class="p">(</span><span class="n">grad_other</span><span class="p">,</span> <span class="n">grad_scale</span> <span class="o">+</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
+            <span class="c1"># NOTE: look if this needs to be redesigned (separate grad_quants ?!)</span>
+            <span class="n">qgrad_other</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">qgrad_other</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="n">qgrad_other</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qmatmul">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qmatmul">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmatmul</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">other</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Simulates a mixed-precision computation pipeline for (batched) matrix multiplication of the</span>
+<span class="sd">    tensors :attr:`input` and :attr:`other`.</span>
+
+<span class="sd">    The behavior depends on the dimensionality of the tensors as follows:</span>
+
+<span class="sd">    - If both tensors are 1-dimensional, the dot product (scalar) is returned.</span>
+<span class="sd">    - If both arguments are 2-dimensional, the matrix-matrix product is returned.</span>
+<span class="sd">    - If the first argument is 1-dimensional and the second argument is 2-dimensional,</span>
+<span class="sd">      a 1 is prepended to its dimension for the purpose of the matrix multiply.</span>
+<span class="sd">      After the matrix multiply, the prepended dimension is removed.</span>
+<span class="sd">    - If the first argument is 2-dimensional and the second argument is 1-dimensional,</span>
+<span class="sd">      the matrix-vector product is returned.</span>
+<span class="sd">    - If both arguments are at least 1-dimensional and at least one argument is</span>
+<span class="sd">      N-dimensional (where 2 &lt; N &lt; 5), then a batched matrix multiply is returned.  If the first</span>
+<span class="sd">      argument is 1-dimensional, a 1 is prepended to its dimension for the purpose of the</span>
+<span class="sd">      batched matrix multiply and removed after.  If the second argument is 1-dimensional, a</span>
+<span class="sd">      1 is appended to its dimension for the purpose of the batched matrix multiple and removed after.</span>
+<span class="sd">      The non-matrix (i.e. batch) dimensions are broadcasted (and thus</span>
+<span class="sd">      must be broadcastable in the PyTorch sense).  For example, if :attr:`input` is a</span>
+<span class="sd">      :math:`(j \times 1 \times n \times n)` tensor and :attr:`other` is a :math:`(k \times n \times n)`</span>
+<span class="sd">      tensor, :attr:`out` will be a :math:`(j \times k \times n \times n)` tensor.</span>
+
+<span class="sd">      Note that the broadcasting logic only looks at the batch dimensions when determining if the inputs</span>
+<span class="sd">      are broadcastable, and not the matrix dimensions. For example, if :attr:`input` is a</span>
+<span class="sd">      :math:`(j \times 1 \times n \times m)` tensor and :attr:`other` is a :math:`(k \times m \times p)`</span>
+<span class="sd">      tensor, these inputs are valid for broadcasting even though the final two dimensions (i.e. the</span>
+<span class="sd">      matrix dimensions) are different. :attr:`out` will be a :math:`(j \times k \times n \times p)` tensor.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input: the first tensor to be multiplied</span>
+<span class="sd">        other: the second tensor to be multiplied</span>
+<span class="sd">        formats: the configuration object for how quantization (if any!) should be handled on the tensor inputs</span>
+<span class="sd">            and how the MAC and summation operations should be performed (e.g. using compensated algorithms or not)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the result of the (batched) matrix multiplication between :attr:`input` and :attr:`other`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qmatmul_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">other</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qadd_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">z</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_z</span><span class="p">):</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">grad_z</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">grad_y</span> <span class="o">=</span> <span class="n">grad_z</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">y</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_x</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="n">grad_y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_y</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qadd">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qadd">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qadd</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Adds :attr:`x` to :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the addition</span>
+<span class="sd">    (e.g. can simulate the execution of the addition in low-precision, assuming the inputs are</span>
+<span class="sd">    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients</span>
+<span class="sd">    from the operator during the backward pass.</span>
+
+<span class="sd">    For the forward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{out} = \mathcal{Q}_\text{fwd}(\text{x} + \text{y})</span>
+
+<span class="sd">    For the backward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{ones_like}(\text{x}))</span>
+
+<span class="sd">            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{ones_like}(\text{y}))</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        y: the other tensor to add to :attr:`x`</span>
+<span class="sd">        fwd_quant: the quantization function to apply on the forward addition</span>
+<span class="sd">        bwd_quant: the quantization function to apply on the gradient computations in the backward pass</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the addition operation between `x` and `y`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># NOTE: see if it makes sense to implement the `alpha` version</span>
+    <span class="c1"># NOTE: maybe worthwhile to have a version where `y` can be a number as well (in that case, no gradient for it)</span>
+    <span class="k">return</span> <span class="n">qadd_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qmul_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="n">y</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">z</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_z</span><span class="p">):</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">grad_z</span> <span class="o">*</span> <span class="n">y</span>
+        <span class="n">grad_y</span> <span class="o">=</span> <span class="n">grad_z</span> <span class="o">*</span> <span class="n">x</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_x</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="n">grad_y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_y</span><span class="o">.</span><span class="n">contiguous</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qmul">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qmul">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmul</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Multiplies :attr:`x` by :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the multiplication</span>
+<span class="sd">    (e.g. can simulate the execution of the multiplication in low-precision, assuming the inputs are</span>
+<span class="sd">    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients</span>
+<span class="sd">    from the operator during the backward pass.</span>
+
+<span class="sd">    For the forward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{out} = \mathcal{Q}_\text{fwd}(\text{x} * \text{y})</span>
+
+<span class="sd">    For the backward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{grad_x} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{y})</span>
+
+<span class="sd">            \text{grad_y} = \mathcal{Q}_\text{bwd}(\text{grad_z} * \text{x})</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        y: the other tensor to add to :attr:`x`</span>
+<span class="sd">        fwd_quant: the quantization function to apply on the forward multiplication</span>
+<span class="sd">        bwd_quant: the quantization function to apply on the gradient computations in the backward pass</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the multiplication operation between `x` and `y`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qmul_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># see the following link for a discussion regarding numerical stability of</span>
+<span class="c1"># backward propagation for division operations in PyTorch and for the basis</span>
+<span class="c1"># of this implementation: https://github.com/pytorch/pytorch/issues/43414</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">qdiv_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">):</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">y</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="k">return</span> <span class="n">z</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_z</span><span class="p">):</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">grad_y</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_z</span> <span class="o">/</span> <span class="n">y</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="n">grad_y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="o">-</span><span class="n">grad_z</span> <span class="o">*</span> <span class="n">z</span><span class="p">)</span>
+            <span class="n">grad_y</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_y</span> <span class="o">/</span> <span class="n">y</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qdiv">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qdiv">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qdiv</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Divides :attr:`x` by :attr:`y`. Uses :attr:`fwd_quant` to quantize the result of the division</span>
+<span class="sd">    (e.g. can simulate the execution of the division in low-precision, assuming the inputs are</span>
+<span class="sd">    already in low precision). The :attr:`bwd_quant` function is used to quantize the gradients</span>
+<span class="sd">    from the operator during the backward pass.</span>
+
+<span class="sd">    For the forward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{out}_i = \mathcal{Q}_\text{fwd}\left(\frac{\text{x}_i}{\text{y}_i}\right)</span>
+
+<span class="sd">    For the backward computation:</span>
+
+<span class="sd">        .. math::</span>
+
+<span class="sd">            \text{grad_x} = \mathcal{Q}_\text{bwd}\left(\frac{\text{grad_z}}{\text{y}}\right)</span>
+
+<span class="sd">            \text{grad_y} = \mathcal{Q}_\text{bwd}\left(\frac{\mathcal{Q}_\text{bwd}\left(-\text{grad_z} * \text{x}\right)}{\text{y}}\right)</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        y: the other tensor to add to :attr:`x`</span>
+<span class="sd">        fwd_quant: the quantization function to apply on the forward division</span>
+<span class="sd">        bwd_quant: the quantization function to apply on the gradient computations in the backward pass</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the division operation between `x` and `y`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qdiv_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qpow_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">n</span> <span class="o">=</span> <span class="n">n</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">x</span><span class="o">**</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">gy</span> <span class="o">=</span> <span class="n">bwd_quant</span><span class="p">(</span><span class="n">x</span> <span class="o">**</span> <span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">gy</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">y</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">gy</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">gy</span> <span class="o">*</span> <span class="n">ctx</span><span class="o">.</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_y</span> <span class="o">*</span> <span class="n">grad_x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qpow">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qpow">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qpow</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Takes the power of each element in :attr:`x` with :attr:`n` and</span>
+<span class="sd">    returns a tensor with the result. :attr:`n` can be either a single</span>
+<span class="sd">    ``float`` number or a `torch.Tensor` with the same number of</span>
+<span class="sd">    elements as :attr:`x`.</span>
+
+<span class="sd">    When :attr:`n` is a scalar value, the forward operation applied is:</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        \text{out}_i = \mathcal{Q}_\text{fwd}\left(\text{x}_i^\text{n}\right)</span>
+
+<span class="sd">    When :attr:`n` is a tensor, the operation applied is:</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        \text{out}_i = \mathcal{Q}_\text{fwd}\left(\text{x}_i^{\text{n}_i}\right)</span>
+
+<span class="sd">    When :attr:`n` is a tensor, the shapes of :attr:`x` and</span>
+<span class="sd">    :attr:`n` must be broadcastable.</span>
+
+<span class="sd">    The backward operation is (applied element-wise):</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        \text{out} = \mathcal{Q}_\text{bwd}\left(\text{grad_out} *\mathcal{Q}_\text{bwd}\left(\mathcal{Q}_\text{bwd}\left(\text{x}^{\text{n}-1}\right) * \text{n}\right)\right)</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        fwd_quant: the quantization function to apply on the forward division</span>
+<span class="sd">        bwd_quant: the quantization function to apply on the gradient computations in the backward pass</span>
+<span class="sd">        n: the exponent value</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the power operation between `x` and `n`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qpow_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qsqrt_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">y</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_y</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">y</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">y</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span><span class="n">grad_y</span> <span class="o">/</span> <span class="n">grad_x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qsqrt">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qsqrt">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qsqrt</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns a new tensor with the square-root of the elements of :attr:`x`.</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        \text{out}_{i} = \sqrt{\text{x}_{i}}</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        fwd_quant: the quantization function to apply on the forward square root operation</span>
+<span class="sd">        bwd_quant: the quantization function to apply on the gradient computations in the backward pass</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the square root operation on `x`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qsqrt_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># NOTE: look into CUDA-accelerated version of this routine</span>
+<span class="c1"># and also of sums across multiple dimensions</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">qsum_1d</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="n">shape</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">vs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">vs</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">vx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">dim</span><span class="p">]):</span>
+        <span class="n">vs</span> <span class="o">=</span> <span class="n">quant</span><span class="p">(</span><span class="n">vs</span> <span class="o">+</span> <span class="n">vx</span><span class="p">[:,</span> <span class="n">k</span> <span class="p">:</span> <span class="n">k</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">vs</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qsum_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">quant</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">dim</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">dim</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">())</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="o">==</span> <span class="kc">False</span><span class="p">:</span>
+            <span class="n">dim</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim</span><span class="p">,)</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span> <span class="o">=</span> <span class="n">dim</span>
+        <span class="n">sums</span> <span class="o">=</span> <span class="n">x</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+            <span class="n">sums</span> <span class="o">=</span> <span class="n">qsum_1d</span><span class="p">(</span><span class="n">sums</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">quant</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">keepdim</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">while</span> <span class="n">sums</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">sums</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="n">sums</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">sums</span><span class="o">.</span><span class="n">shape</span>
+        <span class="k">return</span> <span class="n">sums</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span><span class="p">:</span>
+            <span class="n">grad_output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="n">grad_output</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">grad_output</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qsum">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qsum">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qsum</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">,</span>
+    <span class="n">keepdim</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns the quantized sum of all elements in the :attr:`x` tensor. It can simulate low</span>
+<span class="sd">    precision summation if the elements of :attr:`x` are low precision values. The :attr:`quant`</span>
+<span class="sd">    function specifies the accumulator output format and precision as a quantization function.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        dim: the dimension or dimensions to reduce. If ``None``, all dimensions are reduced</span>
+<span class="sd">        quant: the quantization function specifying how accumulation results should be stored</span>
+<span class="sd">        keepdim: whether the output tensor has :attr:`dim` retained or not</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the sum operation operation on `x`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qsum_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">quant</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># NOTE: similar to sum, look into a CUDA-accelerated version of this routine</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">qmean_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">dim</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">dim</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">())</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="o">==</span> <span class="kc">False</span><span class="p">:</span>
+            <span class="n">dim</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim</span><span class="p">,)</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span> <span class="o">=</span> <span class="n">dim</span>
+        <span class="n">sums</span> <span class="o">=</span> <span class="n">x</span>
+        <span class="n">numel</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+            <span class="n">sums</span> <span class="o">=</span> <span class="n">qsum</span><span class="p">(</span><span class="n">sums</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">keepdim</span><span class="p">)</span>
+            <span class="n">numel</span> <span class="o">*=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">d</span><span class="p">]</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">numel</span> <span class="o">=</span> <span class="n">numel</span>
+        <span class="n">sums</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">sums</span> <span class="o">/</span> <span class="n">numel</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">keepdim</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">dim</span><span class="p">:</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">while</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">sums</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="ow">and</span> <span class="n">sums</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">idx</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">sums</span><span class="o">.</span><span class="n">shape</span><span class="p">):</span>
+                    <span class="n">sums</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="n">sums</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">sums</span><span class="o">.</span><span class="n">shape</span>
+        <span class="k">return</span> <span class="n">sums</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span><span class="p">:</span>
+            <span class="n">grad_output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="n">grad_output</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">grad_x</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">(</span>
+            <span class="n">grad_output</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span> <span class="o">/</span> <span class="n">ctx</span><span class="o">.</span><span class="n">numel</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">grad_x</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qmean">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qmean">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmean</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">keepdim</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns the mean value of all the elements in the :attr:`x` tensor. Input must be a floating point tensor.</span>
+<span class="sd">    It can simulate low precision summation if the elements of :attr:`x` are low precision values.</span>
+<span class="sd">    The :attr:`fwd_quant` function specifies the accumulator (and final division) output format and</span>
+<span class="sd">    precision as a quantization function in the forward pass. The :attr:`bwd_quant` function specifies how</span>
+<span class="sd">    the arithmetic should be performed in the backward pass through this operator.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        dim: the dimension or dimensions to reduce. If ``None``, all dimensions are reduced</span>
+<span class="sd">        fwd_quant: the quantization function specifying how accumulation and division results should be stored in the forward pass</span>
+<span class="sd">        bwd_quant: the quantization function specifying how operations should be performed in the backward pass</span>
+<span class="sd">        keepdim: whether the output tensor has :attr:`dim` retained or not</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the mean operation operation on `x`</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qmean_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qlayernorm_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">normalized_shape</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">weight</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">qweight</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">qweight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">qbias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span><span class="p">(</span><span class="n">bias</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">qbias</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="n">normalized_shape</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">([</span><span class="n">normalized_shape</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">normalized_shape</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">)</span>
+
+        <span class="k">assert</span> <span class="n">normalized_shape</span> <span class="o">==</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">)</span> <span class="p">:]</span>
+        <span class="n">dims</span> <span class="o">=</span> <span class="p">[</span><span class="o">-</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">normalized_shape</span><span class="p">))]</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">dims</span> <span class="o">=</span> <span class="n">dims</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
+
+            <span class="n">mean</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">/</span> <span class="n">C</span>
+
+            <span class="n">xshift</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">mean</span>
+            <span class="n">variance</span> <span class="o">=</span> <span class="p">(</span><span class="n">xshift</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dims</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">/</span> <span class="n">C</span>
+
+            <span class="n">rstd</span> <span class="o">=</span> <span class="p">(</span><span class="n">variance</span> <span class="o">+</span> <span class="n">eps</span><span class="p">)</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span>
+            <span class="n">norm</span> <span class="o">=</span> <span class="n">xshift</span> <span class="o">*</span> <span class="n">rstd</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">norm</span> <span class="o">*</span> <span class="n">qweight</span> <span class="o">+</span> <span class="n">qbias</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">rstd</span> <span class="o">=</span> <span class="n">mp_layernorm_forward</span><span class="p">(</span>
+                <span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">dims</span><span class="p">,</span> <span class="n">formats</span>
+            <span class="p">)</span>
+
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">rstd</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="p">(</span>
+            <span class="n">qinput</span><span class="p">,</span>
+            <span class="n">qweight</span><span class="p">,</span>
+            <span class="n">qbias</span><span class="p">,</span>
+            <span class="n">mean</span><span class="p">,</span>
+            <span class="n">rstd</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">formats</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span>
+        <span class="n">dims</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">dims</span>
+
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span>
+
+        <span class="n">qgrad_input</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">norm</span> <span class="o">=</span> <span class="p">(</span><span class="n">qinput</span> <span class="o">-</span> <span class="n">mean</span><span class="p">)</span> <span class="o">*</span> <span class="n">rstd</span>
+
+            <span class="n">grad_bias</span> <span class="o">=</span> <span class="n">grad_output</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+            <span class="n">grad_weight</span> <span class="o">=</span> <span class="p">(</span><span class="n">grad_output</span> <span class="o">*</span> <span class="n">norm</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+
+            <span class="n">grad_norm</span> <span class="o">=</span> <span class="n">grad_output</span> <span class="o">*</span> <span class="n">grad_weight</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">grad_norm</span>
+                <span class="o">-</span> <span class="n">grad_norm</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="o">-</span> <span class="n">norm</span> <span class="o">*</span> <span class="p">(</span><span class="n">grad_norm</span> <span class="o">*</span> <span class="n">norm</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">grad_input</span> <span class="o">*=</span> <span class="n">rstd</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">grad_input</span><span class="p">,</span> <span class="n">grad_weight</span><span class="p">,</span> <span class="n">grad_bias</span> <span class="o">=</span> <span class="n">mp_layernorm_backward</span><span class="p">(</span>
+                <span class="n">qinput</span><span class="p">,</span> <span class="n">qgrad_output</span><span class="p">,</span> <span class="n">qweight</span><span class="p">,</span> <span class="n">qbias</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">rstd</span><span class="p">,</span> <span class="n">dims</span><span class="p">,</span> <span class="n">formats</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_input</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">qweight</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span>
+            <span class="n">qgrad_weight</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_weight</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">qbias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">3</span><span class="p">]:</span>
+            <span class="n">qgrad_bias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_bias</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">qgrad_weight</span><span class="p">,</span> <span class="n">qgrad_bias</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qlayernorm">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qlayernorm">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qlayernorm</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">normalized_shape</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0e-5</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">QLayerNormFormats</span> <span class="o">=</span> <span class="n">QLayerNormFormats</span><span class="p">(),</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Implements the operation as described in the paper *Layer Normalization* (https://arxiv.org/abs/1607.06450),</span>
+<span class="sd">    giving the user control over how the arithmetic is performed during the forward and backward passes through</span>
+<span class="sd">    the :attr:`formats` parameter.</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        y = \frac{x-\mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \epsilon}}\gamma + \beta</span>
+
+<span class="sd">    The mean and standard deviation are computed over the last `D` dimensions, where `D` is the dimension</span>
+<span class="sd">    of :attr:`normalized_shape`. For instance, if :attr:`normalized_shape` is ``(3, 5)`` (ad 2-D shape),</span>
+<span class="sd">    the mean and standard deviation are computed over the last 2 dimension of the input (i.e., ``x.mean((-2, -1))``).</span>
+<span class="sd">    In a training context, :math:`\gamma` and :math:`\beta` are learnable affine transform paremeters of</span>
+<span class="sd">    :attr:`normalized_shape`.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">        Unlike Batch Normalization and Instance Normalization, which applies scalar scale and bias for each</span>
+<span class="sd">        entire channel/plane with the :attr:`affine` option, Layer Normalization applies per-element scale and</span>
+<span class="sd">        bias with :attr:`elementwise_affine`.</span>
+
+<span class="sd">    It uses statistics computed from input data in both training and evaluation modes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        normalized_shape: input shape from an expected input of size</span>
+
+<span class="sd">            .. math::</span>
+<span class="sd">                [* \times \text{n_shape}[0] \times \text{n_shape}[1]</span>
+<span class="sd">                    \times \ldots \times \text{n_shape}[-1]]</span>
+
+<span class="sd">            If a single integer is used, it is treated as a singleton list, and this function will</span>
+<span class="sd">            normalize over the last dimension which is expected to be of that specific size</span>
+<span class="sd">        weight: the learnable weights :math:`\gamma` of shape :math:`\text{n_shape}`</span>
+<span class="sd">        bias: the learnable bias :math:`\beta` of shape :math:`\text{n_shape}`</span>
+<span class="sd">        eps: a small value added to the denominator for numerical stability. Default: 1e-5</span>
+<span class="sd">        formats: configuration class for number formats and quantizers to use during</span>
+<span class="sd">            forward and backward computations in layer normalization.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        the quantized result of the mean operation operation on :attr:`x`. Has the same shape as :attr:`x`.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qlayernorm_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">normalized_shape</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qsoftmax_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span> <span class="o">=</span> <span class="n">dim</span>
+
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">mp_softmax_forward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span>
+
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qoutput</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">qoutput</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">formats</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">dim</span>
+
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">weighted_grad_sum</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">qoutput</span> <span class="o">*</span> <span class="n">qgrad_output</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">qoutput</span> <span class="o">*</span> <span class="p">(</span><span class="n">qgrad_output</span> <span class="o">-</span> <span class="n">weighted_grad_sum</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">mp_softmax_backward</span><span class="p">(</span><span class="n">qoutput</span><span class="p">,</span> <span class="n">qgrad_output</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span>
+
+        <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_input</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qsoftmax">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qsoftmax">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qsoftmax</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">formats</span><span class="p">:</span> <span class="n">QSoftmaxFormats</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Applies the Softmax function to an n-dimensional input tensor :attr:`x`. Through the</span>
+<span class="sd">    :attr:`formats` parameter it allows one to specify if I/O signals and internal mathematical</span>
+<span class="sd">    operations should be quantized during forward and backward compute chains.</span>
+
+<span class="sd">    Rescales the elements in the input tensor so that they lie in the range :math:`[0, 1]` and sum to :math:`1`.</span>
+<span class="sd">    It is defined as:</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        \text{Softmax}(x_i) = \frac{\exp(x_i)}{\sum_j\exp(x_j)}</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        dim: a dimension along which Softmax will be computed (so every slice along :attr:`dim`</span>
+<span class="sd">            will sum to 1)</span>
+<span class="sd">        formats: configuration class for number formats and quantizers to use during</span>
+<span class="sd">            forward and backward computations in Softmax</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        a :attr:`Tensor` of the same dimension and shape as the input with values in the range :math:`[0, 1]`</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        .. code-block:: python</span>
+
+<span class="sd">            # TODO</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qsoftmax_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">qgelu_kernel</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">approximate</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">approximate</span> <span class="o">=</span> <span class="n">approximate</span>
+        <span class="n">qinput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">approximate</span> <span class="o">==</span> <span class="s2">&quot;tanh&quot;</span><span class="p">:</span>
+                <span class="n">PI</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">pi</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">qinput</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+                <span class="n">intermediate_output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span> <span class="o">/</span> <span class="n">PI</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">qinput</span> <span class="o">+</span> <span class="mf">0.044715</span> <span class="o">*</span> <span class="n">qinput</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">SQRT2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">1.41421356237</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">qinput</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+                <span class="n">intermediate_output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">erf</span><span class="p">(</span><span class="n">qinput</span> <span class="o">/</span> <span class="n">SQRT2</span><span class="p">)</span>
+
+            <span class="n">quantized_intermediate_output</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">inter_quant</span><span class="p">(</span><span class="n">intermediate_output</span><span class="p">)</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">qinput</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">quantized_intermediate_output</span><span class="p">)</span>
+
+        <span class="n">qoutput</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">output_quant</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">qinput</span><span class="p">,</span> <span class="n">quantized_intermediate_output</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">qoutput</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
+        <span class="n">qinput</span><span class="p">,</span> <span class="n">quantized_intermediate_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="n">qgrad_output</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span>
+
+        <span class="n">PI</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">pi</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">grad_output</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">approximate</span> <span class="o">==</span> <span class="s2">&quot;tanh&quot;</span><span class="p">:</span>
+            <span class="n">tanh_term</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span> <span class="o">/</span> <span class="n">PI</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">qinput</span> <span class="o">+</span> <span class="mf">0.044715</span> <span class="o">*</span> <span class="n">qinput</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>
+            <span class="n">dtanh_term</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">quantized_intermediate_output</span><span class="o">**</span><span class="mi">2</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">qgrad_output</span> <span class="o">*</span> <span class="p">(</span>
+                <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">quantized_intermediate_output</span><span class="p">)</span>
+                <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">qinput</span> <span class="o">*</span> <span class="n">dtanh_term</span> <span class="o">*</span> <span class="p">(</span><span class="n">tanh_term</span> <span class="o">+</span> <span class="mf">0.134145</span> <span class="o">*</span> <span class="n">qinput</span><span class="o">**</span><span class="mi">3</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cdf</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">quantized_intermediate_output</span><span class="p">)</span>
+            <span class="n">pdf</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">qinput</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">PI</span><span class="p">)</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">qgrad_output</span> <span class="o">*</span> <span class="p">(</span><span class="n">cdf</span> <span class="o">+</span> <span class="n">qinput</span> <span class="o">*</span> <span class="n">pdf</span><span class="p">)</span>
+
+        <span class="n">qgrad_input</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">grad_quant</span><span class="p">(</span><span class="n">grad_input</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">qgrad_input</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="qgelu">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.qgelu">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qgelu</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">QGELUFormats</span><span class="p">,</span>
+    <span class="n">approximate</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;none&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Applies the Gaussian Error Linear Units function to the input :math:`x`:</span>
+
+<span class="sd">    .. math:: \text{GELU}(x) = x * \Phi(x)</span>
+
+<span class="sd">    where :math:`\Phi(x)` is the Cumulative Distribution Function for Gaussian Distribution.</span>
+
+<span class="sd">    When the approximate argument is ``&#39;tanh&#39;``, GELU is estimated with:</span>
+
+<span class="sd">    .. math:: \text{GELU}(x) = 0.5 * x * (1 + \tanh(\sqrt{2 / \pi} * (x + 0.044715 * x^3)))</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x: the input tensor</span>
+<span class="sd">        formats: configuration class for number formats and quantizers to use during</span>
+<span class="sd">            forward and backward computations in GELU</span>
+<span class="sd">        approximate: the GELU approximation algorithm to use:</span>
+<span class="sd">            ``&#39;none&#39;`` | ``&#39;tanh&#39;``. Default: ``&#39;none&#39;``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        a :attr:`Tensor` of the same dimension and shape as the input where the GELU function is applied element-wise</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        .. code-block:: python</span>
+
+<span class="sd">            import torch</span>
+<span class="sd">            import mptorch.quant as qt</span>
+<span class="sd">            from torch.testing import assert_close</span>
+
+<span class="sd">            quant_func = lambda x: qt.float_quantize(x, man=7, exp=8, rounding=&quot;nearest&quot;)</span>
+<span class="sd">            formats = qt.QGELUFormats(</span>
+<span class="sd">                input_quant=quant_func,</span>
+<span class="sd">                output_quant=quant_func,</span>
+<span class="sd">            )</span>
+
+<span class="sd">            x = torch.randn(3, 2)</span>
+<span class="sd">            y = torch.nn.functional.gelu(x)</span>
+<span class="sd">            qy = qt.functional.qgelu(x, formats=formats)</span>
+<span class="sd">            assert_close(y, qy, rtol=1e-2, atol=1e-5)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">qgelu_kernel</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">approximate</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2025, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
