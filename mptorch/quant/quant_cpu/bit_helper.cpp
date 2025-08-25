@@ -38,7 +38,7 @@ uint32_t round_bitwise_nearest_p1(uint32_t target, int man_bits)
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-// rounds to nearest, ties to even, for general binary8 format
+// rounds to nearest, ties to even
 uint32_t round_bitwise_nearest(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
