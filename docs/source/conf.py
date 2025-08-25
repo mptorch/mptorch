@@ -12,9 +12,9 @@ import sys
 sys.path.insert(0, os.path.abspath("../.."))
 
 project = "mptorch"
-copyright = "2024, UBC ORCA Lab"
-author = "UBC ORCA Lab"
-release = "0.2.0"
+copyright = "2024-2025, The MPTorch developers"
+author = "The MPTorch developers"
+release = "0.3.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -52,8 +52,19 @@ intersphinx_disabled_domains = ["std"]
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "sphinx_rtd_theme"
+html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
+html_theme_options = {
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/mptorch/mptorch",
+            "icon": "fab fa-github-square",
+            "type": "fontawesome",
+        }
+    ],
+    "show_nav_level": 2,
+}
 
 # -- Options for EPUB output
 epub_show_urls = "footnote"

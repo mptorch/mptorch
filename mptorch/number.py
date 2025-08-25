@@ -33,7 +33,7 @@ class Number:
 class FloatType(Number):
     """Base class for all float-like number formats.
 
-    Similar to the ``Number`` class, users should not instantiate
+    Similar to the :class:`Number` class, users should not instantiate
     this class directly. It is useful as a means to determine if
     a number format is of float type.
     """
