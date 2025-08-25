@@ -5,16 +5,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..quant_format import QAffineFormats
-from ..functional import qlinear, qlinear_mp, qlinear_mpv2, qlinear_kernel
+from ..functional import qlinear, qlinear_mp, qlinear_kernel
 
 __all__ = ["QLinear", "QLazyLinear", "QLinearMP"]
 
 
-def kappa_phi(v, g, phi):
+def kappa_phi(v: torch.Tensor, g: torch.Tensor, phi: torch.Tensor) -> torch.Tensor:
     return torch.div(torch.abs(v) * torch.abs(g), torch.abs(phi)).nan_to_num(0)
 
 
-def kappa_v(w, b, x):
+def kappa_v(w: torch.Tensor, b: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor:
     if b is None:
         return torch.div(torch.abs(x) @ torch.abs(w.T), torch.abs(x @ w.T))
     else:
@@ -23,16 +23,9 @@ def kappa_v(w, b, x):
         )
 
 
-def kappa_v_mp(w, b, x, v, formats, s):
+def kappa_v_mp(w, b, x, v, formats, s, mans, exps):
     return torch.div(
-        qlinear_mp.apply(torch.abs(x), torch.abs(w), torch.abs(b), formats, s),
-        torch.abs(v),
-    )
-
-
-def kappa_v_mpv2(w, b, x, v, formats, s, mans, exps):
-    return torch.div(
-        qlinear_mpv2.apply(
+        qlinear_mp.apply(
             torch.abs(x), torch.abs(w), torch.abs(b), formats, s, mans, exps
         ),
         torch.abs(v),
@@ -261,7 +254,7 @@ class QLinearMP(nn.Linear):
         activation=None,
         d_activation=None,
         kappa_phi_f=kappa_phi,
-        kappa_v_f=kappa_v_mpv2,
+        kappa_v_f=kappa_v_mp,
         tol=0.1,
     ) -> None:
         super(QLinearMP, self).__init__(in_features, out_features, bias)
@@ -333,10 +326,9 @@ class QLinearMP(nn.Linear):
                 prec_fp8 = (torch.ones(input.shape[0], w.shape[0]).int() * 2).to(
                     w.device
                 )
-                out_fp8 = qlinear_mpv2.apply(
+                out_fp8 = qlinear_mp.apply(
                     input, w, bias, self.formats, prec_fp8, mans, exps
                 )
-                # out_fp8 = qlinear_mp.apply(input, w, bias, self.formats, prec_fp8)
 
                 kappa_phi_fp8 = self.kappa_phi_f(
                     out_fp8, self.d_activation(out_fp8), self.activation(out_fp8)
@@ -346,7 +338,7 @@ class QLinearMP(nn.Linear):
                 )
 
                 deno_fp8 = 1 / torch.abs(out_fp8)
-                num_fp8 = qlinear_mpv2.apply(
+                num_fp8 = qlinear_mp.apply(
                     torch.abs(input),
                     torch.abs(w),
                     torch.abs(bias),
@@ -355,13 +347,7 @@ class QLinearMP(nn.Linear):
                     mans,
                     exps,
                 )
-                # num_fp8 = qlinear_mp.apply(
-                #     torch.abs(input),
-                #     torch.abs(w),
-                #     torch.abs(bias),
-                #     self.formats,
-                #     prec_fp8,
-                # )
+
                 self.deno_fp8 = deno_fp8.to(w.device)
                 self.num_fp8 = num_fp8.to(w.device)
 
@@ -377,10 +363,9 @@ class QLinearMP(nn.Linear):
                 prec_fp16_mask -= prec_fp8_mask
 
                 prec_fp16 = torch.ones(input.shape[0], w.shape[0]).int().to(w.device)
-                out_fp16 = qlinear_mpv2.apply(
+                out_fp16 = qlinear_mp.apply(
                     input, w, bias, self.formats, prec_fp16, mans, exps
                 )
-                # out_fp16 = qlinear_mp.apply(input, w, bias, self.formats, prec_fp16)
                 out = out_fp8 * prec_fp8_mask + out_fp16 * prec_fp16_mask
 
                 # store variables for experiments
@@ -395,8 +380,7 @@ class QLinearMP(nn.Linear):
             else:
                 self.formats.s = prec.to(w.device)
                 self.prec = prec.to(w.device)
-                out = qlinear_mpv2.apply(input, w, bias, self.formats, prec, mans, exps)
-                # out = qlinear_mp.apply(input, w, bias, self.formats, prec)
+                out = qlinear_mp.apply(input, w, bias, self.formats, prec, mans, exps)
 
             self.prec = prec
             self.count = torch.where(prec == 2, 1, 0).sum(tuple(range(len(prec.shape))))

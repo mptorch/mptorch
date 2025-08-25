@@ -11,5 +11,4 @@ __all__ = [
     "superfp_quantize",
     "quantizer",
     "qlinear_mp",
-    "qlinear_mpv2",
 ]

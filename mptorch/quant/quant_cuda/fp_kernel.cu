@@ -173,24 +173,12 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
 
 // quantize a float into a floating point with [exp_bits] exponent and
 // [man_bits] mantissa
-__global__ void float_kernel_nearest_mp(float *__restrict__ a, 
-                                     int *__restrict__ s,
-                                     float *o, int size,
-                                     bool subnormal_support, bool saturate)
-{
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index < size)
-    o[index] = cast_fp_nearest(a[index], man_vals[s[index]], exp_vals[s[index]], subnormal_support, saturate);
-}
-
-// quantize a float into a floating point with [exp_bits] exponent and
-// [man_bits] mantissa
-__global__ void float_kernel_nearest_mpv2(float *__restrict__ a, 
-                                     int *__restrict__ s,
-                                     int *__restrict__ mans,
-                                     int *__restrict__ exps,
-                                     float *o, int size,
-                                     bool subnormal_support, bool saturate)
+__global__ void float_kernel_nearest_mp(float *__restrict__ a,
+                                        int *__restrict__ s,
+                                        int *__restrict__ mans,
+                                        int *__restrict__ exps,
+                                        float *o, int size,
+                                        bool subnormal_support, bool saturate)
 {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
@@ -236,41 +224,6 @@ void mm_fp_nearest(float *a, float *b, float *c,
 void mm_fp_nearest(float *a, float *b, float *c,
                    int M, int K, int N,
                    int *s,
-                   bool subnormals,
-                   bool saturate,
-                   bool compensated)
-{
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  if (compensated)
-  {
-    mm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, s, M, K, N,
-        [subnormals, saturate] __device__(float x, int man_add, int exp_add)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
-        [subnormals, saturate] __device__(float x, int man_mul, int exp_mul)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
-  }
-  else
-  {
-    mm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, s, M, K, N,
-        [subnormals, saturate] __device__(float x, int man_add, int exp_add)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
-        [subnormals, saturate] __device__(float x, int man_mul, int exp_mul)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
-  }
-}
-
-void mm_fp_nearest_v2(float *a, float *b, float *c,
-                   int M, int K, int N,
-                   int *s,
                    int *mans, int *exps,
                    bool subnormals,
                    bool saturate,
@@ -286,7 +239,7 @@ void mm_fp_nearest_v2(float *a, float *b, float *c,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   if (compensated)
   {
-    mm_kahan_impl_v2<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+    mm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, s, mans, exps, M, K, N,
         [subnormals, saturate] __device__(float x, int man_add, int exp_add)
         { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
@@ -295,7 +248,7 @@ void mm_fp_nearest_v2(float *a, float *b, float *c,
   }
   else
   {
-    mm_impl_v2<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
+    mm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, s, mans, exps, M, K, N,
         [subnormals, saturate] __device__(float x, int man_add, int exp_add)
         { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
@@ -374,36 +327,6 @@ void mm_fp_fma_nearest(float *a, float *b, float *c,
 void mm_fp_fma_nearest(float *a, float *b, float *c,
                        int M, int K, int N,
                        int *s,
-                       bool subnormals,
-                       bool saturate,
-                       bool compensated)
-{
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  if (compensated)
-  {
-    mm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, s, M, K, N,
-        [subnormals, saturate] __device__(float x, int man_fma, int exp_fma)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
-  }
-  else
-  {
-    mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, s, M, K, N,
-        [subnormals, saturate] __device__(float x, int man_fma, int exp_fma)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
-  }
-}
-
-void mm_fp_fma_nearest_v2(float *a, float *b, float *c,
-                       int M, int K, int N,
-                       int *s,
                        int *mans,
                        int *exps,
                        bool subnormals,
@@ -419,14 +342,14 @@ void mm_fp_fma_nearest_v2(float *a, float *b, float *c,
       (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   if (compensated)
   {
-    mm_kahan_fma_impl_v2<SHMEM_SIZE><<<block_dim, thread_dim>>>(
+    mm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, s, mans, exps, M, K, N,
         [subnormals, saturate] __device__(float x, int man_fma, int exp_fma)
         { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
   }
   else
   {
-    mm_fma_impl_v2<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
+    mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, s, mans, exps, M, K, N,
         [subnormals, saturate] __device__(float x, int man_fma, int exp_fma)
         { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });

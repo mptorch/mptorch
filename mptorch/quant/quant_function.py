@@ -18,7 +18,6 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "float_quantize_mp",
-    "float_quantize_mpv2",
     "binary8_quantize",
     "superfp_quantize",
     "quantizer",
@@ -26,7 +25,6 @@ __all__ = [
     "mp_bmm",
     "float_mm",
     "float_mm_mp",
-    "float_mm_mpv2",
     "float_bmm",
     "fxp_mm",
     "fxp_bmm",
@@ -1659,6 +1657,8 @@ def float_mm_mp(
     a: torch.Tensor,
     b: torch.Tensor,
     s: torch.Tensor,
+    mans: torch.Tensor,
+    exps: torch.Tensor,
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = False,
@@ -1691,68 +1691,6 @@ def float_mm_mp(
             b.contiguous(),
             c.contiguous(),
             s.contiguous(),
-            a.shape[0],
-            b.shape[1],
-            a.shape[1],
-            subnormals,
-            saturate,
-            compensated,
-        )
-    else:
-        quant_module.float_quantize_nearest_mm_fma_mp(
-            a.contiguous(),
-            b.contiguous(),
-            c.contiguous(),
-            s.contiguous(),
-            a.shape[0],
-            b.shape[1],
-            a.shape[1],
-            subnormals,
-            saturate,
-            compensated,
-        )
-
-    return c
-
-
-def float_mm_mpv2(
-    a: torch.Tensor,
-    b: torch.Tensor,
-    s: torch.Tensor,
-    mans: torch.Tensor,
-    exps: torch.Tensor,
-    fma: bool = True,
-    subnormals: bool = True,
-    saturate: bool = False,
-    compensated: bool = False,
-) -> torch.Tensor:
-    """
-    Mixed-precision floating-point GEMM with customized formats for the multipliers and accumulators
-    Args:
-        `a` (torch.Tensor): the input of GEMM, with shape:(M, K)
-        `b` (torch.Tensor) : the input of GEMM, with shape:(K, N)
-        `fma` (bool) : use fma operation instead of separate multiply and add (uses the
-        man_add and exp_add parameters for the rounding of the fma results)
-        `subnormals` (bool): allow the use of subnormal values
-        `saturate` (bool): saturate results (i.e., clamp values at min/max representable in the format instead of outputting infinities)
-        `compensated` (bool): compensated flag (i.e., use Kahan summation)
-    Returns:
-        - the result of GEMM (torch.Tensor)
-    """
-
-    assert len(a.shape) == 2
-    assert len(b.shape) == 2
-    assert a.shape[1] == b.shape[0]
-    assert a.device == b.device
-    quant_module = get_module(a)
-    c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
-
-    if not fma:
-        quant_module.float_quantize_nearest_mm_mpv2(
-            a.contiguous(),
-            b.contiguous(),
-            c.contiguous(),
-            s.contiguous(),
             mans.contiguous(),
             exps.contiguous(),
             a.shape[0],
@@ -1763,7 +1701,7 @@ def float_mm_mpv2(
             compensated,
         )
     else:
-        quant_module.float_quantize_nearest_mm_fma_mpv2(
+        quant_module.float_quantize_nearest_mm_fma_mp(
             a.contiguous(),
             b.contiguous(),
             c.contiguous(),
@@ -3150,18 +3088,6 @@ def float_quantize(
 def float_quantize_mp(
     x: torch.Tensor,
     s: torch.Tensor,
-    rounding: Literal["nearest"] = "nearest",
-    subnormals: bool = True,
-    saturate: bool = False,
-) -> torch.Tensor:
-    quant_module = get_module(x)
-    out = quant_module.float_quantize_nearest_mp(x, s, subnormals, saturate)
-    return out
-
-
-def float_quantize_mpv2(
-    x: torch.Tensor,
-    s: torch.Tensor,
     mans: torch.Tensor,
     exps: torch.Tensor,
     rounding: Literal["nearest"] = "nearest",
@@ -3169,9 +3095,7 @@ def float_quantize_mpv2(
     saturate: bool = False,
 ) -> torch.Tensor:
     quant_module = get_module(x)
-    out = quant_module.float_quantize_nearest_mpv2(
-        x, s, mans, exps, subnormals, saturate
-    )
+    out = quant_module.float_quantize_nearest_mp(x, s, mans, exps, subnormals, saturate)
     return out
 
 

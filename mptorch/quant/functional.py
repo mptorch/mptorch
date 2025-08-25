@@ -14,7 +14,6 @@ from .quant_format import (
 __all__ = [
     "qlinear",
     "qlinear_mp",
-    "qlinear_mpv2",
     "qmatmul",
     "qmm",
     "qadd",
@@ -213,94 +212,13 @@ def qlinear(
 class qlinear_mp(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, input, weight, bias, formats, s):
-        ctx.formats = formats
-        ctx.s = (s,)
-        qinput = formats.input_quant(input)
-        qweight = formats.weight_quant(weight)
-        output = float_mm_mp(
-            qinput,
-            qweight.t(),
-            s,
-            fma=formats.fwd_fma,
-            subnormals=formats.fwd_add.subnormals,
-            saturate=formats.fwd_add.saturate,
-        )
-        if bias is not None:
-            qbias = formats.bias_quant(bias)
-            output += qbias.unsqueeze(0).expand_as(output)
-
-            output = float_quantize_mp(
-                output.contiguous(),
-                s,
-                rounding=formats.fwd_rnd,
-                subnormals=formats.fwd_add.subnormals,
-                saturate=formats.fwd_add.saturate,
-            )
-            ctx.save_for_backward(qinput, qweight, qbias)
-        else:
-            ctx.save_for_backward(qinput, qweight, bias)
-        qoutput = formats.output_quant(output)
-        return qoutput
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        qinput, qweight, qbias = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
-        qgrad_output = ctx.formats.grad_quant(grad_output)
-
-        # FIXME: this should be rewritten for when we have a BP mixed precision strategy
-        if ctx.needs_input_grad[0]:
-            grad_input = float_mm_mp(
-                qgrad_output,
-                qweight,
-                ctx.s,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
-            )
-        if ctx.needs_input_grad[1]:
-            grad_weight = float_mm_mp(
-                qgrad_output.t(),
-                qinput,
-                ctx.s,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
-            )
-        if qbias is not None and ctx.needs_input_grad[2]:
-            ones = torch.ones(1, qgrad_output.shape[0], device=grad_output.device)
-            grad_bias = float_mm_mp(
-                ones,
-                qgrad_output,
-                ctx.s,
-                fma=ctx.formats.bwd_fma,
-                subnormals=ctx.formats.bwd_add.subnormals,
-                saturate=ctx.formats.bwd_add.saturate,
-            ).reshape(-1)
-
-        if ctx.needs_input_grad[0]:
-            qgrad_input = ctx.formats.grad_quant(grad_input)
-        else:
-            qgrad_input = None
-        qgrad_weight = ctx.formats.grad_quant(grad_weight)
-        if grad_bias is not None:
-            qgrad_bias = ctx.formats.grad_quant(grad_bias)
-        else:
-            qgrad_bias = None
-        return qgrad_input, qgrad_weight, qgrad_bias, None, None
-
-
-class qlinear_mpv2(torch.autograd.Function):
-
-    @staticmethod
     def forward(ctx, input, weight, bias, formats, s, mans, exps):
         ctx.formats = formats
         ctx.s = (s,)
         ctx.mans, ctx.exps = mans, exps
         qinput = formats.input_quant(input)
         qweight = formats.weight_quant(weight)
-        output = float_mm_mpv2(
+        output = float_mm_mp(
             qinput,
             qweight.t(),
             s,
@@ -314,7 +232,7 @@ class qlinear_mpv2(torch.autograd.Function):
             qbias = formats.bias_quant(bias)
             output += qbias.unsqueeze(0).expand_as(output)
 
-            output = float_quantize_mpv2(
+            output = float_quantize_mp(
                 output.contiguous(),
                 s,
                 mans,
@@ -337,7 +255,7 @@ class qlinear_mpv2(torch.autograd.Function):
 
         # FIXME: this should be rewritten for when we have a BP mixed precision strategy
         if ctx.needs_input_grad[0]:
-            grad_input = float_mm_mpv2(
+            grad_input = float_mm_mp(
                 qgrad_output,
                 qweight,
                 ctx.s,
@@ -348,7 +266,7 @@ class qlinear_mpv2(torch.autograd.Function):
                 saturate=ctx.formats.bwd_add.saturate,
             )
         if ctx.needs_input_grad[1]:
-            grad_weight = float_mm_mpv2(
+            grad_weight = float_mm_mp(
                 qgrad_output.t(),
                 qinput,
                 ctx.s,
@@ -360,7 +278,7 @@ class qlinear_mpv2(torch.autograd.Function):
             )
         if qbias is not None and ctx.needs_input_grad[2]:
             ones = torch.ones(1, qgrad_output.shape[0], device=grad_output.device)
-            grad_bias = float_mm_mpv2(
+            grad_bias = float_mm_mp(
                 ones,
                 qgrad_output,
                 ctx.s,
