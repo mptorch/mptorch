@@ -68,7 +68,7 @@ def get_sources(directory):
 current_path = os.path.dirname(os.path.realpath(__file__))
 quant_cpu = load(
     name="quant_cpu",
-    sources=get_sources(os.path.join(current_path, "../src/quant_cpu")),
+    sources=get_sources(os.path.join(current_path, "quant_cpu")),
     extra_cflags=["-fopenmp"],
 )
 
@@ -78,7 +78,7 @@ if torch.cuda.is_available():
         extra_ldflags.append("cublas.lib")
     quant_cuda = load(
         name="quant_cuda",
-        sources=get_sources(os.path.join(current_path, "../src/quant_cuda")),
+        sources=get_sources(os.path.join(current_path, "quant_cuda")),
         extra_ldflags=extra_ldflags,
         extra_cuda_cflags=["--extended-lambda"],
     )
