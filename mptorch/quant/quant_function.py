@@ -54,16 +54,21 @@ __all__ = [
     "binary8_layernorm_backward",
 ]
 
+
+def get_sources(directory):
+    sources = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".cpp") or file.endswith(".cu"):
+                sources.append(os.path.join(root, file))
+
+    return sources
+
+
 current_path = os.path.dirname(os.path.realpath(__file__))
 quant_cpu = load(
     name="quant_cpu",
-    sources=[
-        os.path.join(current_path, "quant_cpu/pybind_cpu.cpp"),
-        os.path.join(current_path, "quant_cpu/binary8.cpp"),
-        os.path.join(current_path, "quant_cpu/quant.cpp"),
-        os.path.join(current_path, "quant_cpu/sim_helper.cpp"),
-        os.path.join(current_path, "quant_cpu/bit_helper.cpp"),
-    ],
+    sources=get_sources(os.path.join(current_path, "../src/quant_cpu")),
     extra_cflags=["-fopenmp"],
 )
 
@@ -73,18 +78,7 @@ if torch.cuda.is_available():
         extra_ldflags.append("cublas.lib")
     quant_cuda = load(
         name="quant_cuda",
-        sources=[
-            os.path.join(current_path, "quant_cuda/pybind_cuda.cpp"),
-            os.path.join(current_path, "quant_cuda/bit_helper.cu"),
-            os.path.join(current_path, "quant_cuda/sim_helper.cu"),
-            os.path.join(current_path, "quant_cuda/block_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/fp_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/fxp_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/superfp_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/quant.cu"),
-            os.path.join(current_path, "quant_cuda/binary8_kernel.cu"),
-            os.path.join(current_path, "quant_cuda/cublas_helper.cpp"),
-        ],
+        sources=get_sources(os.path.join(current_path, "../src/quant_cuda")),
         extra_ldflags=extra_ldflags,
         extra_cuda_cflags=["--extended-lambda"],
     )
