@@ -136,7 +136,7 @@ uint32_t clip_max_exponent(int man_bits, uint32_t max_exponent, uint32_t quantiz
 }
 
 // clips the exponent of a floating point format with subnormal values
-uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
                                        uint32_t quantized_num, bool saturate)
 {
   if (quantized_num == 0)
@@ -158,8 +158,8 @@ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_
 }
 
 // clips the exponent of a floating point format without subnormal values
-uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                          uint32_t quantized_num, bool saturate)
+uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
+                                    uint32_t quantized_num, bool saturate)
 {
   if (quantized_num == 0)
     return quantized_num;

@@ -413,7 +413,7 @@ float cast_fp_nearest(float origin_float,
       int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
       quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
       quantize_bits =
-          clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
