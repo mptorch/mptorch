@@ -1,0 +1,685 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.modules.batchnorm &#8212; mptorch 0.3.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../../_static/documentation_options.js?v=e259d695"></script>
+    <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/modules/batchnorm';</script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">mptorch 0.3.0 documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.modules.batchnorm</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.modules.batchnorm</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..functional</span><span class="w"> </span><span class="kn">import</span> <span class="n">qmean</span><span class="p">,</span> <span class="n">qadd</span><span class="p">,</span> <span class="n">qpow</span><span class="p">,</span> <span class="n">qdiv</span><span class="p">,</span> <span class="n">qsqrt</span><span class="p">,</span> <span class="n">qmul</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;QBatchNorm1d&quot;</span><span class="p">,</span> <span class="s2">&quot;QBatchNorm2d&quot;</span><span class="p">]</span>
+
+<span class="c1"># TODO: arrive at parity with the PyTorch baseline implementation, add support for the 3D version</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">batch_norm</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">moving_mean</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">moving_var</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+<span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">is_grad_enabled</span><span class="p">():</span>
+        <span class="n">x_hat</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span>
+            <span class="n">fwd_quant</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">moving_mean</span><span class="p">)</span>
+            <span class="o">/</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">fwd_quant</span><span class="p">(</span><span class="n">moving_var</span> <span class="o">+</span> <span class="n">eps</span><span class="p">)))</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">mean</span> <span class="o">=</span> <span class="n">qmean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+            <span class="n">var</span> <span class="o">=</span> <span class="n">qmean</span><span class="p">(</span>
+                <span class="n">qpow</span><span class="p">(</span>
+                    <span class="n">qadd</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">-</span><span class="n">mean</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">),</span>
+                    <span class="n">fwd_quant</span><span class="p">,</span>
+                    <span class="n">bwd_quant</span><span class="p">,</span>
+                    <span class="mi">2</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">fwd_quant</span><span class="p">,</span>
+                <span class="n">bwd_quant</span><span class="p">,</span>
+                <span class="mi">0</span><span class="p">,</span>
+                <span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mean</span> <span class="o">=</span> <span class="n">qmean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="kc">True</span><span class="p">)</span>
+            <span class="n">var</span> <span class="o">=</span> <span class="n">qmean</span><span class="p">(</span>
+                <span class="n">qpow</span><span class="p">(</span>
+                    <span class="n">qadd</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">-</span><span class="n">mean</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">),</span>
+                    <span class="n">fwd_quant</span><span class="p">,</span>
+                    <span class="n">bwd_quant</span><span class="p">,</span>
+                    <span class="mi">2</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">fwd_quant</span><span class="p">,</span>
+                <span class="n">bwd_quant</span><span class="p">,</span>
+                <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+                <span class="kc">True</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">x_hat</span> <span class="o">=</span> <span class="n">qdiv</span><span class="p">(</span>
+            <span class="n">qadd</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">-</span><span class="n">mean</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">),</span>
+            <span class="n">qsqrt</span><span class="p">(</span><span class="n">var</span> <span class="o">+</span> <span class="n">eps</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">),</span>
+            <span class="n">fwd_quant</span><span class="p">,</span>
+            <span class="n">bwd_quant</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># moving mean and moving average do not have gradients that need to be recorded</span>
+        <span class="n">mfactor</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">momentum</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">))</span>
+        <span class="n">moving_mean</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">momentum</span> <span class="o">*</span> <span class="n">moving_mean</span><span class="p">)</span>
+        <span class="n">diff_mean</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">mfactor</span> <span class="o">*</span> <span class="n">mean</span><span class="p">)</span>
+        <span class="n">moving_mean</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">moving_mean</span> <span class="o">+</span> <span class="n">diff_mean</span><span class="p">)</span>
+        <span class="n">moving_var</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">momentum</span> <span class="o">*</span> <span class="n">moving_var</span><span class="p">)</span>
+        <span class="n">diff_var</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">mfactor</span> <span class="o">*</span> <span class="n">var</span><span class="p">)</span>
+        <span class="n">moving_var</span> <span class="o">=</span> <span class="n">fwd_quant</span><span class="p">(</span><span class="n">moving_var</span> <span class="o">+</span> <span class="n">diff_var</span><span class="p">)</span>
+
+    <span class="n">y</span> <span class="o">=</span> <span class="n">qadd</span><span class="p">(</span>
+        <span class="n">qmul</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">x_hat</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="p">),</span>
+        <span class="n">bias</span><span class="p">,</span>
+        <span class="n">fwd_quant</span><span class="p">,</span>
+        <span class="n">bwd_quant</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">y</span><span class="p">,</span> <span class="n">moving_mean</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">moving_var</span><span class="o">.</span><span class="n">data</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">QBatchNorm</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">num_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">num_dims</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_quant</span> <span class="o">=</span> <span class="n">fwd_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_quant</span> <span class="o">=</span> <span class="n">bwd_quant</span>
+        <span class="k">if</span> <span class="n">num_dims</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">num_features</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="n">num_features</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">num_features</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bias</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">num_features</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">moving_var</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Applies the batch normalization operation on the input tensor.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            x: input tensor</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            the result of the batch normalization operation over the input. Behaves differently</span>
+<span class="sd">            depending if the module is in inference or train mode.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">moving_var</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">moving_var</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+
+        <span class="n">y</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">moving_var</span> <span class="o">=</span> <span class="n">batch_norm</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">moving_mean</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">moving_var</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span>
+            <span class="n">momentum</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
+            <span class="n">fwd_quant</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_quant</span><span class="p">,</span>
+            <span class="n">bwd_quant</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_quant</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">y</span>
+
+
+<div class="viewcode-block" id="QBatchNorm1d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.modules.QBatchNorm1d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QBatchNorm1d</span><span class="p">(</span><span class="n">QBatchNorm</span><span class="p">):</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Applies Batch Normalization over a 2D input.</span>
+
+<span class="sd">    Method described in the paper</span>
+<span class="sd">    `Batch Normalization: Accelerating Deep Network Training by Reducing</span>
+<span class="sd">    Internal Covariate Shift &lt;https://arxiv.org/abs/1502.03167&gt;`__ .</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        y = \frac{x - \mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta</span>
+
+<span class="sd">    The mean and standard-deviation are calculated per-dimension over</span>
+<span class="sd">    the mini-batches and :math:`\gamma` and :math:`\beta` are learnable parameter vectors</span>
+<span class="sd">    of size `C` (where `C` is the number of features or channels of the input). By default, the</span>
+<span class="sd">    elements of :math:`\gamma` are set to 1 and the elements of :math:`\beta` are set to 0.</span>
+<span class="sd">    At train time in the forward pass, the variance is calculated via the biased estimator,</span>
+<span class="sd">    equivalent to ``torch.var(input, unbiased=False)``. However, the value stored in the</span>
+<span class="sd">    moving average of the variance is calculated via the unbiased  estimator, equivalent to</span>
+<span class="sd">    ``torch.var(input, unbiased=True)``.</span>
+
+<span class="sd">    Also by default, during training this layer keeps running estimates of its</span>
+<span class="sd">    computed mean and variance, which are then used for normalization during</span>
+<span class="sd">    evaluation. The running estimates are kept with a default momentum of 0.1.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">        This momentum is different from one used in optimizer</span>
+<span class="sd">        classes and the conventional notion of momentum. Mathematically, the</span>
+<span class="sd">        update rule for running statistics here is</span>
+<span class="sd">        :math:`\hat{x}_\text{new} = (1 - \text{momentum}) \times \hat{x} + \text{momentum} \times x_t`,</span>
+<span class="sd">        where :math:`\hat{x}` is the estimated statistic and :math:`x_t` is the</span>
+<span class="sd">        new observed value.</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: :math:`(N, C)` or :math:`(N, C, L)`, where :math:`N` is the batch size,</span>
+<span class="sd">          :math:`C` is the number of features or channels, and :math:`L` is the sequence length</span>
+<span class="sd">        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">num_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Because the Batch Normalization is done over the `C` dimension, computing statistics</span>
+<span class="sd">        on `(N, L)` slices, it&#39;s common terminology to call this Temporal Batch Normalization.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            num_features: number of features or channels :math:`C` of the input</span>
+<span class="sd">            fwd_quant: quantization function to use during FWD operations</span>
+<span class="sd">            bwd_quant: quantization function to use during BWD operations</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">num_features</span><span class="p">,</span> <span class="n">num_dims</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="o">=</span><span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="o">=</span><span class="n">bwd_quant</span>
+        <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="QBatchNorm2d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.modules.QBatchNorm2d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QBatchNorm2d</span><span class="p">(</span><span class="n">QBatchNorm</span><span class="p">):</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Applies Batch Normalization over a 4D input.</span>
+
+<span class="sd">    4D is a mini-batch of 2D inputs</span>
+<span class="sd">    with additional channel dimension. Method described in the paper</span>
+<span class="sd">    `Batch Normalization: Accelerating Deep Network Training by Reducing</span>
+<span class="sd">    Internal Covariate Shift &lt;https://arxiv.org/abs/1502.03167&gt;`__ .</span>
+
+<span class="sd">    .. math::</span>
+
+<span class="sd">        y = \frac{x - \mathrm{E}[x]}{ \sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta</span>
+
+<span class="sd">    The mean and standard-deviation are calculated per-dimension over</span>
+<span class="sd">    the mini-batches and :math:`\gamma` and :math:`\beta` are learnable parameter vectors</span>
+<span class="sd">    of size `C` (where `C` is the input size). By default, the elements of :math:`\gamma` are set</span>
+<span class="sd">    to 1 and the elements of :math:`\beta` are set to 0. At train time in the forward pass, the</span>
+<span class="sd">    standard-deviation is calculated via the biased estimator, equivalent to</span>
+<span class="sd">    ``torch.var(input, unbiased=False)``. However, the value stored in the moving average of the</span>
+<span class="sd">    standard-deviation is calculated via the unbiased  estimator, equivalent to</span>
+<span class="sd">    ``torch.var(input, unbiased=True)``.</span>
+
+<span class="sd">    Also by default, during training this layer keeps running estimates of its</span>
+<span class="sd">    computed mean and variance, which are then used for normalization during</span>
+<span class="sd">    evaluation. The running estimates are kept with a default momentum</span>
+<span class="sd">    of 0.1.</span>
+
+<span class="sd">    .. note::</span>
+<span class="sd">        This momentum different from one used in optimizer</span>
+<span class="sd">        classes and the conventional notion of momentum. Mathematically, the</span>
+<span class="sd">        update rule for running statistics here is</span>
+<span class="sd">        :math:`\hat{x}_\text{new} = (1 - \text{momentum}) \times \hat{x} + \text{momentum} \times x_t`,</span>
+<span class="sd">        where :math:`\hat{x}` is the estimated statistic and :math:`x_t` is the</span>
+<span class="sd">        new observed value.</span>
+
+<span class="sd">    Because the Batch Normalization is done over the `C` dimension, computing statistics</span>
+<span class="sd">    on `(N, H, W)` slices, it&#39;s common terminology to call this Spatial Batch Normalization.</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: :math:`(N, C, H, W)`</span>
+<span class="sd">        - Output: :math:`(N, C, H, W)` (same shape as input)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">num_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">fwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bwd_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Args:</span>
+<span class="sd">            num_features: :math:`C` from an expected input of size</span>
+<span class="sd">                :math:`(N, C, H, W)`</span>
+<span class="sd">            fwd_quant: quantization function to use during FWD operations</span>
+<span class="sd">            bwd_quant: quantization function to use during BWD operations</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">num_features</span><span class="p">,</span> <span class="n">num_dims</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">fwd_quant</span><span class="o">=</span><span class="n">fwd_quant</span><span class="p">,</span> <span class="n">bwd_quant</span><span class="o">=</span><span class="n">bwd_quant</span>
+        <span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2025, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

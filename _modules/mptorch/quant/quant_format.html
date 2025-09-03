@@ -1,0 +1,919 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.quant_format &#8212; mptorch 0.3.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=e259d695"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/quant_format';</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">mptorch 0.3.0 documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../usage.html">
+    Usage
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../examples.html">
+    Examples
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.quant_format</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.quant_format</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..number</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.quant_function</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">float_quantize</span><span class="p">,</span>
+    <span class="n">fixed_point_quantize</span><span class="p">,</span>
+    <span class="n">superfp_quantize</span><span class="p">,</span>
+    <span class="n">block_quantize</span><span class="p">,</span>
+    <span class="n">binary8_quantize</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;QAffineFormats&quot;</span><span class="p">,</span> <span class="s2">&quot;QSoftmaxFormats&quot;</span><span class="p">,</span> <span class="s2">&quot;QLayerNormFormats&quot;</span><span class="p">,</span> <span class="s2">&quot;QGELUFormats&quot;</span><span class="p">]</span>
+
+<span class="n">id_quant</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">:</span> <span class="n">Number</span><span class="p">,</span> <span class="n">rounding</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">FloatingPoint</span><span class="p">):</span>
+        <span class="k">return</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">float_quantize</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">exp</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">man</span><span class="p">,</span> <span class="n">rounding</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">saturate</span><span class="p">,</span> <span class="n">prng_bits</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">FixedPoint</span><span class="p">):</span>
+        <span class="k">return</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">fixed_point_quantize</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">wl</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">fl</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">clamp</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">symmetric</span><span class="p">,</span> <span class="n">rounding</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">SuperNormalFloat</span><span class="p">):</span>
+        <span class="k">return</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">superfp_quantize</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">exp</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">man</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">binades</span><span class="p">,</span> <span class="n">rounding</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">saturate</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">BlockFloatingPoint</span><span class="p">):</span>
+        <span class="k">return</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">block_quantize</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">wl</span><span class="p">,</span> <span class="n">num</span><span class="o">.</span><span class="n">dim</span><span class="p">,</span> <span class="n">rounding</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">Binary8</span><span class="p">):</span>
+        <span class="k">return</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">binary8_quantize</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="n">num</span><span class="o">.</span><span class="n">P</span><span class="p">,</span>
+            <span class="n">rounding</span><span class="p">,</span>
+            <span class="n">num</span><span class="o">.</span><span class="n">overflow_policy</span><span class="p">,</span>
+            <span class="n">num</span><span class="o">.</span><span class="n">signed</span><span class="p">,</span>
+            <span class="n">num</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+            <span class="n">prng_bits</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+
+<div class="viewcode-block" id="QAffineFormats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.quant_format.QAffineFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration class for number formats to use during compute (forward</span>
+<span class="sd">    and/or backward pass) of affine layers (e.g. linear and convolutional).</span>
+<span class="sd">    One can optionally specify quantizer objects for the signals in the</span>
+<span class="sd">    layer (I/O activations, weights/bias terms and weight/error gradients)</span>
+<span class="sd">    to facilitate quantization-aware-training (QAT) and post-training</span>
+<span class="sd">    quantization (PTQ) workloads. Format parameters can also be specified</span>
+<span class="sd">    for tensor scaling operations, in a similar way to what is described</span>
+<span class="sd">    in: https://arxiv.org/pdf/2309.17224</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fwd_mac: compute configuration (add and multiply) for forward MAC operations</span>
+<span class="sd">        bwd_mac: compute configuration (add and multiply) for backward MAC operations</span>
+<span class="sd">        fwd_rnd: rounding mode for FWD computations</span>
+<span class="sd">        bwd_rnd: rounding mode for BWD computations</span>
+<span class="sd">        weight_quant: quantization function or format and rounding on the weight signal inputs</span>
+<span class="sd">        bias_quant: quantization function or format and rounding on the bias signal inputs</span>
+<span class="sd">        input_quant: quantization function or format and rounding on the output signal from the layer</span>
+<span class="sd">        grad_quant: quantization function or format and rounding on the gradient signals in the BWD pass</span>
+<span class="sd">        use_scaling: whether to use weight, input and grad scaling during forward/backward pass</span>
+<span class="sd">        weight_scaled_format: number format to be used during weight tensor scaling (optional, matches weight_quant if format specified)</span>
+<span class="sd">        input_scaled_format: number format to be used during input tensor scaling (optional, matches input_quant if format specified)</span>
+<span class="sd">        grad_scaled_format: number format to be used during output tensor scaling (optional, matches grad_quant if format specified)</span>
+<span class="sd">        scale_margin: margin to reduce scaling bias when casting down to FP8 formats</span>
+<span class="sd">        rbits: number of bits used for random number generation when rounding is stochastic (for add and multiply)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">fwd_mac</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_mac</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="n">Number</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">weight_quant</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">bias_quant</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">input_quant</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">output_quant</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">grad_quant</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Number</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">compensated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">use_scaling</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">weight_scaled_format</span><span class="p">:</span> <span class="n">FloatType</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">input_scaled_format</span><span class="p">:</span> <span class="n">FloatType</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">grad_scaled_format</span><span class="p">:</span> <span class="n">FloatType</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">scale_margin</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">rbits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">s</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">fwd_mac</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fwd_mac</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+                <span class="n">fwd_mac</span> <span class="o">=</span> <span class="p">(</span><span class="n">fwd_mac</span><span class="p">,)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fwd_mac</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_add</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span><span class="p">)</span> <span class="o">=</span> <span class="n">fwd_mac</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_fma</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">fwd_mac</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_add</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span> <span class="o">=</span> <span class="n">fwd_mac</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_fma</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_add</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_fma</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">bwd_mac</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">bwd_mac</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+                <span class="n">bwd_mac</span> <span class="o">=</span> <span class="p">(</span><span class="n">bwd_mac</span><span class="p">,)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">bwd_mac</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span><span class="p">)</span> <span class="o">=</span> <span class="n">bwd_mac</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_fma</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">bwd_mac</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span> <span class="o">=</span> <span class="n">bwd_mac</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_fma</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_fma</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span> <span class="o">=</span> <span class="n">fwd_rnd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span> <span class="o">=</span> <span class="n">bwd_rnd</span>
+
+        <span class="k">if</span> <span class="n">fwd_mac</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">fwd_rnd</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span>
+        <span class="k">if</span> <span class="n">bwd_mac</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">bwd_rnd</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">rbits</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">rbits</span> <span class="o">=</span> <span class="p">(</span><span class="n">rbits</span><span class="p">,)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">rbits</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_mul</span><span class="p">)</span> <span class="o">=</span> <span class="n">rbits</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_mul</span> <span class="o">=</span> <span class="n">rbits</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compensated</span> <span class="o">=</span> <span class="n">compensated</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight_scaled_format</span> <span class="o">=</span> <span class="n">weight_scaled_format</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_scaled_format</span> <span class="o">=</span> <span class="n">input_scaled_format</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="o">=</span> <span class="n">grad_scaled_format</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_quant</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">num</span><span class="p">,</span> <span class="n">rnd</span> <span class="o">=</span> <span class="n">weight_quant</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">rnd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_scaled_format</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">FloatType</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">weight_scaled_format</span> <span class="o">=</span> <span class="n">num</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">weight_quant</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">bias_quant</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">num</span><span class="p">,</span> <span class="n">rnd</span> <span class="o">=</span> <span class="n">bias_quant</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">rnd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">bias_quant</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_quant</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">num</span><span class="p">,</span> <span class="n">rnd</span> <span class="o">=</span> <span class="n">input_quant</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">rnd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scaled_format</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">FloatType</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">input_scaled_format</span> <span class="o">=</span> <span class="n">num</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">input_quant</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">output_quant</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">num</span><span class="p">,</span> <span class="n">rnd</span> <span class="o">=</span> <span class="n">output_quant</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">output_quant</span> <span class="o">=</span> <span class="n">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">rnd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">output_quant</span> <span class="o">=</span> <span class="n">output_quant</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">grad_quant</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">num</span><span class="p">,</span> <span class="n">rnd</span> <span class="o">=</span> <span class="n">grad_quant</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">grad_quant</span> <span class="o">=</span> <span class="n">make_quant_function</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">rnd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">num</span><span class="p">,</span> <span class="n">FloatType</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="o">=</span> <span class="n">num</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">grad_quant</span> <span class="o">=</span> <span class="n">grad_quant</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_scaling</span> <span class="o">=</span> <span class="n">use_scaling</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">s</span> <span class="o">=</span> <span class="n">s</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale_margin</span> <span class="o">=</span> <span class="n">scale_margin</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_fwd&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_fma</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_fma=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_add=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_bwd&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_fma</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_fma=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_add=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_scaled_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;weight_scaled_format=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weight_scaled_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scaled_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;input_scaled_format=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">input_scaled_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">grad_scaled_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;grad_scaled_format=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">grad_scaled_format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_scaling</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;scale bias margin=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scale_margin</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;rbits_add=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">rbits_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;rbits_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">rbits_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">sep</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;QAffineFormats (</span><span class="si">{</span><span class="n">sep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="QLayerNormFormats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.quant_format.QLayerNormFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QLayerNormFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration class for number formats to use during compute (forward</span>
+<span class="sd">    and/or backward pass) of layer normalization.</span>
+<span class="sd">    One can optionally specify quantizer objects for the signals in the</span>
+<span class="sd">    layer (I/O activations, weights/bias terms and weight/error gradients)</span>
+<span class="sd">    to facilitate quantization-aware-training (QAT) and post-training</span>
+<span class="sd">    quantization (PTQ) workloads.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fwd_acc: compute configuration for forward add operations</span>
+<span class="sd">        fwd_mul: compute configuration for forward multiply operations</span>
+<span class="sd">        fwd_div: compute configuration for forward divide operations</span>
+<span class="sd">        fwd_sqrt: compute configuration for forward square root operations</span>
+<span class="sd">        bwd_acc: compute configuration for backward add operations</span>
+<span class="sd">        bwd_mul: compute configuration for backward multiply operations</span>
+<span class="sd">        bwd_div: compute configuration for backward divide operations,</span>
+<span class="sd">        fwd_rnd: rounding mode for forward computations</span>
+<span class="sd">        bwd_rnd: rounding mode for backward computations</span>
+<span class="sd">        input_quant: quantization function on the input signal</span>
+<span class="sd">        output_quant: quantization function on the output signal</span>
+<span class="sd">        grad_quant: quantization function on the gradients</span>
+<span class="sd">        weight_quant: quantization function on the weights when applied to an input</span>
+<span class="sd">        bias_quant: quantization function on the bias when applied to an input</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">fwd_acc</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_mul</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_div</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_sqrt</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_acc</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_mul</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_div</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span><span class="p">,</span>
+        <span class="n">bwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span><span class="p">,</span>
+        <span class="n">input_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">output_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">grad_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">weight_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">bias_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="n">fwd_acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">fwd_mul</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">fwd_div</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="n">fwd_sqrt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_acc</span> <span class="o">=</span> <span class="n">fwd_acc</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span> <span class="o">=</span> <span class="n">fwd_mul</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_div</span> <span class="o">=</span> <span class="n">fwd_div</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_sqrt</span> <span class="o">=</span> <span class="n">fwd_sqrt</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">bwd_acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">bwd_mul</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">bwd_div</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_acc</span> <span class="o">=</span> <span class="n">bwd_acc</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span> <span class="o">=</span> <span class="n">bwd_mul</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_div</span> <span class="o">=</span> <span class="n">bwd_div</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span> <span class="o">=</span> <span class="n">fwd_rnd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span> <span class="o">=</span> <span class="n">bwd_rnd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">input_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_quant</span> <span class="o">=</span> <span class="n">output_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">grad_quant</span> <span class="o">=</span> <span class="n">grad_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">weight_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">bias_quant</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_fwd&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_acc=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_acc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_div=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_div</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_sqrt=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_sqrt</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_bwd&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_acc=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_acc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_div=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_div</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">sep</span> <span class="o">=</span> <span class="s2">&quot; , &quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;QLayerNormFormats (</span><span class="si">{</span><span class="n">sep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="QSoftmaxFormats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.quant_format.QSoftmaxFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QSoftmaxFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration class for number formats to use during compute (forward</span>
+<span class="sd">    and/or backward pass) of softmax layers.</span>
+<span class="sd">    One can optionally specify quantizer objects for the signals in the</span>
+<span class="sd">    layer (I/O activations and weight/error gradients)</span>
+<span class="sd">    to facilitate quantization-aware-training (QAT) and post-training</span>
+<span class="sd">    quantization (PTQ) workloads.</span>
+
+<span class="sd">    Two implementations of the forward softmax are provided: regular and</span>
+<span class="sd">    LogSumExp-based (LSE).</span>
+
+<span class="sd">    Regular softmax is used when `fwd_off`, `fwd_exp` and `fwd_acc` are</span>
+<span class="sd">    set, and is implemented as follows:</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        \textrm{softmax}(x)_i = \frac{\exp(x_i - \max x)}{</span>
+<span class="sd">            \sum_j \exp(x_j - \max x)}</span>
+
+<span class="sd">    The LogSumExp implementation is used when `fwd_off` and `fwd_exp` are</span>
+<span class="sd">    set, and is implemented as follows:</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        \textrm{softmax}(x)_i = \ln(\textrm{LSE}(x_1, ..., x_n))</span>
+
+<span class="sd">    where :math:`\textrm{LSE}(x_1, ..., x_n)` is computed iteratively</span>
+<span class="sd">    with the relation:</span>
+
+<span class="sd">    .. math::</span>
+<span class="sd">        \textrm{LSE}(x_1, ..., x_{j+1})</span>
+<span class="sd">            = \ln(\exp \textrm{LSE}(x_1, ..., x_{j}) + \exp x_{j+1})</span>
+
+<span class="sd">    with the internal part of the log being computed at full precision.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fwd_off: compute configuration for forward subtraction</span>
+<span class="sd">        fwd_exp: compute configuration for forward exponential operations</span>
+<span class="sd">        fwd_acc: compute configuration for forward add operations</span>
+<span class="sd">        fwd_lse: compute configuration for forward LSE iteration</span>
+<span class="sd">        bwd_add: compute configuration for backward add operations</span>
+<span class="sd">        bwd_mul: compute configuration for backward multiply operations</span>
+<span class="sd">        fwd_rnd: rounding mode for forward computations</span>
+<span class="sd">        bwd_rnd: rounding mode for backward computations</span>
+<span class="sd">        input_quant: quantization function on the input signal</span>
+<span class="sd">        output_quant: quantization function on the output signal</span>
+<span class="sd">        grad_quant: quantization function on the gradients</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">fwd_off</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_exp</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_acc</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_lse</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_add</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_mul</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span><span class="p">,</span>
+        <span class="n">bwd_rnd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span><span class="p">,</span>
+        <span class="n">input_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">output_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">grad_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">fwd_off</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_off</span> <span class="o">=</span> <span class="n">fwd_off</span>
+            <span class="k">if</span> <span class="n">fwd_acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">fwd_exp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_acc</span> <span class="o">=</span> <span class="n">fwd_acc</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_exp</span> <span class="o">=</span> <span class="n">fwd_exp</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">use_lse</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">elif</span> <span class="n">fwd_lse</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fwd_lse</span> <span class="o">=</span> <span class="n">fwd_lse</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">use_lse</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;Incomplete softmax format, &quot;</span> <span class="s2">&quot;missing fwd_acc/fwd_exp or fwd_lse.&quot;</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">bwd_add</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">bwd_mul</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span> <span class="o">=</span> <span class="n">bwd_add</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span> <span class="o">=</span> <span class="n">bwd_mul</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span> <span class="o">=</span> <span class="n">fwd_rnd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span> <span class="o">=</span> <span class="n">bwd_rnd</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">input_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_quant</span> <span class="o">=</span> <span class="n">output_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">grad_quant</span> <span class="o">=</span> <span class="n">grad_quant</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_fwd&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_lse</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_off=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_off</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_lse=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_lse</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_off=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_off</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_exp=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_exp</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_acc=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_acc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bwd_use_default_prec</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;default_bwd&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_add=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_add</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_mul=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_mul</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bwd_rnd=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bwd_rnd</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">sep</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;QSoftmaxFormats (</span><span class="si">{</span><span class="n">sep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="fm">__repr__</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="QGELUFormats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.quant_format.QGELUFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QGELUFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration class for number formats to use during compute (forward</span>
+<span class="sd">    and/or backward pass) of GELU activation.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input_quant: quantization function on the input signal</span>
+<span class="sd">        inter_quant: quantization function on intermediate</span>
+<span class="sd">            computation, depends on wether *tanh* approximation is used</span>
+<span class="sd">        output_quant: quantization function on the output signal</span>
+<span class="sd">        grad_quant: quantization function on the gradients</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">input_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">inter_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">output_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+        <span class="n">grad_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">id_quant</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">input_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inter_quant</span> <span class="o">=</span> <span class="n">inter_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_quant</span> <span class="o">=</span> <span class="n">output_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">grad_quant</span> <span class="o">=</span> <span class="n">grad_quant</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2025, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 8.2.3.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
