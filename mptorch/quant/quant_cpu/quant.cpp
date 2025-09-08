@@ -426,7 +426,7 @@ float cast_fp_nearest(float origin_float,
     {
       quantize_bits = round_bitwise_nearest(target, man_bits);
       quantize_bits =
-          clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
