@@ -40,6 +40,10 @@ def compute_bias(x: torch.Tensor, cast_to: FloatType, margin: int) -> torch.Tens
     with torch.no_grad():
         (amax, _) = torch.max(torch.abs(x), dim=-1, keepdim=True)
         (amax, _) = torch.max(amax, dim=-2, keepdim=True)
+
+    if amax == 0.0:
+        return torch.tensor([1.0]).to(x.device)
+
     return (
         torch.floor(torch.log2(cast_to.normal_max / amax.double())).float() - margin
     )  # log2 must be done in fp64 precision or NaNs will show up in training

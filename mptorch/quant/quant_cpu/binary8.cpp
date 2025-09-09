@@ -50,8 +50,8 @@ float cast_binary8_signed_nearest(
         }
     }
 
-    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
-                              : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
+                              : round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
 
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
     return BITS_TO_FLOAT(&uval8);
@@ -195,8 +195,8 @@ float cast_binary8_unsigned_nearest(
         }
     }
 
-    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_p1(uval32, man_bits - subnormal_shift)
-                              : round_bitwise_nearest(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
+                              : round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
 
     return BITS_TO_FLOAT(&uval8);

@@ -315,11 +315,18 @@ Tensor block_quantize_stochastic(Tensor a, int wl, int dim)
   return o;
 }
 
-float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
+float cast_fp_stochastic(float origin_float,
                          int man_bits, int exp_bits,
                          bool subnormal_support = true,
                          bool saturate = false)
 {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0);
+
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  uint32_t rand_prob = (dis(gen)) & mask;
+
   uint32_t target, quantize_bits;
   target = RFLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -349,11 +356,18 @@ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
   return quantized;
 }
 
-float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
-                         int rand_bits, int man_bits, int exp_bits,
+float cast_fp_stochastic(float origin_float,
+                         int man_bits, int exp_bits, int rand_bits,
                          bool subnormal_support = true,
                          bool saturate = false)
 {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0);
+
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  uint32_t rand_prob = (dis(gen)) & mask;
+
   uint32_t target, quantize_bits;
   target = RFLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -386,10 +400,10 @@ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
   return quantized;
 }
 
-float cast_fp_nearest(float origin_float,
-                      int man_bits, int exp_bits,
-                      bool subnormal_support = true,
-                      bool saturate = false)
+float cast_fp_nearest_even(float origin_float,
+                           int man_bits, int exp_bits,
+                           bool subnormal_support = true,
+                           bool saturate = false)
 {
   uint32_t target, quantize_bits;
   target = RFLOAT_TO_BITS(&origin_float);
@@ -411,9 +425,9 @@ float cast_fp_nearest(float origin_float,
     {
       int exp_diff = man_bits - (min_exp - target_exp);
       int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-      quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+      quantize_bits = not_uflow * round_bitwise_nearest_even(target, exp_diff);
       quantize_bits =
-          clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -424,9 +438,9 @@ float cast_fp_nearest(float origin_float,
     // normal value range or overflow
     else
     {
-      quantize_bits = round_bitwise_nearest(target, man_bits);
+      quantize_bits = round_bitwise_nearest_even(target, man_bits);
       quantize_bits =
-          clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -434,37 +448,160 @@ float cast_fp_nearest(float origin_float,
   return quantized;
 }
 
-float float_quantize_nearest(float origin_float,
-                             int man_bits, int exp_bits,
-                             bool subnormal_support,
-                             bool saturate = false)
+float cast_fp_nearest_away(float origin_float,
+                           int man_bits, int exp_bits,
+                           bool subnormal_support = true,
+                           bool saturate = false)
 {
-  return cast_fp_nearest(
-      origin_float, man_bits, exp_bits,
-      subnormal_support, saturate);
-}
+  uint32_t target, quantize_bits;
+  target = RFLOAT_TO_BITS(&origin_float);
+  float quantized;
 
-float float_quantize_stochastic(float origin_float,
-                                int man_bits, int exp_bits, int prng_bits,
-                                bool subnormal_support, bool saturate = false)
-{
-  static std::random_device rd;
-  static std::mt19937 gen(rd());
-  static std::uniform_int_distribution<> dis(0);
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
 
-  uint32_t mask = (1 << (23 - man_bits)) - 1;
-  uint32_t rand_prob = (dis(gen)) & mask;
-  float quantized = cast_fp_stochastic(
-      origin_float, rand_prob, prng_bits, man_bits, exp_bits,
-      subnormal_support, saturate);
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+      quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_nearest_away(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
   return quantized;
 }
 
+float cast_fp_up(float origin_float, int man_bits, int exp_bits,
+                 bool subnormal_support = true, bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = RFLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+      quantize_bits = not_uflow * round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_up(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+float cast_fp_down(float origin_float, int man_bits, int exp_bits,
+                   bool subnormal_support = true, bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = RFLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1;
+      quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_down(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = RBITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+float cast_fp_zero(float origin_float, int man_bits, int exp_bits,
+                   bool subnormal_support = true, bool saturate = false)
+{
+  if (origin_float >= 0.0f)
+    return cast_fp_down(origin_float, man_bits, exp_bits, subnormal_support, saturate);
+  else
+    return cast_fp_up(origin_float, man_bits, exp_bits, subnormal_support, saturate);
+}
+
 // Remark: bias = 2^{e-1}
-float superfp_quantize(float origin,
-                       int man_bits, int exp_bits,
-                       int binades_l, int binades_u,
-                       bool saturate = false)
+float cast_superfp_nearest(float origin,
+                           int man_bits, int exp_bits,
+                           int binades_l, int binades_u,
+                           bool saturate = false)
 {
   int32_t sat = saturate;
   uint32_t target;
@@ -534,7 +671,7 @@ float superfp_quantize(float origin,
   }
   else
   {
-    uint32_t qtarget = round_bitwise_nearest(target, man_bits);
+    uint32_t qtarget = round_bitwise_nearest_even(target, man_bits);
     ftarget = RBITS_TO_FLOAT(&qtarget);
   }
 
@@ -553,7 +690,7 @@ Tensor superfp_quantize(Tensor a,
 
   for (int64_t i = 0; i < size; i++)
   {
-    o_array[i] = superfp_quantize(a_array[i], man_bits, exp_bits, binades_l, binades_u, saturate);
+    o_array[i] = cast_superfp_nearest(a_array[i], man_bits, exp_bits, binades_l, binades_u, saturate);
   }
   return o;
 }
@@ -569,7 +706,7 @@ Tensor float_quantize_stochastic(Tensor a,
 
   for (int64_t i = 0; i < size; i++)
   {
-    o_array[i] = float_quantize_stochastic(a_array[i], man_bits, exp_bits, prng_bits, subnormals, saturate);
+    o_array[i] = cast_fp_stochastic(a_array[i], man_bits, exp_bits, prng_bits, subnormals, saturate);
   }
   return o;
 }
@@ -585,7 +722,71 @@ Tensor float_quantize_nearest(Tensor a,
 
   for (int64_t i = 0; i < size; i++)
   {
-    o_array[i] = float_quantize_nearest(a_array[i], man_bits, exp_bits, subnormals, saturate);
+    o_array[i] = cast_fp_nearest_even(a_array[i], man_bits, exp_bits, subnormals, saturate);
+  }
+  return o;
+}
+
+Tensor float_quantize_nearest_away(Tensor a,
+                                   int man_bits, int exp_bits,
+                                   bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = cast_fp_nearest_away(a_array[i], man_bits, exp_bits, subnormals, saturate);
+  }
+  return o;
+}
+
+Tensor float_quantize_up(Tensor a,
+                         int man_bits, int exp_bits,
+                         bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = cast_fp_up(a_array[i], man_bits, exp_bits, subnormals, saturate);
+  }
+  return o;
+}
+
+Tensor float_quantize_down(Tensor a,
+                           int man_bits, int exp_bits,
+                           bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = cast_fp_down(a_array[i], man_bits, exp_bits, subnormals, saturate);
+  }
+  return o;
+}
+
+Tensor float_quantize_zero(Tensor a,
+                           int man_bits, int exp_bits,
+                           bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = cast_fp_zero(a_array[i], man_bits, exp_bits, subnormals, saturate);
   }
   return o;
 }
@@ -612,9 +813,9 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         M, K, N,
         [man_add, exp_add, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
   else
   {
@@ -622,9 +823,9 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         M, K, N,
         [man_add, exp_add, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
 }
 
@@ -642,9 +843,9 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         a.sizes()[0], M, K, N,
         [man_add, exp_add, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
   else
   {
@@ -652,9 +853,9 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         a.sizes()[0], M, K, N,
         [man_add, exp_add, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
 }
 
@@ -671,7 +872,7 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         M, K, N,
         [man_fma, exp_fma, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
   else
   {
@@ -679,7 +880,7 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         M, K, N,
         [man_fma, exp_fma, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
 }
 
@@ -696,7 +897,7 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         a.sizes()[0], M, K, N,
         [man_fma, exp_fma, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
   else
   {
@@ -704,7 +905,7 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         a.sizes()[0], M, K, N,
         [man_fma, exp_fma, subnormals, saturate](float x)
-        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
 }
 
@@ -717,9 +918,9 @@ void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
   mm_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
       [man_add, exp_add, rbits_add, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
+      { return cast_fp_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
       [man_mul, exp_mul, rbits_mul, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
+      { return cast_fp_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
@@ -731,9 +932,9 @@ void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
   bmm_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
       [man_add, exp_add, rbits_add, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
+      { return cast_fp_stochastic(x, man_add, exp_add, rbits_add, subnormals, saturate); },
       [man_mul, exp_mul, rbits_mul, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
+      { return cast_fp_stochastic(x, man_mul, exp_mul, rbits_mul, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
@@ -744,7 +945,7 @@ void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
   mm_fma_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
       [man_fma, exp_fma, rbits_fma, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
+      { return cast_fp_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
 }
 
 void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
@@ -755,7 +956,7 @@ void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
   bmm_fma_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
       [man_fma, exp_fma, rbits_fma, subnormals, saturate](float x)
-      { return float_quantize_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
+      { return cast_fp_stochastic(x, man_fma, exp_fma, rbits_fma, subnormals, saturate); });
 }
 
 void fixed_point_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
@@ -899,8 +1100,8 @@ void superfp_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
                                  bool saturate)
 {
   mm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_add, exp_add, binades_add_l, binades_add_u, saturate](float x)
-            { return superfp_quantize(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
-            { return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+            { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
+            { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
@@ -912,8 +1113,8 @@ void superfp_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                   bool saturate)
 {
   bmm_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_add, exp_add, binades_add_l, binades_add_u, saturate](float x)
-             { return superfp_quantize(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
-             { return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+             { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
+             { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
@@ -923,7 +1124,7 @@ void superfp_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
                                      bool saturate)
 {
   mm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N, [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate](float x)
-                { return superfp_quantize(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
+                { return cast_superfp_nearest(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
 }
 
 void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
@@ -933,7 +1134,7 @@ void superfp_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
                                       bool saturate)
 {
   bmm_fma_kernel(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N, [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate](float x)
-                 { return superfp_quantize(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
+                 { return cast_superfp_nearest(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
 }
 
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
@@ -947,15 +1148,15 @@ void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_exp, exp_exp](float x)
       {
-        return float_quantize_nearest(x, man_exp, exp_exp, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_exp, exp_exp, subnormals, saturate);
       },
       [subnormals, saturate, man_off, exp_off](float x)
       {
-        return float_quantize_nearest(x, man_off, exp_off, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_off, exp_off, subnormals, saturate);
       },
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate);
       });
 }
 
@@ -969,11 +1170,11 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_off, exp_off](float x)
       {
-        return float_quantize_nearest(x, man_off, exp_off, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_off, exp_off, subnormals, saturate);
       },
       [subnormals, saturate, man_lse, exp_lse](float x)
       {
-        return float_quantize_nearest(x, man_lse, exp_lse, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_lse, exp_lse, subnormals, saturate);
       });
 }
 
@@ -987,11 +1188,11 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
       a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
       [subnormals, saturate, man_add, exp_add](float x)
       {
-        return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate);
       });
 }
 
@@ -1003,9 +1204,9 @@ void superfp_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
 {
   auto sizes = partition_tensor(a, dim);
   softmax_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_exp, exp_exp, binades_exp_l, binades_exp_u, saturate](float x)
-                  { return superfp_quantize(x, man_exp, exp_exp, binades_exp_l, binades_exp_u, saturate); }, [man_off, exp_off, binades_off_l, binades_off_u, saturate](float x)
-                  { return superfp_quantize(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate](float x)
-                  { return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate); });
+                  { return cast_superfp_nearest(x, man_exp, exp_exp, binades_exp_l, binades_exp_u, saturate); }, [man_off, exp_off, binades_off_l, binades_off_u, saturate](float x)
+                  { return cast_superfp_nearest(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate](float x)
+                  { return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate); });
 }
 
 void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
@@ -1015,8 +1216,8 @@ void superfp_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
 {
   auto sizes = partition_tensor(a, dim);
   softmax_lse_forward(a.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_off, exp_off, binades_off_l, binades_off_u, saturate](float x)
-                      { return superfp_quantize(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate](float x)
-                      { return superfp_quantize(x, man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate); });
+                      { return cast_superfp_nearest(x, man_off, exp_off, binades_off_l, binades_off_u, saturate); }, [man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate](float x)
+                      { return cast_superfp_nearest(x, man_lse, exp_lse, binades_lse_l, binades_lse_u, saturate); });
 }
 
 void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
@@ -1026,8 +1227,8 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
 {
   auto sizes = partition_tensor(a, dim);
   softmax_backward(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes, [man_add, exp_add, binades_add_l, binades_add_u, saturate](float x)
-                   { return superfp_quantize(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
-                   { return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+                   { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate](float x)
+                   { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
@@ -1046,19 +1247,19 @@ void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
       eps, sizes,
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate);
       },
       [subnormals, saturate, man_div, exp_div](float x)
       {
-        return float_quantize_nearest(x, man_div, exp_div, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_div, exp_div, subnormals, saturate);
       },
       [subnormals, saturate, man_sqrt, exp_sqrt](float x)
       {
-        return float_quantize_nearest(x, man_sqrt, exp_sqrt, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_sqrt, exp_sqrt, subnormals, saturate);
       });
 }
 
@@ -1077,15 +1278,15 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor 
       grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
       [subnormals, saturate, man_acc, exp_acc](float x)
       {
-        return float_quantize_nearest(x, man_acc, exp_acc, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate);
       },
       [subnormals, saturate, man_mul, exp_mul](float x)
       {
-        return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate);
       },
       [subnormals, saturate, man_div, exp_div](float x)
       {
-        return float_quantize_nearest(x, man_div, exp_div, subnormals, saturate);
+        return cast_fp_nearest_even(x, man_div, exp_div, subnormals, saturate);
       });
 }
 
@@ -1105,19 +1306,19 @@ void superfp_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias
       eps, sizes,
       [saturate, man_acc, exp_acc, binades_acc_l, binades_acc_u](float x)
       {
-        return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
+        return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
       },
       [saturate, man_mul, exp_mul, binades_mul_l, binades_mul_u](float x)
       {
-        return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
+        return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
       },
       [saturate, man_div, exp_div, binades_div_l, binades_div_u](float x)
       {
-        return superfp_quantize(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
+        return cast_superfp_nearest(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
       },
       [saturate, man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u](float x)
       {
-        return superfp_quantize(x, man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u, saturate);
+        return cast_superfp_nearest(x, man_sqrt, exp_sqrt, binades_sqrt_l, binades_sqrt_u, saturate);
       });
 }
 
@@ -1136,15 +1337,15 @@ void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tenso
       grad_input.data_ptr<float>(), grad_weight.data_ptr<float>(), grad_bias.data_ptr<float>(), sizes,
       [saturate, man_acc, exp_acc, binades_acc_l, binades_acc_u](float x)
       {
-        return superfp_quantize(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
+        return cast_superfp_nearest(x, man_acc, exp_acc, binades_acc_l, binades_acc_u, saturate);
       },
       [saturate, man_mul, exp_mul, binades_mul_l, binades_mul_u](float x)
       {
-        return superfp_quantize(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
+        return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate);
       },
       [saturate, man_div, exp_div, binades_div_l, binades_div_u](float x)
       {
-        return superfp_quantize(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
+        return cast_superfp_nearest(x, man_div, exp_div, binades_div_l, binades_div_u, saturate);
       });
 }
 

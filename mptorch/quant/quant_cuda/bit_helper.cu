@@ -15,8 +15,7 @@ __host__ __device__ __forceinline__ uint32_t extract_exponent(float *a)
 }
 
 // stochastic rounding on a binary8 format
-__host__ __device__ __forceinline__ uint32_t
-round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
+__host__ __device__ __forceinline__ uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
 { // passing number of random bits as second parameter
   // (all the bits after the least significant bit which is based on prng);
   // target is the original number
@@ -29,8 +28,7 @@ round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
 }
 
 // rounds to nearest, ties to even, for P = 1 special case binary8 format
-__host__ __device__ __forceinline__ uint32_t
-round_bitwise_nearest_p1(uint32_t target, int man_bits)
+__host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even_p1(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
@@ -40,9 +38,8 @@ round_bitwise_nearest_p1(uint32_t target, int man_bits)
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-// rounds to nearest, ties to even, for general binary8 format
-__host__ __device__ __forceinline__ uint32_t
-round_bitwise_nearest(uint32_t target, int man_bits)
+// rounds to nearest, ties to even
+__host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
@@ -52,9 +49,19 @@ round_bitwise_nearest(uint32_t target, int man_bits)
   return add_r & ~((1 << std::min((23 - man_bits + offset), 23)) - 1);
 }
 
+// rounds to nearest, ties to away
+__host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
+{
+  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+  // tie breaking rule offset
+  int offset = (down == machine_eps);
+  uint32_t add_r = target + machine_eps;
+  return (add_r & ~((1 << std::min<int>((23 - man_bits + offset), 23)) - 1)) + offset * (machine_eps << 1);
+}
+
 // rounds up, towards positive infinity
-__host__ __device__ __forceinline__ uint32_t round_bitwise_up(
-    uint32_t target, int man_bits)
+__host__ __device__ __forceinline__ uint32_t round_bitwise_up(uint32_t target, int man_bits)
 {
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t nexact = ((target << 1 >> 1) & mask) > 0u ? 1u : 0u;
@@ -77,9 +84,9 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_down(uint32_t target,
   return quantized;
 }
 
-__host__ __device__ __forceinline__ uint32_t
-clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
-              uint32_t quantized_num, bool saturate)
+__host__ __device__ __forceinline__ uint32_t clip_exponent(
+    int exp_bits, int man_bits, uint32_t old_num,
+    uint32_t quantized_num, bool saturate)
 {
   if (quantized_num == 0)
     return quantized_num;
@@ -126,8 +133,8 @@ clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
 }
 
 // clips the max exponent
-__host__ __device__ __forceinline__ uint32_t
-clip_max_exponent(int man_bits, uint32_t max_exponent, uint32_t quantized_num)
+__host__ __device__ __forceinline__ uint32_t clip_max_exponent(
+    int man_bits, uint32_t max_exponent, uint32_t quantized_num)
 {
   uint32_t quantized_exponent = quantized_num << 1 >> 24 << 23; // 1 sign bit, 23 mantissa bits
   if (quantized_exponent > max_exponent)
@@ -141,7 +148,7 @@ clip_max_exponent(int man_bits, uint32_t max_exponent, uint32_t quantized_num)
 }
 
 // clips the exponent of a floating point format with subnormal values
-__device__ __forceinline__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+__device__ __forceinline__ uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
                                                                   uint32_t quantized_num, bool saturate = false)
 {
   if (quantized_num == 0)
@@ -163,8 +170,8 @@ __device__ __forceinline__ uint32_t clip_exponent_with_subnormals(int exp_bits, 
 }
 
 // clips the exponent of a floating point format without subnormal values
-__device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                                     uint32_t quantized_num, bool saturate = false)
+__device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
+                                                               uint32_t quantized_num, bool saturate = false)
 {
   if (quantized_num == 0)
     return quantized_num;
@@ -200,8 +207,10 @@ __device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bit
 }
 
 // clips the exponent for a specified binary8 format
-__host__ __device__ __forceinline__ uint32_t
-binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, OverflowPolicy overflow_policy, bool subnormal)
+__host__ __device__ __forceinline__ uint32_t binary8_clip_exponent(
+    int exp_bits, int man_bits,
+    uint32_t old_num, uint32_t quantized_num,
+    OverflowPolicy overflow_policy, bool subnormal)
 {
   if (quantized_num == 0)
   {

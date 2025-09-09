@@ -63,7 +63,10 @@ void mm_kahan_kernel(float *a, float *b, float *c,
                      int M, int K, int N,
                      Qadd quant_add, Qmul quant_mul)
 {
-    float comp_term, update, y, t = 0.0f;
+    float comp_term = 0.0f;
+    float update = 0.0f;
+    float y = 0.0f;
+    float t = 0.0f;
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
@@ -95,7 +98,10 @@ void mm_kahan_fma_kernel(float *a, float *b, float *c,
                          int M, int K, int N,
                          Qfma quant_fma)
 {
-    float comp_term, y, t = 0.0f;
+    float comp_term = 0.0f;
+    float update = 0.0f;
+    float y = 0.0f;
+    float t = 0.0f;
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)

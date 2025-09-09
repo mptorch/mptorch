@@ -28,7 +28,7 @@ uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_b
 }
 
 // rounds to nearest, ties to even, for P = 1 special case binary8 format
-uint32_t round_bitwise_nearest_p1(uint32_t target, int man_bits)
+uint32_t round_bitwise_nearest_even_p1(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
@@ -38,8 +38,8 @@ uint32_t round_bitwise_nearest_p1(uint32_t target, int man_bits)
   return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
-// rounds to nearest, ties to even, for general binary8 format
-uint32_t round_bitwise_nearest(uint32_t target, int man_bits)
+// rounds to nearest, ties to even
+uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
   uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
@@ -47,6 +47,17 @@ uint32_t round_bitwise_nearest(uint32_t target, int man_bits)
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
   return add_r & ~((1 << std::min<int>((23 - man_bits + offset), 23)) - 1);
+}
+
+// rounds to nearest, ties to away
+uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
+{
+  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+  // tie breaking rule offset
+  int offset = (down == machine_eps);
+  uint32_t add_r = target + machine_eps;
+  return (add_r & ~((1 << std::min<int>((23 - man_bits + offset), 23)) - 1)) + offset * (machine_eps << 1);
 }
 
 // rounds up, towards positive infinity
@@ -136,7 +147,7 @@ uint32_t clip_max_exponent(int man_bits, uint32_t max_exponent, uint32_t quantiz
 }
 
 // clips the exponent of a floating point format with subnormal values
-uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
                                        uint32_t quantized_num, bool saturate)
 {
   if (quantized_num == 0)
@@ -158,8 +169,8 @@ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_
 }
 
 // clips the exponent of a floating point format without subnormal values
-uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                          uint32_t quantized_num, bool saturate)
+uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, uint32_t old_num,
+                                    uint32_t quantized_num, bool saturate)
 {
   if (quantized_num == 0)
     return quantized_num;
