@@ -46,7 +46,7 @@ __global__ void block_kernel_nearest(float *__restrict__ a,
 
     float target_rebase = a[index] + base_float;
     uint32_t target_bits = FLOAT_TO_BITS(&target_rebase);
-    uint32_t quantized = round_bitwise_nearest(target_bits, man_bits);
+    uint32_t quantized = round_bitwise_nearest_even(target_bits, man_bits);
     float quantize_float = BITS_TO_FLOAT(&quantized) - base_float;
 
     uint32_t quantize_bits = FLOAT_TO_BITS(&quantize_float);

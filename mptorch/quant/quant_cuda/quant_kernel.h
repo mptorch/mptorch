@@ -39,6 +39,22 @@ __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      int man_bits, int exp_bits,
                                      bool subnormals, bool saturate);
 
+__global__ void float_kernel_nearest_away(float *__restrict__ a, float *o, int size,
+                                          int man_bits, int exp_bits,
+                                          bool subnormals, bool saturate);
+
+__global__ void float_kernel_up(float *__restrict__ a, float *o, int size,
+                                int man_bits, int exp_bits,
+                                bool subnormals, bool saturate);
+
+__global__ void float_kernel_down(float *__restrict__ a, float *o, int size,
+                                  int man_bits, int exp_bits,
+                                  bool subnormals, bool saturate);
+
+__global__ void float_kernel_zero(float *__restrict__ a, float *o, int size,
+                                  int man_bits, int exp_bits,
+                                  bool subnormals, bool saturate);
+
 __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size,
                                        int man_bits, int exp_bits,
                                        int binades_l, int binades_u,

@@ -99,7 +99,7 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Nearest Rounding.
+ * Nearest Rounding Ties To Even.
  **/
 Tensor float_quantize_nearest_cuda(Tensor a,
                                    int man_bits, int exp_bits,
@@ -108,7 +108,7 @@ Tensor float_quantize_nearest_cuda(Tensor a,
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Nearest Rounding.
+ * Nearest Rounding Ties To Even.
  **/
 Tensor superfp_quantize_nearest_cuda(Tensor a,
                                      int man_bits, int exp_bits,
@@ -119,7 +119,7 @@ Tensor superfp_quantize_nearest_cuda(Tensor a,
  * quantize a FloatTensor into a P3109-compliant floating point
  * Tensor (signed or unsigned version, with or without subnormal support)
  * with [P] precision bits.
- * Nearest Rounding.
+ * Nearest Rounding Ties To Even.
  */
 Tensor binary8_quantize_nearest_cuda(Tensor a,
                                      int P, bool is_signed, OverflowPolicy overflow_policy,

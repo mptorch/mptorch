@@ -132,7 +132,7 @@ trainer(
 
 Requirements:
 
-- Python >= 3.9
+- Python >= 3.12
 - PyTorch >= 2.1
 - GCC >= 4.9 on Linux
 - CUDA >= 12.0 on Linux

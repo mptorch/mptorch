@@ -102,9 +102,9 @@ def get_module(x: torch.Tensor):
 if torch.cuda.is_available():
     CUBLASComputeType = quant_cuda.CUBLASComputeType
     CUBLASMatrixType = quant_cuda.CUBLASMatrixType
-    CUBLASMatrixType = quant_cuda.CUBLASMatrixType
 else:
-    CUBLASComputeType, CUBLASMatrixType = None, None
+    CUBLASComputeType = None
+    CUBLASMatrixType = None
 
 
 def normalize_binades(binades: int | tuple[int] | tuple[int, int]) -> tuple[int, int]:

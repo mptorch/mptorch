@@ -9,10 +9,10 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-__device__ float cast_fp_nearest(float origin_float,
-                                 int man_bits, int exp_bits,
-                                 bool subnormal_support = true,
-                                 bool saturate = false)
+__device__ float cast_fp_nearest_even(float origin_float,
+                                      int man_bits, int exp_bits,
+                                      bool subnormal_support = true,
+                                      bool saturate = false)
 {
   uint32_t target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
@@ -34,7 +34,7 @@ __device__ float cast_fp_nearest(float origin_float,
     {
       int exp_diff = man_bits - (min_exp - target_exp);
       int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-      quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+      quantize_bits = not_uflow * round_bitwise_nearest_even(target, exp_diff);
       quantize_bits =
           clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = BITS_TO_FLOAT(&quantize_bits);
@@ -47,7 +47,7 @@ __device__ float cast_fp_nearest(float origin_float,
     // normal value range or overflow
     else
     {
-      quantize_bits = round_bitwise_nearest(target, man_bits);
+      quantize_bits = round_bitwise_nearest_even(target, man_bits);
       quantize_bits =
           clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
       quantized = BITS_TO_FLOAT(&quantize_bits);
@@ -55,6 +55,155 @@ __device__ float cast_fp_nearest(float origin_float,
   }
 
   return quantized;
+}
+
+__device__ float cast_fp_nearest_away(float origin_float,
+                                      int man_bits, int exp_bits,
+                                      bool subnormal_support = true,
+                                      bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = FLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+      quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_nearest_away(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+__device__ float cast_fp_up(float origin_float, int man_bits, int exp_bits,
+                            bool subnormal_support = true, bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = FLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+      quantize_bits = not_uflow * round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_up(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+__device__ float cast_fp_down(float origin_float, int man_bits, int exp_bits,
+                              bool subnormal_support = true, bool saturate = false)
+{
+  uint32_t target, quantize_bits;
+  target = FLOAT_TO_BITS(&origin_float);
+  float quantized;
+
+  int target_exp = (target << 1 >> 1 >> 23) - 127;
+  int min_exp = -((1 << (exp_bits - 1)) - 2);
+  bool subnormal = (target_exp < min_exp);
+  bool noquantize = (man_bits >= 23) && (exp_bits >= 8);
+
+  if (noquantize)
+  {
+    quantized = origin_float;
+  }
+  else
+  {
+    // handle subnormal inputs (if subnormal mode is active)
+    if (subnormal && subnormal_support)
+    {
+      int exp_diff = man_bits - (min_exp - target_exp);
+      int not_uflow = exp_diff > -1;
+      quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
+      quantize_bits =
+          clip_subnormal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+    // handle NaN/inf inputs
+    else if (target_exp == 128)
+    {
+      quantized = origin_float;
+    }
+    // normal value range or overflow
+    else
+    {
+      quantize_bits = round_bitwise_down(target, man_bits);
+      quantize_bits =
+          clip_normal_range_exponent(exp_bits, man_bits, target, quantize_bits, saturate);
+      quantized = BITS_TO_FLOAT(&quantize_bits);
+    }
+  }
+
+  return quantized;
+}
+
+__device__ float cast_fp_zero(float origin_float, int man_bits, int exp_bits,
+                              bool subnormal_support = true, bool saturate = false)
+{
+  if (origin_float >= 0.0f)
+    return cast_fp_down(origin_float, man_bits, exp_bits, subnormal_support, saturate);
+  else
+    return cast_fp_up(origin_float, man_bits, exp_bits, subnormal_support, saturate);
 }
 
 __device__ float cast_fp_stochastic(float origin_float, uint32_t rand_prob,
@@ -160,15 +309,63 @@ __global__ void float_kernel_stochastic(float *__restrict__ a,
 }
 
 // quantize a float into a floating point with [exp_bits] exponent and
-// [man_bits] mantissa
+// [man_bits] mantissa using round to nearest ties to even
 __global__ void float_kernel_nearest(float *__restrict__ a, float *o, int size,
                                      int man_bits, int exp_bits,
                                      bool subnormal_support, bool saturate)
 {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
-    o[index] = cast_fp_nearest(a[index], man_bits, exp_bits, subnormal_support,
-                               saturate);
+    o[index] = cast_fp_nearest_even(a[index], man_bits, exp_bits, subnormal_support,
+                                    saturate);
+}
+
+// quantize a float into a floating point with [exp_bits] exponent and
+// [man_bits] mantissa using round to nearest ties to away
+__global__ void float_kernel_nearest_away(float *__restrict__ a, float *o, int size,
+                                          int man_bits, int exp_bits,
+                                          bool subnormal_support, bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[index] = cast_fp_nearest_away(a[index], man_bits, exp_bits, subnormal_support,
+                                    saturate);
+}
+
+// quantize a float into a floating point with [exp_bits] exponent and
+// [man_bits] mantissa using round up
+__global__ void float_kernel_up(float *__restrict__ a, float *o, int size,
+                                int man_bits, int exp_bits,
+                                bool subnormal_support, bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[index] = cast_fp_up(a[index], man_bits, exp_bits, subnormal_support,
+                          saturate);
+}
+
+// quantize a float into a floating point with [exp_bits] exponent and
+// [man_bits] mantissa using round up
+__global__ void float_kernel_down(float *__restrict__ a, float *o, int size,
+                                  int man_bits, int exp_bits,
+                                  bool subnormal_support, bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[index] = cast_fp_down(a[index], man_bits, exp_bits, subnormal_support,
+                            saturate);
+}
+
+// quantize a float into a floating point with [exp_bits] exponent and
+// [man_bits] mantissa using round towards zero
+__global__ void float_kernel_zero(float *__restrict__ a, float *o, int size,
+                                  int man_bits, int exp_bits,
+                                  bool subnormal_support, bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[index] = cast_fp_zero(a[index], man_bits, exp_bits, subnormal_support,
+                            saturate);
 }
 
 void mm_fp_nearest(float *a, float *b, float *c,
@@ -192,18 +389,18 @@ void mm_fp_nearest(float *a, float *b, float *c,
     mm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_add, exp_add, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
   else
   {
     mm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_add, exp_add, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
 }
 
@@ -229,18 +426,18 @@ void bmm_fp_nearest(float *a, float *b, float *c,
     bmm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_add, exp_add, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
   else
   {
     bmm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_add, exp_add, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); },
+        { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); },
         [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
   }
 }
 
@@ -263,14 +460,14 @@ void mm_fp_fma_nearest(float *a, float *b, float *c,
     mm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_fma, exp_fma, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
   else
   {
     mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_fma, exp_fma, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
 }
 
@@ -295,14 +492,14 @@ void bmm_fp_fma_nearest(float *a, float *b, float *c,
     bmm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_fma, exp_fma, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
   else
   {
     bmm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
         a, b, c, M, K, N,
         [man_fma, exp_fma, subnormals, saturate] __device__(float x)
-        { return cast_fp_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+        { return cast_fp_nearest_even(x, man_fma, exp_fma, subnormals, saturate); });
   }
 }
 
@@ -422,9 +619,9 @@ void softmax_forward_fp_nearest(float *a, float *o,
                                 bool subnormals, bool saturate)
 {
   softmax_forward(a, o, sizes, [man_exp, exp_exp, subnormals, saturate] __device__(float x)
-                  { return cast_fp_nearest(x, man_exp, exp_exp, subnormals, saturate); }, [man_off, exp_off, subnormals, saturate] __device__(float x)
-                  { return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate); }, [man_acc, exp_acc, subnormals, saturate] __device__(float x)
-                  { return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate); });
+                  { return cast_fp_nearest_even(x, man_exp, exp_exp, subnormals, saturate); }, [man_off, exp_off, subnormals, saturate] __device__(float x)
+                  { return cast_fp_nearest_even(x, man_off, exp_off, subnormals, saturate); }, [man_acc, exp_acc, subnormals, saturate] __device__(float x)
+                  { return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate); });
 }
 
 void softmax_lse_forward_fp_nearest(float *a, float *o,
@@ -434,8 +631,8 @@ void softmax_lse_forward_fp_nearest(float *a, float *o,
                                     bool subnormals, bool saturate)
 {
   softmax_lse_forward(a, o, sizes, [man_off, exp_off, subnormals, saturate] __device__(float x)
-                      { return cast_fp_nearest(x, man_off, exp_off, subnormals, saturate); }, [man_lse, exp_lse, subnormals, saturate] __device__(float x)
-                      { return cast_fp_nearest(x, man_lse, exp_lse, subnormals, saturate); });
+                      { return cast_fp_nearest_even(x, man_off, exp_off, subnormals, saturate); }, [man_lse, exp_lse, subnormals, saturate] __device__(float x)
+                      { return cast_fp_nearest_even(x, man_lse, exp_lse, subnormals, saturate); });
 }
 
 void softmax_backward_fp_nearest(float *a, float *g, float *o,
@@ -445,8 +642,8 @@ void softmax_backward_fp_nearest(float *a, float *g, float *o,
                                  bool subnormals, bool saturate)
 {
   softmax_backward(a, g, o, sizes, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                   { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-                   { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+                   { return cast_fp_nearest_even(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
+                   { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
 void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
@@ -459,10 +656,10 @@ void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
                                   bool subnormals, bool saturate)
 {
   layernorm_forward(input, weight, bias, output, mean, rstd, eps, sizes, [man_acc, exp_acc, subnormals, saturate] __device__(float x)
-                    { return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-                    { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); }, [man_div, exp_div, subnormals, saturate] __device__(float x)
-                    { return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate); }, [man_sqrt, exp_sqrt, subnormals, saturate] __device__(float x)
-                    { return cast_fp_nearest(x, man_sqrt, exp_sqrt, subnormals, saturate); });
+                    { return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
+                    { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); }, [man_div, exp_div, subnormals, saturate] __device__(float x)
+                    { return cast_fp_nearest_even(x, man_div, exp_div, subnormals, saturate); }, [man_sqrt, exp_sqrt, subnormals, saturate] __device__(float x)
+                    { return cast_fp_nearest_even(x, man_sqrt, exp_sqrt, subnormals, saturate); });
 }
 
 void layernorm_backward_fp_nearest(float *input, float *grad_output,
@@ -481,8 +678,8 @@ void layernorm_backward_fp_nearest(float *input, float *grad_output,
   float *xhat_gradient;
   cudaMalloc(&xhat_gradient, sizeof(float) * sizes.outer * sizes.inner * sizes.channel);
   layernorm_backward(input, grad_output, weight, bias, mean, rstd, grad_input, grad_gamma, grad_beta, xhat_gradient, sizes, [man_acc, exp_acc, subnormals, saturate] __device__(float x)
-                     { return cast_fp_nearest(x, man_acc, exp_acc, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
-                     { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); }, [man_div, exp_div, subnormals, saturate] __device__(float x)
-                     { return cast_fp_nearest(x, man_div, exp_div, subnormals, saturate); });
+                     { return cast_fp_nearest_even(x, man_acc, exp_acc, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
+                     { return cast_fp_nearest_even(x, man_mul, exp_mul, subnormals, saturate); }, [man_div, exp_div, subnormals, saturate] __device__(float x)
+                     { return cast_fp_nearest_even(x, man_div, exp_div, subnormals, saturate); });
   cudaFree(xhat_gradient);
 }
