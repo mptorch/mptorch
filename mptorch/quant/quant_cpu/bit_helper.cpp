@@ -108,9 +108,7 @@ uint32_t clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
     }
     else
     {
-      quantized_num =
-          ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-      quantized_num = quantized_num | old_sign;
+      quantized_num = old_sign | 0x7f800000;
     }
     // handle underflow
   }
@@ -162,8 +160,8 @@ uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, uint32_t old_
   {
     int offset = (quantized_exponent_store == (min_exponent_store - 1));
     quantized_num += offset * (1u << 23);
-    quantized_num = quantized_num | old_sign;
-    quantized_num = offset * quantized_num;
+    quantized_num |= old_sign;
+    quantized_num *= offset;
   }
   return quantized_num;
 }
@@ -192,8 +190,7 @@ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, uint32_t old_num
     }
     else
     {
-      quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-      quantized_num = quantized_num | old_sign;
+      quantized_num = old_sign | 0x7f800000;
     }
   }
   // handle underflow

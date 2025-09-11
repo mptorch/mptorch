@@ -62,8 +62,8 @@ uint32_t clip_subnormal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t 
     {
         int offset = (quantized_exponent_store == (min_exponent_store - 1));
         quantized_num += offset * (1u << 23);
-        quantized_num = quantized_num | old_sign;
-        quantized_num = offset * quantized_num;
+        quantized_num |= old_sign;
+        quantized_num *= offset;
     }
     return quantized_num;
 }
@@ -92,8 +92,7 @@ uint32_t clip_normal_range_exponent_cpu(int exp_bits, int man_bits, uint32_t old
         }
         else
         {
-            quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-            quantized_num = quantized_num | old_sign;
+            quantized_num = old_sign | 0x7f800000;
         }
     } // underflow or round to smallest nonzero normal value
     else if (old_exponent_store < min_exponent_store)
@@ -189,8 +188,8 @@ __device__ uint32_t clip_subnormal_range_exponent_impl1(int exp_bits, int man_bi
     {
         int offset = (quantized_exponent_store == (min_exponent_store - 1));
         quantized_num += offset * (1u << 23);
-        quantized_num = quantized_num | old_sign;
-        quantized_num = offset * quantized_num;
+        quantized_num |= old_sign;
+        quantized_num *= offset;
     }
     return quantized_num;
 }
@@ -219,8 +218,7 @@ __device__ uint32_t clip_normal_range_exponent_impl1(int exp_bits, int man_bits,
         }
         else
         {
-            quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-            quantized_num = quantized_num | old_sign;
+            quantized_num = old_sign | 0x7f800000;
         }
     } // underflow or round to smallest nonzero normal value
     else if (old_exponent_store < min_exponent_store)
