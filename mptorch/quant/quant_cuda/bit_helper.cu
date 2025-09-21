@@ -171,7 +171,7 @@ __host__ __device__ __forceinline__ uint32_t clip_subnormal_range_exponent(int e
   return quantized_num;
 }
 
-// clips the exponent of a floating point format without subnormal values
+// clips the exponent of a floating point format without subnormal values (binaryK version)
 __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                                                         uint32_t old_num, uint32_t quantized_num,
                                                                         SaturationMode saturation_mode)
@@ -223,6 +223,43 @@ __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_
     quantized_num |= sign;
   }
 
+  return quantized_num;
+}
+
+// clips the exponent of a floating point format without subnormal values (IEEE-754 style floats version)
+__host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
+                                                                        uint32_t old_num, uint32_t quantized_num,
+                                                                        bool saturate)
+{
+  if (quantized_num == 0)
+    return quantized_num;
+
+  int quantized_exponent_store = quantized_num << 1 >> 24;
+  int max_exponent_store = bias + 127;
+  int min_exponent_store = -(bias - 1) + 127;
+
+  uint32_t old_sign = old_num >> 31 << 31;
+  // handle overflow
+  if (quantized_exponent_store > max_exponent_store)
+  {
+    if (saturate)
+    {
+      uint32_t max_man = (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+      uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
+      quantized_num = old_sign | max_num;
+    }
+    else
+    {
+      quantized_num = old_sign | 0x7F800000;
+    }
+  }
+  // handle underflow
+  else if (quantized_exponent_store < min_exponent_store)
+  {
+    uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
+    quantized_num = offset * (min_exponent_store << 23);
+    quantized_num |= old_sign;
+  }
   return quantized_num;
 }
 

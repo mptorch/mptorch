@@ -439,8 +439,7 @@ float cast_fp_nearest_even(float origin_float,
     else
     {
       quantize_bits = round_bitwise_nearest_even(target, man_bits);
-      quantize_bits =
-          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
+      quantize_bits = clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -703,7 +702,7 @@ Tensor float_quantize_stochastic(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -720,7 +719,7 @@ Tensor float_quantize_nearest(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -737,7 +736,7 @@ Tensor float_quantize_nearest_away(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -754,7 +753,7 @@ Tensor float_quantize_up(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -771,7 +770,7 @@ Tensor float_quantize_down(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -788,7 +787,7 @@ Tensor float_quantize_zero(Tensor a,
   auto o = zeros_like(a);
   auto o_array = o.data_ptr<float>();
   int size = a.numel();
-  int bias = (1 << (exp_bits - 1) - 1);
+  int bias = (1 << (exp_bits - 1)) - 1;
 
   for (int64_t i = 0; i < size; i++)
   {
@@ -813,8 +812,8 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
                                bool saturate,
                                bool compensated)
 {
-  int bias_add = (1 << (exp_add - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
+  int bias_add = (1 << (exp_add - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
   if (compensated)
   {
     mm_kahan_kernel(
@@ -845,8 +844,8 @@ void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                 bool saturate,
                                 bool compensated)
 {
-  int bias_add = (1 << (exp_add - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
+  int bias_add = (1 << (exp_add - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
   if (compensated)
   {
     bmm_kahan_kernel(
@@ -876,7 +875,7 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
                                    bool saturate,
                                    bool compensated)
 {
-  int bias_fma = (1 << (exp_fma - 1) - 1);
+  int bias_fma = (1 << (exp_fma - 1)) - 1;
   if (compensated)
   {
     mm_kahan_fma_kernel(
@@ -902,7 +901,7 @@ void float_quantize_nearest_bmm_fma(Tensor a, Tensor b, Tensor c,
                                     bool saturate,
                                     bool compensated)
 {
-  int bias_fma = (1 << (exp_fma - 1) - 1);
+  int bias_fma = (1 << (exp_fma - 1)) - 1;
   if (compensated)
   {
     bmm_kahan_fma_kernel(
@@ -927,8 +926,8 @@ void float_quantize_stochastic_mm(Tensor a, Tensor b, Tensor c,
                                   int man_mul, int exp_mul, int rbits_mul,
                                   bool subnormals, bool saturate)
 {
-  int bias_add = (1 << (exp_add - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
+  int bias_add = (1 << (exp_add - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
   mm_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
       [man_add, exp_add, rbits_add, bias_add, subnormals, saturate](float x)
@@ -943,8 +942,8 @@ void float_quantize_stochastic_bmm(Tensor a, Tensor b, Tensor c,
                                    int man_mul, int exp_mul, int rbits_mul,
                                    bool subnormals, bool saturate)
 {
-  int bias_add = (1 << (exp_add - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
+  int bias_add = (1 << (exp_add - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
   bmm_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
       [man_add, exp_add, rbits_add, bias_add, subnormals, saturate](float x)
@@ -958,7 +957,7 @@ void float_quantize_stochastic_mm_fma(Tensor a, Tensor b, Tensor c,
                                       int man_fma, int exp_fma, int rbits_fma,
                                       bool subnormals, bool saturate)
 {
-  int bias_fma = (1 << (exp_fma - 1) - 1);
+  int bias_fma = (1 << (exp_fma - 1)) - 1;
   mm_fma_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), M, K, N,
       [man_fma, exp_fma, rbits_fma, bias_fma, subnormals, saturate](float x)
@@ -970,7 +969,7 @@ void float_quantize_stochastic_bmm_fma(Tensor a, Tensor b, Tensor c,
                                        int man_fma, int exp_fma, int rbits_fma,
                                        bool subnormals, bool saturate)
 {
-  int bias_fma = (1 << (exp_fma - 1) - 1);
+  int bias_fma = (1 << (exp_fma - 1)) - 1;
   bmm_fma_kernel(
       a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(), a.sizes()[0], M, K, N,
       [man_fma, exp_fma, rbits_fma, bias_fma, subnormals, saturate](float x)
@@ -1161,9 +1160,9 @@ void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_acc, int exp_acc,
                                             bool subnormals, bool saturate)
 {
-  int bias_exp = (1 << (exp_exp - 1) - 1);
-  int bias_off = (1 << (exp_off - 1) - 1);
-  int bias_acc = (1 << (exp_acc - 1) - 1);
+  int bias_exp = (1 << (exp_exp - 1)) - 1;
+  int bias_off = (1 << (exp_off - 1)) - 1;
+  int bias_acc = (1 << (exp_acc - 1)) - 1;
   auto sizes = partition_tensor(a, dim);
   softmax_forward(
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
@@ -1180,8 +1179,8 @@ void float_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
                                                 int man_lse, int exp_lse,
                                                 bool subnormals, bool saturate)
 {
-  int bias_off = (1 << (exp_off - 1) - 1);
-  int bias_lse = (1 << (exp_lse - 1) - 1);
+  int bias_off = (1 << (exp_off - 1)) - 1;
+  int bias_lse = (1 << (exp_lse - 1)) - 1;
   auto sizes = partition_tensor(a, dim);
   softmax_lse_forward(
       a.data_ptr<float>(), o.data_ptr<float>(), sizes,
@@ -1196,8 +1195,8 @@ void float_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int d
                                              int man_mul, int exp_mul,
                                              bool subnormals, bool saturate)
 {
-  int bias_add = (1 << (exp_add - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
+  int bias_add = (1 << (exp_add - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
   auto sizes = partition_tensor(a, dim);
   softmax_backward(
       a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
@@ -1251,10 +1250,10 @@ void float_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
                                       int man_sqrt, int exp_sqrt,
                                       bool subnormals, bool saturate)
 {
-  int bias_acc = (1 << (exp_acc - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
-  int bias_div = (1 << (exp_div - 1) - 1);
-  int bias_sqrt = (1 << (exp_sqrt - 1) - 1);
+  int bias_acc = (1 << (exp_acc - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
+  int bias_div = (1 << (exp_div - 1)) - 1;
+  int bias_sqrt = (1 << (exp_sqrt - 1)) - 1;
   auto sizes = partition_tensor(input, dims);
   layernorm_forward(
       input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
@@ -1280,9 +1279,9 @@ void float_quantize_layernorm_backward(Tensor input, Tensor grad_output, Tensor 
 {
 
   auto sizes = partition_tensor(input, dims);
-  int bias_acc = (1 << (exp_acc - 1) - 1);
-  int bias_mul = (1 << (exp_mul - 1) - 1);
-  int bias_div = (1 << (exp_div - 1) - 1);
+  int bias_acc = (1 << (exp_acc - 1)) - 1;
+  int bias_mul = (1 << (exp_mul - 1)) - 1;
+  int bias_div = (1 << (exp_div - 1)) - 1;
   layernorm_backward(
       input.data_ptr<float>(), grad_output.data_ptr<float>(),
       weight.data_ptr<float>(), bias.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),

@@ -224,7 +224,7 @@ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
   return quantized_num;
 }
 
-// clips the exponent of a floating point format without subnormal values (IEEE-754 style floats)
+// clips the exponent of a floating point format without subnormal values (IEEE-754 style floats version)
 uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                     uint32_t old_num, uint32_t quantized_num, bool saturate)
 {
