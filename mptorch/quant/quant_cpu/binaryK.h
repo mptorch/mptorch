@@ -1,12 +1,5 @@
 #pragma once
 
-enum class SaturationMode
-{
-    SAT_FINITE,
-    SAT_PROPAGATE,
-    OVF_INF
-};
-
 /*
 SAT_FINITE:
 All return values are clamped to the representable finite range. NaN inputs
@@ -21,6 +14,13 @@ Just like with IEEE-754 2019, out-of-range values are replaced with: the extrema
 finite value, positive or negative infinity, as indicated by the rounding mode, and
 the signedness of the target format.
  */
+
+enum class SaturationMode
+{
+    SAT_FINITE,
+    SAT_PROPAGATE,
+    OVF_INF
+};
 
 void binaryK_kernel_nearest_even(float *a, float *o, int size, int K, int P, int bias, bool is_signed, SaturationMode saturation_mode);
 
