@@ -347,10 +347,9 @@ float cast_fp_stochastic(float origin_float,
   }
   else
   {
-    SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
     quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
     quantize_bits =
-        clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+        clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
     quantized = RBITS_TO_FLOAT(&quantize_bits);
   }
 
@@ -392,10 +391,9 @@ float cast_fp_stochastic(float origin_float,
   }
   else
   {
-    SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
     quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
     quantize_bits =
-        clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+        clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
     quantized = RBITS_TO_FLOAT(&quantize_bits);
   }
 
@@ -440,10 +438,9 @@ float cast_fp_nearest_even(float origin_float,
     // normal value range or overflow
     else
     {
-      SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
       quantize_bits = round_bitwise_nearest_even(target, man_bits);
       quantize_bits =
-          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -489,10 +486,9 @@ float cast_fp_nearest_away(float origin_float,
     // normal value range or overflow
     else
     {
-      SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
       quantize_bits = round_bitwise_nearest_away(target, man_bits);
       quantize_bits =
-          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -536,10 +532,9 @@ float cast_fp_up(float origin_float, int man_bits, int exp_bits, int bias,
     // normal value range or overflow
     else
     {
-      SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
       quantize_bits = round_bitwise_up(target, man_bits);
       quantize_bits =
-          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
@@ -583,10 +578,9 @@ float cast_fp_down(float origin_float, int man_bits, int exp_bits, int bias,
     // normal value range or overflow
     else
     {
-      SaturationMode sat_mode = (saturate == false ? SaturationMode::OVF_INF : SaturationMode::SAT_PROPAGATE);
       quantize_bits = round_bitwise_down(target, man_bits);
       quantize_bits =
-          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, sat_mode);
+          clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturate);
       quantized = RBITS_TO_FLOAT(&quantize_bits);
     }
   }
