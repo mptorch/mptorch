@@ -15,7 +15,7 @@ uint32_t extract_exponent(float *a)
   return temp - 127 + 1;
 }
 
-// stochastic rounding on a binary8 format
+// stochastic rounding
 uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
 {
   uint32_t mask = (1 << (23 - man_bits)) - 1;
@@ -26,17 +26,6 @@ uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_b
   // mask out bits on the right hand side of the least significant bit
   uint32_t quantized = add_r & ~mask;
   return quantized;
-}
-
-// rounds to nearest, ties to even, for P = 1 special case binary8 format
-uint32_t round_bitwise_nearest_even_p1(uint32_t target, int man_bits)
-{
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
-  // tie breaking rule offset
-  int offset = (down == machine_eps);
-  uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << (23 - man_bits + offset)) - 1);
 }
 
 // rounds to nearest, ties to even

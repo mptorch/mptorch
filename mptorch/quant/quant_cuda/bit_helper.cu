@@ -28,17 +28,6 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_stochastic(uint32_t t
   return quantized;
 }
 
-// rounds to nearest, ties to even, for P = 1 special case binary8 format
-__host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even_p1(uint32_t target, int man_bits)
-{
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
-  // tie breaking rule offset
-  int offset = (down == machine_eps);
-  uint32_t add_r = target + machine_eps;
-  return add_r & ~((1 << (23 - man_bits + offset)) - 1);
-}
-
 // rounds to nearest, ties to even
 __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {

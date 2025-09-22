@@ -9,8 +9,6 @@ uint32_t extract_exponent(float *a);
 
 uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits);
 
-uint32_t round_bitwise_nearest_even_p1(uint32_t target, int man_bits);
-
 uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits);
 
 uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits);

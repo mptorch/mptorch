@@ -9,6 +9,28 @@
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
+// rounds to nearest, ties to even, for P = 1 special case binary8 format
+uint32_t binary8_round_bitwise_nearest_even_p1(uint32_t target, int man_bits)
+{
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+    // tie breaking rule offset
+    int offset = (down == machine_eps);
+    uint32_t add_r = target + machine_eps;
+    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+}
+
+// rounds to nearest, ties to even
+uint32_t binary8_round_bitwise_nearest_even(uint32_t target, int man_bits)
+{
+    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
+    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+    // tie breaking rule offset
+    int offset = (down == machine_eps);
+    uint32_t add_r = target + machine_eps;
+    return add_r & ~((1 << std::min<int>((23 - man_bits + offset), 23)) - 1);
+}
+
 // quantize a float into a signed binary8 floating point with [8 - P] exponent and
 // [P - 1] mantissa using round to nearest, ties to even
 float cast_binary8_signed_nearest(
@@ -50,8 +72,8 @@ float cast_binary8_signed_nearest(
         }
     }
 
-    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
-                              : round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? binary8_round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
+                              : binary8_round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
 
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
     return BITS_TO_FLOAT(&uval8);
@@ -195,8 +217,8 @@ float cast_binary8_unsigned_nearest(
         }
     }
 
-    uint32_t uval8 = (P == 1) ? round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
-                              : round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
+    uint32_t uval8 = (P == 1) ? binary8_round_bitwise_nearest_even_p1(uval32, man_bits - subnormal_shift)
+                              : binary8_round_bitwise_nearest_even(uval32, man_bits - subnormal_shift);
     uval8 = binary8_clip_exponent(exp_bits, man_bits, uval32, uval8, overflow_policy, subnormals);
 
     return BITS_TO_FLOAT(&uval8);
