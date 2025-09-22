@@ -498,6 +498,48 @@ Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signe
 Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
 
 /**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Nearest Rounding Ties To Even
+ **/
+Tensor binaryK_quantize_nearest_even(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Nearest Rounding Ties To Away
+ **/
+Tensor binaryK_quantize_nearest_away(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Up
+ **/
+Tensor binaryK_quantize_up(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Down
+ **/
+Tensor binaryK_quantize_down(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Zero
+ **/
+Tensor binaryK_quantize_zero(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Stochastic Rounding
+ **/
+Tensor binaryK_quantize_stochastic(Tensor a, int K, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
  * Performs a softmax along the specified dimension, using custom floating
  * point formats for intermediate computations. This version implements
  * the regular accumulation of exponentials.
