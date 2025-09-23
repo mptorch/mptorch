@@ -1,6 +1,7 @@
 #pragma once
 
 #include "binary8.h"
+#include "binaryK.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <vector>
