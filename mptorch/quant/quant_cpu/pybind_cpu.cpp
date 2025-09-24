@@ -1,5 +1,6 @@
 #include "quant.h"
 #include "binary8.h"
+#include "binaryK.h"
 #include <torch/torch.h>
 #include <tuple>
 
@@ -50,6 +51,35 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
           .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
           .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);
+
+      m.def("binaryK_quantize_nearest_even",
+            &binaryK_quantize_nearest_even,
+            "Custom-precision P3109 Floating-Point Quantization with Nearest Rounding Ties To Even (CPU)");
+
+      m.def("binaryK_quantize_nearest_away",
+            &binaryK_quantize_nearest_away,
+            "Custom-precision P3109 Floating-Point Quantization with Nearest Rounding Ties To Away (CPU)");
+
+      m.def("binaryK_quantize_up",
+            &binaryK_quantize_up,
+            "Custom-precision P3109 Floating-Point Quantization with Rounding Towards Positive (CPU)");
+
+      m.def("binaryK_quantize_down",
+            &binaryK_quantize_down,
+            "Custom-precision P3109 Floating-Point Quantization with Rounding Towards Negative (CPU)");
+
+      m.def("binaryK_quantize_zero",
+            &binaryK_quantize_zero,
+            "Custom-precision P3109 Floating-Point Quantization with Rounding Towards Zero (CPU)");
+
+      m.def("binaryK_quantize_stochastic",
+            &binaryK_quantize_stochastic,
+            "Custom-precision P3109 Floating-Point Quantization with Stochastic Rounding (CPU)");
+
+      py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic(), py::module_local())
+          .value("SAT_FINITE", SaturationMode::SAT_FINITE)
+          .value("SAT_PROPAGATE", SaturationMode::SAT_PROPAGATE)
+          .value("OVF_INF", SaturationMode::OVF_INF);
 
       m.def("float_quantize_nearest_mm",
             &float_quantize_nearest_mm,
