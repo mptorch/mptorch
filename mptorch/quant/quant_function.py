@@ -18,6 +18,7 @@ __all__ = [
     "block_quantize",
     "float_quantize",
     "binary8_quantize",
+    "binaryK_quantize",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
