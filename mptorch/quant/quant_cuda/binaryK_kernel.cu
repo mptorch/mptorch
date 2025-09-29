@@ -72,7 +72,7 @@ __host__ __device__ float cast_binaryK_nearest_away(float origin_float,
     if (subnormal)
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+        int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) >= 0));
         quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
         quantize_bits =
             clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);

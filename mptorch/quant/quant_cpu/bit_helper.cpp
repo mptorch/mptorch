@@ -37,7 +37,7 @@ uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
   int shift_value = man_bits == 0 ? 1 << (23 - man_bits + offset) : 1 << std::min<int>((23 - man_bits + offset), 23);
-  return add_r & ~(shift_value - 1);
+  return add_r & ~(shift_value - 1) + offset * (man_bits == 0) * (machine_eps << 1);
 }
 
 // rounds to nearest, ties to away
@@ -49,7 +49,7 @@ uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
   int shift_value = man_bits == 0 ? 1 << (23 - man_bits + offset) : 1 << std::min<int>((23 - man_bits + offset), 23);
-  return (add_r & ~(shift_value - 1)) + offset * (machine_eps << 1);
+  return (add_r & ~(shift_value - 1)) + offset * (man_bits > -1) * (machine_eps << 1);
 }
 
 // rounds up, towards positive infinity

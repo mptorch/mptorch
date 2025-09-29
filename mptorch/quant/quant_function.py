@@ -374,6 +374,23 @@ def translate_overflow_policy(
     return enum_items[overflow_policy]
 
 
+def translate_saturation_mode(
+    module,
+    saturation_mode: Literal[
+        "saturate_finite", "saturate_propagate", "overflow_infinity"
+    ],
+):
+    enum_items = {
+        "saturate_finite": module.SaturationMode.SAT_FINITE,
+        "saturate_propagate": module.SaturationMode.SAT_PROPAGATE,
+        "overflow_infinity": module.SaturationMode.OVF_INF,
+    }
+    assert (
+        saturation_mode in enum_items.keys()
+    ), f"invalid saturation mode, {saturation_mode}"
+    return enum_items[saturation_mode]
+
+
 def mp_softmax_forward(a: torch.Tensor, dim: int, formats) -> torch.Tensor:
     off_cfg = formats.fwd_off
     if type(off_cfg) == FloatingPoint:
@@ -3049,14 +3066,6 @@ def binary8_quantize(
     Returns:
         a quantized low-precision floating point representation of the input tensor
     """
-    assert isinstance(
-        x, torch.Tensor
-    ), "x is not a single precision Floating Point Tensor"
-    assert rounding in [
-        "stochastic",
-        "nearest",
-        "truncate",
-    ], "invalid rounding mode, {}".format(rounding)
     assert (
         0 <= prng_bits <= 23 - (P - 1)
     ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
@@ -3075,6 +3084,61 @@ def binary8_quantize(
         out = quant_module.binary8_quantize_truncate(
             x.contiguous(), P, is_signed, overflow_enum, subnormals
         )
+    return out
+
+
+def binaryK_quantize(
+    x: torch.Tensor,
+    K: int,
+    P: int,
+    rounding: Literal[
+        "nearest_even", "nearest_away", "up", "down", "zero", "stochastic"
+    ] = "nearest_even",
+    saturation_mode: Literal[
+        "saturate_finite", "saturate_propagate", "overflow_infinity"
+    ] = "overflow_infinity",
+    is_signed: bool = True,
+    prng_bits: int = 0,
+    bias: int | None = None,
+) -> torch.Tensor:
+    assert (
+        0 <= prng_bits <= 23 - (P - 1)
+    ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
+
+    quant_module = get_module(x)
+    saturate_policy = translate_saturation_mode(quant_module, saturation_mode)
+    if not bias:
+        if is_signed:
+            bias = 2 ** (K - P - 1)
+        else:
+            bias = 2 ** (K - P)
+
+    match rounding:
+        case "nearest_even":
+            out = quant_module.binaryK_quantize_nearest_even(
+                x.contiguous(), K, P, is_signed, saturate_policy, bias
+            )
+        case "nearest_away":
+            out = quant_module.binaryK_quantize_nearest_away(
+                x.contiguous(), K, P, is_signed, saturate_policy, bias
+            )
+        case "up":
+            out = quant_module.binaryK_quantize_up(
+                x.contiguous(), K, P, is_signed, saturate_policy, bias
+            )
+        case "down":
+            out = quant_module.binaryK_quantize_down(
+                x.contiguous(), K, P, is_signed, saturate_policy, bias
+            )
+        case "zero":
+            out = quant_module.binaryK_quantize_zero(
+                x.contiguous(), K, P, is_signed, saturate_policy, bias
+            )
+        case _:
+            out = quant_module.binaryK_quantize_stochastic(
+                x.contiguous(), K, P, prng_bits, is_signed, saturate_policy, bias
+            )
+
     return out
 
 
