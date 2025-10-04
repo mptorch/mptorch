@@ -72,7 +72,7 @@ __host__ __device__ float cast_binaryK_nearest_away(float origin_float,
     if (subnormal)
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) >= 0));
+        int not_uflow = exp_diff > -1 || (exp_diff == -1);
         quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
         quantize_bits =
             clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
@@ -237,4 +237,70 @@ __host__ __device__ float cast_binaryK_stochastic(float origin_float, uint32_t r
     }
 
     return quantized;
+}
+
+__global__ void binaryK_kernel_nearest_even(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_nearest_even(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
+}
+
+__global__ void binaryK_kernel_nearest_away(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_nearest_away(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
+}
+
+__global__ void binaryK_kernel_up(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_up(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
+}
+
+__global__ void binaryK_kernel_down(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_down(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
+}
+
+__global__ void binaryK_kernel_zero(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_zero(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
+}
+
+__global__ void binaryK_kernel_stochastic(
+    float *__restrict__ a, int *__restrict__ r, float *o, int size,
+    int man_bits, int exp_bits, int bias, int prng_bits, bool is_signed, SaturationMode saturation_mode)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size)
+    {
+        o[idx] = cast_binaryK_stochastic(a[idx], (uint32_t)r[idx], prng_bits, man_bits, exp_bits, bias, is_signed, saturation_mode);
+    }
 }

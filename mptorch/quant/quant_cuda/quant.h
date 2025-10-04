@@ -1,6 +1,7 @@
 #pragma once
 
 #include "binary8_kernel.h"
+#include "binaryK_kernel.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <cublas_v2.h>
@@ -144,6 +145,48 @@ Tensor binary8_quantize_stochastic_cuda(Tensor a,
 Tensor binary8_quantize_truncate_cuda(Tensor a,
                                       int P, bool is_signed, OverflowPolicy overflow_policy,
                                       bool subnormals);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Nearest Rounding Ties To Even
+ **/
+Tensor binaryK_quantize_nearest_even_cuda(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Nearest Rounding Ties To Away
+ **/
+Tensor binaryK_quantize_nearest_away_cuda(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Up
+ **/
+Tensor binaryK_quantize_up_cuda(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Down
+ **/
+Tensor binaryK_quantize_down_cuda(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Round Zero
+ **/
+Tensor binaryK_quantize_zero_cuda(Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
+ * with a [K] bit wordlength and [P] bits of precision.
+ * Stochastic Rounding (with user-given PRNG resolution [prng_bits])
+ **/
+Tensor binaryK_quantize_stochastic_cuda(Tensor a, int K, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, int bias);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication

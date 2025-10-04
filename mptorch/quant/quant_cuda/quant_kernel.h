@@ -4,6 +4,7 @@
 #include <curand_kernel.h>
 #include <cstdint>
 #include "binary8_kernel.h"
+#include "binaryK_kernel.h"
 
 __global__ void seed_init(curandState_t *state);
 
@@ -77,6 +78,30 @@ __global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, 
 
 __global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
                                                  int P, OverflowPolicy overflow_policy, bool subnormals);
+
+__global__ void binaryK_kernel_nearest_even(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode);
+
+__global__ void binaryK_kernel_nearest_away(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode);
+
+__global__ void binaryK_kernel_up(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode);
+
+__global__ void binaryK_kernel_down(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode);
+
+__global__ void binaryK_kernel_zero(
+    float *__restrict__ a, float *o, int size,
+    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode);
+
+__global__ void binaryK_kernel_stochastic(
+    float *__restrict__ a, int *__restrict__ r, float *o, int size,
+    int man_bits, int exp_bits, int bias, int prng_bits, bool is_signed, SaturationMode saturation_mode);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,

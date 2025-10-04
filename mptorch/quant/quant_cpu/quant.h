@@ -536,7 +536,7 @@ Tensor binaryK_quantize_zero(Tensor a, int K, int P, bool is_signed, SaturationM
 /**
  * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
  * with a [K] bit wordlength and [P] bits of precision.
- * Stochastic Rounding
+ * Stochastic Rounding (with user-given PRNG resolution [prng_bits])
  **/
 Tensor binaryK_quantize_stochastic(Tensor a, int K, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, int bias);
 
