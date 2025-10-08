@@ -45,7 +45,7 @@ auto print_float = [](float x)
 uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t machine_eps = (1 << (22 - man_bits));
+    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
@@ -502,15 +502,19 @@ int main()
     float gqx = 6.10351562500000000000e-05f;
     int man_bits = 0;
     int exp_bits = 5;*/
-    float x = 1.62630325872825665101117920130491256713867187500000000000000000000000000000000000e-19f;
+    /* float x = 1.62630325872825665101117920130491256713867187500000000000000000000000000000000000e-19f;
     float qx = 4.33680868994201773602981120347976684570312500000000000000000000000000000000000000e-19f;
     float gqx = 2.16840434497100886801490560173988342285156250000000000000000000000000000000000000e-19f;
     int man_bits = 0;
     int exp_bits = 7;
+    int bias = 1 << (exp_bits - 1);*/
+    float x = 6.0f;
+    int man_bits = 23;
+    int exp_bits = 8;
     int bias = 1 << (exp_bits - 1);
     float quant_x = cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, true, SaturationMode::OVF_INF);
     print_float(x);
     // print_float(qx);
     print_float(quant_x);
-    print_float(gqx);
+    // print_float(gqx);
 }
