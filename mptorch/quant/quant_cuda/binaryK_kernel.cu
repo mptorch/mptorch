@@ -96,15 +96,10 @@ __host__ __device__ float cast_binaryK_nearest_away(float origin_float,
     return quantized;
 }
 
-__host__ __device__ float cast_binaryK_up(float origin_float,
-                                          int man_bits, int exp_bits,
-                                          int bias,
-                                          bool is_signed,
-                                          SaturationMode saturation_mode)
+__host__ __device__ __inline__ float cast_absolute_up(float origin_float, int man_bits, int exp_bits,
+                                                      int bias,
+                                                      SaturationMode saturation_mode)
 {
-    if (origin_float < 0.0f && !is_signed)
-        return 0.0f;
-
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
@@ -117,10 +112,10 @@ __host__ __device__ float cast_binaryK_up(float origin_float,
     if (subnormal)
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-        quantize_bits = not_uflow * round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
+        // int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+        quantize_bits = round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
         quantize_bits =
-            clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
+            clip_subnormal_range_exponent_up(exp_bits, man_bits, bias, target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -140,15 +135,10 @@ __host__ __device__ float cast_binaryK_up(float origin_float,
     return quantized;
 }
 
-__host__ __device__ float cast_binaryK_down(float origin_float,
-                                            int man_bits, int exp_bits,
-                                            int bias,
-                                            bool is_signed,
-                                            SaturationMode saturation_mode)
+__host__ __device__ __inline__ float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
+                                                        int bias,
+                                                        SaturationMode saturation_mode)
 {
-    if (origin_float < 0.0f && !is_signed)
-        return 0.0f;
-
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
@@ -182,6 +172,36 @@ __host__ __device__ float cast_binaryK_down(float origin_float,
     }
 
     return quantized;
+}
+
+__host__ __device__ float cast_binaryK_up(float origin_float,
+                                          int man_bits, int exp_bits,
+                                          int bias,
+                                          bool is_signed,
+                                          SaturationMode saturation_mode)
+{
+    if (origin_float < 0.0f && !is_signed)
+        return 0.0f;
+
+    if (origin_float >= 0)
+        return cast_absolute_up(origin_float, man_bits, exp_bits, bias, saturation_mode);
+    else
+        return -cast_absolute_down(-origin_float, man_bits, exp_bits, bias, saturation_mode);
+}
+
+__host__ __device__ float cast_binaryK_down(float origin_float,
+                                            int man_bits, int exp_bits,
+                                            int bias,
+                                            bool is_signed,
+                                            SaturationMode saturation_mode)
+{
+    if (origin_float < 0.0f && !is_signed)
+        return 0.0f;
+
+    if (origin_float >= 0)
+        return cast_absolute_down(origin_float, man_bits, exp_bits, bias, saturation_mode);
+    else
+        return -cast_absolute_up(-origin_float, man_bits, exp_bits, bias, saturation_mode);
 }
 
 __host__ __device__ float cast_binaryK_zero(float origin_float,

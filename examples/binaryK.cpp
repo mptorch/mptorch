@@ -180,6 +180,26 @@ uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, int bias,
     return quantized_num;
 }
 
+uint32_t clip_subnormal_range_exponent_up(int exp_bits, int man_bits, int bias,
+                                          uint32_t old_num, uint32_t quantized_num)
+{
+    if (quantized_num == 0)
+        return quantized_num;
+
+    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int min_exponent_store = -(bias - 1) - man_bits + 127;
+
+    uint32_t old_sign = old_num >> 31 << 31;
+    // underflow or round to smallest non zero subnormal value
+    if (quantized_exponent_store < min_exponent_store)
+    {
+        quantized_num = min_exponent_store << 23;
+        quantized_num |= old_sign;
+    }
+
+    return quantized_num;
+}
+
 uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                     uint32_t old_num, uint32_t quantized_num,
                                     SaturationMode saturation_mode)
@@ -322,15 +342,10 @@ float cast_binaryK_nearest_away(float origin_float,
     return quantized;
 }
 
-float cast_binaryK_up(float origin_float,
-                      int man_bits, int exp_bits,
-                      int bias,
-                      bool is_signed,
-                      SaturationMode saturation_mode)
+float cast_absolute_up(float origin_float, int man_bits, int exp_bits,
+                       int bias,
+                       SaturationMode saturation_mode)
 {
-    if (origin_float < 0.0f && !is_signed)
-        return 0.0f;
-
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
@@ -343,10 +358,10 @@ float cast_binaryK_up(float origin_float,
     if (subnormal)
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-        quantize_bits = not_uflow * round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
+        // int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
+        quantize_bits = round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
         quantize_bits =
-            clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
+            clip_subnormal_range_exponent_up(exp_bits, man_bits, bias, target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -366,15 +381,10 @@ float cast_binaryK_up(float origin_float,
     return quantized;
 }
 
-float cast_binaryK_down(float origin_float,
-                        int man_bits, int exp_bits,
-                        int bias,
-                        bool is_signed,
-                        SaturationMode saturation_mode)
+float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
+                         int bias,
+                         SaturationMode saturation_mode)
 {
-    if (origin_float < 0.0f && !is_signed)
-        return 0.0f;
-
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
@@ -408,6 +418,36 @@ float cast_binaryK_down(float origin_float,
     }
 
     return quantized;
+}
+
+float cast_binaryK_up(float origin_float,
+                      int man_bits, int exp_bits,
+                      int bias,
+                      bool is_signed,
+                      SaturationMode saturation_mode)
+{
+    if (origin_float < 0.0f && !is_signed)
+        return 0.0f;
+
+    if (origin_float >= 0)
+        return cast_absolute_up(origin_float, man_bits, exp_bits, bias, saturation_mode);
+    else
+        return -cast_absolute_down(-origin_float, man_bits, exp_bits, bias, saturation_mode);
+}
+
+float cast_binaryK_down(float origin_float,
+                        int man_bits, int exp_bits,
+                        int bias,
+                        bool is_signed,
+                        SaturationMode saturation_mode)
+{
+    if (origin_float < 0.0f && !is_signed)
+        return 0.0f;
+
+    if (origin_float >= 0)
+        return cast_absolute_down(origin_float, man_bits, exp_bits, bias, saturation_mode);
+    else
+        return -cast_absolute_up(-origin_float, man_bits, exp_bits, bias, saturation_mode);
 }
 
 float cast_binaryK_zero(float origin_float,
@@ -508,13 +548,15 @@ int main()
     int man_bits = 0;
     int exp_bits = 7;
     int bias = 1 << (exp_bits - 1);*/
-    float x = 6.0f;
-    int man_bits = 23;
-    int exp_bits = 8;
+    float x = 6.77626357803440271254658000543713569641113281250000000000000000000000000000000000e-21f;
+    float qx = 0.0f;
+    float gqx = 1.08420217248550443400745280086994171142578125000000000000000000000000000000000000e-19f;
+    int man_bits = 0;
+    int exp_bits = 7;
     int bias = 1 << (exp_bits - 1);
-    float quant_x = cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, true, SaturationMode::OVF_INF);
+    float quant_x = cast_binaryK_up(x, man_bits, exp_bits, bias, true, SaturationMode::OVF_INF);
     print_float(x);
     // print_float(qx);
     print_float(quant_x);
-    // print_float(gqx);
+    print_float(gqx);
 }

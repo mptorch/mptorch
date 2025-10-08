@@ -13,7 +13,12 @@ from tests.quant import bits_to_float, float_to_bits, assert_quant
 @pytest.mark.parametrize("K", [4, 6, 8])
 @pytest.mark.parametrize(
     "rounding_mode",
-    [(RoundMode.TiesToEven, "nearest_even"), (RoundMode.TiesToAway, "nearest_away")],
+    [
+        (RoundMode.TiesToEven, "nearest_even"),
+        (RoundMode.TiesToAway, "nearest_away"),
+        (RoundMode.TowardPositive, "up"),
+        (RoundMode.TowardNegative, "down"),
+    ],
 )
 def test_binaryK_to_gfloat_nearest_even_signed(device, K, rounding_mode):
     for P in range(1, K):

@@ -169,6 +169,26 @@ uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, int bias,
   return quantized_num;
 }
 
+uint32_t clip_subnormal_range_exponent_up(int exp_bits, int man_bits, int bias,
+                                          uint32_t old_num, uint32_t quantized_num)
+{
+  if (quantized_num == 0)
+    return quantized_num;
+
+  int quantized_exponent_store = quantized_num << 1 >> 24;
+  int min_exponent_store = -(bias - 1) - man_bits + 127;
+
+  uint32_t old_sign = old_num >> 31 << 31;
+  // underflow or round to smallest non zero subnormal value
+  if (quantized_exponent_store < min_exponent_store)
+  {
+    quantized_num = min_exponent_store << 23;
+    quantized_num |= old_sign;
+  }
+
+  return quantized_num;
+}
+
 // clips the exponent of a floating point format without subnormal values (binaryK version)
 uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                     uint32_t old_num, uint32_t quantized_num,
