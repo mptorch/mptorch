@@ -32,12 +32,23 @@ uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_b
 uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
   uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+  uint32_t machine_eps = (1 << (22 - man_bits));
   // tie breaking rule offset
   int offset = (down == machine_eps);
   uint32_t add_r = target + machine_eps;
   int shift_value = man_bits == 0 ? 1 << (23 - man_bits + offset) : 1 << std::min<int>((23 - man_bits + offset), 23);
-  return add_r & ~(shift_value - 1) + offset * (man_bits == 0) * (machine_eps << 1);
+  return (add_r & ~(shift_value - 1)) + offset * (man_bits == 0) * (machine_eps << 1);
+}
+
+// rounds to nearest, ties to even (man_bits = 0 special case)
+uint32_t round_bitwise_nearest_even(uint32_t target)
+{
+  uint32_t man_val = 0x007FFFFF & target;
+  // tie breaking rule
+  int midpoint = (man_val == 0x00400000);
+  uint32_t add_r = target + 0x00400000;
+  int target_exp = (add_r << 1 >> 1 >> 23) - 127;
+  return (add_r & ~0x007FFFFF) - 0x00800000 * (target_exp % 2 != 0) * midpoint;
 }
 
 // rounds to nearest, ties to away

@@ -29,7 +29,8 @@ __host__ __device__ float cast_binaryK_nearest_even(float origin_float,
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-        quantize_bits = not_uflow * round_bitwise_nearest_even(target, exp_diff);
+        uint32_t rounded_val = (man_bits > 0) ? round_bitwise_nearest_even(target, exp_diff) : round_bitwise_nearest_even(target);
+        quantize_bits = not_uflow * rounded_val;
         quantize_bits =
             clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
@@ -42,7 +43,7 @@ __host__ __device__ float cast_binaryK_nearest_even(float origin_float,
     // normal value range or overflow
     else
     {
-        quantize_bits = round_bitwise_nearest_even(target, man_bits);
+        quantize_bits = (man_bits > 0) ? round_bitwise_nearest_even(target, man_bits) : round_bitwise_nearest_even(target);
         quantize_bits =
             clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
         quantized = BITS_TO_FLOAT(&quantize_bits);

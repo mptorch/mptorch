@@ -41,15 +41,28 @@ auto print_float = [](float x)
     print_uint32(u);
 };
 
+// rounds to nearest, ties to even
 uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
     uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
+    uint32_t machine_eps = (1 << (22 - man_bits));
     // tie breaking rule offset
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
     int shift_value = man_bits == 0 ? 1 << (23 - man_bits + offset) : 1 << std::min<int>((23 - man_bits + offset), 23);
-    return add_r & ~(shift_value - 1) + offset * (man_bits == 0) * (machine_eps << 1);
+    return (add_r & ~(shift_value - 1)) + offset * (man_bits == 0) * (machine_eps << 1);
+}
+
+uint32_t round_bitwise_nearest_even_P0(uint32_t target)
+{
+    uint32_t man_val = 0x007FFFFF & target;
+    // tie breaking rule
+    int midpoint = (man_val == 0x00400000);
+    uint32_t add_r = target + 0x00400000;
+    int target_exp = (add_r << 1 >> 1 >> 23) - 127;
+    std::cout << target_exp << std::endl;
+    uint32_t add_f = (add_r & ~0x007FFFFF) - 0x00800000 * (target_exp % 2 != 0) * midpoint;
+    return add_f;
 }
 
 uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
@@ -243,7 +256,7 @@ float cast_binaryK_nearest_even(float origin_float,
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-        quantize_bits = not_uflow * round_bitwise_nearest_even(target, exp_diff);
+        quantize_bits = not_uflow * ((man_bits > 0) ? round_bitwise_nearest_even(target, exp_diff) : round_bitwise_nearest_even_P0(target));
         quantize_bits =
             clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
@@ -256,7 +269,7 @@ float cast_binaryK_nearest_even(float origin_float,
     // normal value range or overflow
     else
     {
-        quantize_bits = round_bitwise_nearest_even(target, man_bits);
+        quantize_bits = (man_bits > 0) ? round_bitwise_nearest_even(target, man_bits) : round_bitwise_nearest_even_P0(target);
         quantize_bits =
             clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
         quantized = BITS_TO_FLOAT(&quantize_bits);
@@ -461,7 +474,7 @@ float cast_binaryK_stochastic(float origin_float,
     return quantized;
 }
 
-int main()
+/*int main()
 {
     SaturationMode sat_mode = SaturationMode::OVF_INF;
     bool is_signed = true;
@@ -480,4 +493,24 @@ int main()
     print_float(qval2);
     std::cout << "qval_rand = " << qval3 << std::endl;
     print_float(qval3);
+}*/
+
+int main()
+{
+    /*float x = 9.15527343750000000000e-05f;
+    float qx = 0.00012207031250000000f;
+    float gqx = 6.10351562500000000000e-05f;
+    int man_bits = 0;
+    int exp_bits = 5;*/
+    float x = 1.62630325872825665101117920130491256713867187500000000000000000000000000000000000e-19f;
+    float qx = 4.33680868994201773602981120347976684570312500000000000000000000000000000000000000e-19f;
+    float gqx = 2.16840434497100886801490560173988342285156250000000000000000000000000000000000000e-19f;
+    int man_bits = 0;
+    int exp_bits = 7;
+    int bias = 1 << (exp_bits - 1);
+    float quant_x = cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, true, SaturationMode::OVF_INF);
+    print_float(x);
+    // print_float(qx);
+    print_float(quant_x);
+    print_float(gqx);
 }
