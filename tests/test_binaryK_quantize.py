@@ -18,6 +18,7 @@ from tests.quant import bits_to_float, float_to_bits, assert_quant
         (RoundMode.TiesToAway, "nearest_away"),
         (RoundMode.TowardPositive, "up"),
         (RoundMode.TowardNegative, "down"),
+        (RoundMode.TowardZero, "zero"),
     ],
 )
 def test_binaryK_to_gfloat_nearest_even_signed(device, K, rounding_mode):
