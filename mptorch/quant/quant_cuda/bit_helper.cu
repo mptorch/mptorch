@@ -108,9 +108,7 @@ __host__ __device__ __forceinline__ uint32_t clip_exponent(
     }
     else
     {
-      quantized_num =
-          ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-      quantized_num = quantized_num | old_sign;
+      quantized_num = old_sign | 0x7f800000;
     }
     // handle underflow
   }
@@ -163,8 +161,8 @@ __device__ __forceinline__ uint32_t clip_subnormal_range_exponent(int exp_bits, 
   {
     int offset = (quantized_exponent_store == (min_exponent_store - 1));
     quantized_num += offset * (1u << 23);
-    quantized_num = quantized_num | old_sign;
-    quantized_num = offset * quantized_num;
+    quantized_num |= old_sign;
+    quantized_num *= offset;
   }
   return quantized_num;
 }
@@ -193,8 +191,7 @@ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int
     }
     else
     {
-      quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-      quantized_num = quantized_num | old_sign;
+      quantized_num = old_sign | 0x7f800000;
     }
   } // underflow or round to smallest nonzero normal value
   else if (quantized_exponent_store < min_exponent_store)
