@@ -1,7 +1,7 @@
 #pragma once
 
 #include "binary8.h"
-#include "binaryK.h"
+#include "binaryK_kernel.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <vector>
@@ -70,10 +70,9 @@ Tensor fixed_point_quantize_nearest(Tensor a,
  * clamping into a mask, with the option of having a symmetric number range
  * Stochastic Rounding.
  **/
-std::tuple<Tensor, Tensor>
-fixed_point_quantize_stochastic_mask(Tensor a,
-                                     int wl, int fl,
-                                     bool symmetric);
+std::tuple<Tensor, Tensor> fixed_point_quantize_stochastic_mask(Tensor a,
+                                                                int wl, int fl,
+                                                                bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]
@@ -81,8 +80,9 @@ fixed_point_quantize_stochastic_mask(Tensor a,
  * clamping into a mask, with the option of having a symmetric number range
  * Nearest Rounding.
  **/
-std::tuple<Tensor, Tensor>
-fixed_point_quantize_nearest_mask(Tensor a, int wl, int fl, bool symmetric);
+std::tuple<Tensor, Tensor> fixed_point_quantize_nearest_mask(Tensor a,
+                                                             int wl, int fl,
+                                                             bool symmetric);
 
 /**
  * quantize a FloatTensor into fixed point number with word length [wl]

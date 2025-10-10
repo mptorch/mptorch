@@ -1,6 +1,6 @@
 #include "quant.h"
 #include "binary8.h"
-#include "binaryK.h"
+#include "binaryK_kernel.h"
 #include <torch/torch.h>
 #include <tuple>
 

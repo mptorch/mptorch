@@ -1,13 +1,10 @@
 #include "bit_helper.h"
 #include "quant.h"
 #include "binary8.h"
-#include "softmax.h"
-#include "layernorm.h"
+#include "softmax_kernel.h"
+#include "layernorm_kernel.h"
 #include <ATen/ATen.h>
 #include <cmath>
-
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
 // rounds to nearest, ties to even, for P = 1 special case binary8 format
 uint32_t binary8_round_bitwise_nearest_even_p1(uint32_t target, int man_bits)

@@ -1,9 +1,9 @@
 #include "quant.h"
 #include "bit_helper.h"
-#include "layernorm.h"
-#include "softmax.h"
+#include "layernorm_kernel.h"
+#include "softmax_kernel.h"
 #include "binary8.h"
-#include "binaryK.h"
+#include "binaryK_kernel.h"
 #include "mm_kernel.h"
 #include <cassert>
 #include <random>

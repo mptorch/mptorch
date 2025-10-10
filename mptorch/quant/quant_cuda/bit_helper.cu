@@ -193,7 +193,7 @@ __host__ __device__ __forceinline__ uint32_t clip_subnormal_range_exponent_up(in
 // clips the exponent of a floating point format without subnormal values (binaryK version)
 __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                                                         uint32_t old_num, uint32_t quantized_num,
-                                                                        SaturationMode saturation_mode)
+                                                                        SaturationMode saturation_mode, bool extended_normals = false)
 {
   if (quantized_num == 0)
     return quantized_num;
@@ -204,7 +204,7 @@ __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_
 
   int quantized_exponent_store = quantized_num << 1 >> 24;
   int max_exponent_store = (bias - 1) + 126 + (man_bits > 1);
-  int min_exponent_store = -(bias - 1) + 127;
+  int min_exponent_store = -(bias - 1) + 127 - extended_normals;
   int finite = (saturation_mode == SaturationMode::SAT_FINITE);
 
   uint32_t max_man = ((0x007FFFFF >> (23 - man_bits)) - 1 + finite) << (23 - man_bits);
@@ -248,14 +248,14 @@ __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_
 // clips the exponent of a floating point format without subnormal values (IEEE-754 style floats version)
 __host__ __device__ __forceinline__ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
                                                                         uint32_t old_num, uint32_t quantized_num,
-                                                                        bool saturate)
+                                                                        bool saturate, bool extended_normals = false)
 {
   if (quantized_num == 0)
     return quantized_num;
 
   int quantized_exponent_store = quantized_num << 1 >> 24;
   int max_exponent_store = bias + 127;
-  int min_exponent_store = -(bias - 1) + 127;
+  int min_exponent_store = -(bias - 1) + 127 - extended_normals;
 
   uint32_t old_sign = old_num >> 31 << 31;
   // handle overflow

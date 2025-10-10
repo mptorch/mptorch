@@ -1,4 +1,5 @@
 #pragma once
+#include "subnormals.h"
 
 /*
 SAT_FINITE:

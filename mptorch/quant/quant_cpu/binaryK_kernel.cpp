@@ -1,14 +1,11 @@
 #include "bit_helper.h"
-#include "binaryK.h"
-#include "softmax.h"
+#include "binaryK_kernel.h"
+#include "softmax_kernel.h"
+#include "layernorm_kernel.h"
 #include "quant.h"
-#include "layernorm.h"
 #include <ATen/ATen.h>
 #include <cmath>
 #include <random>
-
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
 float cast_binaryK_nearest_even(float origin_float,
                                 int man_bits, int exp_bits,
