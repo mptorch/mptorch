@@ -81,6 +81,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           .value("SAT_PROPAGATE", SaturationMode::SAT_PROPAGATE)
           .value("OVF_INF", SaturationMode::OVF_INF);
 
+      py::enum_<SubnormalsMode>(m, "SubnormalsMode", py::arithmetic(), py::module_local())
+          .value("SUBNORMALS", SubnormalsMode::SUBNORMALS)
+          .value("NORMALS", SubnormalsMode::NORMALS)
+          .value("EXTENDED_NORMALS", SubnormalsMode::EXTENDED_NORMALS);
+
       m.def("float_quantize_nearest_mm",
             &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CPU)");

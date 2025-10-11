@@ -1,13 +1,10 @@
 #pragma once
 
-#include "subnormals.h"
+#include "modes.h"
 #include "binary8.h"
 #include "binaryK_kernel.h"
 #include <cmath>
 #include <cstdint>
-
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
 
 uint32_t extract_exponent(float *a);
 

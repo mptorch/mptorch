@@ -4,8 +4,6 @@
 #include <torch/torch.h>
 #include <cmath>
 
-using namespace at;
-
 template <class Qadd, class Qmul>
 void mm_kernel(float *a, float *b, float *c,
                int M, int K, int N,
