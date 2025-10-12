@@ -70,7 +70,7 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 quant_cpu = load(
     name="quant_cpu",
     sources=get_sources(os.path.join(current_path, "quant_cpu")),
-    # extra_cflags=["-fopenmp"],
+    extra_cflags=["-std=c++20", "-pthread"] if os.name != "nt" else ["/std:c++20"],
 )
 
 if torch.cuda.is_available():

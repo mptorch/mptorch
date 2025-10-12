@@ -3,6 +3,9 @@
 #include "binaryK_kernel.h"
 #include <torch/torch.h>
 #include <tuple>
+#include <pybind11/pybind11.h>
+
+namespace py = pybind11;
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {

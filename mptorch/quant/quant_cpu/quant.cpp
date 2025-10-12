@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include <execution>
 
 using namespace at;
 
@@ -68,8 +69,7 @@ T clamp_mask_helper(T a, T min, T max, uint8_t *mask)
 template <class Quantizer>
 void quantize_array(float *a, float *o, int size, Quantizer quant)
 {
-  for (int idx = 0; idx < size; ++idx)
-    o[idx] = quant(a[idx]);
+  std::transform(std::execution::par, a, a + size, o, quant);
 }
 
 float gen_random()
@@ -408,11 +408,10 @@ Tensor float_quantize_stochastic(Tensor a,
                                  bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, prng_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_stochastic(x, man_bits, exp_bits, prng_bits, bias, saturate, subnormal_mode); });
 
@@ -424,11 +423,10 @@ Tensor float_quantize_nearest(Tensor a,
                               bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_nearest_even(x, man_bits, exp_bits, bias, saturate, subnormal_mode); });
 
@@ -440,11 +438,10 @@ Tensor float_quantize_nearest_away(Tensor a,
                                    bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_nearest_away(x, man_bits, exp_bits, bias, saturate, subnormal_mode); });
 
@@ -456,11 +453,10 @@ Tensor float_quantize_up(Tensor a,
                          bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_up(x, man_bits, exp_bits, bias, saturate, subnormal_mode); });
 
@@ -472,11 +468,10 @@ Tensor float_quantize_down(Tensor a,
                            bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_down(x, man_bits, exp_bits, bias, saturate, subnormal_mode); });
 
@@ -488,11 +483,10 @@ Tensor float_quantize_zero(Tensor a,
                            bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
-  int size = a.numel();
   int bias = (1 << (exp_bits - 1)) - 1;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), size,
+  quantize_array(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  [man_bits, exp_bits, bias, saturate, subnormal_mode](float x)
                  { return cast_fp_zero(x, man_bits, exp_bits, bias, saturate, subnormal_mode); });
 

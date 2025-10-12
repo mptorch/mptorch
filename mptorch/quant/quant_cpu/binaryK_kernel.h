@@ -1,4 +1,5 @@
 #pragma once
+
 #include "modes.h"
 
 void binaryK_kernel_nearest_even(float *a, float *o, int size, int K, int P, int bias,
