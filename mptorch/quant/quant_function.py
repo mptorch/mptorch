@@ -67,10 +67,29 @@ def get_sources(directory):
 
 
 current_path = os.path.dirname(os.path.realpath(__file__))
+
+
+def get_extra_cflags():
+    match os.name:
+        case "nt":
+            return ["/std:c++20"]
+        case _:
+            return ["-std=c++20", "-pthread"]
+
+
+def get_extra_ldflags():
+    match os.name:
+        case "nt":
+            return []
+        case _:
+            return ["-pthread"]
+
+
 quant_cpu = load(
     name="quant_cpu",
     sources=get_sources(os.path.join(current_path, "quant_cpu")),
-    extra_cflags=["-std=c++20", "-pthread"] if os.name != "nt" else ["/std:c++20"],
+    extra_cflags=get_extra_cflags(),
+    extra_ldflags=get_extra_ldflags(),
 )
 
 if torch.cuda.is_available():
