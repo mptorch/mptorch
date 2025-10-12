@@ -13,7 +13,6 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
-#include <execution>
 
 using namespace at;
 
@@ -69,12 +68,8 @@ T clamp_mask_helper(T a, T min, T max, uint8_t *mask)
 template <class Quantizer>
 void quantize_array(float *a, float *o, int size, Quantizer quant)
 {
-#if defined(__APPLE__)
   for (int i = 0; i < size; ++i)
     o[i] = quant(a[i]);
-#else
-  std::transform(std::execution::par, a, a + size, o, quant);
-#endif
 }
 
 float gen_random()

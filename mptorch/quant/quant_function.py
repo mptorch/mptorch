@@ -74,22 +74,13 @@ def get_extra_cflags():
         case "nt":
             return ["/std:c++20"]
         case _:
-            return ["-std=c++20", "-pthread"]
-
-
-def get_extra_ldflags():
-    match os.name:
-        case "nt":
-            return []
-        case _:
-            return ["-pthread"]
+            return ["-std=c++20"]
 
 
 quant_cpu = load(
     name="quant_cpu",
     sources=get_sources(os.path.join(current_path, "quant_cpu")),
     extra_cflags=get_extra_cflags(),
-    extra_ldflags=get_extra_ldflags(),
 )
 
 if torch.cuda.is_available():
