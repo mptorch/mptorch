@@ -365,7 +365,7 @@ float cast_binaryK_stochastic(float origin_float,
     bool subnormal = (target_exp < min_exp);
 
     rand_prob = rand_prob << 9 >> 9;
-    rand_prob = rand_prob & ~(1 << (23 - man_bits - rand_bits) - 1);
+    rand_prob = rand_prob & ~((1 << (23 - man_bits - rand_bits)) - 1);
 
     if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
