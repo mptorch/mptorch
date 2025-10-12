@@ -9,6 +9,7 @@ from mptorch import (
 )
 from torch.utils.cpp_extension import load
 import os
+import platform
 from typing import Literal
 
 from .cublas import cublas_acceleration
@@ -70,11 +71,13 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 
 
 def get_extra_cflags():
-    match os.name:
-        case "nt":
-            return ["/std:c++20"]
-        case _:
+    match platform.system():
+        case "Windows":
+            return ["/std:c++20", "/openmp"]
+        case "Darwin":
             return ["-std=c++20"]
+        case _:
+            return ["-std=c++20", "-fopenmp"]
 
 
 quant_cpu = load(
@@ -85,7 +88,7 @@ quant_cpu = load(
 
 if torch.cuda.is_available():
     extra_ldflags = []
-    if os.name == "nt":
+    if platform.system() == "Windows":
         extra_ldflags.append("cublas.lib")
     quant_cuda = load(
         name="quant_cuda",

@@ -349,9 +349,9 @@ float cast_binaryK_stochastic(float origin_float,
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0);
+    thread_local std::random_device rd;
+    thread_local std::mt19937 gen(rd());
+    thread_local std::uniform_int_distribution<> dis(0);
 
     uint32_t mask = (1 << (23 - man_bits)) - 1;
     uint32_t rand_prob = (dis(gen)) & mask;
