@@ -4,7 +4,6 @@
 #include <curand_kernel.h>
 #include <cstdint>
 #include "modes.h"
-#include "binary8_kernel.h"
 
 __global__ void seed_init(curandState_t *state);
 
@@ -67,24 +66,6 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
                                        int man_bits, int exp_bits,
                                        int binades_l, int binades_u,
                                        bool saturate);
-
-__global__ void binary8_signed_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                              int P, OverflowPolicy overflow_policy, bool subnormals);
-
-__global__ void binary8_unsigned_kernel_nearest(float *__restrict__ a, float *o, int size,
-                                                int P, OverflowPolicy overflow_policy, bool subnormals);
-
-__global__ void binary8_signed_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                                 int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
-
-__global__ void binary8_unsigned_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
-                                                   int P, int prng_bits, OverflowPolicy overflow_policy, bool subnormals);
-
-__global__ void binary8_signed_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                               int P, OverflowPolicy overflow_policy, bool subnormals);
-
-__global__ void binary8_unsigned_kernel_truncate(float *__restrict__ a, float *o, int size,
-                                                 int P, OverflowPolicy overflow_policy, bool subnormals);
 
 __global__ void binaryK_kernel_nearest_even(
     float *__restrict__ a, float *o, int size,
@@ -293,25 +274,6 @@ void layernorm_backward_superfp_nearest(float *input, float *grad_output,
                                         int man_div, int exp_div, int binades_div_l, int binades_div_u,
                                         bool saturate);
 
-void layernorm_forward_binary8_nearest(float *input, float *weight, float *bias,
-                                       float *output, float *mean, float *rstd,
-                                       float eps, const DimSizes &sizes,
-                                       int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                       int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                       int P_div, OverflowPolicy op_div, bool signed_div,
-                                       int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
-                                       bool subnormals);
-
-void layernorm_backward_binary8_nearest(float *input, float *grad_output,
-                                        float *weight, float *bias,
-                                        float *mean, float *rstd,
-                                        float *grad_input, float *grad_gamma, float *grad_beta,
-                                        const DimSizes &sizes,
-                                        int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                        int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                        int P_div, OverflowPolicy op_div, bool signed_div,
-                                        bool subnormals);
-
 void softmax_forward_fp_nearest(float *a, float *o,
                                 const DimSizes &sizes,
                                 int man_exp, int exp_exp,
@@ -352,22 +314,3 @@ void softmax_backward_superfp_nearest(float *a, float *g, float *o,
                                       int man_add, int exp_add, int binades_add_l, int binades_add_u,
                                       int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                       bool saturate);
-
-void softmax_forward_binary8_nearest(float *a, float *o,
-                                     const DimSizes &sizes,
-                                     int P_exp, OverflowPolicy op_exp, bool signed_exp,
-                                     int P_off, OverflowPolicy op_off, bool signed_off,
-                                     int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                     bool subnormals);
-
-void softmax_lse_forward_binary8_nearest(float *a, float *o,
-                                         const DimSizes &sizes,
-                                         int P_off, OverflowPolicy op_off, bool signed_off,
-                                         int P_lse, OverflowPolicy op_lse, bool signed_lse,
-                                         bool subnormals);
-
-void softmax_backward_binary8_nearest(float *a, float *g, float *o,
-                                      const DimSizes &sizes,
-                                      int P_add, OverflowPolicy op_add, bool signed_add,
-                                      int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                      bool subnormals);

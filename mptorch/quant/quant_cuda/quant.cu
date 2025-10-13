@@ -1,6 +1,5 @@
 #include "quant.h"
 #include "quant_kernel.h"
-#include "binary8_kernel.h"
 #include "modes.h"
 #include <ATen/ATen.h>
 #include <climits>
@@ -171,77 +170,6 @@ Tensor superfp_quantize_nearest_cuda(Tensor a,
 
   superfp_kernel_nearest<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits, binades_l, binades_u, saturate);
-  return o;
-}
-
-Tensor binary8_quantize_nearest_cuda(Tensor a,
-                                     int P, bool is_signed, OverflowPolicy overflow_policy,
-                                     bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-
-  if (is_signed == true)
-  { // signed
-    binary8_signed_kernel_nearest<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-  else
-  { // unsigned
-    binary8_unsigned_kernel_nearest<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_stochastic_cuda(Tensor a,
-                                        int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy,
-                                        bool subnormals)
-{
-  auto o = zeros_like(a);
-  // use external random number right now
-  auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-
-  if (is_signed == true)
-  { // signed
-    binary8_signed_kernel_stochastic<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  }
-  else
-  { // unsigned
-    binary8_unsigned_kernel_stochastic<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size, P, prng_bits, overflow_policy, subnormals);
-  }
-
-  return o;
-}
-
-Tensor binary8_quantize_truncate_cuda(Tensor a,
-                                      int P, bool is_signed, OverflowPolicy overflow_policy,
-                                      bool subnormals)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-
-  if (is_signed == true)
-  { // signed
-    binary8_signed_kernel_truncate<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-  else
-  { // unsigned
-    binary8_unsigned_kernel_truncate<<<blockNums, blockSize>>>(
-        a.data_ptr<float>(), o.data_ptr<float>(), size, P, overflow_policy, subnormals);
-  }
-
   return o;
 }
 
@@ -990,48 +918,6 @@ void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_
                                      saturate);
 }
 
-void binary8_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
-                                                     Tensor output, Tensor mean, Tensor rstd,
-                                                     float eps, std::vector<int> &dims,
-                                                     int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                     int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                     int P_div, OverflowPolicy op_div, bool signed_div,
-                                                     int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
-                                                     bool subnormals)
-{
-  auto sizes = partition_tensor(input, dims);
-  layernorm_forward_binary8_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
-                                    output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
-                                    eps, sizes,
-                                    P_acc, op_acc, signed_acc,
-                                    P_mul, op_mul, signed_mul,
-                                    P_div, op_div, signed_div,
-                                    P_sqrt, op_sqrt, signed_sqrt,
-                                    subnormals);
-}
-
-void binary8_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output,
-                                                      Tensor weight, Tensor bias,
-                                                      Tensor mean, Tensor rstd,
-                                                      Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
-                                                      std::vector<int> &dims,
-                                                      int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                      int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                      int P_div, OverflowPolicy op_div, bool signed_div,
-                                                      bool subnormals)
-{
-  auto sizes = partition_tensor(input, dims);
-  layernorm_backward_binary8_nearest(input.data_ptr<float>(), grad_output.data_ptr<float>(),
-                                     weight.data_ptr<float>(), bias.data_ptr<float>(),
-                                     mean.data_ptr<float>(), rstd.data_ptr<float>(),
-                                     grad_input.data_ptr<float>(), grad_gamma.data_ptr<float>(), grad_beta.data_ptr<float>(),
-                                     sizes,
-                                     P_acc, op_acc, signed_acc,
-                                     P_mul, op_mul, signed_mul,
-                                     P_div, op_div, signed_div,
-                                     subnormals);
-}
-
 void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
                                                  int man_exp, int exp_exp,
                                                  int man_off, int exp_off,
@@ -1112,42 +998,4 @@ void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o
                                    man_add, exp_add, binades_add_l, binades_add_u,
                                    man_mul, exp_mul, binades_mul_l, binades_mul_u,
                                    saturate);
-}
-
-void binary8_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                                   int P_exp, OverflowPolicy op_exp, bool signed_exp,
-                                                   int P_off, OverflowPolicy op_off, bool signed_off,
-                                                   int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                   bool subnormals)
-{
-  auto sizes = partition_tensor(a, dim);
-  softmax_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                  P_exp, op_exp, signed_exp,
-                                  P_off, op_off, signed_off,
-                                  P_acc, op_acc, signed_acc,
-                                  subnormals);
-}
-
-void binary8_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                                       int P_off, OverflowPolicy op_off, bool signed_off,
-                                                       int P_lse, OverflowPolicy op_lse, bool signed_lse,
-                                                       bool subnormals)
-{
-  auto sizes = partition_tensor(a, dim);
-  softmax_lse_forward_binary8_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                      P_off, op_off, signed_off,
-                                      P_lse, op_lse, signed_lse,
-                                      subnormals);
-}
-
-void binary8_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
-                                                    int P_add, OverflowPolicy op_add, bool signed_add,
-                                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                    bool subnormals)
-{
-  auto sizes = partition_tensor(a, dim);
-  softmax_backward_binary8_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
-                                   P_add, op_add, signed_add,
-                                   P_mul, op_mul, signed_mul,
-                                   subnormals);
 }

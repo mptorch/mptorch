@@ -2,13 +2,12 @@ from typing import Optional
 
 import torch
 from ..number import *
-from typing import Union, Optional, Tuple, Callable
+from typing import Tuple, Callable
 from .quant_function import (
     float_quantize,
     fixed_point_quantize,
     superfp_quantize,
     block_quantize,
-    binary8_quantize,
 )
 
 __all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats", "QGELUFormats"]
@@ -31,16 +30,6 @@ def make_quant_function(num: Number, rounding: str, prng_bits: int = 0) -> Calla
         )
     elif isinstance(num, BlockFloatingPoint):
         return lambda x: block_quantize(x, num.wl, num.dim, rounding)
-    elif isinstance(num, Binary8):
-        return lambda x: binary8_quantize(
-            x,
-            num.P,
-            rounding,
-            num.overflow_policy,
-            num.signed,
-            num.subnormals,
-            prng_bits,
-        )
     raise NotImplementedError
 
 

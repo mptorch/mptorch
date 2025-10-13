@@ -17,7 +17,7 @@ NVCCFLAGS = -lcublas -lcublasLt -std=c++17 --extended-lambda -Wno-deprecated-gpu
 	$(NVCC) $(CFLAGS) $(NVCCFLAGS) $< -o $@
 
 # Build all targets (new executables go here)
-TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul custom_matmul custom_matmul_fma compensated_matmul superfp_nearest binary8_nearest binary8_stochastic nv_bfloat16 softmax_forward softmax_backward layernorm_forward layernorm_backward
+TARGETS = vec_add round_bitwise_nearest fp_nearest cublas_gemm cublas_bgemm cublaslt_matmul custom_matmul custom_matmul_fma compensated_matmul superfp_nearest nv_bfloat16 softmax_forward softmax_backward layernorm_forward layernorm_backward
 
 all: $(TARGETS)
 

@@ -5,7 +5,6 @@ from mptorch import (
     FloatingPoint,
     SuperNormalFloat,
     BlockFloatingPoint,
-    Binary8,
 )
 from torch.utils.cpp_extension import load
 import os
@@ -18,7 +17,6 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
-    "binary8_quantize",
     "binaryK_quantize",
     "superfp_quantize",
     "quantizer",
@@ -38,9 +36,6 @@ __all__ = [
     "superfp_softmax_forward",
     "superfp_softmax_lse_forward",
     "superfp_softmax_backward",
-    "binary8_softmax_forward",
-    "binary8_softmax_lse_forward",
-    "binary8_softmax_backward",
     "cublas_mm",
     "cublas_bmm",
     "CUBLASMatrixType",
@@ -52,8 +47,6 @@ __all__ = [
     "float_layernorm_backward",
     "superfp_layernorm_forward",
     "superfp_layernorm_backward",
-    "binary8_layernorm_forward",
-    "binary8_layernorm_backward",
 ]
 
 
@@ -478,41 +471,6 @@ def mp_softmax_forward(a: torch.Tensor, dim: int, formats) -> torch.Tensor:
                 formats.fwd_rnd,
                 off_cfg.saturate,
             )
-    elif type(off_cfg) == Binary8:
-        if not formats.use_lse:
-            assert (
-                formats.fwd_exp.subnormals == off_cfg.subnormals
-                and formats.fwd_acc.subnormals == off_cfg.subnormals
-            )
-            return binary8_softmax_forward(
-                a,
-                dim,
-                formats.fwd_exp.P,
-                formats.fwd_exp.overflow_policy,
-                formats.fwd_exp.signed,
-                formats.fwd_off.P,
-                formats.fwd_off.overflow_policy,
-                formats.fwd_off.signed,
-                formats.fwd_acc.P,
-                formats.fwd_acc.overflow_policy,
-                formats.fwd_acc.signed,
-                formats.fwd_rnd,
-                off_cfg.subnormals,
-            )
-        else:
-            assert formats.fwd_lse.subnormals == off_cfg.subnormals
-            return binary8_softmax_lse_forward(
-                a,
-                dim,
-                formats.fwd_off.P,
-                formats.fwd_off.overflow_policy,
-                formats.fwd_off.signed,
-                formats.fwd_lse.P,
-                formats.fwd_lse.overflow_policy,
-                formats.fwd_lse.signed,
-                formats.fwd_rnd,
-                off_cfg.subnormals,
-            )
     raise NotImplementedError("Unsupported number format.")
 
 
@@ -549,21 +507,6 @@ def mp_softmax_backward(
             formats.bwd_mul.binades,
             formats.bwd_rnd,
             add_cfg.saturate,
-        )
-    elif type(add_cfg) == Binary8:
-        assert formats.bwd_mul.subnormals == add_cfg.subnormals
-        return binary8_softmax_backward(
-            input,
-            grad_output,
-            dim,
-            formats.bwd_add.P,
-            formats.bwd_add.overflow_policy,
-            formats.bwd_add.signed,
-            formats.bwd_mul.P,
-            formats.bwd_mul.overflow_policy,
-            formats.bwd_mul.signed,
-            formats.bwd_rnd,
-            add_cfg.subnormals,
         )
     raise NotImplementedError("Unsupported number format.")
 
@@ -778,105 +721,6 @@ def superfp_softmax_backward(
     return grad_input
 
 
-def binary8_softmax_forward(
-    input: torch.Tensor,
-    dim: int,
-    P_exp: int,
-    op_exp: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_exp: bool,
-    P_off: int,
-    op_off: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_off: bool,
-    P_acc: int,
-    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_acc: bool,
-    rounding: Literal["nearest"],
-    subnormals: bool,
-) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
-    output = torch.zeros_like(input)
-    quant_module = get_module(input)
-    quant_module.binary8_quantize_nearest_softmax_forward(
-        input.contiguous(),
-        output,
-        dim,
-        P_exp,
-        translate_overflow_policy(quant_module, op_exp),
-        signed_exp,
-        P_off,
-        translate_overflow_policy(quant_module, op_off),
-        signed_off,
-        P_acc,
-        translate_overflow_policy(quant_module, op_acc),
-        signed_acc,
-        subnormals,
-    )
-    return output
-
-
-def binary8_softmax_lse_forward(
-    input: torch.Tensor,
-    dim: int,
-    P_off: int,
-    op_off: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_off: bool,
-    P_lse: int,
-    op_lse: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_lse: bool,
-    rounding: Literal["nearest"],
-    subnormals: bool,
-) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
-    output = torch.zeros_like(input)
-    quant_module = get_module(input)
-    quant_module.binary8_quantize_nearest_softmax_lse_forward(
-        input.contiguous(),
-        output,
-        dim,
-        P_off,
-        translate_overflow_policy(quant_module, op_off),
-        signed_off,
-        P_lse,
-        translate_overflow_policy(quant_module, op_lse),
-        signed_lse,
-        subnormals,
-    )
-    return output
-
-
-def binary8_softmax_backward(
-    input: torch.Tensor,
-    grad_output: torch.Tensor,
-    dim: int,
-    P_add: int,
-    op_add: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_add: bool,
-    P_mul: int,
-    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_mul: bool,
-    rounding: Literal["nearest"],
-    subnormals: bool,
-) -> torch.Tensor:
-    assert input.device == grad_output.device
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
-    grad_input = torch.zeros_like(input)
-    quant_module = get_module(input)
-    quant_module.binary8_quantize_nearest_softmax_backward(
-        input.contiguous(),
-        grad_output.contiguous(),
-        grad_input,
-        dim,
-        P_add,
-        translate_overflow_policy(quant_module, op_add),
-        signed_add,
-        P_mul,
-        translate_overflow_policy(quant_module, op_mul),
-        signed_mul,
-        subnormals,
-    )
-    return grad_input
-
-
 def mp_layernorm_forward(
     inp: torch.Tensor,
     weight: torch.Tensor,
@@ -927,29 +771,6 @@ def mp_layernorm_forward(
             formats.fwd_sqrt.binades,
             formats.fwd_rnd,
             acc_cfg.saturate,
-        )
-
-    elif type(acc_cfg) == Binary8:
-        return binary8_layernorm_forward(
-            inp,
-            weight,
-            bias,
-            eps,
-            dims,
-            formats.fwd_acc.P,
-            formats.fwd_acc.overflow_policy,
-            formats.fwd_acc.signed,
-            formats.fwd_mul.P,
-            formats.fwd_mul.overflow_policy,
-            formats.fwd_mul.signed,
-            formats.fwd_div.P,
-            formats.fwd_div.overflow_policy,
-            formats.fwd_div.signed,
-            formats.fwd_sqrt.P,
-            formats.fwd_sqrt.overflow_policy,
-            formats.fwd_sqrt.signed,
-            formats.fwd_rnd,
-            acc_cfg.subnormals,
         )
 
     raise NotImplementedError("Unsupported float type.")
@@ -1005,27 +826,6 @@ def mp_layernorm_backward(
             formats.bwd_div.binades,
             formats.bwd_rnd,
             acc_cfg.saturate,
-        )
-    elif type(acc_cfg) == Binary8:
-        return binary8_layernorm_backward(
-            inp,
-            grad_output,
-            weight,
-            bias,
-            mean,
-            rstd,
-            dims,
-            formats.bwd_acc.P,
-            formats.bwd_acc.overflow_policy,
-            formats.bwd_acc.signed,
-            formats.bwd_mul.P,
-            formats.bwd_mul.overflow_policy,
-            formats.bwd_mul.signed,
-            formats.bwd_div.P,
-            formats.bwd_div.overflow_policy,
-            formats.bwd_div.signed,
-            formats.bwd_rnd,
-            acc_cfg.subnormals,
         )
 
     raise NotImplementedError("Unsupported float type.")
@@ -1150,64 +950,6 @@ def superfp_layernorm_forward(
     return output, mean, rstd
 
 
-def binary8_layernorm_forward(
-    inp: torch.Tensor,
-    weight: torch.Tensor,
-    bias: torch.Tensor,
-    eps: float,
-    dims: list[int],
-    P_acc: int,
-    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_acc: bool,
-    P_mul: int,
-    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_mul: bool,
-    P_div: int,
-    op_div: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_div: bool,
-    P_sqrt: int,
-    op_sqrt: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_sqrt: bool,
-    rounding: Literal["nearest"],
-    subnormals: bool,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
-
-    quant_module = get_module(inp)
-
-    reduced_dim = list(range(inp.dim() - len(dims)))
-    reduced_shape = [inp.shape[i] for i in reduced_dim]
-
-    mean = torch.zeros(reduced_shape, device=inp.device)
-    rstd = torch.zeros(reduced_shape, device=inp.device)
-    output = torch.zeros_like(inp, device=inp.device)
-
-    quant_module.binary8_quantize_layernorm_forward(
-        inp.contiguous(),
-        weight.contiguous(),
-        bias.contiguous(),
-        output,
-        mean,
-        rstd,
-        eps,
-        dims,
-        P_acc,
-        op_acc,
-        signed_acc,
-        P_mul,
-        op_mul,
-        signed_mul,
-        P_div,
-        op_div,
-        signed_div,
-        P_sqrt,
-        op_sqrt,
-        signed_sqrt,
-        subnormals,
-    )
-    return output, mean, rstd
-
-
 def float_layernorm_backward(
     inp: torch.Tensor,
     grad_output: torch.Tensor,
@@ -1317,61 +1059,6 @@ def superfp_layernorm_backward(
         binades_div_l,
         binades_div_h,
         saturate,
-    )
-    return grad_input, grad_weight, grad_bias
-
-
-def binary8_layernorm_backward(
-    inp: torch.Tensor,
-    grad_output: torch.Tensor,
-    weight: torch.Tensor,
-    bias: torch.Tensor,
-    mean: torch.Tensor,
-    rstd: torch.Tensor,
-    dims: list[int],
-    P_acc: int,
-    op_acc: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_acc: bool,
-    P_mul: int,
-    op_mul: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_mul: bool,
-    P_div: int,
-    op_div: Literal["saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"],
-    signed_div: bool,
-    rounding: Literal["nearest", "stochastic"],
-    subnormals: bool,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
-
-    assert inp.device == grad_output.device
-
-    quant_module = get_module(inp)
-
-    grad_input = torch.zeros_like(inp)
-    grad_weight = torch.zeros_like(weight)
-    grad_bias = torch.zeros_like(bias)
-
-    quant_module.binary8_quantize_layernorm_backward(
-        inp.contiguous(),
-        grad_output.contiguous(),
-        weight.contiguous(),
-        bias.contiguous(),
-        mean.contiguous(),
-        rstd.contiguous(),
-        grad_input,
-        grad_weight,
-        grad_bias,
-        dims,
-        P_acc,
-        op_acc,
-        signed_acc,
-        P_mul,
-        op_mul,
-        signed_mul,
-        P_div,
-        op_div,
-        signed_div,
-        subnormals,
     )
     return grad_input, grad_weight, grad_bias
 
@@ -3044,58 +2731,6 @@ def float_quantize(
             prng = 23 - man
         out = quant_module.float_quantize_stochastic(
             x.contiguous(), man, exp, prng, subnormals, saturate
-        )
-    return out
-
-
-def binary8_quantize(
-    x: torch.Tensor,
-    P: int,
-    rounding: Literal["nearest", "stochastic", "truncate"] = "nearest",
-    overflow_policy: Literal[
-        "saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"
-    ] = "saturate_maxfloat",
-    is_signed: bool = True,
-    subnormals: bool = True,
-    prng_bits: int = 0,
-) -> torch.Tensor:
-    """
-    Quantize a single precision floating-point tensor into a P3109-compatible one
-
-    Args:
-        x: the single precision number(torch.Tensor) to be quantized
-        P: number of bits allocated for precision
-        is_signed: if subnormals are supported or not
-        rounding: the quantization rounding mode
-        overflow_policy: overflow handling policy
-        subnormals: saturate on overflow or use infinities
-        prng_bits: number of bits for the random generator
-
-    Overflow Policies:
-        - ``saturate_infty``: Finite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float. Infinite inputs will still map to infinities in this mode.
-        - ``saturate_maxfloat``: Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float represented by 0x7e/0xfe. This number system has an encoding reserved for infinity (0x7f/0xff).
-        - ``saturate_maxfloat2``: Both finite and infinite input values of binary32, exceeding the maximum float value of the binary8 format, will saturate to the maximum float represented by 0x7f/0xff. This number system does not have an encoding reserved for infinity.
-
-    Returns:
-        a quantized low-precision floating point representation of the input tensor
-    """
-    assert (
-        0 <= prng_bits <= 23 - (P - 1)
-    ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
-
-    quant_module = get_module(x)
-    overflow_enum = translate_overflow_policy(quant_module, overflow_policy)
-    if rounding == "nearest":
-        out = quant_module.binary8_quantize_nearest(
-            x.contiguous(), P, is_signed, overflow_enum, subnormals
-        )
-    elif rounding == "stochastic":
-        out = quant_module.binary8_quantize_stochastic(
-            x.contiguous(), P, prng_bits, is_signed, overflow_enum, subnormals
-        )
-    elif rounding == "truncate":
-        out = quant_module.binary8_quantize_truncate(
-            x.contiguous(), P, is_signed, overflow_enum, subnormals
         )
     return out
 

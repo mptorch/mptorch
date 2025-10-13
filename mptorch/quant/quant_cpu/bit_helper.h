@@ -1,7 +1,6 @@
 #pragma once
 
 #include "modes.h"
-#include "binary8.h"
 #include "binaryK_kernel.h"
 #include <cmath>
 #include <cstdint>
@@ -36,5 +35,3 @@ uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias, uint32
 
 uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias, uint32_t old_num,
                                     uint32_t quantized_num, bool saturate, bool extended_normals = false);
-
-uint32_t binary8_clip_exponent(int exp_bits, int man_bits, uint32_t old_num, uint32_t quantized_num, OverflowPolicy overflow_policy, bool subnormal);

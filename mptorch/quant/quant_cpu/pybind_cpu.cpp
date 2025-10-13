@@ -1,6 +1,4 @@
 #include "quant.h"
-#include "binary8.h"
-#include "binaryK_kernel.h"
 #include <torch/torch.h>
 #include <tuple>
 #include <pybind11/pybind11.h>
@@ -39,21 +37,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("superfp_quantize_nearest",
             &superfp_quantize_nearest,
             "Low-Bitwidth SuperNormal Floating Point Number Nearest Neighbor Quantization (CPU)");
-
-      m.def("binary8_quantize_nearest",
-            &binary8_quantize_nearest,
-            "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CPU)");
-      m.def("binary8_quantize_truncate",
-            &binary8_quantize_truncate,
-            "Low-Bitwidth P3109 Floating-Point Number truncate Quantization (CPU)");
-      m.def("binary8_quantize_stochastic",
-            &binary8_quantize_stochastic,
-            "Low-Bitwidth P3109 Floating-Point Number Stochastic Quantization (CPU)");
-
-      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic(), py::module_local())
-          .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
-          .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
-          .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);
 
       m.def("binaryK_quantize_nearest_even",
             &binaryK_quantize_nearest_even,
@@ -174,16 +157,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &superfp_quantize_nearest_softmax_backward,
             "Low-Bitwidth Super Floating Point Softmax Backward. (CPU)");
 
-      m.def("binary8_quantize_nearest_softmax_forward",
-            &binary8_quantize_nearest_softmax_forward,
-            "Binary8 Softmax Forward using division. (CPU)");
-      m.def("binary8_quantize_nearest_softmax_lse_forward",
-            &binary8_quantize_nearest_softmax_lse_forward,
-            "Binary8 Softmax Forward using LogSumExp. (CPU)");
-      m.def("binary8_quantize_nearest_softmax_backward",
-            &binary8_quantize_nearest_softmax_backward,
-            "Binary8 Softmax Backward. (CPU)");
-
       m.def("float_quantize_layernorm_forward",
             &float_quantize_layernorm_forward,
             "Low-Bitwidth Floating Point Layer Normalization (CPU)");
@@ -197,11 +170,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("superfp_quantize_layernorm_backward",
             &superfp_quantize_layernorm_backward,
             "Low-Bitwidth Super Floating Point Layer Normalization Backward (CPU)");
-
-      m.def("binary8_quantize_layernorm_forward",
-            &binary8_quantize_layernorm_forward,
-            "Low-Bitwidth binary8 Layer Normalization (CPU)");
-      m.def("binary8_quantize_layernorm_backward",
-            &binary8_quantize_layernorm_backward,
-            "Low-Bitwidth binary8 Layer Normalization Backward (CPU)");
 }

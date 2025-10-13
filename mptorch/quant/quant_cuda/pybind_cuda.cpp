@@ -1,7 +1,6 @@
 #include "quant.h"
 #include <torch/torch.h>
 #include <tuple>
-#include "binary8_kernel.h"
 
 using namespace at;
 
@@ -56,14 +55,6 @@ Tensor superfp_quantize_nearest(Tensor a,
 {
       CHECK_INPUT(a);
       return superfp_quantize_nearest_cuda(a, man_bits, exp_bits, binades_l, binades_u, saturate);
-}
-
-Tensor binary8_quantize_nearest(Tensor a,
-                                int P, bool is_signed, OverflowPolicy overflow_policy,
-                                bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_nearest_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
 Tensor binaryK_quantize_nearest_even(Tensor a,
@@ -156,22 +147,6 @@ Tensor float_quantize_stochastic(Tensor a,
       CHECK_INPUT(a);
       return float_quantize_stochastic_cuda(a, man_bits, exp_bits, prng_bits, subnormals,
                                             saturate);
-}
-
-Tensor binary8_quantize_stochastic(Tensor a,
-                                   int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy,
-                                   bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_stochastic_cuda(a, P, prng_bits, is_signed, overflow_policy, subnormals);
-}
-
-Tensor binary8_quantize_truncate(Tensor a,
-                                 int P, bool is_signed, OverflowPolicy overflow_policy,
-                                 bool subnormals)
-{
-      CHECK_INPUT(a);
-      return binary8_quantize_truncate_cuda(a, P, is_signed, overflow_policy, subnormals);
 }
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
@@ -595,61 +570,6 @@ void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output,
                                                        saturate);
 }
 
-void binary8_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
-                                        Tensor output, Tensor mean, Tensor rstd,
-                                        float eps, std::vector<int> &dims,
-                                        int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                        int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                        int P_div, OverflowPolicy op_div, bool signed_div,
-                                        int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
-                                        bool subnormals)
-{
-      CHECK_INPUT(input);
-      CHECK_INPUT(weight);
-      CHECK_INPUT(bias);
-      CHECK_INPUT(output);
-      CHECK_INPUT(mean);
-      CHECK_INPUT(rstd);
-      binary8_quantize_nearest_layernorm_forward_cuda(input, weight, bias,
-                                                      output, mean, rstd,
-                                                      eps, dims,
-                                                      P_acc, op_acc, signed_acc,
-                                                      P_mul, op_mul, signed_mul,
-                                                      P_div, op_div, signed_div,
-                                                      P_sqrt, op_sqrt, signed_sqrt,
-                                                      subnormals);
-}
-
-void binary8_quantize_layernorm_backward(Tensor input, Tensor grad_output,
-                                         Tensor weight, Tensor bias,
-                                         Tensor mean, Tensor rstd,
-                                         Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
-                                         std::vector<int> &dims,
-                                         int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                         int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                         int P_div, OverflowPolicy op_div, bool signed_div,
-                                         bool subnormals)
-{
-      CHECK_INPUT(input);
-      CHECK_INPUT(grad_output);
-      CHECK_INPUT(weight);
-      CHECK_INPUT(bias);
-      CHECK_INPUT(mean);
-      CHECK_INPUT(rstd);
-      CHECK_INPUT(grad_input);
-      CHECK_INPUT(grad_gamma);
-      CHECK_INPUT(grad_beta);
-      binary8_quantize_nearest_layernorm_backward_cuda(input, grad_output,
-                                                       weight, bias,
-                                                       mean, rstd,
-                                                       grad_input, grad_gamma, grad_beta,
-                                                       dims,
-                                                       P_acc, op_acc, signed_acc,
-                                                       P_mul, op_mul, signed_mul,
-                                                       P_div, op_div, signed_div,
-                                                       subnormals);
-}
-
 void float_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
                                             int man_exp, int exp_exp,
                                             int man_off, int exp_off,
@@ -740,51 +660,6 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
           saturate);
 }
 
-void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
-                                              int P_exp, OverflowPolicy op_exp, bool signed_exp,
-                                              int P_off, OverflowPolicy op_off, bool signed_off,
-                                              int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                              bool subnormals)
-{
-      CHECK_INPUT(a);
-      CHECK_INPUT(o);
-      binary8_quantize_nearest_softmax_forward_cuda(
-          a, o, dim,
-          P_exp, op_exp, signed_exp,
-          P_off, op_off, signed_off,
-          P_acc, op_acc, signed_acc,
-          subnormals);
-}
-
-void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
-                                                  int P_off, OverflowPolicy op_off, bool signed_off,
-                                                  int P_lse, OverflowPolicy op_lse, bool signed_lse,
-                                                  bool subnormals)
-{
-      CHECK_INPUT(a);
-      CHECK_INPUT(o);
-      binary8_quantize_nearest_softmax_lse_forward_cuda(
-          a, o, dim,
-          P_off, op_off, signed_off,
-          P_lse, op_lse, signed_lse,
-          subnormals);
-}
-
-void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
-                                               int P_add, OverflowPolicy op_add, bool signed_add,
-                                               int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                               bool subnormals)
-{
-      CHECK_INPUT(a);
-      CHECK_INPUT(g);
-      CHECK_INPUT(o);
-      binary8_quantize_nearest_softmax_backward_cuda(
-          a, g, o, dim,
-          P_add, op_add, signed_add,
-          P_mul, op_mul, signed_mul,
-          subnormals);
-}
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
       m.def("float_quantize_nearest",
@@ -825,21 +700,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Low-Bitwidth Super Normal Floating Point Number Nearest Neighbor Quantization "
             "(CUDA)");
 
-      m.def("binary8_quantize_nearest",
-            &binary8_quantize_nearest,
-            "Low-Bitwidth P3109 Floating-Point Number Nearest Quantization (CUDA)");
-      m.def("binary8_quantize_truncate",
-            &binary8_quantize_truncate,
-            "Low-Bitwidth P3109 Floating-Point Number truncate Quantization (CUDA)");
-      m.def("binary8_quantize_stochastic",
-            &binary8_quantize_stochastic,
-            "Low-Bitwidth P3109 Floating-Point Number Stochastic Quantization (CUDA)");
-
-      py::enum_<OverflowPolicy>(m, "OverflowPolicy", py::arithmetic(), py::module_local())
-          .value("SATURATE_INFTY", OverflowPolicy::SATURATE_INFTY)
-          .value("SATURATE_MAXFLOAT", OverflowPolicy::SATURATE_MAXFLOAT)
-          .value("SATURATE_MAXFLOAT2", OverflowPolicy::SATURATE_MAXFLOAT2);
-
       m.def("binaryK_quantize_nearest_even",
             &binaryK_quantize_nearest_even,
             "Custom-precision P3109 Floating-Point Quantization with Nearest Rounding Ties To Even (GPU)");
@@ -868,6 +728,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           .value("SAT_FINITE", SaturationMode::SAT_FINITE)
           .value("SAT_PROPAGATE", SaturationMode::SAT_PROPAGATE)
           .value("OVF_INF", SaturationMode::OVF_INF);
+
+      py::enum_<SubnormalsMode>(m, "SubnormalsMode", py::arithmetic(), py::module_local())
+          .value("SUBNORMALS", SubnormalsMode::SUBNORMALS)
+          .value("NORMALS", SubnormalsMode::NORMALS)
+          .value("EXTENDED_NORMALS", SubnormalsMode::EXTENDED_NORMALS);
 
       m.def("float_quantize_nearest_mm",
             &float_quantize_nearest_mm,
@@ -977,16 +842,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             &superfp_quantize_nearest_softmax_backward,
             "Low-Bitwidth Super Floating Point Softmax Backward. (CUDA)");
 
-      m.def("binary8_quantize_nearest_softmax_forward",
-            &binary8_quantize_nearest_softmax_forward,
-            "Binary8 Softmax Forward using division. (CUDA)");
-      m.def("binary8_quantize_nearest_softmax_lse_forward",
-            &binary8_quantize_nearest_softmax_lse_forward,
-            "Binary8 Softmax Forward using LogSumExp. (CUDA)");
-      m.def("binary8_quantize_nearest_softmax_backward",
-            &binary8_quantize_nearest_softmax_backward,
-            "Binary8 Softmax Backward. (CUDA)");
-
       m.def("float_quantize_layernorm_forward",
             &float_quantize_layernorm_forward,
             "Low-Bitwidth Floating Point Layer Normalization (CUDA)");
@@ -1000,11 +855,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("superfp_quantize_layernorm_backward",
             &superfp_quantize_layernorm_backward,
             "Low-Bitwidth Super Floating Point Layer Normalization Backward (CUDA)");
-
-      m.def("binary8_quantize_layernorm_forward",
-            &binary8_quantize_layernorm_forward,
-            "Low-Bitwidth binary8 Layer Normalization (CUDA)");
-      m.def("binary8_quantize_layernorm_backward",
-            &binary8_quantize_layernorm_backward,
-            "Low-Bitwidth binary8 Layer Normalization Backward (CUDA)");
 }

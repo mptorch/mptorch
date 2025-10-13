@@ -1,6 +1,5 @@
 #pragma once
 
-#include "binary8_kernel.h"
 #include "modes.h"
 #include <ATen/ATen.h>
 #include <tuple>
@@ -115,36 +114,6 @@ Tensor superfp_quantize_nearest_cuda(Tensor a,
                                      int man_bits, int exp_bits,
                                      int binades_l, int binades_u,
                                      bool saturate);
-
-/**
- * quantize a FloatTensor into a P3109-compliant floating point
- * Tensor (signed or unsigned version, with or without subnormal support)
- * with [P] precision bits.
- * Nearest Rounding Ties To Even.
- */
-Tensor binary8_quantize_nearest_cuda(Tensor a,
-                                     int P, bool is_signed, OverflowPolicy overflow_policy,
-                                     bool subnormals);
-
-/**
- * quantize a FloatTensor into a P3109-compliant floating point
- * Tensor (signed or unsigned version, with or without subnormal support)
- * with [P] precision bits.
- * Stochastic Rounding (with user-given PRNG resulution [prng_bits]).
- */
-Tensor binary8_quantize_stochastic_cuda(Tensor a,
-                                        int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy,
-                                        bool subnormals);
-
-/**
- * quantize a FloatTensor into a P3109-compliant floating point
- * Tensor (signed or unsigned version, with or without subnormal support)
- * with [P] precision bits.
- * Truncate Rounding (no rounding, just truncate the number).
- */
-Tensor binary8_quantize_truncate_cuda(Tensor a,
-                                      int P, bool is_signed, OverflowPolicy overflow_policy,
-                                      bool subnormals);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
@@ -585,35 +554,6 @@ void superfp_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_
                                                       bool saturate);
 
 /**
- * Performs layer normalization on a specified normalized shape with the
- * percision configuration defined by the user.
- * Using binary8 floating point for intermediate calculations.
- */
-void binary8_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
-                                                     Tensor output, Tensor mean, Tensor rstd,
-                                                     float eps, std::vector<int> &dims,
-                                                     int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                     int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                     int P_div, OverflowPolicy op_div, bool signed_div,
-                                                     int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
-                                                     bool subnormals);
-
-/**
- * Performs layer normalization on a specified normalized shape with the
- * percision configuration defined by the user.
- * Using binary8 floating point for intermediate calculations.
- */
-void binary8_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output,
-                                                      Tensor weight, Tensor bias,
-                                                      Tensor mean, Tensor rstd,
-                                                      Tensor grad_input, Tensor grad_gamma, Tensor grad_beta,
-                                                      std::vector<int> &dims,
-                                                      int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                      int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                      int P_div, OverflowPolicy op_div, bool signed_div,
-                                                      bool subnormals);
-
-/**
  * Performs a softmax along the specified dimension, using custom floating
  * point formats for intermediate computations. This version implements
  * the regular accumulation of exponentials.
@@ -672,33 +612,3 @@ void superfp_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o
                                                     int man_add, int exp_add, int binades_add_l, int binades_add_u,
                                                     int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                                     bool saturate);
-
-/**
- * Performs a softmax along the specified dimension, using custom binary8
- * formats for intermediate computations. This version implements
- * the regular accumulation of exponentials.
- */
-void binary8_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
-                                                   int P_exp, OverflowPolicy op_exp, bool signed_exp,
-                                                   int P_off, OverflowPolicy op_off, bool signed_off,
-                                                   int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                                   bool subnormals);
-
-/**
- * Performs a softmax along the specified dimension, using custom binary8
- * formats for intermediate computations. This version computes the
- * sum of exponentials via LogSumExp iterations, and does not use divisons.
- */
-void binary8_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
-                                                       int P_off, OverflowPolicy op_off, bool signed_off,
-                                                       int P_lse, OverflowPolicy op_lse, bool signed_lse,
-                                                       bool subnormals);
-
-/**
- * Performs a regular softmax backward along the specified dimension, using custom
- * binary8 formats for the intermediate computations.
- */
-void binary8_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
-                                                    int P_add, OverflowPolicy op_add, bool signed_add,
-                                                    int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                                    bool subnormals);

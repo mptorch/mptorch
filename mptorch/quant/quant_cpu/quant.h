@@ -1,7 +1,6 @@
 #pragma once
 
-#include "binary8.h"
-#include "binaryK_kernel.h"
+#include "modes.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <vector>
@@ -462,43 +461,6 @@ Tensor superfp_quantize_nearest(Tensor a,
                                 bool saturate);
 
 /**
- * Quantizes a tensor to binary8 format using nearest rounding.
- *
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
- */
-Tensor binary8_quantize_nearest(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
-
-/**
- * Quantizes a tensor to binary8 format using stochastic rounding.
- *
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param prng_bits        The number of bits used for the pseudo-random number generator.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
- */
-Tensor binary8_quantize_stochastic(Tensor a, int P, int prng_bits, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
-
-/**
- * Quantizes a tensor to binary8 format using truncation.
- *
- * @param a                Input tensor.
- * @param P                The precision parameter for binary8 format.
- * @param is_signed        Flag indicating whether the values are signed or unsigned.
- * @param overflow_policy  Policy to handle overflow scenarios.
- * @param subnormals       Flag to enable or disable subnormal numbers.
- * @return                 Quantized tensor.
- */
-Tensor binary8_quantize_truncate(Tensor a, int P, bool is_signed, OverflowPolicy overflow_policy, bool subnormals);
-
-/**
  * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
  * with a [K] bit wordlength and [P] bits of precision.
  * Nearest Rounding Ties To Even
@@ -601,36 +563,6 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
                                                bool saturate);
 
 /**
- * Performs a softmax along the specified dimension, using custom binary8
- * formats for intermediate computations. This version implements
- * the regular accumulation of exponentials.
- */
-void binary8_quantize_nearest_softmax_forward(Tensor a, Tensor o, int dim,
-                                              int P_exp, OverflowPolicy op_exp, bool signed_exp,
-                                              int P_off, OverflowPolicy op_off, bool signed_off,
-                                              int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                              bool subnormals);
-
-/**
- * Performs a softmax along the specified dimension, using custom binary8
- * formats for intermediate computations. This version computes the
- * sum of exponentials via LogSumExp iterations, and does not use divisons.
- */
-void binary8_quantize_nearest_softmax_lse_forward(Tensor a, Tensor o, int dim,
-                                                  int P_off, OverflowPolicy op_off, bool signed_off,
-                                                  int P_lse, OverflowPolicy op_lse, bool signed_lse,
-                                                  bool subnormals);
-
-/**
- * Performs a regular softmax backward along the specified dimension, using custom
- * super binary8 formats for the intermediate computations.
- */
-void binary8_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int dim,
-                                               int P_add, OverflowPolicy op_add, bool signed_add,
-                                               int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                               bool subnormals);
-
-/**
  * Performs layer normalization on a specified normalized shape with the
  * percision configuration defined by the user.
  */
@@ -683,31 +615,3 @@ void superfp_quantize_layernorm_backward(Tensor input, Tensor grad_output,
                                          int man_mul, int exp_mul, int binades_mul_l, int binades_mul_u,
                                          int man_div, int exp_div, int binades_div_l, int binades_div_u,
                                          bool saturate);
-
-/**
- * Performs layer normalization on a specified normalized shape with the
- * percision configuration defined by the user.
- * Uses binary8 floating point format for intermediate calculations.
- */
-void binary8_quantize_layernorm_forward(Tensor input, Tensor weight, Tensor bias,
-                                        Tensor output, Tensor mean, Tensor rstd,
-                                        float eps, std::vector<int> &dims,
-                                        int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                        int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                        int P_div, OverflowPolicy op_div, bool signed_div,
-                                        int P_sqrt, OverflowPolicy op_sqrt, bool signed_sqrt,
-                                        bool subnormals);
-
-/**
- * Performs layer normalization on a specified normalized shape with the
- * percision configuration defined by the user.
- * Uses binary8 floating point format for intermediate calculations.
- */
-void binary8_quantize_layernorm_backward(Tensor input, Tensor grad_output,
-                                         Tensor weight, Tensor bias, Tensor mean, Tensor rstd,
-                                         Tensor grad_input, Tensor grad_weight, Tensor grad_bias,
-                                         std::vector<int> &dims,
-                                         int P_acc, OverflowPolicy op_acc, bool signed_acc,
-                                         int P_mul, OverflowPolicy op_mul, bool signed_mul,
-                                         int P_div, OverflowPolicy op_div, bool signed_div,
-                                         bool subnormals);
