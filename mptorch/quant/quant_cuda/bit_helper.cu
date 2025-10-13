@@ -1,5 +1,5 @@
 #include "binary8_kernel.h"
-#include "binaryK_kernel.h"
+#include "modes.h"
 #include <cmath>
 #include <cstdint>
 

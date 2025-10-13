@@ -1,7 +1,7 @@
 #include "quant.h"
 #include "quant_kernel.h"
 #include "binary8_kernel.h"
-#include "binaryK_kernel.h"
+#include "modes.h"
 #include <ATen/ATen.h>
 #include <climits>
 #include <cstdlib>
@@ -117,10 +117,11 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
   int size = a.numel();
   int blockSize = 1024;
   int blockNums = (size + blockSize - 1) / blockSize;
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
   float_kernel_stochastic<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, subnormals, saturate);
+      man_bits, exp_bits, saturate, subnormal_mode);
   return o;
 }
 
@@ -134,10 +135,11 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
   int size = a.numel();
   int blockSize = 1024;
   int blockNums = (size + blockSize - 1) / blockSize;
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
   float_kernel_stochastic<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, prng_bits, subnormals, saturate);
+      man_bits, exp_bits, prng_bits, saturate, subnormal_mode);
   return o;
 }
 
@@ -149,10 +151,11 @@ Tensor float_quantize_nearest_cuda(Tensor a,
   int size = a.numel();
   int blockSize = 1024;
   int blockNums = (size + blockSize - 1) / blockSize;
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  float_kernel_nearest<<<blockNums, blockSize>>>(
+  float_kernel_nearest_even<<<blockNums, blockSize>>>(
       a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits,
-      subnormals, saturate);
+      saturate, subnormal_mode);
   return o;
 }
 
@@ -499,9 +502,11 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                     bool saturate,
                                     bool compensated)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   mm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                 M, K, N, man_add, exp_add, man_mul, exp_mul,
-                subnormals, saturate, compensated);
+                saturate, subnormal_mode, compensated);
   return;
 }
 
@@ -512,9 +517,11 @@ void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                         bool saturate,
                                         bool compensated)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   mm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                     M, K, N, man_fma, exp_fma,
-                    subnormals, saturate, compensated);
+                    saturate, subnormal_mode, compensated);
   return;
 }
 
@@ -526,16 +533,18 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                      bool saturate,
                                      bool compensated)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   if (a.sizes().size() > 2)
     bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                    a.sizes()[0], M, K, N,
                    man_add, exp_add, man_mul, exp_mul,
-                   subnormals, saturate, compensated);
+                   saturate, subnormal_mode, compensated);
   else
     bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                    1, M, K, N,
                    man_add, exp_add, man_mul, exp_mul,
-                   subnormals, saturate, compensated);
+                   saturate, subnormal_mode, compensated);
   return;
 }
 
@@ -546,16 +555,18 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                          bool saturate,
                                          bool compensated)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   if (a.sizes().size() > 2)
     bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                        a.sizes()[0], M, K, N,
                        man_fma, exp_fma,
-                       subnormals, saturate, compensated);
+                       saturate, subnormal_mode, compensated);
   else
     bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                        1, M, K, N,
                        man_fma, exp_fma,
-                       subnormals, saturate, compensated);
+                       saturate, subnormal_mode, compensated);
   return;
 }
 
@@ -631,11 +642,13 @@ void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                        int man_mul, int exp_mul, int rbits_mul,
                                        bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   mm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                    M, K, N,
                    man_add, exp_add, rbits_add,
                    man_mul, exp_mul, rbits_mul,
-                   subnormals, saturate);
+                   saturate, subnormal_mode);
   return;
 }
 
@@ -644,10 +657,12 @@ void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                            int man_fma, int exp_fma, int rbits_fma,
                                            bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   mm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                        M, K, N,
                        man_fma, exp_fma, rbits_fma,
-                       subnormals, saturate);
+                       saturate, subnormal_mode);
   return;
 }
 
@@ -657,18 +672,20 @@ void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                         int man_mul, int exp_mul, int rbits_mul,
                                         bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   if (a.sizes().size() > 2)
     bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                       a.sizes()[0], M, K, N,
                       man_add, exp_add, rbits_add,
                       man_mul, exp_mul, rbits_mul,
-                      subnormals, saturate);
+                      saturate, subnormal_mode);
   else
     bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                       1, M, K, N,
                       man_add, exp_add, rbits_add,
                       man_mul, exp_mul, rbits_mul,
-                      subnormals, saturate);
+                      saturate, subnormal_mode);
 }
 
 void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -676,17 +693,18 @@ void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                             int man_fma, int exp_fma, int rbits_fma,
                                             bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
   if (a.sizes().size() > 2)
     bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                           a.sizes()[0], M, K, N,
                           man_fma, exp_fma, rbits_fma,
-                          subnormals, saturate);
+                          saturate, subnormal_mode);
   else
     bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
                           1, M, K, N,
                           man_fma, exp_fma, rbits_fma,
-                          subnormals, saturate);
+                          saturate, subnormal_mode);
 }
 
 void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
@@ -893,6 +911,8 @@ void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, 
                                                    int man_sqrt, int exp_sqrt,
                                                    bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   auto sizes = partition_tensor(input, dims);
   layernorm_forward_fp_nearest(input.data_ptr<float>(), weight.data_ptr<float>(), bias.data_ptr<float>(),
                                output.data_ptr<float>(), mean.data_ptr<float>(), rstd.data_ptr<float>(),
@@ -901,7 +921,7 @@ void float_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, 
                                man_mul, exp_mul,
                                man_div, exp_div,
                                man_sqrt, exp_sqrt,
-                               subnormals, saturate);
+                               saturate, subnormal_mode);
 }
 
 void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_output,
@@ -914,6 +934,8 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
                                                     int man_div, int exp_div,
                                                     bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   auto sizes = partition_tensor(input, dims);
   layernorm_backward_fp_nearest(input.data_ptr<float>(), grad_output.data_ptr<float>(),
                                 weight.data_ptr<float>(), bias.data_ptr<float>(),
@@ -923,7 +945,7 @@ void float_quantize_nearest_layernorm_backward_cuda(Tensor input, Tensor grad_ou
                                 man_acc, exp_acc,
                                 man_mul, exp_mul,
                                 man_div, exp_div,
-                                subnormals, saturate);
+                                saturate, subnormal_mode);
 }
 
 void superfp_quantize_nearest_layernorm_forward_cuda(Tensor input, Tensor weight, Tensor bias,
@@ -1016,12 +1038,14 @@ void float_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,
                                                  int man_acc, int exp_acc,
                                                  bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   auto sizes = partition_tensor(a, dim);
   softmax_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
                              man_exp, exp_exp,
                              man_off, exp_off,
                              man_acc, exp_acc,
-                             subnormals, saturate);
+                             saturate, subnormal_mode);
 }
 
 void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim,
@@ -1029,11 +1053,13 @@ void float_quantize_nearest_softmax_lse_forward_cuda(Tensor a, Tensor o, int dim
                                                      int man_lse, int exp_lse,
                                                      bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   auto sizes = partition_tensor(a, dim);
   softmax_lse_forward_fp_nearest(a.data_ptr<float>(), o.data_ptr<float>(), sizes,
                                  man_off, exp_off,
                                  man_lse, exp_lse,
-                                 subnormals, saturate);
+                                 saturate, subnormal_mode);
 }
 
 void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, int dim,
@@ -1041,11 +1067,13 @@ void float_quantize_nearest_softmax_backward_cuda(Tensor a, Tensor g, Tensor o, 
                                                   int man_mul, int exp_mul,
                                                   bool subnormals, bool saturate)
 {
+  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
+
   auto sizes = partition_tensor(a, dim);
   softmax_backward_fp_nearest(a.data_ptr<float>(), g.data_ptr<float>(), o.data_ptr<float>(), sizes,
                               man_add, exp_add,
                               man_mul, exp_mul,
-                              subnormals, saturate);
+                              saturate, subnormal_mode);
 }
 
 void superfp_quantize_nearest_softmax_forward_cuda(Tensor a, Tensor o, int dim,

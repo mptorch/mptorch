@@ -1,6 +1,6 @@
 #include "quant_kernel.h"
 #include "bit_helper.cu"
-#include "binaryK_kernel.h"
+#include "modes.h"
 #include "softmax_kernel.h"
 #include "layernorm_kernel.h"
 #include <cmath>

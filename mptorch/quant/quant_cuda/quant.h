@@ -1,7 +1,7 @@
 #pragma once
 
 #include "binary8_kernel.h"
-#include "binaryK_kernel.h"
+#include "modes.h"
 #include <ATen/ATen.h>
 #include <tuple>
 #include <cublas_v2.h>
