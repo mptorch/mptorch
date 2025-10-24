@@ -196,7 +196,7 @@ if not args.no_param_quant:
         x,
         exp=args.exp_param,
         man=args.man_param,
-        rounding="nearest",
+        rounding="nearest_even",
         subnormals=args.subnormals,
         saturate=args.saturate,
     )

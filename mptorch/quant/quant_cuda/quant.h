@@ -101,9 +101,45 @@ Tensor float_quantize_stochastic_cuda(Tensor a,
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding Ties To Even.
  **/
-Tensor float_quantize_nearest_cuda(Tensor a,
-                                   int man_bits, int exp_bits,
-                                   bool subnormals, bool saturate);
+Tensor float_quantize_nearest_even_cuda(Tensor a,
+                                        int man_bits, int exp_bits,
+                                        bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Nearest Rounding Ties To Away.
+ **/
+Tensor float_quantize_nearest_away_cuda(Tensor a,
+                                        int man_bits, int exp_bits,
+                                        bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Rounding towards Positive.
+ **/
+Tensor float_quantize_up_cuda(Tensor a,
+                              int man_bits, int exp_bits,
+                              bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Rounding towards Negative.
+ **/
+Tensor float_quantize_down_cuda(Tensor a,
+                                int man_bits, int exp_bits,
+                                bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ * Rounding towards Zero.
+ **/
+Tensor float_quantize_zero_cuda(Tensor a,
+                                int man_bits, int exp_bits,
+                                bool subnormals, bool saturate);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor

@@ -313,7 +313,7 @@ def match_mac_format_with_cublas_types(
     exp_add: int,
     man_mul: int,
     exp_mul: int,
-    rounding: Literal["nearest"],
+    rounding: Literal["nearest_even"],
     fma: bool,
     subnormals: bool,
     saturate: bool,
@@ -345,7 +345,7 @@ def match_mac_format_with_cublas_types(
     if man_mul != man_add or exp_mul != exp_add:
         return None
 
-    if (rounding, fma, subnormals, saturate) != ("nearest", True, True, False):
+    if (rounding, fma, subnormals, saturate) != ("nearest_even", True, True, False):
         return None
 
     mt, ct = CUBLASMatrixType, CUBLASComputeType
@@ -363,23 +363,6 @@ def match_mac_format_with_cublas_types(
     return None
 
 
-def translate_overflow_policy(
-    module,
-    overflow_policy: Literal[
-        "saturate_infty", "saturate_maxfloat", "saturate_maxfloat2"
-    ],
-):
-    enum_items = {
-        "saturate_infty": module.OverflowPolicy.SATURATE_INFTY,
-        "saturate_maxfloat": module.OverflowPolicy.SATURATE_MAXFLOAT,
-        "saturate_maxfloat2": module.OverflowPolicy.SATURATE_MAXFLOAT2,
-    }
-    assert (
-        overflow_policy in enum_items.keys()
-    ), f"invalid overflow policy, {overflow_policy}"
-    return enum_items[overflow_policy]
-
-
 def translate_saturation_mode(
     module,
     saturation_mode: Literal[
@@ -395,6 +378,9 @@ def translate_saturation_mode(
         saturation_mode in enum_items.keys()
     ), f"invalid saturation mode, {saturation_mode}"
     return enum_items[saturation_mode]
+
+
+## TODO: translate_subnormals_mode
 
 
 def mp_softmax_forward(a: torch.Tensor, dim: int, formats) -> torch.Tensor:
@@ -520,11 +506,13 @@ def float_softmax_forward(
     exp_off: int = 8,
     man_acc: int = 23,
     exp_acc: int = 8,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert (
+        rounding == "nearest_even"
+    ), "Only nearest rounding ties to even softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_forward(
@@ -550,11 +538,13 @@ def float_softmax_lse_forward(
     exp_off: int = 8,
     man_lse: int = 23,
     exp_lse: int = 8,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert (
+        rounding == "nearest_even"
+    ), "Only nearest rounding ties to even softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_lse_forward(
@@ -579,12 +569,14 @@ def float_softmax_backward(
     exp_add: int = 8,
     man_mul: int = 23,
     exp_mul: int = 8,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
     assert input.device == grad_output.device
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert (
+        rounding == "nearest_even"
+    ), "Only nearest rounding ties to even softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
     quant_module.float_quantize_nearest_softmax_backward(
@@ -845,11 +837,13 @@ def float_layernorm_forward(
     exp_div: int = 8,
     man_sqrt: int = 23,
     exp_sqrt: int = 8,
-    rounding: Literal["nearest"] = "nearest",
+    rounding: Literal["nearest_even"] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
+    assert (
+        rounding == "nearest_even"
+    ), "Only nearest rounding ties to even layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -964,11 +958,13 @@ def float_layernorm_backward(
     exp_mul: int = 8,
     man_div: int = 23,
     exp_div: int = 8,
-    rounding: Literal["nearest"] = "nearest",
+    rounding: Literal["nearest_even"] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
+    assert (
+        rounding == "nearest_even"
+    ), "Only nearest rounding ties to even layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -2425,7 +2421,7 @@ def quantizer(
                 )
             elif type(forward_number) == FloatingPoint:
                 forward_quant = (
-                    lambda x, quant_module: quant_module.float_quantize_nearest(
+                    lambda x, quant_module: quant_module.float_quantize_nearest_even(
                         x,
                         forward_number.man,
                         forward_number.exp,
@@ -2508,7 +2504,7 @@ def quantizer(
             )
         elif type(backward_number) == FloatingPoint:
             backward_quant = (
-                lambda a, quant_module: quant_module.float_quantize_nearest(
+                lambda a, quant_module: quant_module.float_quantize_nearest_even(
                     a,
                     backward_number.man,
                     backward_number.exp,
@@ -2695,10 +2691,12 @@ def float_quantize(
     x: torch.Tensor,
     exp: int,
     man: int,
-    rounding: Literal["nearest", "stochastic"] = "stochastic",
+    rounding: Literal[
+        "nearest_even", "nearest_away", "up", "down", "zero", "stochastic"
+    ] = "nearest_even",
     subnormals: bool = True,
     saturate: bool = True,
-    prng: int = 0,
+    prng_bits: int = 0,
 ) -> torch.Tensor:
     """
     Quantize a single precision floating-point tensor into a IEEE-754-like low-precision floating-point tensor
@@ -2707,10 +2705,10 @@ def float_quantize(
         x: the single precision number to be quantized
         exp: number of bits allocated for exponent
         man: number of bits allocated for mantissa, not counting the virtual bit
-        rounding: rounding mode, \"stochastic\" or \"nearest\"
+        rounding: rounding mode, \"stochastic\", \"nearest_even\", \"up\", \"down\" or \"zero\"
         subnormals: if subnormals are supported or not
         saturate: saturate on overflow or use infinities
-        prng: number of random bits to use in case of stochastic rounding
+        prng_bits: number of random bits to use in case of stochastic rounding
 
     Returns:
         a quantized low-precision floating point representation of the input tensor
@@ -2718,20 +2716,37 @@ def float_quantize(
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
-        rounding
-    )
+
     quant_module = get_module(x)
-    if rounding == "nearest":
-        out = quant_module.float_quantize_nearest(
-            x.contiguous(), man, exp, subnormals, saturate
-        )
-    elif rounding == "stochastic":
-        if prng == 0:
-            prng = 23 - man
-        out = quant_module.float_quantize_stochastic(
-            x.contiguous(), man, exp, prng, subnormals, saturate
-        )
+
+    match rounding:
+        case "nearest_even":
+            out = quant_module.float_quantize_nearest_even(
+                x.contiguous(), man, exp, subnormals, saturate
+            )
+        case "nearest_away":
+            out = quant_module.float_quantize_nearest_away(
+                x.contiguous(), man, exp, subnormals, saturate
+            )
+        case "up":
+            out = quant_module.float_quantize_up(
+                x.contiguous(), man, exp, subnormals, saturate
+            )
+        case "down":
+            out = quant_module.float_quantize_down(
+                x.contiguous(), man, exp, subnormals, saturate
+            )
+        case "zero":
+            out = quant_module.float_quantize_zero(
+                x.contiguous(), man, exp, subnormals, saturate
+            )
+        case _:
+            if prng_bits == 0:
+                prng_bits = 23 - man
+            out = quant_module.float_quantize_stochastic(
+                x.contiguous(), man, exp, prng_bits, subnormals, saturate
+            )
+
     return out
 
 

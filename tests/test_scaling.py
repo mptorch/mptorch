@@ -14,11 +14,11 @@ def test_scaling_format_deduction():
     formats = QAffineFormats(
         fwd_mac=fp_format,
         bwd_mac=fp_format,
-        input_quant=(fp_format, "nearest"),
-        output_quant=(fp_format, "nearest"),
-        weight_quant=(fp_format, "nearest"),
-        bias_quant=(fp_format, "nearest"),
-        grad_quant=(fp_format, "nearest"),
+        input_quant=(fp_format, "nearest_even"),
+        output_quant=(fp_format, "nearest_even"),
+        weight_quant=(fp_format, "nearest_even"),
+        bias_quant=(fp_format, "nearest_even"),
+        grad_quant=(fp_format, "nearest_even"),
     )
     assert formats.input_scaled_format.exp == 3
     assert formats.input_scaled_format.man == 4
@@ -33,11 +33,11 @@ def test_scaling_format_deduction_non_float():
     formats = QAffineFormats(
         fwd_mac=fp_format,
         bwd_mac=fp_format,
-        input_quant=(fp_format, "nearest"),
-        output_quant=(fp_format, "nearest"),
-        weight_quant=(fp_format, "nearest"),
-        bias_quant=(fp_format, "nearest"),
-        grad_quant=(fp_format, "nearest"),
+        input_quant=(fp_format, "nearest_even"),
+        output_quant=(fp_format, "nearest_even"),
+        weight_quant=(fp_format, "nearest_even"),
+        bias_quant=(fp_format, "nearest_even"),
+        grad_quant=(fp_format, "nearest_even"),
     )
     assert formats.input_scaled_format is None
     assert formats.weight_scaled_format is None
@@ -100,9 +100,9 @@ def test_qlinear_custom_mm_scaled(device, exp_1, man_1, exp_2, man_2):
     fp_format_1 = FloatingPoint(exp=exp_1, man=man_1, subnormals=True, saturate=False)
     fp_format_2 = FloatingPoint(exp=exp_2, man=man_2, subnormals=True, saturate=False)
     formats_q = QAffineFormats(
-        weight_quant=(fp_format_1, "nearest"),
-        grad_quant=(fp_format_2, "nearest"),
-        input_quant=(fp_format_1, "nearest"),
+        weight_quant=(fp_format_1, "nearest_even"),
+        grad_quant=(fp_format_2, "nearest_even"),
+        input_quant=(fp_format_1, "nearest_even"),
         use_scaling=True,
     )
     x = torch.randn(45, 431)

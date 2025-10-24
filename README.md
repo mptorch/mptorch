@@ -61,7 +61,7 @@ for the layer operations and signals
 exp, man = 5, 2
 fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
+    x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False)
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fp_format, fp_format),
@@ -102,7 +102,7 @@ optimizer = SGD(
 Specify the format to be used for updating model parameters
 """
 acc_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=15, rounding="nearest"
+    x, exp=8, man=15, rounding="nearest_even"
 )
 optimizer = QOptim(
     optimizer,

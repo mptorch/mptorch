@@ -12,7 +12,7 @@ from tests.markers import available_devices
 def signal_q():
     man, exp = 12, 8
     return lambda x: float_quantize(
-        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+        x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False
     )
 
 

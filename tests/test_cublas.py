@@ -156,27 +156,31 @@ def test_bmm_type_error():
 @requires_cuda
 def test_cublas_config_for_format():
     assert (
-        match_mac_format_with_cublas_types(23, 8, 10, 5, "nearest", True, True, False)
+        match_mac_format_with_cublas_types(
+            23, 8, 10, 5, "nearest_even", True, True, False
+        )
         is None
     )
     assert (
-        match_mac_format_with_cublas_types(23, 8, 23, 8, "nearest", False, True, False)
+        match_mac_format_with_cublas_types(
+            23, 8, 23, 8, "nearest_even", False, True, False
+        )
         is None
     )
     assert match_mac_format_with_cublas_types(
-        10, 5, 10, 5, "nearest", True, True, False
+        10, 5, 10, 5, "nearest_even", True, True, False
     ) == (mt.F16, mt.F16, ct.F16)
     assert match_mac_format_with_cublas_types(
-        23, 8, 23, 8, "nearest", True, True, False
+        23, 8, 23, 8, "nearest_even", True, True, False
     ) == (mt.F32, mt.F32, ct.F32)
     assert match_mac_format_with_cublas_types(
-        23, 8, 23, 8, "nearest", True, True, False, "f16"
+        23, 8, 23, 8, "nearest_even", True, True, False, "f16"
     ) == (mt.F32, mt.F32, ct.F32_FAST_F16)
     assert match_mac_format_with_cublas_types(
-        23, 8, 23, 8, "nearest", True, True, False, "bf16"
+        23, 8, 23, 8, "nearest_even", True, True, False, "bf16"
     ) == (mt.F32, mt.F32, ct.F32_FAST_BF16)
     assert match_mac_format_with_cublas_types(
-        23, 8, 23, 8, "nearest", True, True, False, "tf32"
+        23, 8, 23, 8, "nearest_even", True, True, False, "tf32"
     ) == (mt.F32, mt.F32, ct.F32_FAST_TF32)
 
 

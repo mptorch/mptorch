@@ -6,17 +6,20 @@ from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
 
+
 @pytest.fixture
 def signal_q():
     man, exp = 23, 8
     return lambda x: qt.float_quantize(
-        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+        x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False
     )
+
 
 @pytest.fixture
 def mac_format():
     man, exp = 23, 8
     return mptorch.FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
+
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2, 4])
@@ -24,8 +27,8 @@ def test_qconv1d_custom_mm(groups, device, mac_format, signal_q):
     formats_q = qt.QAffineFormats(
         fwd_mac=mac_format,
         bwd_mac=mac_format,
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
+        fwd_rnd="nearest_even",
+        bwd_rnd="nearest_even",
         weight_quant=signal_q,
         grad_quant=signal_q,
         output_quant=signal_q,
@@ -52,6 +55,7 @@ def test_qconv1d_custom_mm(groups, device, mac_format, signal_q):
     res_m = m(x)
     res_qm = qm(qx)
     assert_close(res_m, res_qm, atol=0.0, rtol=1e-2)
+
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("groups", [2, 4])

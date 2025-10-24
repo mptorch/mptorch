@@ -11,7 +11,7 @@ from tests.markers import available_devices
 def signal_q():
     man, exp = 23, 8
     return lambda x: qt.float_quantize(
-        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+        x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False
     )
 
 
@@ -32,8 +32,8 @@ def test_qconvtranspose2d_custom_mm(
     formats_q = qt.QAffineFormats(
         fwd_mac=mac_format,
         bwd_mac=mac_format,
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
+        fwd_rnd="nearest_even",
+        bwd_rnd="nearest_even",
         weight_quant=signal_q,
         grad_quant=signal_q,
         output_quant=signal_q,

@@ -40,13 +40,49 @@ Tensor block_quantize_sim_nearest(Tensor a, int wl)
       return block_quantize_sim_nearest_cuda(a, wl);
 }
 
-Tensor float_quantize_nearest(Tensor a,
-                              int man_bits, int exp_bits,
-                              bool subnormals, bool saturate)
+Tensor float_quantize_nearest_even(Tensor a,
+                                   int man_bits, int exp_bits,
+                                   bool subnormals, bool saturate)
 {
       CHECK_INPUT(a);
-      return float_quantize_nearest_cuda(a, man_bits, exp_bits, subnormals,
-                                         saturate);
+      return float_quantize_nearest_even_cuda(a, man_bits, exp_bits, subnormals,
+                                              saturate);
+}
+
+Tensor float_quantize_nearest_away(Tensor a,
+                                   int man_bits, int exp_bits,
+                                   bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      return float_quantize_nearest_away_cuda(a, man_bits, exp_bits, subnormals,
+                                              saturate);
+}
+
+Tensor float_quantize_up(Tensor a,
+                         int man_bits, int exp_bits,
+                         bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      return float_quantize_up_cuda(a, man_bits, exp_bits, subnormals,
+                                    saturate);
+}
+
+Tensor float_quantize_down(Tensor a,
+                           int man_bits, int exp_bits,
+                           bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      return float_quantize_down_cuda(a, man_bits, exp_bits, subnormals,
+                                      saturate);
+}
+
+Tensor float_quantize_zero(Tensor a,
+                           int man_bits, int exp_bits,
+                           bool subnormals, bool saturate)
+{
+      CHECK_INPUT(a);
+      return float_quantize_zero_cuda(a, man_bits, exp_bits, subnormals,
+                                      saturate);
 }
 
 Tensor superfp_quantize_nearest(Tensor a,
@@ -662,12 +698,24 @@ void superfp_quantize_nearest_softmax_backward(Tensor a, Tensor g, Tensor o, int
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-      m.def("float_quantize_nearest",
-            &float_quantize_nearest,
-            "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CUDA)");
+      m.def("float_quantize_nearest_even",
+            &float_quantize_nearest_even,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Nearest Rounding Ties To Even (CUDA)");
+      m.def("float_quantize_nearest_away",
+            &float_quantize_nearest_away,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Nearest Rounding Ties To Away (CUDA)");
+      m.def("float_quantize_up",
+            &float_quantize_up,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Positive (CUDA)");
+      m.def("float_quantize_down",
+            &float_quantize_down,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Negative (CUDA)");
+      m.def("float_quantize_zero",
+            &float_quantize_zero,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Zero (CUDA)");
       m.def("float_quantize_stochastic",
             &float_quantize_stochastic,
-            "Low-Bitwidth Floating Point Number Stochastic Quantization (CUDA)");
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Stochastic Rounding (CUDA)");
 
       m.def("fixed_point_quantize_nearest",
             &fixed_point_quantize_nearest,

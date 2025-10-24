@@ -7,12 +7,24 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-      m.def("float_quantize_nearest",
-            &float_quantize_nearest,
-            "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CPU)");
+      m.def("float_quantize_nearest_even",
+            &float_quantize_nearest_even,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Nearest Rounding Ties To Even (CPU)");
+      m.def("float_quantize_nearest_away",
+            &float_quantize_nearest_away,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Nearest Rounding Ties To Away (CPU)");
+      m.def("float_quantize_up",
+            &float_quantize_up,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Positive (CPU)");
+      m.def("float_quantize_down",
+            &float_quantize_down,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Negative (CPU)");
+      m.def("float_quantize_zero",
+            &float_quantize_zero,
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Rounding Towards Zero (CPU)");
       m.def("float_quantize_stochastic",
             &float_quantize_stochastic,
-            "Low-Bitwidth Floating Point Number Stochastic Quantization (CPU)");
+            "Custom-Precision IEEE-754-like Floating-Point Quantization with Stochastic Rounding (CPU)");
 
       m.def("fixed_point_quantize_nearest",
             &fixed_point_quantize_nearest,

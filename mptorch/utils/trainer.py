@@ -61,7 +61,7 @@ def trainer(
     if device == "cpu" or init_scale is None:
         scaler = None
     else:
-        scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
+        scaler = torch.amp.GradScaler("cuda", init_scale=init_scale)
     # 3. the training loop
     for epoch in range(start_epoch, start_epoch + num_epochs):
         # use a tqdm progress bar to see how training progresses
@@ -124,13 +124,15 @@ def trainer(
         test_acc_list.append(test_acc)
 
         if log_wandb:  # Log metrics to wandb
-            wandb.log({
-                "epoch": epoch,
-                "train_loss": train_loss / train_size,
-                "train_acc": train_acc / train_size,
-                "test_acc": test_acc,
-                "learning_rate": get_lr(optimizer)
-            })
+            wandb.log(
+                {
+                    "epoch": epoch,
+                    "train_loss": train_loss / train_size,
+                    "train_acc": train_acc / train_size,
+                    "test_acc": test_acc,
+                    "learning_rate": get_lr(optimizer),
+                }
+            )
 
         if scaler is None:
             print(

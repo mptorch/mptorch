@@ -420,9 +420,9 @@ Tensor float_quantize_stochastic(Tensor a,
   return o;
 }
 
-Tensor float_quantize_nearest(Tensor a,
-                              int man_bits, int exp_bits,
-                              bool subnormals, bool saturate)
+Tensor float_quantize_nearest_even(Tensor a,
+                                   int man_bits, int exp_bits,
+                                   bool subnormals, bool saturate)
 {
   auto o = zeros_like(a);
   int bias = (1 << (exp_bits - 1)) - 1;
