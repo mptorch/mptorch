@@ -54,11 +54,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("float_quantize_nearest_mm",
             &float_quantize_nearest_mm,
             "Low-Bitwidth Floating Point Number GEMM Quantization (CPU)");
+      m.def("float_quantize_nearest_mm_mp",
+            &float_quantize_nearest_mm_mp,
+            "Low-Bitwidth Floating Point Number GEMM Quantization (CPU)");
       m.def("float_quantize_nearest_bmm",
             &float_quantize_nearest_bmm,
             "Low-Bitwidth Floating Point Number BGEMM Quantization (CPU)");
       m.def("float_quantize_nearest_mm_fma",
             &float_quantize_nearest_mm_fma,
+            "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CPU)");
+      m.def("float_quantize_nearest_mm_fma_mp",
+            &float_quantize_nearest_mm_fma_mp,
             "Low-Bitwidth Floating Point Number FMA-based GEMM Quantization (CPU)");
       m.def("float_quantize_nearest_bmm_fma",
             &float_quantize_nearest_bmm_fma,

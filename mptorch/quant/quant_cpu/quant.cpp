@@ -628,6 +628,37 @@ void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c,
   }
 }
 
+void float_quantize_nearest_mm_mp(Tensor a, Tensor b, Tensor c, Tensor s,
+                                  Tensor mans, Tensor exps,
+                                  int M, int N, int K,
+                                  bool subnormals,
+                                  bool saturate,
+                                  bool compensated)
+{
+  if (compensated)
+  {
+    mm_kahan_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        s.data_ptr<int>(), mans.data_ptr<int>(), exps.data_ptr<int>(),
+        M, K, N,
+        [subnormals, saturate](float x, int man_add, int exp_add)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [subnormals, saturate](float x, int man_mul, int exp_mul)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
+  else
+  {
+    mm_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        s.data_ptr<int>(), mans.data_ptr<int>(), exps.data_ptr<int>(),
+        M, K, N,
+        [subnormals, saturate](float x, int man_add, int exp_add)
+        { return float_quantize_nearest(x, man_add, exp_add, subnormals, saturate); },
+        [subnormals, saturate](float x, int man_mul, int exp_mul)
+        { return float_quantize_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+  }
+}
+
 void float_quantize_nearest_bmm(Tensor a, Tensor b, Tensor c,
                                 int M, int N, int K,
                                 int man_add, int exp_add,
@@ -679,6 +710,33 @@ void float_quantize_nearest_mm_fma(Tensor a, Tensor b, Tensor c,
         a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
         M, K, N,
         [man_fma, exp_fma, subnormals, saturate](float x)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
+}
+
+void float_quantize_nearest_mm_fma_mp(Tensor a, Tensor b, Tensor c, Tensor s,
+                                      Tensor mans, Tensor exps,
+                                      int M, int N, int K,
+                                      bool subnormals,
+                                      bool saturate,
+                                      bool compensated)
+{
+  if (compensated)
+  {
+    mm_kahan_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        s.data_ptr<int>(), mans.data_ptr<int>(), exps.data_ptr<int>(),
+        M, K, N,
+        [subnormals, saturate](float x, int man_fma, int exp_fma)
+        { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
+  }
+  else
+  {
+    mm_fma_kernel(
+        a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
+        s.data_ptr<int>(), mans.data_ptr<int>(), exps.data_ptr<int>(),
+        M, K, N,
+        [subnormals, saturate](float x, int man_fma, int exp_fma)
         { return float_quantize_nearest(x, man_fma, exp_fma, subnormals, saturate); });
   }
 }
