@@ -590,6 +590,27 @@ Tensor float_quantize_nearest(Tensor a,
   return o;
 }
 
+Tensor float_quantize_nearest_mp(Tensor a, Tensor s,
+                                 Tensor mans, Tensor exps,
+                                 bool subnormals, bool saturate)
+{
+  auto a_array = a.data_ptr<float>();
+  auto s_array = s.data_ptr<int>();
+  auto mans_array = mans.data_ptr<int>();
+  auto exps_array = exps.data_ptr<int>();
+  auto o = zeros_like(a);
+  auto o_array = o.data_ptr<float>();
+  int size = a.numel();
+
+  for (int64_t i = 0; i < size; i++)
+  {
+    o_array[i] = float_quantize_nearest(a_array[i],
+                                        mans_array[s_array[i]], exps_array[s_array[i]],
+                                        subnormals, saturate);
+  }
+  return o;
+}
+
 Tensor superfp_quantize_nearest(Tensor a,
                                 int man_bits, int exp_bits,
                                 int binades_l, int binades_u,

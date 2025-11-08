@@ -8,6 +8,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("float_quantize_nearest",
             &float_quantize_nearest,
             "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CPU)");
+      m.def("float_quantize_nearest_mp",
+            &float_quantize_nearest_mp,
+            "Low-Bitwidth Floating Point Number Nearest Neighbor Quantization (CPU)");
       m.def("float_quantize_stochastic",
             &float_quantize_stochastic,
             "Low-Bitwidth Floating Point Number Stochastic Quantization (CPU)");

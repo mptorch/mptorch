@@ -108,6 +108,17 @@ Tensor float_quantize_nearest(Tensor a,
 
 /**
  * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with different configurations (stored in the [mans] and [exps])
+ * pairs of vectors, indexed by the elements of [s] (each item in
+ * [s] has a corresponding one in [a])
+ * Nearest Rounding.
+ **/
+Tensor float_quantize_nearest_mp(Tensor a, Tensor s,
+                                 Tensor mans, Tensor exps,
+                                 bool subnormals, bool saturate);
+
+/**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits using
  * [prng_bits] random bits.
  * Stochastic Rounding.
