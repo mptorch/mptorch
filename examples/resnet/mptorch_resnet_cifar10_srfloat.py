@@ -85,7 +85,7 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 qpt.cublas_acceleration.enabled = args.cuda
 
-rounding = "nearest"
+rounding = "RNE"
 """Specify the formats and quantization functions for the layer operations and signals"""
 w_format = FloatingPoint(exp=8, man=7, saturate=False)
 g_format = FloatingPoint(exp=8, man=7, saturate=False)
@@ -322,9 +322,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=7, rounding="stochastic", prng=args.randbits
-)
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="SR", prng=args.randbits)
 optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)

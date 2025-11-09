@@ -11,7 +11,7 @@ from tests.markers import available_devices
 def signal_q():
     man, exp = 22, 8
     return lambda x: qt.float_quantize(
-        x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False
+        x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
     )
 
 
@@ -61,12 +61,12 @@ def test_bmm_default(device, signal_q):
 @pytest.mark.parametrize(
     "quant_fwd,quant_bwd,compensated,rounding",
     [
-        (True, True, True, "nearest_even"),
-        (False, True, True, "nearest_even"),
-        (True, False, True, "stochastic"),
-        (True, True, False, "stochastic"),
-        (False, True, False, "stochastic"),
-        (True, False, False, "nearest_even"),
+        (True, True, True, "RNE"),
+        (False, True, True, "RNE"),
+        (True, False, True, "SR"),
+        (True, True, False, "SR"),
+        (False, True, False, "SR"),
+        (True, False, False, "RNE"),
     ],
 )
 def test_mm_custom(
@@ -98,12 +98,12 @@ def test_mm_custom(
 @pytest.mark.parametrize(
     "quant_fwd,quant_bwd,compensated,rounding",
     [
-        (True, True, True, "nearest_even"),
-        (False, True, True, "nearest_even"),
-        (True, False, True, "stochastic"),
-        (True, True, False, "stochastic"),
-        (False, True, False, "stochastic"),
-        (True, False, False, "nearest_even"),
+        (True, True, True, "RNE"),
+        (False, True, True, "RNE"),
+        (True, False, True, "SR"),
+        (True, True, False, "SR"),
+        (False, True, False, "SR"),
+        (True, False, False, "RNE"),
     ],
 )
 def test_bmm_custom(

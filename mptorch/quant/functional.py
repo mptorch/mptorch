@@ -1176,7 +1176,7 @@ def qgelu(
             import mptorch.quant as qt
             from torch.testing import assert_close
 
-            quant_func = lambda x: qt.float_quantize(x, man=7, exp=8, rounding="nearest")
+            quant_func = lambda x: qt.float_quantize(x, man=7, exp=8, rounding="RNE")
             formats = qt.QGELUFormats(
                 input_quant=quant_func,
                 output_quant=quant_func,

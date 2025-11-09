@@ -12,8 +12,8 @@ class Quantizer(nn.Module):
         self,
         forward_number: Number | None = None,
         backward_number: Number | None = None,
-        forward_rounding: Literal["nearest", "stochastic"] = "nearest",
-        backward_rounding: Literal["nearest", "stochastic"] = "nearest",
+        forward_rounding: Literal["RNE", "SR"] = "RNE",
+        backward_rounding: Literal["RNE", "SR"] = "RNE",
     ):
         r"""
         Args:

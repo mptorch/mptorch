@@ -183,8 +183,8 @@ if not args.no_act_error_quant:
     act_error_quant = Quantizer(
         forward_number=param_format,
         backward_number=param_format,
-        forward_rounding="nearest",
-        backward_rounding="nearest",
+        forward_rounding="RNE",
+        backward_rounding="RNE",
     )
     print("Using activation error quant:", act_error_quant)
 else:
@@ -196,7 +196,7 @@ if not args.no_param_quant:
         x,
         exp=args.exp_param,
         man=args.man_param,
-        rounding="nearest_even",
+        rounding="RNE",
         subnormals=args.subnormals,
         saturate=args.saturate,
     )
@@ -215,8 +215,8 @@ if not args.no_mac_quant:
     layer_formats = QAffineFormats(
         fwd_mac=(mac_format,),
         bwd_mac=(mac_format,),
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
+        fwd_rnd="RNE",
+        bwd_rnd="RNE",
         weight_quant=param_q,
         bias_quant=param_q,
         input_quant=param_q,

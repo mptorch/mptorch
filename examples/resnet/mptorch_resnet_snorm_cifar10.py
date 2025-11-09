@@ -129,7 +129,7 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 device = "cuda" if args.cuda else "cpu"
 qpt.cublas_acceleration.enabled = args.cuda
 
-rounding = "nearest"
+rounding = "RNE"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False

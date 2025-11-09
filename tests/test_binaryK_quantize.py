@@ -14,11 +14,11 @@ from tests.quant import bits_to_float, float_to_bits, assert_quant
 @pytest.mark.parametrize(
     "rounding_mode",
     [
-        (RoundMode.TiesToEven, "nearest_even"),
-        (RoundMode.TiesToAway, "nearest_away"),
-        (RoundMode.TowardPositive, "up"),
-        (RoundMode.TowardNegative, "down"),
-        (RoundMode.TowardZero, "zero"),
+        (RoundMode.TiesToEven, "RNE"),
+        (RoundMode.TiesToAway, "RNA"),
+        (RoundMode.TowardPositive, "RU"),
+        (RoundMode.TowardNegative, "RD"),
+        (RoundMode.TowardZero, "RZ"),
     ],
 )
 @pytest.mark.parametrize(

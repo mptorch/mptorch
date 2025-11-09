@@ -4,10 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from mptorch import FloatingPoint
 import mptorch.quant as qpt
-from mptorch.optim import QOptim
-from mptorch.utils import trainer
-import random
-import numpy as np
+from mptorch.quant import functional as Q
 import argparse
 import wandb
 
@@ -129,7 +126,7 @@ device = "cuda" if args.cuda else "cpu"
 
 qpt.cublas_acceleration.enabled = args.cuda
 
-rounding = "nearest"
+rounding = "RNE"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(
     exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
@@ -286,7 +283,7 @@ class Head(nn.Module):
         # compute attention scores ("affinities")
         wei = (
             # q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
-            qpt.qmatmul(q, k.transpose(-2, -1), formats=layer_formats)
+            Q.qmatmul(q, k.transpose(-2, -1), formats=layer_formats)
             * k.shape[-1] ** -0.5
         )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
@@ -295,7 +292,7 @@ class Head(nn.Module):
         # perform the weighted aggregation of the values
         v = self.value(x)  # (B,T,hs)
         # out = wei @ v  # (B, T, T) @ (B, T, hs) -> (B, T, hs)
-        out = qpt.qmatmul(wei, v, formats=layer_formats)
+        out = Q.qmatmul(wei, v, formats=layer_formats)
         return out
 
 
@@ -423,7 +420,7 @@ init_scale = 2.0**16
 if device == "cpu" or init_scale is None:
     scaler = None
 else:
-    scaler = torch.cuda.amp.GradScaler(init_scale=init_scale)
+    scaler = torch.amp.GradScaler(init_scale=init_scale)
 
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)

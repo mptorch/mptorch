@@ -17,7 +17,7 @@ def quant_fp(fp_format):
         x,
         exp=fp_format.exp,
         man=fp_format.man,
-        rounding="nearest_even",
+        rounding="RNE",
         subnormals=True,
         saturate=False,
     )

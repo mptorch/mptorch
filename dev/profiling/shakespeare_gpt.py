@@ -144,7 +144,7 @@ if not args.no_weight_quant:
         x,
         exp=args.expWeight,
         man=args.manWeight,
-        rounding="nearest",
+        rounding="RNE",
         subnormals=True,
         saturate=False,
     )
@@ -163,9 +163,9 @@ else:
 if not args.no_mac_quant:
     layer_formats = qpt.QAffineFormats(
         fwd_mac=(mac_format),
-        fwd_rnd="nearest",
+        fwd_rnd="RNE",
         bwd_mac=(mac_format),
-        bwd_rnd="nearest",
+        bwd_rnd="RNE",
         weight_quant=weight_q,
         input_quant=weight_q,
         grad_quant=weight_q,

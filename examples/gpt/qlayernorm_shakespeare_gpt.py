@@ -139,7 +139,7 @@ quant_fp = lambda x: qpt.superfp_quantize(
     x,
     exp=args.expWeight,
     man=args.manWeight,
-    rounding="nearest",
+    rounding="RNE",
     binades=args.binadesWeight,
     saturate=False,
 )

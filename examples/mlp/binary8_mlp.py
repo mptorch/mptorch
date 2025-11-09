@@ -102,7 +102,7 @@ parser.add_argument(
 parser.add_argument(
     "--rounding",
     type=str,
-    default="nearest",
+    default="RNE",
     metavar="N",
     help="nearest, stochatic, truncate",
 )

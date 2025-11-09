@@ -119,7 +119,7 @@ parser.add_argument(
 parser.add_argument(
     "--rounding",
     type=str,
-    default="nearest",
+    default="RNE",
     metavar="N",
     help="nearest, stochastic, truncate",
 )
@@ -209,8 +209,8 @@ test_loader = torch.utils.data.DataLoader(
 act_error_quant = lambda: qpt.Quantizer(
     forward_number=fpmul,
     backward_number=fpmul,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
+    forward_rounding="RNE",
+    backward_rounding="RNE",
 )
 
 param_q = lambda x: qpt.binary8_quantize(
@@ -245,9 +245,9 @@ grad_q = lambda x: qpt.binary8_quantize(
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fpacc, fpmul),
-    fwd_rnd="nearest",
+    fwd_rnd="RNE",
     bwd_mac=(fpacc, fpmul),
-    bwd_rnd="nearest",
+    bwd_rnd="RNE",
     weight_quant=param_q,
     bias_quant=param_q,
     input_quant=input_q,
@@ -417,7 +417,7 @@ optimizer = SGD(
 #     subnormals=args.subnormals,
 #     prng_bits=args.prng_bits,
 # )
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="SR")
 
 optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)

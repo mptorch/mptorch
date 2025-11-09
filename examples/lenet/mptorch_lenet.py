@@ -135,15 +135,15 @@ test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False
 act_error_quant = Quantizer(
     forward_number=float_format,
     backward_number=float_format,
-    forward_rounding="nearest",
-    backward_rounding="nearest",
+    forward_rounding="RNE",
+    backward_rounding="RNE",
 )
 
 param_q = lambda x: float_quantize(
     x,
     exp=args.exp,
     man=args.man,
-    rounding="nearest",
+    rounding="RNE",
     subnormals=args.subnormals,
     saturate=args.saturate,
 )
@@ -151,8 +151,8 @@ param_q = lambda x: float_quantize(
 layer_formats = QAffineFormats(
     fwd_mac=(mac_format,),
     bwd_mac=(mac_format,),
-    fwd_rnd="nearest",
-    bwd_rnd="nearest",
+    fwd_rnd="RNE",
+    bwd_rnd="RNE",
     weight_quant=param_q,
     bias_quant=param_q,
     input_quant=param_q,

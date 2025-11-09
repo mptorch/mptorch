@@ -8,6 +8,7 @@ from .quant_function import (
     fixed_point_quantize,
     superfp_quantize,
     block_quantize,
+    binaryK_quantize,
 )
 
 __all__ = ["QAffineFormats", "QSoftmaxFormats", "QLayerNormFormats", "QGELUFormats"]
@@ -127,9 +128,9 @@ class QAffineFormats:
         self.bwd_rnd = bwd_rnd
 
         if fwd_mac and not fwd_rnd:
-            self.fwd_rnd = "nearest_even"
+            self.fwd_rnd = "RNE"
         if bwd_mac and not bwd_rnd:
-            self.bwd_rnd = "nearest_even"
+            self.bwd_rnd = "RNE"
 
         if not isinstance(rbits, tuple):
             rbits = (rbits,)
@@ -254,8 +255,8 @@ class QLayerNormFormats:
         bwd_acc: Number | None = None,
         bwd_mul: Number | None = None,
         bwd_div: Number | None = None,
-        fwd_rnd: str | None = "nearest_even",
-        bwd_rnd: str | None = "nearest_even",
+        fwd_rnd: str | None = "RNE",
+        bwd_rnd: str | None = "RNE",
         input_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
         output_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
         grad_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
@@ -374,8 +375,8 @@ class QSoftmaxFormats:
         fwd_lse: Number | None = None,
         bwd_add: Number | None = None,
         bwd_mul: Number | None = None,
-        fwd_rnd: str | None = "nearest_even",
-        bwd_rnd: str | None = "nearest_even",
+        fwd_rnd: str | None = "RNE",
+        bwd_rnd: str | None = "RNE",
         input_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
         output_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,
         grad_quant: Callable[[torch.Tensor], torch.Tensor] = id_quant,

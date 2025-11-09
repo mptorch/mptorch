@@ -170,8 +170,8 @@ if not args.no_act_error_quant:
     act_error_quant = Quantizer(
         forward_number=param_format,
         backward_number=param_format,
-        forward_rounding="nearest",
-        backward_rounding="nearest",
+        forward_rounding="RNE",
+        backward_rounding="RNE",
     )
     print("Using activation error quant:", act_error_quant)
 else:
@@ -184,7 +184,7 @@ if not args.no_param_quant:
         x,
         exp=args.exp_param,
         man=args.man_param,
-        rounding="nearest",
+        rounding="RNE",
         subnormals=True,
         saturate=False,
     )
@@ -192,7 +192,7 @@ if not args.no_param_quant:
         x,
         exp=args.exp_param,
         man=args.man_param,
-        rounding="nearest",
+        rounding="RNE",
         subnormals=True,
         saturate=False,
     )
@@ -200,7 +200,7 @@ if not args.no_param_quant:
         x,
         exp=args.exp_param,
         man=args.man_param,
-        rounding="nearest",
+        rounding="RNE",
         subnormals=True,
         saturate=False,
     )
@@ -220,9 +220,9 @@ else:
 if not args.no_mac_quant:
     layer_formats = qpt.QAffineFormats(
         fwd_mac=(mac_format,),
-        fwd_rnd="nearest",
+        fwd_rnd="RNE",
         bwd_mac=(mac_format,),
-        bwd_rnd="nearest",
+        bwd_rnd="RNE",
         weight_quant=param_q,
         bias_quant=param_q,
         input_quant=input_q,
@@ -379,9 +379,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=23, rounding="nearest", subnormals=True
-)
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=23, rounding="RNE", subnormals=True)
 optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

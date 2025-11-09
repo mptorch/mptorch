@@ -11,7 +11,7 @@ from tests.markers import available_devices
 def signal_q():
     man, exp = 12, 8
     return lambda x: qt.float_quantize(
-        x, exp=exp, man=man, rounding="nearest_even", subnormals=True, saturate=False
+        x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
     )
 
 
@@ -29,8 +29,8 @@ def test_qlinear_custom_mm(device, mac_format, signal_q, quant_fwd, quant_bwd):
     formats_q = qt.QAffineFormats(
         fwd_mac=(mac_format, mac_format) if quant_fwd else None,
         bwd_mac=(mac_format, mac_format) if quant_bwd else None,
-        fwd_rnd="nearest",
-        bwd_rnd="nearest",
+        fwd_rnd="RNE",
+        bwd_rnd="RNE",
         weight_quant=signal_q,
         grad_quant=signal_q,
         output_quant=signal_q,

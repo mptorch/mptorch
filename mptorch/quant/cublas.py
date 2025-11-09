@@ -32,8 +32,8 @@ class cublas_acceleration:
             layer_formats = QAffineFormats(
                 fwd_mac=(mac_format,),
                 bwd_mac=(mac_format,),
-                fwd_rnd="nearest",
-                bwd_rnd="nearest",
+                fwd_rnd="RNE",
+                bwd_rnd="RNE",
                 ...
             )
             layer = QLinear(in_features, out_features, formats=layer_formats)

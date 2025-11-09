@@ -6,7 +6,7 @@ from tests.quant import bits_to_float, assert_quant
 
 @pytest.mark.parametrize("device", available_devices)
 def test_bfloat16(device):
-    quant = lambda x: float_quantize(x, 8, 7, "nearest_even", True, False)
+    quant = lambda x: float_quantize(x, 8, 7, "RNE", True, False)
     # normal
     assert_quant(
         [[20.0625, 20.06251], [20.0625, 20.06251]],

@@ -157,15 +157,15 @@ test_loader = torch.utils.data.DataLoader(
 act_error_quant = lambda: qpt.Quantizer(
     forward_number=fpmul,
     backward_number=fpmul,
-    forward_rounding="stochastic",
-    backward_rounding="stochastic",
+    forward_rounding="SR",
+    backward_rounding="SR",
 )
 
 param_q = lambda x: qpt.float_quantize(
     x,
     exp=5,
     man=2,
-    rounding="stochastic",
+    rounding="SR",
     subnormals=True,
     saturate=False,
 )
@@ -173,7 +173,7 @@ input_q = lambda x: qpt.float_quantize(
     x,
     exp=5,
     man=2,
-    rounding="stochastic",
+    rounding="SR",
     subnormals=True,
     saturate=False,
 )
@@ -181,16 +181,16 @@ grad_q = lambda x: qpt.float_quantize(
     x,
     exp=5,
     man=2,
-    rounding="stochastic",
+    rounding="SR",
     subnormals=True,
     saturate=False,
 )
 
 layer_formats = qpt.QAffineFormats(
     fwd_mac=(fpacc, fpmul),
-    fwd_rnd="stochastic",
+    fwd_rnd="SR",
     bwd_mac=(fpacc, fpmul),
-    bwd_rnd="stochastic",
+    bwd_rnd="SR",
     weight_quant=param_q,
     bias_quant=param_q,
     input_quant=input_q,
@@ -337,9 +337,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=5, man=2, rounding="stochastic", subnormals=True
-)
+acc_q = lambda x: qpt.float_quantize(x, exp=5, man=2, rounding="SR", subnormals=True)
 optimizer = QOptim(optimizer, acc_quant=acc_q, momentum_quant=acc_q)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

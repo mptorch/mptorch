@@ -313,7 +313,7 @@ def match_mac_format_with_cublas_types(
     exp_add: int,
     man_mul: int,
     exp_mul: int,
-    rounding: Literal["nearest_even"],
+    rounding: Literal["RNE"],
     fma: bool,
     subnormals: bool,
     saturate: bool,
@@ -345,7 +345,7 @@ def match_mac_format_with_cublas_types(
     if man_mul != man_add or exp_mul != exp_add:
         return None
 
-    if (rounding, fma, subnormals, saturate) != ("nearest_even", True, True, False):
+    if (rounding, fma, subnormals, saturate) != ("RNE", True, True, False):
         return None
 
     mt, ct = CUBLASMatrixType, CUBLASComputeType
@@ -506,12 +506,12 @@ def float_softmax_forward(
     exp_off: int = 8,
     man_acc: int = 23,
     exp_acc: int = 8,
-    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
+    rounding: Literal["RNE", "SR"] = "RNE",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
     assert (
-        rounding == "nearest_even"
+        rounding == "RNE"
     ), "Only nearest rounding ties to even softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
@@ -538,12 +538,12 @@ def float_softmax_lse_forward(
     exp_off: int = 8,
     man_lse: int = 23,
     exp_lse: int = 8,
-    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
+    rounding: Literal["RNE", "SR"] = "RNE",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
     assert (
-        rounding == "nearest_even"
+        rounding == "RNE"
     ), "Only nearest rounding ties to even softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
@@ -569,13 +569,13 @@ def float_softmax_backward(
     exp_add: int = 8,
     man_mul: int = 23,
     exp_mul: int = 8,
-    rounding: Literal["nearest_even", "stochastic"] = "nearest_even",
+    rounding: Literal["RNE", "SR"] = "RNE",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
     assert input.device == grad_output.device
     assert (
-        rounding == "nearest_even"
+        rounding == "RNE"
     ), "Only nearest rounding ties to even softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
@@ -606,10 +606,10 @@ def superfp_softmax_forward(
     man_acc: int = 23,
     exp_acc: int = 8,
     binades_acc: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     saturate: bool = False,
 ) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert rounding == "RNE", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
 
@@ -647,10 +647,10 @@ def superfp_softmax_lse_forward(
     man_lse: int = 23,
     exp_lse: int = 8,
     binades_lse: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stohastic"] = "nearest",
+    rounding: Literal["RNE", "stohastic"] = "RNE",
     saturate: bool = False,
 ) -> torch.Tensor:
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert rounding == "RNE", "Only nearest rounding softmax is implemented."
     output = torch.zeros_like(input)
     quant_module = get_module(input)
 
@@ -684,11 +684,11 @@ def superfp_softmax_backward(
     man_mul: int = 23,
     exp_mul: int = 8,
     binades_mul: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     saturate: bool = False,
 ) -> torch.Tensor:
     assert input.device == grad_output.device
-    assert rounding == "nearest", "Only nearest rounding softmax is implemented."
+    assert rounding == "RNE", "Only nearest rounding softmax is implemented."
     grad_input = torch.zeros_like(input)
     quant_module = get_module(input)
 
@@ -837,12 +837,12 @@ def float_layernorm_forward(
     exp_div: int = 8,
     man_sqrt: int = 23,
     exp_sqrt: int = 8,
-    rounding: Literal["nearest_even"] = "nearest_even",
+    rounding: Literal["RNE"] = "RNE",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert (
-        rounding == "nearest_even"
+        rounding == "RNE"
     ), "Only nearest rounding ties to even layernorm is implemented."
 
     quant_module = get_module(inp)
@@ -895,10 +895,10 @@ def superfp_layernorm_forward(
     man_sqrt: int = 23,
     exp_sqrt: int = 8,
     binades_sqrt: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest roudning layernorm is implemented."
+    assert rounding == "RNE", "Only nearest roudning layernorm is implemented."
 
     quant_module = get_module(inp)
 
@@ -958,12 +958,12 @@ def float_layernorm_backward(
     exp_mul: int = 8,
     man_div: int = 23,
     exp_div: int = 8,
-    rounding: Literal["nearest_even"] = "nearest_even",
+    rounding: Literal["RNE"] = "RNE",
     subnormals: bool = True,
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert (
-        rounding == "nearest_even"
+        rounding == "RNE"
     ), "Only nearest rounding ties to even layernorm is implemented."
 
     assert inp.device == grad_output.device
@@ -1014,10 +1014,10 @@ def superfp_layernorm_backward(
     man_div: int = 23,
     exp_div: int = 8,
     binades_div: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest"] = "nearest",
+    rounding: Literal["RNE"] = "RNE",
     saturate: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert rounding == "nearest", "Only nearest rounding layernorm is implemented."
+    assert rounding == "RNE", "Only nearest rounding layernorm is implemented."
 
     assert inp.device == grad_output.device
 
@@ -1069,7 +1069,7 @@ def mp_mm(
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 True,
-                "nearest",
+                "RNE",
             )
         else:
             add_cfg, mul_cfg, fma, rnd = (
@@ -1084,7 +1084,7 @@ def mp_mm(
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 True,
-                "nearest",
+                "RNE",
             )
         else:
             add_cfg, mul_cfg, fma, rnd = (
@@ -1149,7 +1149,7 @@ def fxp_mm(
     wl_mul: int = 16,
     fl_mul: int = 8,
     symmetric: bool = False,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
 ) -> torch.Tensor:
     """
@@ -1175,7 +1175,7 @@ def fxp_mm(
     assert a.device == b.device
     quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             quant_module.fixed_point_quantize_nearest_mm(
                 a.contiguous(),
@@ -1239,7 +1239,7 @@ def float_mm(
     exp_add: int = 8,
     man_mul: int = 23,
     exp_mul: int = 8,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = True,
@@ -1289,7 +1289,7 @@ def float_mm(
     assert a.device == b.device
     quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             quant_module.float_quantize_nearest_mm(
                 a.contiguous(),
@@ -1368,7 +1368,7 @@ def superfp_mm(
     man_mul: int = 7,
     exp_mul: int = 8,
     binades_mul: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
     saturate: bool = False,
 ) -> torch.Tensor:
@@ -1401,7 +1401,7 @@ def superfp_mm(
     binades_add_l, binades_add_h = normalize_binades(binades_add)
     binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
 
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             quant_module.superfp_quantize_nearest_mm(
                 a.contiguous(),
@@ -1449,7 +1449,7 @@ def mp_bmm(
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 True,
-                "nearest",
+                "RNE",
             )
         else:
             add_cfg, mul_cfg, fma, rnd = (
@@ -1464,7 +1464,7 @@ def mp_bmm(
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 FloatingPoint(exp=8, man=23, subnormals=True, saturate=False),
                 True,
-                "nearest",
+                "RNE",
             )
         else:
             add_cfg, mul_cfg, fma, rnd = (
@@ -1529,7 +1529,7 @@ def float_bmm(
     exp_add: int = 8,
     man_mul: int = 23,
     exp_mul: int = 8,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
     subnormals: bool = True,
     saturate: bool = True,
@@ -1556,7 +1556,7 @@ def float_bmm(
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             if len(a.shape) == 3 and len(b.shape) == 3:
                 c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
@@ -1890,7 +1890,7 @@ def superfp_bmm(
     exp_mul: int = 8,
     binades_add: int | tuple[int] | tuple[int, int] = 1,
     binades_mul: int | tuple[int] | tuple[int, int] = 1,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
     saturate: bool = True,
 ) -> torch.Tensor:
@@ -1902,7 +1902,7 @@ def superfp_bmm(
     binades_add_l, binades_add_h = normalize_binades(binades_add)
     binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
 
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             if len(a.shape) == 3 and len(b.shape) == 3:
                 c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
@@ -2081,14 +2081,14 @@ def fxp_bmm(
     wl_mul: int = 16,
     fl_mul: int = 8,
     symmetric: bool = False,
-    rounding: Literal["nearest", "stochastic"] = "nearest",
+    rounding: Literal["RNE", "SR"] = "RNE",
     fma: bool = True,
 ) -> torch.Tensor:
 
     assert a.shape[-1] == b.shape[-2]
     assert a.device == b.device
     quant_module = get_module(a)
-    if rounding == "nearest":
+    if rounding == "RNE":
         if not fma:
             if len(a.shape) == 3 and len(b.shape) == 3:
                 c = torch.zeros(a.shape[0], a.shape[1], b.shape[2], device=a.device)
@@ -2369,8 +2369,8 @@ def fxp_bmm(
 def quantizer(
     forward_number: Number | None = None,
     backward_number: Number | None = None,
-    forward_rounding: Literal["nearest", "stochastic"] = "stochastic",
-    backward_rounding: Literal["nearest", "stochastic"] = "stochastic",
+    forward_rounding: Literal["RNE", "SR"] = "SR",
+    backward_rounding: Literal["RNE", "SR"] = "SR",
     clamping_grad_zero: bool = False,
     backward_hooks=[],
 ):
@@ -2394,15 +2394,15 @@ def quantizer(
 
     for rounding in [forward_rounding, backward_rounding]:
         assert rounding in [
-            "stochastic",
-            "nearest",
+            "SR",
+            "RNE",
         ], "invalid rounding type {:s}".format(rounding)
     for num in [forward_number, backward_number]:
         if num != None:
             assert isinstance(num, Number)
 
     if clamping_grad_zero == False:
-        if forward_rounding == "nearest":
+        if forward_rounding == "RNE":
             if type(forward_number) == BlockFloatingPoint:
                 forward_quant = (
                     lambda x, quant_module: quant_module.block_quantize_nearest(
@@ -2441,7 +2441,7 @@ def quantizer(
                         forward_number.saturate,
                     )
                 )
-        elif forward_rounding == "stochastic":
+        elif forward_rounding == "SR":
             if type(forward_number) == BlockFloatingPoint:
                 forward_quant = (
                     lambda x, quant_module: quant_module.block_quantize_stochastic(
@@ -2474,18 +2474,18 @@ def quantizer(
             assert (
                 forward_number == None or forward_number.clamp == True
             ), "must use clamping if zeroing out clamped gradient"
-            if forward_rounding == "nearest":
+            if forward_rounding == "RNE":
                 forward_quant = lambda x, quant_module: quant_module.fixed_point_quantize_nearest_mask(
                     x, forward_number.wl, forward_number.fl, forward_number.symmetric
                 )
-            elif forward_rounding == "stochastic":
+            elif forward_rounding == "SR":
                 forward_quant = lambda x, quant_module: quant_module.fixed_point_quantize_stochastic_mask(
                     x, forward_number.wl, forward_number.fl, forward_number.symmetric
                 )
         else:
             raise ValueError("zeroing clamping gradient only support fixed point.")
 
-    if backward_rounding == "nearest":
+    if backward_rounding == "RNE":
         if type(backward_number) == BlockFloatingPoint:
             backward_quant = (
                 lambda a, quant_module: quant_module.block_quantize_nearest(
@@ -2524,7 +2524,7 @@ def quantizer(
                     backward_number.saturate,
                 )
             )
-    elif backward_rounding == "stochastic":
+    elif backward_rounding == "SR":
         if type(backward_number) == BlockFloatingPoint:
             backward_quant = (
                 lambda a, quant_module: quant_module.block_quantize_stochastic(
@@ -2624,7 +2624,7 @@ def fixed_point_quantize(
     fl: int,
     clamp: bool = True,
     symmetric: bool = False,
-    rounding: Literal["nearest", "stochastic"] = "stochastic",
+    rounding: Literal["RNE", "SR"] = "SR",
 ) -> torch.Tensor:
     """
     Quantize a single precision floating-point tensor into a low-precision fixed-point tensor
@@ -2641,14 +2641,14 @@ def fixed_point_quantize(
         a quantized fixed-point representation of the input tensor
     """
     assert isinstance(x, torch.Tensor)
-    assert rounding in ["stochastic", "nearest"]
+    assert rounding in ["SR", "RNE"]
     assert_wl_fl(wl, fl)
     quant_module = get_module(x)
-    if rounding == "nearest":
+    if rounding == "RNE":
         out = quant_module.fixed_point_quantize_nearest(
             x.contiguous(), wl, fl, clamp, symmetric
         )
-    elif rounding == "stochastic":
+    elif rounding == "SR":
         out = quant_module.fixed_point_quantize_stochastic(
             x.contiguous(), wl, fl, clamp, symmetric
         )
@@ -2659,7 +2659,7 @@ def block_quantize(
     x: torch.Tensor,
     wl: int,
     dim: int = -1,
-    rounding: Literal["nearest", "stochastic"] = "stochastic",
+    rounding: Literal["RNE", "SR"] = "SR",
 ) -> torch.Tensor:
     """
     Quantize a single precision floating-point tensor into a low-precision block floating-point representation
@@ -2676,13 +2676,14 @@ def block_quantize(
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
-        rounding
-    )
+    assert rounding in [
+        "SR",
+        "RNE",
+    ], "invalid rounding mode, {}".format(rounding)
     quant_module = get_module(x)
-    if rounding == "nearest":
+    if rounding == "RNE":
         out = quant_module.block_quantize_nearest(x.contiguous(), wl, dim)
-    elif rounding == "stochastic":
+    elif rounding == "SR":
         out = quant_module.block_quantize_stochastic(x.contiguous(), wl, dim)
     return out
 
@@ -2691,9 +2692,7 @@ def float_quantize(
     x: torch.Tensor,
     exp: int,
     man: int,
-    rounding: Literal[
-        "nearest_even", "nearest_away", "up", "down", "zero", "stochastic"
-    ] = "nearest_even",
+    rounding: Literal["RNE", "RNA", "RU", "RD", "RZ", "SR"] = "RNE",
     subnormals: bool = True,
     saturate: bool = True,
     prng_bits: int = 0,
@@ -2720,23 +2719,23 @@ def float_quantize(
     quant_module = get_module(x)
 
     match rounding:
-        case "nearest_even":
+        case "RNE":
             out = quant_module.float_quantize_nearest_even(
                 x.contiguous(), man, exp, subnormals, saturate
             )
-        case "nearest_away":
+        case "RNA":
             out = quant_module.float_quantize_nearest_away(
                 x.contiguous(), man, exp, subnormals, saturate
             )
-        case "up":
+        case "RU":
             out = quant_module.float_quantize_up(
                 x.contiguous(), man, exp, subnormals, saturate
             )
-        case "down":
+        case "RD":
             out = quant_module.float_quantize_down(
                 x.contiguous(), man, exp, subnormals, saturate
             )
-        case "zero":
+        case "RZ":
             out = quant_module.float_quantize_zero(
                 x.contiguous(), man, exp, subnormals, saturate
             )
@@ -2754,9 +2753,7 @@ def binaryK_quantize(
     x: torch.Tensor,
     K: int,
     P: int,
-    rounding: Literal[
-        "nearest_even", "nearest_away", "up", "down", "zero", "stochastic"
-    ] = "nearest_even",
+    rounding: Literal["RNE", "RNA", "RU", "RD", "RZ", "SR"] = "RNE",
     saturation_mode: Literal[
         "saturate_finite", "saturate_propagate", "overflow_infinity"
     ] = "overflow_infinity",
@@ -2777,23 +2774,23 @@ def binaryK_quantize(
             bias = 2 ** (K - P)
 
     match rounding:
-        case "nearest_even":
+        case "RNE":
             out = quant_module.binaryK_quantize_nearest_even(
                 x.contiguous(), K, P, is_signed, saturate_policy, bias
             )
-        case "nearest_away":
+        case "RNA":
             out = quant_module.binaryK_quantize_nearest_away(
                 x.contiguous(), K, P, is_signed, saturate_policy, bias
             )
-        case "up":
+        case "RU":
             out = quant_module.binaryK_quantize_up(
                 x.contiguous(), K, P, is_signed, saturate_policy, bias
             )
-        case "down":
+        case "RD":
             out = quant_module.binaryK_quantize_down(
                 x.contiguous(), K, P, is_signed, saturate_policy, bias
             )
-        case "zero":
+        case "RZ":
             out = quant_module.binaryK_quantize_zero(
                 x.contiguous(), K, P, is_signed, saturate_policy, bias
             )
@@ -2810,7 +2807,7 @@ def superfp_quantize(
     exp: int,
     man: int,
     binades: int | tuple[int] | tuple[int, int],
-    rounding: Literal["stochastic", "nearest"] = "nearest",
+    rounding: Literal["SR", "RNE"] = "RNE",
     saturate: bool = False,
 ) -> torch.Tensor:
     """
@@ -2830,18 +2827,19 @@ def superfp_quantize(
     assert isinstance(
         x, torch.Tensor
     ), "x is not a single precision Floating Point Tensor"
-    assert rounding in ["stochastic", "nearest"], "invalid rounding mode, {}".format(
-        rounding
-    )
+    assert rounding in [
+        "SR",
+        "RNE",
+    ], "invalid rounding mode, {}".format(rounding)
     quant_module = get_module(x)
-    if rounding == "nearest":
+    if rounding == "RNE":
         binades_l, binades_u = normalize_binades(binades)
 
         out = quant_module.superfp_quantize_nearest(
             x.contiguous(), man, exp, binades_l, binades_u, saturate
         )
 
-    elif rounding == "stochastic":
+    elif rounding == "SR":
         # TODO
         raise NotImplementedError("SR SuperNormalFloat not yet implemented")
     return out

@@ -5,7 +5,7 @@ from tests.markers import available_devices
 
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("mode", ["nearest_even", "stochastic"])
+@pytest.mark.parametrize("mode", ["RNE", "SR"])
 def test_32_to_32_quantization(device, mode):
     a = torch.tensor(3.0, device=device)
     out = float_quantize(a, exp=8, man=23, rounding=mode)
@@ -13,7 +13,7 @@ def test_32_to_32_quantization(device, mode):
 
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("mode", ["nearest_even", "stochastic"])
+@pytest.mark.parametrize("mode", ["RNE", "SR"])
 def test_32_to_E2M23_quantization(device, mode):
     a = torch.tensor(1097.0, device=device)
     out = float_quantize(
@@ -32,7 +32,7 @@ def test_32_to_E2M23_quantization(device, mode):
 
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("mode", ["nearest_even"])
+@pytest.mark.parametrize("mode", ["RNE"])
 def test_32_to_E8M1_quantization(device, mode):
     a = torch.tensor(3.1516, device=device)
     out = float_quantize(

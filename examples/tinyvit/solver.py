@@ -18,7 +18,7 @@ class Solver(object):
         # Get data loaders
         self.train_loader, self.test_loader = get_loader(args)
 
-        rounding = "nearest"
+        rounding = "RNE"
         fp_format = FloatingPoint(
             exp=args.expMac, man=args.manMac, subnormals=True, saturate=False
         )

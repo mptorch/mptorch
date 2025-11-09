@@ -67,13 +67,13 @@ trained using 8-bit floating-point arithmetic (5 exponent and 2 exponent bits):
     exp, man = 5, 2
     fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
     quant_fp = lambda x: qpt.float_quantize(
-        x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False)
+        x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False)
 
     layer_formats = qpt.QAffineFormats(
         fwd_mac=(fp_format, fp_format),
-        fwd_rnd="nearest",
+        fwd_rnd="RNE",
         bwd_mac=(fp_format, fp_format),
-        bwd_rnd="nearest",
+        bwd_rnd="RNE",
         weight_quant=quant_fp,
         input_quant=quant_fp,
         grad_quant=quant_fp,
@@ -108,7 +108,7 @@ trained using 8-bit floating-point arithmetic (5 exponent and 2 exponent bits):
     Specify the format to be used for updating model parameters
     """
     acc_q = lambda x: qpt.float_quantize(
-        x, exp=8, man=15, rounding="nearest"
+        x, exp=8, man=15, rounding="RNE"
     )
     optimizer = OptimMP(
         optimizer,

@@ -124,7 +124,7 @@ test_dataset = torchvision.datasets.MNIST(
 )
 test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
-rounding = "nearest"
+rounding = "RNE"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
@@ -168,7 +168,7 @@ optimizer = SGD(
     weight_decay=args.weight_decay,
 )
 
-acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="stochastic")
+acc_q = lambda x: qpt.float_quantize(x, exp=8, man=7, rounding="SR")
 optimizer = QOptim(
     optimizer,
     acc_quant=acc_q,

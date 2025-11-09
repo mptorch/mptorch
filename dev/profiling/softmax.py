@@ -22,17 +22,15 @@ torch.backends.cudnn.deterministic = True
 
 man, exp = args.man, args.exp
 quantize = lambda x: float_quantize(
-    x, exp=exp, man=man, rounding="nearest", subnormals=True, saturate=False
+    x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
 )
 float_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
 qsoftmax_formats = QSoftmaxFormats(
     fwd_exp=float_format,
     fwd_off=float_format,
     fwd_acc=float_format,
-
     bwd_add=float_format,
     bwd_mul=float_format,
-
     output_quant=quantize,
     input_quant=quantize,
     grad_quant=quantize,

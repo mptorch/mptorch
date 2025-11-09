@@ -124,7 +124,7 @@ test_dataset = torchvision.datasets.MNIST(
 )
 test_loader = DataLoader(test_dataset, batch_size=int(args.batch_size), shuffle=False)
 
-rounding = "nearest"
+rounding = "RNE"
 """Specify the formats and quantization functions for the layer operations and signals"""
 fp_format = FloatingPoint(exp=args.exp, man=args.man, subnormals=True, saturate=False)
 quant_fp = lambda x: qpt.float_quantize(
@@ -166,7 +166,10 @@ model = model.to(device)
 def acc_q(x, y, z):
     out = torch.zeros_like(x, device=x.device)
     out = qpt.float_quantize(
-        torch.addcmul(x, y, z, value=1.0, out=out), exp=8, man=7, rounding="nearest"
+        torch.addcmul(x, y, z, value=1.0, out=out),
+        exp=8,
+        man=7,
+        rounding="RNE",
     )
     return out
 
