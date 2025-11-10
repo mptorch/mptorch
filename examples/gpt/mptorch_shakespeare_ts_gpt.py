@@ -89,9 +89,9 @@ parser.add_argument(
 parser.add_argument(
     "--manMac",
     type=int,
-    default=7,
+    default=23,
     metavar="N",
-    help="MAC mantissa size (default: 7)",
+    help="MAC mantissa size (default: 23)",
 )
 parser.add_argument(
     "--expWeight",
@@ -123,16 +123,12 @@ g_format = FloatingPoint(exp=5, man=2, subnormals=True, saturate=False)
 i_format = FloatingPoint(exp=4, man=3, subnormals=True, saturate=False)
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=fma_format,
-    fwd_rnd=rounding,
-    bwd_mac=fma_format,
-    bwd_rnd=rounding,
     weight_quant=(w_format, rounding),
     input_quant=(i_format, rounding),
     grad_quant=(g_format, rounding),
     bias_quant=(fma_format, rounding),
     use_scaling=True,
-    scale_margin=3,
+    scale_margin=4,
 )
 
 # hyperparameters
@@ -380,7 +376,7 @@ if os.path.exists("model.pth"):
     m.load_state_dict(torch.load("model.pth"))
 else:
     # set up loss scaling
-    init_scale = None  # 2**16
+    init_scale = 2**16
     if device == "cpu" or init_scale is None:
         scaler = None
     else:
