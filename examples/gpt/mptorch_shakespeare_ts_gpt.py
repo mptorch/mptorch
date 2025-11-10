@@ -82,14 +82,14 @@ parser.add_argument("--wandb", action="store_true", default=False, help="wandb l
 parser.add_argument(
     "--expMac",
     type=int,
-    default=5,
+    default=8,
     metavar="N",
     help="MAC exponent size (default: 8)",
 )
 parser.add_argument(
     "--manMac",
     type=int,
-    default=10,
+    default=7,
     metavar="N",
     help="MAC mantissa size (default: 7)",
 )
@@ -132,6 +132,7 @@ layer_formats = qpt.QAffineFormats(
     grad_quant=(g_format, rounding),
     bias_quant=(fma_format, rounding),
     use_scaling=True,
+    scale_margin=3,
 )
 
 # hyperparameters
@@ -379,7 +380,7 @@ if os.path.exists("model.pth"):
     m.load_state_dict(torch.load("model.pth"))
 else:
     # set up loss scaling
-    init_scale = 2**16
+    init_scale = None  # 2**16
     if device == "cpu" or init_scale is None:
         scaler = None
     else:
