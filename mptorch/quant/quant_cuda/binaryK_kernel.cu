@@ -1,9 +1,6 @@
 #include "quant_kernel.h"
 #include "bit_helper.cu"
 #include "modes.h"
-#include "softmax_kernel.h"
-#include "layernorm_kernel.h"
-#include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
 

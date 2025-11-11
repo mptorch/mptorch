@@ -1,5 +1,4 @@
 #include "modes.h"
-#include <cmath>
 #include <cstdint>
 
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))

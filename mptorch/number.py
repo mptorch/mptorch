@@ -5,7 +5,19 @@ __all__ = [
     "FloatingPoint",
     "BlockFloatingPoint",
     "SuperNormalFloat",
+    "SaturationMode",
+    "SubnormalsMode",
 ]
+
+from enum import Enum
+
+SaturationMode = Enum(
+    "SaturationMode", [("SAT_FINITE", 0), ("SAT_PROPAGATE", 1), ("OVF_INF", 2)]
+)
+
+SubnormalsMode = Enum(
+    "SubnormalsMode", [("SUBNORMALS", 0), ("NORMALS", 1), ("EXTENDED_NORMALS", 2)]
+)
 
 
 class Number:
@@ -112,19 +124,27 @@ class FloatingPoint(FloatType):
     Low-Precision Floating Point Format. Follows rules set out in the IEEE-754 standard, applying
     them in the context of custom precision formats.
 
-    We set the exponent bias to be :math:`2^{\text{exp}-1} - 1`. In terms of rounding mode (see
-    available quantization functions), we offer support for *round to nearest even* and *stochastic rounding*.
+    By default, we set the exponent bias to be :math:`2^{\text{exp}-1} - 1`. In terms of rounding mode (see
+    available quantization functions), we offer support for: *round to nearest even* (RNE),
+    *round to nearest away* (RNA), *round towards positive infinity* (RU), *round towards negative infinity* (RD),
+    *round towards zero* (RZ), and *stochastic rounding* (SR).
 
     Args:
         exp: number of bits allocated for exponent
         man: number of bits allocated for mantissa, referring to number of bits that are
             supposed to be stored on hardware (not counting the virtual bits)
+        bias: the bias for the number format (if none specified use the default value)
         subnormals: allow the use of subnormal values
         saturate: clamp values instead of using infinities in case of overflow
     """
 
     def __init__(
-        self, exp: int, man: int, subnormals: bool = False, saturate: bool = True
+        self,
+        exp: int,
+        man: int,
+        bias: int | None = None,
+        subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+        saturate: bool = False,
     ):
         assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
         assert 23 >= man >= 0, "invalid bits for mantissa:{}".format(man)
@@ -132,32 +152,35 @@ class FloatingPoint(FloatType):
         self.man = man
         self.subnormals = subnormals
         self.saturate = saturate
+        if bias:
+            self.bias = bias
+        else:
+            self.bias = 2 ** (exp - 1) - 1
+
         self.subnormal_min = (
-            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
-        )
-        self.subnormal_max = (
-            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
-            if subnormals
+            2.0 ** (1 - self.bias - self.man)
+            if subnormals == SubnormalsMode.SUBNORMALS
             else None
         )
-        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
-        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
-        self.subnormal_min = (
-            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
-        )
         self.subnormal_max = (
-            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
-            if subnormals
+            2.0 ** (1 - self.bias) * (1.0 - 2.0 ** (-self.man))
+            if subnormals == SubnormalsMode.SUBNORMALS
             else None
         )
-        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
-        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
+        self.normal_max = 2.0 ** (2**self.exp - 2 - self.bias) * (
+            2.0 - 2.0 ** (-self.man)
+        )
+        self.normal_min = (
+            2.0 ** (-self.bias)
+            if subnormals == SubnormalsMode.EXTENDED_NORMALS
+            else 2.0 ** (1 - self.bias)
+        )
 
     def __str__(self):
-        return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
+        return f"FloatingPoint (exponent={self.exp}, mantissa={self.man}, bias={self.bias})"
 
     def __repr__(self):
-        return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
+        return f"FloatingPoint (exponent={self.exp}, mantissa={self.man}, bias={self.bias})"
 
     @property
     def is_fp32(self) -> bool:

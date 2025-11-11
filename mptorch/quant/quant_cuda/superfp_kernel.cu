@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <iostream>
 
 // Remark: bias = 2^{e-1}
 __device__ float cast_superfp_nearest(float origin, int man_bits, int exp_bits, int binades_l = 1, int binades_u = 1, bool saturate = false)

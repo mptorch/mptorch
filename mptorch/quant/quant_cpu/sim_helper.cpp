@@ -1,11 +1,9 @@
 #include "quant.h"
-#include <cmath>
-#include <cstdint>
-#include <vector>
 #include <ATen/ATen.h>
+#include <cmath>
+#include <vector>
 
-void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
-{
+void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max) {
   int sigma = -fl;
   *t_min = -ldexp(1.0, wl - fl - 1);
   *t_max = -*t_min - ldexp(1.0, sigma);
@@ -25,15 +23,15 @@ float round(float a, float r, int sigma) {
   return a;
 }
 
-DimSizes partition_tensor(Tensor input, std::vector<int> &dims){
+DimSizes partition_tensor(Tensor input, std::vector<int> &dims) {
   DimSizes sizes;
   std::vector<int> real_dims(dims.size());
-  for (int i = 0; i < dims.size(); i++){
+  for (int i = 0; i < dims.size(); i++) {
     real_dims[i] = (input.dim() + (dims[i] % input.dim())) % input.dim();
   }
 
   sizes.channel = 1;
-  for (int dim : real_dims){
+  for (int dim : real_dims) {
     sizes.channel *= input.size(dim);
   }
 
@@ -41,12 +39,12 @@ DimSizes partition_tensor(Tensor input, std::vector<int> &dims){
   int max_dim = real_dims.front();
 
   sizes.outer = 1;
-  for (int i = 0; i < min_dim; i++){
+  for (int i = 0; i < min_dim; i++) {
     sizes.outer *= input.size(i);
   }
 
   sizes.inner = 1;
-  for (int i = max_dim + 1; i < input.dim(); i++){
+  for (int i = max_dim + 1; i < input.dim(); i++) {
     sizes.inner *= input.size(i);
   }
   return sizes;

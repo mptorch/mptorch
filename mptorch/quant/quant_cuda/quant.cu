@@ -9,9 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <tuple>
-#include <stdexcept>
 #include <cassert>
-#include <vector>
 
 using namespace at;
 

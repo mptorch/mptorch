@@ -5,10 +5,8 @@
 #include "sim_helper.cu"
 #include "layernorm_kernel.h"
 #include "softmax_kernel.h"
-#include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <iostream>
 
 __device__ float cast_fp_nearest_even(float origin_float,
                                       int man_bits, int exp_bits,

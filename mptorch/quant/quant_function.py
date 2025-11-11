@@ -2694,7 +2694,7 @@ def float_quantize(
     man: int,
     rounding: Literal["RNE", "RNA", "RU", "RD", "RZ", "SR"] = "RNE",
     subnormals: bool = True,
-    saturate: bool = True,
+    saturate: bool = False,
     prng_bits: int = 0,
 ) -> torch.Tensor:
     """

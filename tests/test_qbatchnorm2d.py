@@ -30,7 +30,7 @@ def test_qbatchnorm2d_custom(device, batch_size, num_features, quant_fp):
     layer = torch.nn.BatchNorm2d(num_features, affine=True, device=device)
     qlayer = QBatchNorm2d(num_features, quant_fp, quant_fp).to(device)
 
-    shape = (batch_size, num_features, 100, 100)
+    shape = (batch_size, num_features, 50, 50)
     x_ref = torch.randn(*shape, device=device, requires_grad=True)
     x_res = x_ref.clone().detach()
     x_res.requires_grad_(True)

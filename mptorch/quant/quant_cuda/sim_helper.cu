@@ -1,4 +1,3 @@
-#include "quant_kernel.h"
 #include <cmath>
 
 __device__ __forceinline__ float round_helper(float a, float r) {
