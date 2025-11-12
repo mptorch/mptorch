@@ -441,20 +441,26 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
  * about the I/O matrix datatypes and compute precision
  * used during the CUBLAS (B)MM calls.
  */
-struct CUBLASGemmConfig {
-  cudaDataType matrix_a;
-  cudaDataType matrix_b;
-  cudaDataType matrix_c;
-  cudaDataType scalar;
-  cublasComputeType_t compute;
+struct CUBLASGemmConfig
+{
+    cudaDataType matrix_a;
+    cudaDataType matrix_b;
+    cudaDataType matrix_c;
+    cudaDataType scalar;
+    cublasComputeType_t compute;
 
-  void summary() const;
+    void summary() const;
 };
 
 /**
  * Possible I/O matrix datatypes (binary32, binary16 and bfloat16).
  */
-enum class CUBLASMatrixType { kF32, kF16, kBF16 };
+enum class CUBLASMatrixType
+{
+    kF32,
+    kF16,
+    kBF16
+};
 
 /**
  * Compute precision/reduction configuration for CUBLAS computations.
@@ -462,12 +468,13 @@ enum class CUBLASMatrixType { kF32, kF16, kBF16 };
  * downconversion and binary16/bfloat16/tfloat32 compute for binary32
  * I/O matrices.
  */
-enum class CUBLASComputeType {
-  kF32,
-  kF16,
-  kF32FastF16,
-  kF32FastBF16,
-  kF32FastTF32
+enum class CUBLASComputeType
+{
+    kF32,
+    kF16,
+    kF32FastF16,
+    kF32FastBF16,
+    kF32FastTF32
 };
 
 /**

@@ -1,5 +1,6 @@
 #include "binaryK_kernel.h"
 #include "bit_helper.h"
+#include "mm_kernel.h"
 #include <ATen/ATen.h>
 #include <cmath>
 #include <random>
@@ -10,7 +11,8 @@
 float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
                                 int bias, bool is_signed,
                                 SaturationMode saturation_mode,
-                                SubnormalsMode subnormals) {
+                                SubnormalsMode subnormals)
+{
   if (origin_float < 0.0f && !is_signed)
     return 0.0f;
 
@@ -23,7 +25,8 @@ float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
   bool subnormal = (target_exp < min_exp);
 
   // handle subnormal inputs (if subnormal mode is active)
-  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS)) {
+  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
+  {
     int exp_diff = man_bits - (min_exp - target_exp);
     int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
     uint32_t rounded_val = (man_bits > 0)
@@ -35,11 +38,13 @@ float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
   // handle NaN/inf inputs
-  else if (target_exp == 128) {
+  else if (target_exp == 128)
+  {
     quantized = origin_float;
   }
   // normal value range or overflow
-  else {
+  else
+  {
     quantize_bits = (man_bits > 0)
                         ? round_bitwise_nearest_even(target, man_bits)
                         : round_bitwise_nearest_even(target);
@@ -55,17 +60,22 @@ float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
 void binaryK_kernel_nearest_even(float *a, float *o, int size, int K, int P,
                                  int bias, bool is_signed,
                                  SaturationMode saturation_mode,
-                                 SubnormalsMode subnormals) {
+                                 SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] = cast_binaryK_nearest_even(a[idx], man_bits, exp_bits, bias,
                                        is_signed, saturation_mode, subnormals);
   }
@@ -74,7 +84,8 @@ void binaryK_kernel_nearest_even(float *a, float *o, int size, int K, int P,
 float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
                                 int bias, bool is_signed,
                                 SaturationMode saturation_mode,
-                                SubnormalsMode subnormals) {
+                                SubnormalsMode subnormals)
+{
   if (origin_float < 0.0f && !is_signed)
     return 0.0f;
 
@@ -87,7 +98,8 @@ float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
   bool subnormal = (target_exp < min_exp);
 
   // handle subnormal inputs (if subnormal mode is active)
-  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS)) {
+  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
+  {
     int exp_diff = man_bits - (min_exp - target_exp);
     int not_uflow = exp_diff > -1 || (exp_diff == -1);
     quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
@@ -96,11 +108,13 @@ float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
   // handle NaN/inf inputs
-  else if (target_exp == 128) {
+  else if (target_exp == 128)
+  {
     quantized = origin_float;
   }
   // normal value range or overflow
-  else {
+  else
+  {
     quantize_bits = round_bitwise_nearest_away(target, man_bits);
     quantize_bits = clip_normal_range_exponent(
         exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
@@ -114,17 +128,22 @@ float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
 void binaryK_kernel_nearest_away(float *a, float *o, int size, int K, int P,
                                  int bias, bool is_signed,
                                  SaturationMode saturation_mode,
-                                 SubnormalsMode subnormals) {
+                                 SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] = cast_binaryK_nearest_away(a[idx], man_bits, exp_bits, bias,
                                        is_signed, saturation_mode, subnormals);
   }
@@ -132,7 +151,8 @@ void binaryK_kernel_nearest_away(float *a, float *o, int size, int K, int P,
 
 float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
                        SaturationMode saturation_mode,
-                       SubnormalsMode subnormals) {
+                       SubnormalsMode subnormals)
+{
   uint32_t target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -142,7 +162,8 @@ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
   bool subnormal = (target_exp < min_exp);
 
   // handle subnormal inputs (if subnormal mode is active)
-  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS)) {
+  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
+  {
     int exp_diff = man_bits - (min_exp - target_exp);
     quantize_bits = round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
     quantize_bits = clip_subnormal_range_exponent_up(exp_bits, man_bits, bias,
@@ -150,11 +171,13 @@ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
   // handle NaN/inf inputs
-  else if (target_exp == 128) {
+  else if (target_exp == 128)
+  {
     quantized = origin_float;
   }
   // normal value range or overflow
-  else {
+  else
+  {
     quantize_bits = round_bitwise_up(target, man_bits);
     quantize_bits = clip_normal_range_exponent(
         exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
@@ -167,7 +190,8 @@ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
 
 float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
                          int bias, SaturationMode saturation_mode,
-                         SubnormalsMode subnormals) {
+                         SubnormalsMode subnormals)
+{
   uint32_t target, quantize_bits;
   target = FLOAT_TO_BITS(&origin_float);
   float quantized;
@@ -177,7 +201,8 @@ float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
   bool subnormal = (target_exp < min_exp);
 
   // handle subnormal inputs (if subnormal mode is active)
-  if (subnormal && subnormals == SubnormalsMode::SUBNORMALS) {
+  if (subnormal && subnormals == SubnormalsMode::SUBNORMALS)
+  {
     int exp_diff = man_bits - (min_exp - target_exp);
     int not_uflow = exp_diff > -1;
     quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
@@ -186,11 +211,13 @@ float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
     quantized = BITS_TO_FLOAT(&quantize_bits);
   }
   // handle NaN/inf inputs
-  else if (target_exp == 128) {
+  else if (target_exp == 128)
+  {
     quantized = origin_float;
   }
   // normal value range or overflow
-  else {
+  else
+  {
     quantize_bits = round_bitwise_down(target, man_bits);
     quantize_bits = clip_normal_range_exponent(
         exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
@@ -203,7 +230,8 @@ float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
 
 float cast_binaryK_up(float origin_float, int man_bits, int exp_bits, int bias,
                       bool is_signed, SaturationMode saturation_mode,
-                      SubnormalsMode subnormals) {
+                      SubnormalsMode subnormals)
+{
   if (origin_float < 0.0f && !is_signed)
     return 0.0f;
 
@@ -217,17 +245,22 @@ float cast_binaryK_up(float origin_float, int man_bits, int exp_bits, int bias,
 
 void binaryK_kernel_up(float *a, float *o, int size, int K, int P, int bias,
                        bool is_signed, SaturationMode saturation_mode,
-                       SubnormalsMode subnormals) {
+                       SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] = cast_binaryK_up(a[idx], man_bits, exp_bits, bias, is_signed,
                              saturation_mode, subnormals);
   }
@@ -236,7 +269,8 @@ void binaryK_kernel_up(float *a, float *o, int size, int K, int P, int bias,
 float cast_binaryK_down(float origin_float, int man_bits, int exp_bits,
                         int bias, bool is_signed,
                         SaturationMode saturation_mode,
-                        SubnormalsMode subnormals) {
+                        SubnormalsMode subnormals)
+{
   if (origin_float < 0.0f && !is_signed)
     return 0.0f;
 
@@ -250,17 +284,22 @@ float cast_binaryK_down(float origin_float, int man_bits, int exp_bits,
 
 void binaryK_kernel_down(float *a, float *o, int size, int K, int P, int bias,
                          bool is_signed, SaturationMode saturation_mode,
-                         SubnormalsMode subnormals) {
+                         SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] = cast_binaryK_down(a[idx], man_bits, exp_bits, bias, is_signed,
                                saturation_mode, subnormals);
   }
@@ -269,7 +308,8 @@ void binaryK_kernel_down(float *a, float *o, int size, int K, int P, int bias,
 float cast_binaryK_zero(float origin_float, int man_bits, int exp_bits,
                         int bias, bool is_signed,
                         SaturationMode saturation_mode,
-                        SubnormalsMode subnormals) {
+                        SubnormalsMode subnormals)
+{
   if (origin_float >= 0.0f)
     return cast_binaryK_down(origin_float, man_bits, exp_bits, bias, is_signed,
                              saturation_mode, subnormals);
@@ -280,17 +320,22 @@ float cast_binaryK_zero(float origin_float, int man_bits, int exp_bits,
 
 void binaryK_kernel_zero(float *a, float *o, int size, int K, int P, int bias,
                          bool is_signed, SaturationMode saturation_mode,
-                         SubnormalsMode subnormals) {
+                         SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] = cast_binaryK_zero(a[idx], man_bits, exp_bits, bias, is_signed,
                                saturation_mode, subnormals);
   }
@@ -299,7 +344,8 @@ void binaryK_kernel_zero(float *a, float *o, int size, int K, int P, int bias,
 float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
                               int rand_bits, int bias, bool is_signed,
                               SaturationMode saturation_mode,
-                              SubnormalsMode subnormals) {
+                              SubnormalsMode subnormals)
+{
   if (origin_float < 0.0f && !is_signed)
     return 0.0f;
 
@@ -321,7 +367,8 @@ float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
   rand_prob = rand_prob << 9 >> 9;
   rand_prob = rand_prob & ~((1 << (23 - man_bits - rand_bits)) - 1);
 
-  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS)) {
+  if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
+  {
     float shift_float, val;
     int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
     shift_float = BITS_TO_FLOAT(&shift_bits);
@@ -331,9 +378,12 @@ float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
     quantized = BITS_TO_FLOAT(&quantize_bits) - shift_float;
   }
   // handle NaN/inf inputs
-  else if (target_exp == 128) {
+  else if (target_exp == 128)
+  {
     quantized = origin_float;
-  } else {
+  }
+  else
+  {
     quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
     quantize_bits = clip_normal_range_exponent(
         exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
@@ -347,19 +397,92 @@ float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
 void binaryK_kernel_stochastic(float *a, float *o, int size, int K, int P,
                                int bias, int prng_bits, bool is_signed,
                                SaturationMode saturation_mode,
-                               SubnormalsMode subnormals) {
+                               SubnormalsMode subnormals)
+{
   int man_bits, exp_bits;
-  if (is_signed) {
+  if (is_signed)
+  {
     man_bits = P - 1;
     exp_bits = K - P;
-  } else {
+  }
+  else
+  {
     man_bits = P - 1;
     exp_bits = K - P + 1;
   }
 
-  for (int idx = 0; idx < size; ++idx) {
+  for (int idx = 0; idx < size; ++idx)
+  {
     o[idx] =
         cast_binaryK_stochastic(a[idx], man_bits, exp_bits, prng_bits, bias,
                                 is_signed, saturation_mode, subnormals);
   }
+}
+
+void binaryK_kernel(
+    float *a, float *o, int size, int K, int P, int bias, bool is_signed,
+    RoundMode round_mode, SaturationMode saturation_mode,
+    SubnormalsMode subnormals_mode,
+    int prng_bits)
+{
+  int man_bits, exp_bits;
+  if (is_signed)
+  {
+    man_bits = P - 1;
+    exp_bits = K - P;
+  }
+  else
+  {
+    man_bits = P - 1;
+    exp_bits = K - P + 1;
+  }
+
+  std::function<float(float)> quantizer;
+
+  switch (round_mode)
+  {
+  case RoundMode::RNE:
+    quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RNA:
+    quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RU:
+    quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RD:
+    quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RZ:
+    quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+
+  default: // SR
+    quantizer = [man_bits, exp_bits, bias, is_signed, prng_bits, saturation_mode, subnormals_mode](float x)
+    {
+      return cast_binaryK_stochastic(x, man_bits, exp_bits, prng_bits, bias, is_signed, saturation_mode, subnormals_mode);
+    };
+    break;
+  }
+
+  quantize_array(a, o, size, quantizer);
 }

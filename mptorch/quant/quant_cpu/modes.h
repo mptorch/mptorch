@@ -10,7 +10,12 @@ The binade used to encode subnormals is used as an extra binade to encode normal
 values.
 */
 
-enum class SubnormalsMode { SUBNORMALS, NORMALS, EXTENDED_NORMALS };
+enum class SubnormalsMode
+{
+    SUBNORMALS,
+    NORMALS,
+    EXTENDED_NORMALS
+};
 
 /*
 SAT_FINITE:
@@ -27,4 +32,38 @@ extremal finite value, positive or negative infinity, as indicated by the
 rounding mode, and the signedness of the target format.
  */
 
-enum class SaturationMode { SAT_FINITE, SAT_PROPAGATE, OVF_INF };
+enum class SaturationMode
+{
+    SAT_FINITE,
+    SAT_PROPAGATE,
+    OVF_INF
+};
+
+/*
+RNE:
+Round to nearest, ties to even
+
+RNA:
+Round to nearest, ties to away from zero
+
+RU:
+Round up
+
+RD:
+Round down
+
+RZ:
+Round towards zero
+
+SR:
+Stochastic rounding
+*/
+enum class RoundMode
+{
+    RNE,
+    RNA,
+    RU,
+    RD,
+    RZ,
+    SR
+};

@@ -5,6 +5,8 @@ from mptorch import (
     FloatingPoint,
     SuperNormalFloat,
     BlockFloatingPoint,
+    SubnormalsMode,
+    SaturationMode,
 )
 from torch.utils.cpp_extension import load
 import os
@@ -363,16 +365,11 @@ def match_mac_format_with_cublas_types(
     return None
 
 
-def translate_saturation_mode(
-    module,
-    saturation_mode: Literal[
-        "saturate_finite", "saturate_propagate", "overflow_infinity"
-    ],
-):
+def translate_saturation_mode(module, saturation_mode: SaturationMode):
     enum_items = {
-        "saturate_finite": module.SaturationMode.SAT_FINITE,
-        "saturate_propagate": module.SaturationMode.SAT_PROPAGATE,
-        "overflow_infinity": module.SaturationMode.OVF_INF,
+        SaturationMode.SAT_FINITE: module.SaturationMode.SAT_FINITE,
+        SaturationMode.SAT_PROPAGATE: module.SaturationMode.SAT_PROPAGATE,
+        SaturationMode.OVF_INF: module.SaturationMode.OVF_INF,
     }
     assert (
         saturation_mode in enum_items.keys()
@@ -2754,9 +2751,7 @@ def binaryK_quantize(
     K: int,
     P: int,
     rounding: Literal["RNE", "RNA", "RU", "RD", "RZ", "SR"] = "RNE",
-    saturation_mode: Literal[
-        "saturate_finite", "saturate_propagate", "overflow_infinity"
-    ] = "overflow_infinity",
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     is_signed: bool = True,
     prng_bits: int = 0,
     bias: int | None = None,
@@ -2766,7 +2761,7 @@ def binaryK_quantize(
     ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
 
     quant_module = get_module(x)
-    saturate_policy = translate_saturation_mode(quant_module, saturation_mode)
+    saturation_policy = translate_saturation_mode(quant_module, saturation_mode)
     if not bias:
         if is_signed:
             bias = 2 ** (K - P - 1)
@@ -2776,27 +2771,27 @@ def binaryK_quantize(
     match rounding:
         case "RNE":
             out = quant_module.binaryK_quantize_nearest_even(
-                x.contiguous(), K, P, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, is_signed, saturation_policy, bias
             )
         case "RNA":
             out = quant_module.binaryK_quantize_nearest_away(
-                x.contiguous(), K, P, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, is_signed, saturation_policy, bias
             )
         case "RU":
             out = quant_module.binaryK_quantize_up(
-                x.contiguous(), K, P, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, is_signed, saturation_policy, bias
             )
         case "RD":
             out = quant_module.binaryK_quantize_down(
-                x.contiguous(), K, P, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, is_signed, saturation_policy, bias
             )
         case "RZ":
             out = quant_module.binaryK_quantize_zero(
-                x.contiguous(), K, P, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, is_signed, saturation_policy, bias
             )
         case _:
             out = quant_module.binaryK_quantize_stochastic(
-                x.contiguous(), K, P, prng_bits, is_signed, saturate_policy, bias
+                x.contiguous(), K, P, prng_bits, is_signed, saturation_policy, bias
             )
 
     return out

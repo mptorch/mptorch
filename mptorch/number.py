@@ -20,6 +20,21 @@ SubnormalsMode = Enum(
 )
 
 
+class RoundMode(Enum):
+    """
+    Enum for floating-point rounding modes.
+
+    Result :math:`y` is obtained from an input :math:`x` depending on the rounding mode.
+    """
+
+    RNE = 0  #: Round to nearest, ties to even
+    RNA = 1  #: Round to nearest, ties to away from zero
+    RU = 2  #: Return the smallest :math:`y` such that :math:`y \ge x`
+    RD = 3  #: Return the largest :math:`y` such that :math:`y \le x`
+    RZ = 4  #: Return the largest :math:`y` such that :math:`|y| \le |x|`
+    SR = 5  #: Stochastic Rounding
+
+
 class Number:
     """Base class for all supported number formats.
 
@@ -185,17 +200,17 @@ class FloatingPoint(FloatType):
     @property
     def is_fp32(self) -> bool:
         """Returns if the format is equivalent to the IEEE-754 ``binary32`` format."""
-        return self.man == 23 and self.exp == 8
+        return self.man == 23 and self.exp == 8 and self.bias == 127
 
     @property
     def is_fp16(self) -> bool:
         """Returns if the format is equivalent to the IEEE-754 ``binary16`` format."""
-        return self.man == 10 and self.exp == 5
+        return self.man == 10 and self.exp == 5 and self.bias == 15
 
     @property
     def is_bfloat16(self) -> bool:
         """Returns if the format is equivalent to the ``bfloat16`` format."""
-        return self.man == 7 and self.exp == 8
+        return self.man == 7 and self.exp == 8 and self.bias == 127
 
 
 class SuperNormalFloat(FloatType):

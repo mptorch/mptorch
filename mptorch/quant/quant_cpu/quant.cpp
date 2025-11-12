@@ -63,16 +63,6 @@ T clamp_mask_helper(T a, T min, T max, uint8_t *mask)
     return a;
 }
 
-template <class Quantizer>
-void quantize_array(float *a, float *o, int size, Quantizer quant)
-{
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (int i = 0; i < size; ++i)
-    o[i] = quant(a[i]);
-}
-
 float gen_random()
 {
   static std::random_device rd;

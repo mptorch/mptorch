@@ -4,6 +4,16 @@
 #include <cmath>
 #include <torch/torch.h>
 
+template <class Quant>
+void quantize_array(float *a, float *o, int size, Quant quant)
+{
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+  for (int i = 0; i < size; ++i)
+    o[i] = quant(a[i]);
+}
+
 template <class Qadd, class Qmul>
 void mm_kernel(float *a, float *b, float *c, int M, int K, int N,
                Qadd quant_add, Qmul quant_mul)
