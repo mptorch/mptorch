@@ -577,7 +577,8 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, bool is_signed,
 {
   auto o = zeros_like(a);
   binaryK_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
-                 K, P, bias, is_signed, round_mode, saturation_mode, subnormals_mode, prng_bits);
+                 K, P, bias, is_signed, round_mode, saturation_mode, subnormals_mode,
+                 prng_bits);
 }
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,

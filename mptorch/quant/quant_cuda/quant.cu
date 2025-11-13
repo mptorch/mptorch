@@ -397,6 +397,20 @@ Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, bool is_signed,
                              RoundMode round_mode, SaturationMode saturation_mode,
                              SubnormalsMode subnormals_mode, int prng_bits)
 {
+  auto o = zeros_like(a);
+  int size = a.numel();
+  if (round_mode != RoundMode::SR)
+  {
+    binaryK_kernel(a.data_ptr<float>(), o.data_ptr<float>(), size, K, P, bias, is_signed, round_mode, saturation_mode);
+  }
+  else
+  {
+    auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+    binaryK_kernel(a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(),
+                   size, K, P, bias, is_signed, round_mode, saturation_mode, prng_bits);
+  }
+
+  return o;
 }
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)

@@ -27,6 +27,16 @@ __global__ void quant_kernel(float *__restrict__ a, float *o, int size, Quant qu
   }
 }
 
+template <class Quant>
+__global__ void quant_kernel(float *__restrict__ a, int *__restrict__ r, float *o, int size, Quant quant)
+{
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size)
+  {
+    o[idx] = quant(a[idx], (uint32_t)r[idx]);
+  }
+}
+
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b,
                         float *__restrict__ c, int M, int K, int N,

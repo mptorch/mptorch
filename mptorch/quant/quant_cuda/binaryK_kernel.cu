@@ -1,8 +1,10 @@
 #include "quant_kernel.h"
+#include "mm_kernel.h"
 #include "bit_helper.cu"
 #include "modes.h"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <functional>
 
 __host__ __device__ float cast_binaryK_nearest_even(float origin_float,
                                                     int man_bits, int exp_bits,
@@ -321,4 +323,82 @@ __global__ void binaryK_kernel_stochastic(
     {
         o[idx] = cast_binaryK_stochastic(a[idx], (uint32_t)r[idx], prng_bits, man_bits, exp_bits, bias, is_signed, saturation_mode);
     }
+}
+
+void binaryK_kernel(float *__restrict__ a, float *o, int size,
+                    int K, int P, int bias, bool is_signed,
+                    RoundMode round_mode, SaturationMode saturation_mode)
+{
+    int blockSize = 1024;
+    int blockNums = (size + blockSize - 1) / blockSize;
+    int man_bits, exp_bits;
+    if (is_signed)
+    {
+        man_bits = P - 1;
+        exp_bits = K - P;
+    }
+    else
+    {
+        man_bits = P - 1;
+        exp_bits = K - P + 1;
+    }
+
+    switch (round_mode)
+    {
+    case RoundMode::RNE:
+        quant_kernel<<<blockNums, blockSize>>>(
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
+            { return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+        break;
+
+    case RoundMode::RNA:
+        quant_kernel<<<blockNums, blockSize>>>(
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
+            { return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+        break;
+
+    case RoundMode::RU:
+        quant_kernel<<<blockNums, blockSize>>>(
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
+            { return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+        break;
+
+    case RoundMode::RD:
+        quant_kernel<<<blockNums, blockSize>>>(
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
+            { return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+        break;
+
+    default: // RZ
+        quant_kernel<<<blockNums, blockSize>>>(
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
+            { return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+        break;
+    }
+}
+
+void binaryK_kernel(float *__restrict__ a,
+                    int *__restrict__ r, float *o, int size,
+                    int K, int P, int bias, bool is_signed,
+                    RoundMode round_mode, SaturationMode sat_mode,
+                    int prng_bits)
+{
+    int blockSize = 1024;
+    int blockNums = (size + blockSize - 1) / blockSize;
+    int man_bits, exp_bits;
+    if (is_signed)
+    {
+        man_bits = P - 1;
+        exp_bits = K - P;
+    }
+    else
+    {
+        man_bits = P - 1;
+        exp_bits = K - P + 1;
+    }
+
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, r, o, size,
+        [man_bits, exp_bits, prng_bits, bias, is_signed, sat_mode] __device__(float x, uint32_t rv)
+        { return cast_binaryK_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, is_signed, sat_mode); });
 }

@@ -194,6 +194,10 @@ Tensor binaryK_quantize_stochastic_cuda(Tensor a, int K, int P, int prng_bits,
                                         SaturationMode saturation_mode,
                                         int bias);
 
+Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, bool is_signed,
+                             RoundMode round_mode, SaturationMode saturation_mode,
+                             SubnormalsMode subnormals_mode, int prng_bits);
+
 /**
  * perform matrix multiplication with quantized addition and multiplication
  * operations that simulate low-precision floating-point compute; input tensors

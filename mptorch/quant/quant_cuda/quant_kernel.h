@@ -97,6 +97,16 @@ __global__ void binaryK_kernel_stochastic(float *__restrict__ a,
                                           bool is_signed,
                                           SaturationMode saturation_mode);
 
+void binaryK_kernel(float *__restrict__ a, float *o, int size,
+                    int K, int P, int bias, bool is_signed,
+                    RoundMode round_mode, SaturationMode saturation_mode);
+
+void binaryK_kernel(float *__restrict__ a,
+                    int *__restrict__ r, float *o, int size,
+                    int K, int P, int bias, bool is_signed,
+                    RoundMode round_mode, SaturationMode saturation_mode,
+                    int prng_bits);
+
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
                                         float *__restrict__ max_entry,
@@ -193,10 +203,11 @@ void bmm_fxp_stochastic(float *a, float *b, float *c, int B, int M, int K,
 void bmm_fxp_fma_stochastic(float *a, float *b, float *c, int B, int M, int K,
                             int N, int sigma_fma, int t_min_fma, int t_max_fma);
 
-struct DimSizes {
-  int outer;
-  int inner;
-  int channel;
+struct DimSizes
+{
+    int outer;
+    int inner;
+    int channel;
 };
 
 void layernorm_forward_fp_nearest(float *input, float *weight, float *bias,
