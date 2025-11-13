@@ -484,5 +484,5 @@ void binaryK_kernel(
     break;
   }
 
-  quantize_array(a, o, size, quantizer);
+  quant_kernel(a, o, size, quantizer);
 }

@@ -390,14 +390,6 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                  int prng_bits, bool subnormals, bool saturate);
 
 /**
- * quantize a FloatTensor into a low bit-width floating point Tensor
- * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Nearest Rounding.
- **/
-Tensor float_quantize_nearest(Tensor a, int man_bits, int exp_bits,
-                              bool subnormals, bool saturate);
-
-/**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  * Nearest Rounding.
@@ -453,6 +445,10 @@ Tensor binaryK_quantize_zero(Tensor a, int K, int P, bool is_signed,
 Tensor binaryK_quantize_stochastic(Tensor a, int K, int P, int prng_bits,
                                    bool is_signed,
                                    SaturationMode saturation_mode, int bias);
+
+Tensor binaryK_quantize(Tensor a, int K, int P, int bias, bool is_signed,
+                        RoundMode round_mode, SaturationMode saturation_mode,
+                        SubnormalsMode subnormals_mode, int prng_bits);
 
 /**
  * Performs a softmax along the specified dimension, using custom floating

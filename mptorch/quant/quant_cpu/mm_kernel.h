@@ -5,7 +5,7 @@
 #include <torch/torch.h>
 
 template <class Quant>
-void quantize_array(float *a, float *o, int size, Quant quant)
+void quant_kernel(float *a, float *o, int size, Quant quant)
 {
 #ifdef _OPENMP
 #pragma omp parallel for

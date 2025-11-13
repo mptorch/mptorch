@@ -393,6 +393,12 @@ Tensor binaryK_quantize_stochastic_cuda(
   return o;
 }
 
+Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, bool is_signed,
+                             RoundMode round_mode, SaturationMode saturation_mode,
+                             SubnormalsMode subnormals_mode, int prng_bits)
+{
+}
+
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {
   int sigma = -fl;
