@@ -63,49 +63,16 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o,
                                        int binades_l, int binades_u,
                                        bool saturate);
 
-__global__ void binaryK_kernel_nearest_even(float *__restrict__ a, float *o,
-                                            int size, int man_bits,
-                                            int exp_bits, int bias,
-                                            bool is_signed,
-                                            SaturationMode saturation_mode);
-
-__global__ void binaryK_kernel_nearest_away(float *__restrict__ a, float *o,
-                                            int size, int man_bits,
-                                            int exp_bits, int bias,
-                                            bool is_signed,
-                                            SaturationMode saturation_mode);
-
-__global__ void binaryK_kernel_up(float *__restrict__ a, float *o, int size,
-                                  int man_bits, int exp_bits, int bias,
-                                  bool is_signed,
-                                  SaturationMode saturation_mode);
-
-__global__ void binaryK_kernel_down(float *__restrict__ a, float *o, int size,
-                                    int man_bits, int exp_bits, int bias,
-                                    bool is_signed,
-                                    SaturationMode saturation_mode);
-
-__global__ void binaryK_kernel_zero(float *__restrict__ a, float *o, int size,
-                                    int man_bits, int exp_bits, int bias,
-                                    bool is_signed,
-                                    SaturationMode saturation_mode);
-
-__global__ void binaryK_kernel_stochastic(float *__restrict__ a,
-                                          int *__restrict__ r, float *o,
-                                          int size, int man_bits, int exp_bits,
-                                          int bias, int prng_bits,
-                                          bool is_signed,
-                                          SaturationMode saturation_mode);
-
 void binaryK_kernel(float *__restrict__ a, float *o, int size,
                     int K, int P, int bias, bool is_signed,
-                    RoundMode round_mode, SaturationMode saturation_mode);
+                    RoundMode round_mode, SaturationMode saturation_mode,
+                    SubnormalsMode subnormals = SubnormalsMode::SUBNORMALS);
 
 void binaryK_kernel(float *__restrict__ a,
                     int *__restrict__ r, float *o, int size,
-                    int K, int P, int bias, bool is_signed,
+                    int K, int P, int bias, int prng_bits, bool is_signed,
                     RoundMode round_mode, SaturationMode saturation_mode,
-                    int prng_bits);
+                    SubnormalsMode subnormals = SubnormalsMode::SUBNORMALS);
 
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,

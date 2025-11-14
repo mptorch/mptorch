@@ -420,10 +420,9 @@ void binaryK_kernel_stochastic(float *a, float *o, int size, int K, int P,
 }
 
 void binaryK_kernel(
-    float *a, float *o, int size, int K, int P, int bias, bool is_signed,
+    float *a, float *o, int size, int K, int P, int bias, int prng_bits, bool is_signed,
     RoundMode round_mode, SaturationMode saturation_mode,
-    SubnormalsMode subnormals_mode,
-    int prng_bits)
+    SubnormalsMode subnormals_mode)
 {
   int man_bits, exp_bits;
   if (is_signed)

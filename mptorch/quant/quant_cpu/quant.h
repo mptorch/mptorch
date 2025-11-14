@@ -397,58 +397,9 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                                 int binades_l, int binades_u, bool saturate);
 
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Nearest Rounding Ties To Even
- **/
-Tensor binaryK_quantize_nearest_even(Tensor a, int K, int P, bool is_signed,
-                                     SaturationMode saturation_mode, int bias);
-
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Nearest Rounding Ties To Away
- **/
-Tensor binaryK_quantize_nearest_away(Tensor a, int K, int P, bool is_signed,
-                                     SaturationMode saturation_mode, int bias);
-
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Round Up
- **/
-Tensor binaryK_quantize_up(Tensor a, int K, int P, bool is_signed,
-                           SaturationMode saturation_mode, int bias);
-
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Round Down
- **/
-Tensor binaryK_quantize_down(Tensor a, int K, int P, bool is_signed,
-                             SaturationMode saturation_mode, int bias);
-
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Round Zero
- **/
-Tensor binaryK_quantize_zero(Tensor a, int K, int P, bool is_signed,
-                             SaturationMode saturation_mode, int bias);
-
-/**
- * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
- * with a [K] bit wordlength and [P] bits of precision.
- * Stochastic Rounding (with user-given PRNG resolution [prng_bits])
- **/
-Tensor binaryK_quantize_stochastic(Tensor a, int K, int P, int prng_bits,
-                                   bool is_signed,
-                                   SaturationMode saturation_mode, int bias);
-
-Tensor binaryK_quantize(Tensor a, int K, int P, int bias, bool is_signed,
+Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                         RoundMode round_mode, SaturationMode saturation_mode,
-                        SubnormalsMode subnormals_mode, int prng_bits);
+                        SubnormalsMode subnormals_mode);
 
 /**
  * Performs a softmax along the specified dimension, using custom floating

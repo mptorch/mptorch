@@ -7,9 +7,9 @@
 template <class Quant>
 void quant_kernel(float *a, float *o, int size, Quant quant)
 {
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
+  // #ifdef _OPENMP
+  // #pragma omp parallel for
+  // #endif
   for (int i = 0; i < size; ++i)
     o[i] = quant(a[i]);
 }

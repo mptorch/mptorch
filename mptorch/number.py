@@ -7,6 +7,7 @@ __all__ = [
     "SuperNormalFloat",
     "SaturationMode",
     "SubnormalsMode",
+    "RoundMode",
 ]
 
 from enum import Enum

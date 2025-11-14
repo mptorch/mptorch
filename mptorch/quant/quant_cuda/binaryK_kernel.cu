@@ -6,11 +6,10 @@
 #include <cuda_runtime.h>
 #include <functional>
 
-__host__ __device__ float cast_binaryK_nearest_even(float origin_float,
-                                                    int man_bits, int exp_bits,
-                                                    int bias,
-                                                    bool is_signed,
-                                                    SaturationMode saturation_mode)
+__host__ __device__ float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
+                                                    int bias, bool is_signed,
+                                                    SaturationMode saturation_mode,
+                                                    SubnormalsMode subnormals)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -24,14 +23,16 @@ __host__ __device__ float cast_binaryK_nearest_even(float origin_float,
     bool subnormal = (target_exp < min_exp);
 
     // handle subnormal inputs (if subnormal mode is active)
-    if (subnormal)
+    if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-        uint32_t rounded_val = (man_bits > 0) ? round_bitwise_nearest_even(target, exp_diff) : round_bitwise_nearest_even(target);
+        uint32_t rounded_val = (man_bits > 0)
+                                   ? round_bitwise_nearest_even(target, exp_diff)
+                                   : round_bitwise_nearest_even(target);
         quantize_bits = not_uflow * rounded_val;
-        quantize_bits =
-            clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
+                                                      target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -42,20 +43,22 @@ __host__ __device__ float cast_binaryK_nearest_even(float origin_float,
     // normal value range or overflow
     else
     {
-        quantize_bits = (man_bits > 0) ? round_bitwise_nearest_even(target, man_bits) : round_bitwise_nearest_even(target);
-        quantize_bits =
-            clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
+        quantize_bits = (man_bits > 0)
+                            ? round_bitwise_nearest_even(target, man_bits)
+                            : round_bitwise_nearest_even(target);
+        quantize_bits = clip_normal_range_exponent(
+            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
     return quantized;
 }
 
-__host__ __device__ float cast_binaryK_nearest_away(float origin_float,
-                                                    int man_bits, int exp_bits,
-                                                    int bias,
-                                                    bool is_signed,
-                                                    SaturationMode saturation_mode)
+__host__ __device__ float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
+                                                    int bias, bool is_signed,
+                                                    SaturationMode saturation_mode,
+                                                    SubnormalsMode subnormals)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -69,13 +72,13 @@ __host__ __device__ float cast_binaryK_nearest_away(float origin_float,
     bool subnormal = (target_exp < min_exp);
 
     // handle subnormal inputs (if subnormal mode is active)
-    if (subnormal)
+    if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1 || (exp_diff == -1);
         quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
-        quantize_bits =
-            clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
+                                                      target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -87,17 +90,18 @@ __host__ __device__ float cast_binaryK_nearest_away(float origin_float,
     else
     {
         quantize_bits = round_bitwise_nearest_away(target, man_bits);
-        quantize_bits =
-            clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
+        quantize_bits = clip_normal_range_exponent(
+            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
     return quantized;
 }
 
-__host__ __device__ __inline__ float cast_absolute_up(float origin_float, int man_bits, int exp_bits,
-                                                      int bias,
-                                                      SaturationMode saturation_mode)
+__host__ __device__ __inline__ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
+                                                      SaturationMode saturation_mode,
+                                                      SubnormalsMode subnormals)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -108,13 +112,12 @@ __host__ __device__ __inline__ float cast_absolute_up(float origin_float, int ma
     bool subnormal = (target_exp < min_exp);
 
     // handle subnormal inputs (if subnormal mode is active)
-    if (subnormal)
+    if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        // int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
         quantize_bits = round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
-        quantize_bits =
-            clip_subnormal_range_exponent_up(exp_bits, man_bits, bias, target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent_up(exp_bits, man_bits, bias,
+                                                         target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -126,8 +129,9 @@ __host__ __device__ __inline__ float cast_absolute_up(float origin_float, int ma
     else
     {
         quantize_bits = round_bitwise_up(target, man_bits);
-        quantize_bits =
-            clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
+        quantize_bits = clip_normal_range_exponent(
+            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -135,8 +139,8 @@ __host__ __device__ __inline__ float cast_absolute_up(float origin_float, int ma
 }
 
 __host__ __device__ __inline__ float cast_absolute_down(float origin_float, int man_bits, int exp_bits,
-                                                        int bias,
-                                                        SaturationMode saturation_mode)
+                                                        int bias, SaturationMode saturation_mode,
+                                                        SubnormalsMode subnormals)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -147,13 +151,13 @@ __host__ __device__ __inline__ float cast_absolute_down(float origin_float, int 
     bool subnormal = (target_exp < min_exp);
 
     // handle subnormal inputs (if subnormal mode is active)
-    if (subnormal)
+    if (subnormal && subnormals == SubnormalsMode::SUBNORMALS)
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1;
         quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
-        quantize_bits =
-            clip_subnormal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
+                                                      target, quantize_bits);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -165,59 +169,63 @@ __host__ __device__ __inline__ float cast_absolute_down(float origin_float, int 
     else
     {
         quantize_bits = round_bitwise_down(target, man_bits);
-        quantize_bits =
-            clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
+        quantize_bits = clip_normal_range_exponent(
+            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
     return quantized;
 }
 
-__host__ __device__ float cast_binaryK_up(float origin_float,
-                                          int man_bits, int exp_bits,
-                                          int bias,
-                                          bool is_signed,
-                                          SaturationMode saturation_mode)
+__host__ __device__ float cast_binaryK_up(float origin_float, int man_bits, int exp_bits, int bias,
+                                          bool is_signed, SaturationMode saturation_mode,
+                                          SubnormalsMode subnormals)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
     if (origin_float >= 0)
-        return cast_absolute_up(origin_float, man_bits, exp_bits, bias, saturation_mode);
+        return cast_absolute_up(origin_float, man_bits, exp_bits, bias,
+                                saturation_mode, subnormals);
     else
-        return -cast_absolute_down(-origin_float, man_bits, exp_bits, bias, saturation_mode);
+        return -cast_absolute_down(-origin_float, man_bits, exp_bits, bias,
+                                   saturation_mode, subnormals);
 }
 
-__host__ __device__ float cast_binaryK_down(float origin_float,
-                                            int man_bits, int exp_bits,
-                                            int bias,
-                                            bool is_signed,
-                                            SaturationMode saturation_mode)
+__host__ __device__ float cast_binaryK_down(float origin_float, int man_bits, int exp_bits,
+                                            int bias, bool is_signed,
+                                            SaturationMode saturation_mode,
+                                            SubnormalsMode subnormals)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
     if (origin_float >= 0)
-        return cast_absolute_down(origin_float, man_bits, exp_bits, bias, saturation_mode);
+        return cast_absolute_down(origin_float, man_bits, exp_bits, bias,
+                                  saturation_mode, subnormals);
     else
-        return -cast_absolute_up(-origin_float, man_bits, exp_bits, bias, saturation_mode);
+        return -cast_absolute_up(-origin_float, man_bits, exp_bits, bias,
+                                 saturation_mode, subnormals);
 }
 
-__host__ __device__ float cast_binaryK_zero(float origin_float,
-                                            int man_bits, int exp_bits,
-                                            int bias,
-                                            bool is_signed,
-                                            SaturationMode saturation_mode)
+__host__ __device__ float cast_binaryK_zero(float origin_float, int man_bits, int exp_bits,
+                                            int bias, bool is_signed,
+                                            SaturationMode saturation_mode,
+                                            SubnormalsMode subnormals)
 {
     if (origin_float >= 0.0f)
-        return cast_binaryK_down(origin_float, man_bits, exp_bits, bias, is_signed, saturation_mode);
+        return cast_binaryK_down(origin_float, man_bits, exp_bits, bias, is_signed,
+                                 saturation_mode, subnormals);
     else
-        return cast_binaryK_up(origin_float, man_bits, exp_bits, bias, is_signed, saturation_mode);
+        return cast_binaryK_up(origin_float, man_bits, exp_bits, bias, is_signed,
+                               saturation_mode, subnormals);
 }
 
 __host__ __device__ float cast_binaryK_stochastic(float origin_float, uint32_t rand_prob,
                                                   int rand_bits, int man_bits, int exp_bits, int bias,
-                                                  bool is_signed, SaturationMode saturation_mode)
+                                                  bool is_signed, SaturationMode saturation_mode,
+                                                  SubnormalsMode subnormals)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -233,7 +241,7 @@ __host__ __device__ float cast_binaryK_stochastic(float origin_float, uint32_t r
     rand_prob = rand_prob << 9 >> 9;
     rand_prob = rand_prob & ~((1 << (23 - man_bits - rand_bits)) - 1);
 
-    if (subnormal)
+    if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         float shift_float, val;
         int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
@@ -251,83 +259,20 @@ __host__ __device__ float cast_binaryK_stochastic(float origin_float, uint32_t r
     else
     {
         quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
-        quantize_bits =
-            clip_normal_range_exponent(exp_bits, man_bits, bias, target, quantize_bits, saturation_mode);
+        quantize_bits = clip_normal_range_exponent(
+            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
     return quantized;
 }
 
-__global__ void binaryK_kernel_nearest_even(
-    float *__restrict__ a, float *o, int size,
-    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_nearest_even(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
-__global__ void binaryK_kernel_nearest_away(
-    float *__restrict__ a, float *o, int size,
-    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_nearest_away(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
-__global__ void binaryK_kernel_up(
-    float *__restrict__ a, float *o, int size,
-    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_up(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
-__global__ void binaryK_kernel_down(
-    float *__restrict__ a, float *o, int size,
-    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_down(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
-__global__ void binaryK_kernel_zero(
-    float *__restrict__ a, float *o, int size,
-    int man_bits, int exp_bits, int bias, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_zero(a[idx], man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
-__global__ void binaryK_kernel_stochastic(
-    float *__restrict__ a, int *__restrict__ r, float *o, int size,
-    int man_bits, int exp_bits, int bias, int prng_bits, bool is_signed, SaturationMode saturation_mode)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size)
-    {
-        o[idx] = cast_binaryK_stochastic(a[idx], (uint32_t)r[idx], prng_bits, man_bits, exp_bits, bias, is_signed, saturation_mode);
-    }
-}
-
 void binaryK_kernel(float *__restrict__ a, float *o, int size,
                     int K, int P, int bias, bool is_signed,
-                    RoundMode round_mode, SaturationMode saturation_mode)
+                    RoundMode round_mode,
+                    SaturationMode saturation_mode,
+                    SubnormalsMode subnormals)
 {
     int blockSize = 1024;
     int blockNums = (size + blockSize - 1) / blockSize;
@@ -347,41 +292,41 @@ void binaryK_kernel(float *__restrict__ a, float *o, int size,
     {
     case RoundMode::RNE:
         quant_kernel<<<blockNums, blockSize>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
-            { return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals] __device__(float x)
+            { return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals); });
         break;
 
     case RoundMode::RNA:
         quant_kernel<<<blockNums, blockSize>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
-            { return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals] __device__(float x)
+            { return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals); });
         break;
 
     case RoundMode::RU:
         quant_kernel<<<blockNums, blockSize>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
-            { return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals] __device__(float x)
+            { return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals); });
         break;
 
     case RoundMode::RD:
         quant_kernel<<<blockNums, blockSize>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
-            { return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals] __device__(float x)
+            { return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals); });
         break;
 
     default: // RZ
         quant_kernel<<<blockNums, blockSize>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode] __device__(float x)
-            { return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode); });
+            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals] __device__(float x)
+            { return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals); });
         break;
     }
 }
 
 void binaryK_kernel(float *__restrict__ a,
                     int *__restrict__ r, float *o, int size,
-                    int K, int P, int bias, bool is_signed,
+                    int K, int P, int bias, int prng_bits, bool is_signed,
                     RoundMode round_mode, SaturationMode sat_mode,
-                    int prng_bits)
+                    SubnormalsMode subnormals)
 {
     int blockSize = 1024;
     int blockNums = (size + blockSize - 1) / blockSize;
@@ -399,6 +344,6 @@ void binaryK_kernel(float *__restrict__ a,
 
     quant_kernel<<<blockNums, blockSize>>>(
         a, r, o, size,
-        [man_bits, exp_bits, prng_bits, bias, is_signed, sat_mode] __device__(float x, uint32_t rv)
-        { return cast_binaryK_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, is_signed, sat_mode); });
+        [man_bits, exp_bits, prng_bits, bias, is_signed, sat_mode, subnormals] __device__(float x, uint32_t rv)
+        { return cast_binaryK_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, is_signed, sat_mode, subnormals); });
 }

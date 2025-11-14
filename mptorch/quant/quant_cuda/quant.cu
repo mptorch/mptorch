@@ -235,179 +235,26 @@ Tensor superfp_quantize_nearest_cuda(Tensor a,
   return o;
 }
 
-Tensor binaryK_quantize_nearest_even_cuda(
-    Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_nearest_even<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_nearest_away_cuda(
-    Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_nearest_away<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_up_cuda(
-    Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_up<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_down_cuda(
-    Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_down<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_zero_cuda(
-    Tensor a, int K, int P, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_zero<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_stochastic_cuda(
-    Tensor a, int K, int P, int prng_bits, bool is_signed, SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  // use external random number right now
-  auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
-  int size = a.numel();
-  int blockSize = 1024;
-  int blockNums = (size + blockSize - 1) / blockSize;
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  binaryK_kernel_stochastic<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
-      man_bits, exp_bits, bias, prng_bits, is_signed, saturation_mode);
-
-  return o;
-}
-
-Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, bool is_signed,
+Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                              RoundMode round_mode, SaturationMode saturation_mode,
-                             SubnormalsMode subnormals_mode, int prng_bits)
+                             SubnormalsMode subnormals)
 {
   auto o = zeros_like(a);
   int size = a.numel();
   if (round_mode != RoundMode::SR)
   {
-    binaryK_kernel(a.data_ptr<float>(), o.data_ptr<float>(), size, K, P, bias, is_signed, round_mode, saturation_mode);
+    binaryK_kernel(
+        a.data_ptr<float>(), o.data_ptr<float>(), size,
+        K, P, bias, is_signed,
+        round_mode, saturation_mode, subnormals);
   }
   else
   {
     auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
-    binaryK_kernel(a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(),
-                   size, K, P, bias, is_signed, round_mode, saturation_mode, prng_bits);
+    binaryK_kernel(
+        a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(),
+        size, K, P, bias, prng_bits, is_signed,
+        round_mode, saturation_mode, subnormals);
   }
 
   return o;

@@ -2,11 +2,12 @@ import torch
 from mptorch.quant import binaryK_quantize
 import numpy as np
 import random
+import mptorch
 import pytest
 from tests.markers import available_devices
 from gfloat import RoundMode, round_float, Signedness
 from gfloat.formats import format_info_p3109
-from tests.quant import bits_to_float, float_to_bits, assert_quant
+from tests.quant import bits_to_float, float_to_bits
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -14,11 +15,11 @@ from tests.quant import bits_to_float, float_to_bits, assert_quant
 @pytest.mark.parametrize(
     "rounding_mode",
     [
-        (RoundMode.TiesToEven, "RNE"),
-        (RoundMode.TiesToAway, "RNA"),
-        (RoundMode.TowardPositive, "RU"),
-        (RoundMode.TowardNegative, "RD"),
-        (RoundMode.TowardZero, "RZ"),
+        (RoundMode.TiesToEven, mptorch.number.RoundMode.RNE),
+        (RoundMode.TiesToAway, mptorch.number.RoundMode.RNA),
+        (RoundMode.TowardPositive, mptorch.number.RoundMode.RU),
+        (RoundMode.TowardNegative, mptorch.number.RoundMode.RD),
+        (RoundMode.TowardZero, mptorch.number.RoundMode.RZ),
     ],
 )
 @pytest.mark.parametrize(

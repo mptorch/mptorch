@@ -7,11 +7,12 @@ from mptorch import (
     BlockFloatingPoint,
     SubnormalsMode,
     SaturationMode,
+    RoundMode,
 )
 from torch.utils.cpp_extension import load
 import os
 import platform
-from typing import Literal
+from typing import Literal, Any
 
 from .cublas import cublas_acceleration
 
@@ -130,9 +131,9 @@ def normalize_binades(binades: int | tuple[int] | tuple[int, int]) -> tuple[int,
 def cublas_mm(
     a: torch.Tensor,
     b: torch.Tensor,
-    input_type: CUBLASMatrixType,
-    output_type: CUBLASMatrixType,
-    compute_type: CUBLASComputeType,
+    input_type: Any,
+    output_type: Any,
+    compute_type: Any,
     pedantic: bool,
 ) -> torch.Tensor:
     """
@@ -188,9 +189,9 @@ def cublas_mm(
 def cublas_bmm(
     a: torch.Tensor,
     b: torch.Tensor,
-    input_type: CUBLASMatrixType,
-    output_type: CUBLASMatrixType,
-    compute_type: CUBLASComputeType,
+    input_type: Any,
+    output_type: Any,
+    compute_type: Any,
     pedantic: bool,
 ) -> torch.Tensor:
     """
@@ -377,7 +378,29 @@ def translate_saturation_mode(module, saturation_mode: SaturationMode):
     return enum_items[saturation_mode]
 
 
-## TODO: translate_subnormals_mode
+def translate_subnormals_mode(module, subnormals_mode: SubnormalsMode):
+    enum_items = {
+        SubnormalsMode.SUBNORMALS: module.SubnormalsMode.SUBNORMALS,
+        SubnormalsMode.EXTENDED_NORMALS: module.SubnormalsMode.EXTENDED_NORMALS,
+        SubnormalsMode.NORMALS: module.SubnormalsMode.NORMALS,
+    }
+    assert (
+        subnormals_mode in enum_items.keys()
+    ), f"invalid subnormals mode, {subnormals_mode}"
+    return enum_items[subnormals_mode]
+
+
+def translate_rounding_mode(module, rounding_mode: RoundMode):
+    enum_items = {
+        RoundMode.RNE: module.RoundMode.RNE,
+        RoundMode.RNA: module.RoundMode.RNA,
+        RoundMode.RU: module.RoundMode.RU,
+        RoundMode.RD: module.RoundMode.RD,
+        RoundMode.RZ: module.RoundMode.RZ,
+        RoundMode.SR: module.RoundMode.SR,
+    }
+    assert rounding_mode in enum_items.keys(), f"invalid rounding mode, {rounding_mode}"
+    return enum_items[rounding_mode]
 
 
 def mp_softmax_forward(a: torch.Tensor, dim: int, formats) -> torch.Tensor:
@@ -2750,51 +2773,31 @@ def binaryK_quantize(
     x: torch.Tensor,
     K: int,
     P: int,
-    rounding: Literal["RNE", "RNA", "RU", "RD", "RZ", "SR"] = "RNE",
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    is_signed: bool = True,
-    prng_bits: int = 0,
     bias: int | None = None,
+    prng_bits: int = 0,
+    is_signed: bool = True,
+    rounding: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
 ) -> torch.Tensor:
     assert (
         0 <= prng_bits <= 23 - (P - 1)
     ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
 
     quant_module = get_module(x)
-    saturation_policy = translate_saturation_mode(quant_module, saturation_mode)
+    sat_mode = translate_saturation_mode(quant_module, saturation_mode)
+    rnd_mode = translate_rounding_mode(quant_module, rounding)
+    sub_mode = translate_subnormals_mode(quant_module, subnormals_mode)
+
     if not bias:
         if is_signed:
             bias = 2 ** (K - P - 1)
         else:
             bias = 2 ** (K - P)
 
-    match rounding:
-        case "RNE":
-            out = quant_module.binaryK_quantize_nearest_even(
-                x.contiguous(), K, P, is_signed, saturation_policy, bias
-            )
-        case "RNA":
-            out = quant_module.binaryK_quantize_nearest_away(
-                x.contiguous(), K, P, is_signed, saturation_policy, bias
-            )
-        case "RU":
-            out = quant_module.binaryK_quantize_up(
-                x.contiguous(), K, P, is_signed, saturation_policy, bias
-            )
-        case "RD":
-            out = quant_module.binaryK_quantize_down(
-                x.contiguous(), K, P, is_signed, saturation_policy, bias
-            )
-        case "RZ":
-            out = quant_module.binaryK_quantize_zero(
-                x.contiguous(), K, P, is_signed, saturation_policy, bias
-            )
-        case _:
-            out = quant_module.binaryK_quantize_stochastic(
-                x.contiguous(), K, P, prng_bits, is_signed, saturation_policy, bias
-            )
-
-    return out
+    return quant_module.binaryK_quantize(
+        x.contiguous(), K, P, bias, prng_bits, is_signed, rnd_mode, sat_mode, sub_mode
+    )
 
 
 def superfp_quantize(

@@ -514,71 +514,14 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                           saturate);
 }
 
-Tensor binaryK_quantize_nearest_even(Tensor a, int K, int P, bool is_signed,
-                                     SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_nearest_even(a.data_ptr<float>(), o.data_ptr<float>(),
-                              a.numel(), K, P, bias, is_signed,
-                              saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize_nearest_away(Tensor a, int K, int P, bool is_signed,
-                                     SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_nearest_away(a.data_ptr<float>(), o.data_ptr<float>(),
-                              a.numel(), K, P, bias, is_signed,
-                              saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize_up(Tensor a, int K, int P, bool is_signed,
-                           SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_up(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(), K, P,
-                    bias, is_signed, saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize_down(Tensor a, int K, int P, bool is_signed,
-                             SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_down(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(), K, P,
-                      bias, is_signed, saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize_zero(Tensor a, int K, int P, bool is_signed,
-                             SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_zero(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(), K, P,
-                      bias, is_signed, saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize_stochastic(Tensor a, int K, int P, int prng_bits,
-                                   bool is_signed,
-                                   SaturationMode saturation_mode, int bias)
-{
-  auto o = zeros_like(a);
-  binaryK_kernel_stochastic(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
-                            K, P, bias, prng_bits, is_signed, saturation_mode);
-  return o;
-}
-
-Tensor binaryK_quantize(Tensor a, int K, int P, int bias, bool is_signed,
+Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                         RoundMode round_mode, SaturationMode saturation_mode,
-                        SubnormalsMode subnormals_mode, int prng_bits)
+                        SubnormalsMode subnormals_mode)
 {
   auto o = zeros_like(a);
   binaryK_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
-                 K, P, bias, is_signed, round_mode, saturation_mode, subnormals_mode,
-                 prng_bits);
+                 K, P, bias, prng_bits, is_signed, round_mode, saturation_mode, subnormals_mode);
+  return o;
 }
 
 void float_quantize_nearest_mm(Tensor a, Tensor b, Tensor c, int M, int N,
