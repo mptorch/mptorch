@@ -141,9 +141,15 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
                                      bool saturate);
 
 /**
+ * quantize a FloatTensor into a low bit-width floating point Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits.
+ **/
+Tensor fp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                        bool saturate, RoundMode round_mode, SubnormalsMode subnormals);
+
+/**
  * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
  * with a [K] bit wordlength and [P] bits of precision.
- * Nearest Rounding Ties To Even
  **/
 Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                              RoundMode round_mode, SaturationMode saturation_mode,

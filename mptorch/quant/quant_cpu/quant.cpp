@@ -514,6 +514,17 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                           saturate);
 }
 
+Tensor fp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                   bool saturate, RoundMode round_mode,
+                   SubnormalsMode subnormals_mode)
+{
+  auto o = zeros_like(a);
+  fp_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
+            man_bits, exp_bits, bias, prng_bits,
+            saturate, round_mode, subnormals_mode);
+  return o;
+}
+
 Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                         RoundMode round_mode, SaturationMode saturation_mode,
                         SubnormalsMode subnormals_mode)

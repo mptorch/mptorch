@@ -44,6 +44,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Low-Bitwidth SuperNormal Floating Point Number Nearest Neighbor "
             "Quantization (CPU)");
 
+      m.def("fp_quantize", &fp_quantize,
+            "Custom-precision IEEE-754-like Floating-Point Quantization (CPU)");
+
       m.def("binaryK_quantize", &binaryK_quantize,
             "Custom-precision P3109 Floating-Point Quantization (CPU)");
 

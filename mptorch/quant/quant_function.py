@@ -20,7 +20,6 @@ __all__ = [
     "fixed_point_quantize",
     "block_quantize",
     "float_quantize",
-    "binaryK_quantize",
     "superfp_quantize",
     "quantizer",
     "mp_mm",
@@ -2767,37 +2766,6 @@ def float_quantize(
             )
 
     return out
-
-
-def binaryK_quantize(
-    x: torch.Tensor,
-    K: int,
-    P: int,
-    bias: int | None = None,
-    prng_bits: int = 0,
-    is_signed: bool = True,
-    rounding: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-) -> torch.Tensor:
-    assert (
-        0 <= prng_bits <= 23 - (P - 1)
-    ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
-
-    quant_module = get_module(x)
-    sat_mode = translate_saturation_mode(quant_module, saturation_mode)
-    rnd_mode = translate_rounding_mode(quant_module, rounding)
-    sub_mode = translate_subnormals_mode(quant_module, subnormals_mode)
-
-    if not bias:
-        if is_signed:
-            bias = 2 ** (K - P - 1)
-        else:
-            bias = 2 ** (K - P)
-
-    return quant_module.binaryK_quantize(
-        x.contiguous(), K, P, bias, prng_bits, is_signed, rnd_mode, sat_mode, sub_mode
-    )
 
 
 def superfp_quantize(

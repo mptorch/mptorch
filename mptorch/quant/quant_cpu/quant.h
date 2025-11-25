@@ -397,6 +397,10 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
 Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                                 int binades_l, int binades_u, bool saturate);
 
+Tensor fp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                   bool saturate, RoundMode round_mode,
+                   SubnormalsMode subnormals_mode);
+
 Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                         RoundMode round_mode, SaturationMode saturation_mode,
                         SubnormalsMode subnormals_mode);

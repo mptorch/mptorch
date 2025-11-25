@@ -235,6 +235,28 @@ Tensor superfp_quantize_nearest_cuda(Tensor a,
   return o;
 }
 
+Tensor fp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                        bool saturate, RoundMode round_mode, SubnormalsMode subnormals)
+{
+  auto o = zeros_like(a);
+  int size = a.numel();
+  if (round_mode != RoundMode::SR)
+  {
+    fp_kernel(
+        a.data_ptr<float>(), o.data_ptr<float>(), size,
+        man_bits, exp_bits, bias, saturate, round_mode, subnormals);
+  }
+  else
+  {
+    auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+    fp_kernel(
+        a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(),
+        size, man_bits, exp_bits, bias, prng_bits, saturate, round_mode, subnormals);
+  }
+
+  return o;
+}
+
 Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                              RoundMode round_mode, SaturationMode saturation_mode,
                              SubnormalsMode subnormals)

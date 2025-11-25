@@ -81,6 +81,15 @@ Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
                                            binades_u, saturate);
 }
 
+Tensor fp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                   bool saturate, RoundMode round_mode,
+                   SubnormalsMode subnormals)
+{
+      CHECK_INPUT(a);
+      return fp_quantize_cuda(a, man_bits, exp_bits, bias, prng_bits,
+                              saturate, round_mode, subnormals);
+}
+
 Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
                         RoundMode round_mode, SaturationMode saturation_mode,
                         SubnormalsMode subnormals)
@@ -617,8 +626,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
             "Quantization "
             "(CUDA)");
 
+      m.def("fp_quantize", &fp_quantize,
+            "Custom-precision IEEE-754-like Floating-Point Quantization (CUDA)");
+
       m.def("binaryK_quantize", &binaryK_quantize,
-            "Custom-precision P3109 Floating-Point Quantization (GPU)");
+            "Custom-precision P3109 Floating-Point Quantization (CUDA)");
 
       py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic(),
                                 py::module_local())

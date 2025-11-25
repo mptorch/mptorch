@@ -1,4 +1,5 @@
-from mptorch.quant import float_quantize
+from mptorch.quant import float_quantize_v2
+from mptorch.number import RoundMode
 import pytest
 from tests.markers import available_devices
 from tests.quant import bits_to_float, assert_quant
@@ -6,7 +7,9 @@ from tests.quant import bits_to_float, assert_quant
 
 @pytest.mark.parametrize("device", available_devices)
 def test_bfloat16(device):
-    quant = lambda x: float_quantize(x, 8, 7, "RNE", True, False)
+    quant = lambda x: float_quantize_v2(
+        x, exp=8, man=7, saturate=False, rounding_mode=RoundMode.RNE
+    )
     # normal
     assert_quant(
         [[20.0625, 20.06251], [20.0625, 20.06251]],

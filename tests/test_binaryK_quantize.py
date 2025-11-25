@@ -1,7 +1,5 @@
 import torch
 from mptorch.quant import binaryK_quantize
-import numpy as np
-import random
 import mptorch
 import pytest
 from tests.markers import available_devices
@@ -50,7 +48,7 @@ def test_binaryK_vs_gfloat(device, K, rounding_mode, signedness):
         )
         gqx = gqx.to(device)
         qx = binaryK_quantize(
-            x, K, P, rounding=rounding_mode[1], is_signed=signedness[1]
+            x, K, P, rounding_mode=rounding_mode[1], is_signed=signedness[1]
         )
 
         assert torch.all(qx == gqx)

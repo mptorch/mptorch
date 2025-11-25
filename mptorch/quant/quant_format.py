@@ -8,6 +8,10 @@ from .quant_function import (
     fixed_point_quantize,
     superfp_quantize,
     block_quantize,
+)
+
+from .quant_function_v2 import (
+    float_quantize_v2,
     binaryK_quantize,
 )
 

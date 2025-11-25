@@ -1,7 +1,6 @@
 #include "binaryK_kernel.h"
 #include "bit_helper.h"
 #include "mm_kernel.h"
-#include <ATen/ATen.h>
 #include <cmath>
 #include <random>
 
@@ -57,30 +56,6 @@ float cast_binaryK_nearest_even(float origin_float, int man_bits, int exp_bits,
   return quantized;
 }
 
-void binaryK_kernel_nearest_even(float *a, float *o, int size, int K, int P,
-                                 int bias, bool is_signed,
-                                 SaturationMode saturation_mode,
-                                 SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] = cast_binaryK_nearest_even(a[idx], man_bits, exp_bits, bias,
-                                       is_signed, saturation_mode, subnormals);
-  }
-}
-
 float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
                                 int bias, bool is_signed,
                                 SaturationMode saturation_mode,
@@ -123,30 +98,6 @@ float cast_binaryK_nearest_away(float origin_float, int man_bits, int exp_bits,
   }
 
   return quantized;
-}
-
-void binaryK_kernel_nearest_away(float *a, float *o, int size, int K, int P,
-                                 int bias, bool is_signed,
-                                 SaturationMode saturation_mode,
-                                 SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] = cast_binaryK_nearest_away(a[idx], man_bits, exp_bits, bias,
-                                       is_signed, saturation_mode, subnormals);
-  }
 }
 
 float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
@@ -243,29 +194,6 @@ float cast_binaryK_up(float origin_float, int man_bits, int exp_bits, int bias,
                                saturation_mode, subnormals);
 }
 
-void binaryK_kernel_up(float *a, float *o, int size, int K, int P, int bias,
-                       bool is_signed, SaturationMode saturation_mode,
-                       SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] = cast_binaryK_up(a[idx], man_bits, exp_bits, bias, is_signed,
-                             saturation_mode, subnormals);
-  }
-}
-
 float cast_binaryK_down(float origin_float, int man_bits, int exp_bits,
                         int bias, bool is_signed,
                         SaturationMode saturation_mode,
@@ -282,29 +210,6 @@ float cast_binaryK_down(float origin_float, int man_bits, int exp_bits,
                              saturation_mode, subnormals);
 }
 
-void binaryK_kernel_down(float *a, float *o, int size, int K, int P, int bias,
-                         bool is_signed, SaturationMode saturation_mode,
-                         SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] = cast_binaryK_down(a[idx], man_bits, exp_bits, bias, is_signed,
-                               saturation_mode, subnormals);
-  }
-}
-
 float cast_binaryK_zero(float origin_float, int man_bits, int exp_bits,
                         int bias, bool is_signed,
                         SaturationMode saturation_mode,
@@ -316,29 +221,6 @@ float cast_binaryK_zero(float origin_float, int man_bits, int exp_bits,
   else
     return cast_binaryK_up(origin_float, man_bits, exp_bits, bias, is_signed,
                            saturation_mode, subnormals);
-}
-
-void binaryK_kernel_zero(float *a, float *o, int size, int K, int P, int bias,
-                         bool is_signed, SaturationMode saturation_mode,
-                         SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] = cast_binaryK_zero(a[idx], man_bits, exp_bits, bias, is_signed,
-                               saturation_mode, subnormals);
-  }
 }
 
 float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
@@ -392,31 +274,6 @@ float cast_binaryK_stochastic(float origin_float, int man_bits, int exp_bits,
   }
 
   return quantized;
-}
-
-void binaryK_kernel_stochastic(float *a, float *o, int size, int K, int P,
-                               int bias, int prng_bits, bool is_signed,
-                               SaturationMode saturation_mode,
-                               SubnormalsMode subnormals)
-{
-  int man_bits, exp_bits;
-  if (is_signed)
-  {
-    man_bits = P - 1;
-    exp_bits = K - P;
-  }
-  else
-  {
-    man_bits = P - 1;
-    exp_bits = K - P + 1;
-  }
-
-  for (int idx = 0; idx < size; ++idx)
-  {
-    o[idx] =
-        cast_binaryK_stochastic(a[idx], man_bits, exp_bits, prng_bits, bias,
-                                is_signed, saturation_mode, subnormals);
-  }
 }
 
 void binaryK_kernel(

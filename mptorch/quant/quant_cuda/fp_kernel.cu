@@ -409,6 +409,63 @@ __global__ void float_kernel_zero(float *__restrict__ a, float *o, int size,
     o[index] = cast_fp_zero(a[index], man_bits, exp_bits, bias, saturate, subnormals);
 }
 
+void fp_kernel(float *__restrict__ a, float *o, int size,
+               int man_bits, int exp_bits, int bias,
+               bool saturate,
+               RoundMode round_mode,
+               SubnormalsMode subnormals)
+{
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  switch (round_mode)
+  {
+  case RoundMode::RNE:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, saturate, subnormals] __device__(float x)
+        { return cast_fp_nearest_even(x, man_bits, exp_bits, bias, saturate, subnormals); });
+    break;
+
+  case RoundMode::RNA:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, saturate, subnormals] __device__(float x)
+        { return cast_fp_nearest_away(x, man_bits, exp_bits, bias, saturate, subnormals); });
+    break;
+
+  case RoundMode::RU:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, saturate, subnormals] __device__(float x)
+        { return cast_fp_up(x, man_bits, exp_bits, bias, saturate, subnormals); });
+    break;
+
+  case RoundMode::RD:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, saturate, subnormals] __device__(float x)
+        { return cast_fp_down(x, man_bits, exp_bits, bias, saturate, subnormals); });
+    break;
+
+  default: // RZ
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, saturate, subnormals] __device__(float x)
+        { return cast_fp_zero(x, man_bits, exp_bits, bias, saturate, subnormals); });
+    break;
+  }
+}
+
+void fp_kernel(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+               int man_bits, int exp_bits, int bias, int prng_bits,
+               bool saturate,
+               RoundMode round_mode,
+               SubnormalsMode subnormals)
+{
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  quant_kernel<<<blockNums, blockSize>>>(
+      a, r, o, size, [man_bits, exp_bits, prng_bits, bias, saturate, subnormals] __device__(float x, uint32_t rv)
+      { return cast_fp_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, saturate, subnormals); });
+}
+
 void mm_fp_nearest(float *a, float *b, float *c,
                    int M, int K, int N,
                    int man_add, int exp_add,

@@ -1,5 +1,6 @@
 #include "fp_kernel.h"
 #include "bit_helper.h"
+#include "mm_kernel.h"
 #include <random>
 #include <iostream>
 
@@ -272,7 +273,7 @@ float cast_fp_stochastic(float origin_float, int man_bits, int exp_bits,
 }
 
 float cast_fp_stochastic(float origin_float, int man_bits, int exp_bits,
-                         int rand_bits, int bias, bool saturate,
+                         int prng_bits, int bias, bool saturate,
                          SubnormalsMode subnormals)
 {
   thread_local std::random_device rd;
@@ -291,7 +292,7 @@ float cast_fp_stochastic(float origin_float, int man_bits, int exp_bits,
   bool subnormal = (target_exp < min_exp);
 
   rand_prob = rand_prob << 9 >> 9;
-  rand_prob = rand_prob & ~((1 << (23 - man_bits - rand_bits)) - 1);
+  rand_prob = rand_prob & ~((1 << (23 - man_bits - prng_bits)) - 1);
 
   if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
   {
@@ -313,4 +314,57 @@ float cast_fp_stochastic(float origin_float, int man_bits, int exp_bits,
   }
 
   return quantized;
+}
+
+void fp_kernel(float *a, float *o, int size, int man_bits, int exp_bits, int bias, int prng_bits,
+               bool saturate, RoundMode round_mode, SubnormalsMode subnormals_mode)
+{
+  std::function<float(float)> quantizer;
+
+  switch (round_mode)
+  {
+  case RoundMode::RNE:
+    quantizer = [man_bits, exp_bits, bias, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_nearest_even(x, man_bits, exp_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RNA:
+    quantizer = [man_bits, exp_bits, bias, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_nearest_away(x, man_bits, exp_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RU:
+    quantizer = [man_bits, exp_bits, bias, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_up(x, man_bits, exp_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RD:
+    quantizer = [man_bits, exp_bits, bias, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_down(x, man_bits, exp_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+
+  case RoundMode::RZ:
+    quantizer = [man_bits, exp_bits, bias, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_zero(x, man_bits, exp_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+
+  default:
+    quantizer = [man_bits, exp_bits, bias, prng_bits, saturate, subnormals_mode](float x)
+    {
+      return cast_fp_stochastic(x, man_bits, exp_bits, prng_bits, bias, saturate, subnormals_mode);
+    };
+    break;
+  }
+
+  quant_kernel(a, o, size, quantizer);
 }

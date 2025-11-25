@@ -74,6 +74,18 @@ void binaryK_kernel(float *__restrict__ a,
                     RoundMode round_mode, SaturationMode saturation_mode,
                     SubnormalsMode subnormals = SubnormalsMode::SUBNORMALS);
 
+void fp_kernel(float *__restrict__ a, float *o, int size,
+               int man_bits, int exp_bits, int bias,
+               bool saturate,
+               RoundMode round_mode,
+               SubnormalsMode subnormals = SubnormalsMode::SUBNORMALS);
+
+void fp_kernel(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+               int man_bits, int exp_bits, int bias, int prng_bits,
+               bool saturate,
+               RoundMode round_mode,
+               SubnormalsMode subnormals = SubnormalsMode::SUBNORMALS);
+
 __global__ void block_kernel_stochastic(float *__restrict__ a,
                                         int *__restrict__ r, float *o, int size,
                                         float *__restrict__ max_entry,
