@@ -360,6 +360,7 @@ float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, in
 
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t rand_prob = (dis(gen)) & mask;
+  rand_prob = rand_prob << 9 >> 9;
 
   int32_t sat = saturate;
   uint32_t target;
@@ -374,7 +375,9 @@ float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, in
 
   if (subnormal)
   {
-    // TODO:
+    rand_prob = ~((1 << (23 - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
+    ftarget = BITS_TO_FLOAT(&qtarget);
   }
   else if (supnormal)
   {
@@ -416,12 +419,14 @@ float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, in
         }
       }
     }
-    uint32_t qtarget = round_bitwise_down(target, 0);
+    rand_prob = ~((1 << (23 - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
     ftarget = BITS_TO_FLOAT(&qtarget);
   }
   else
   {
-    uint32_t qtarget = round_bitwise_down(target, man_bits);
+    rand_prob = ~((1 << (23 - man_bits - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
     ftarget = BITS_TO_FLOAT(&qtarget);
   }
 
