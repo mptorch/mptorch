@@ -405,6 +405,10 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is
                         RoundMode round_mode, SaturationMode saturation_mode,
                         SubnormalsMode subnormals_mode);
 
+Tensor superfp_quantize_v2(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                           int binades_l, int binades_h,
+                           bool saturate, RoundMode round_mode);
+
 /**
  * Performs a softmax along the specified dimension, using custom floating
  * point formats for intermediate computations. This version implements

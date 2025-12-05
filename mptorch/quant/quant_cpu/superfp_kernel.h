@@ -19,5 +19,5 @@ float cast_superfp_zero(float origin_float, int man_bits, int exp_bits, int bias
 float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, int prng_bits, int bias,
                               int binades_l, int binades_h, bool saturate);
 
-void superfp_kernel(float *a, float *o, int man_bits, int exp_bits, int bias, int prng_bits,
-                    bool saturate = false, RoundMode round_mode = RoundMode::RNE);
+void superfp_kernel(float *a, float *o, int size, int man_bits, int exp_bits, int bias, int prng_bits,
+                    int binades_l, int binades_h, bool saturate = false, RoundMode round_mode = RoundMode::RNE);

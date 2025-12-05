@@ -99,6 +99,15 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is
                                    round_mode, saturation_mode, subnormals);
 }
 
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                        int binades_l, int binades_h,
+                        bool saturate, RoundMode round_mode)
+{
+      CHECK_INPUT(a);
+      return superfp_quantize_cuda(a, man_bits, exp_bits, bias, prng_bits,
+                                   binades_l, binades_h, saturate, round_mode);
+}
+
 Tensor fixed_point_quantize_stochastic(Tensor a, int wl, int fl, bool use_clamp,
                                        bool symmetric)
 {
@@ -631,6 +640,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 
       m.def("binaryK_quantize", &binaryK_quantize,
             "Custom-precision P3109 Floating-Point Quantization (CUDA)");
+
+      m.def("superfp_quantize", &superfp_quantize,
+            "Custom-precision SuperFloat Floating-Point Quantization (CUDA)");
 
       py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic(),
                                 py::module_local())

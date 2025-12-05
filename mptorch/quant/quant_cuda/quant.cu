@@ -282,6 +282,28 @@ Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bo
   return o;
 }
 
+Tensor superfp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                             int binades_l, int binades_h, bool saturate, RoundMode round_mode)
+{
+  auto o = zeros_like(a);
+  int size = a.numel();
+  if (round_mode != RoundMode::SR)
+  {
+    superfp_kernel(
+        a.data_ptr<float>(), o.data_ptr<float>(), size,
+        man_bits, exp_bits, bias, binades_l, binades_h,
+        saturate, round_mode);
+  }
+  else
+  {
+    auto rand_ints = randint_like(a, INT_MAX, device(kCUDA).dtype(kInt));
+    superfp_kernel(
+        a.data_ptr<float>(), rand_ints.data_ptr<int>(), o.data_ptr<float>(), size,
+        man_bits, exp_bits, prng_bits, bias, binades_l, binades_h,
+        saturate, round_mode);
+  }
+}
+
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)
 {
   int sigma = -fl;

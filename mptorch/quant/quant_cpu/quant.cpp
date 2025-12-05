@@ -1,7 +1,8 @@
 #include "quant.h"
-#include "binaryK_kernel.h"
-#include "bit_helper.h"
 #include "fp_kernel.h"
+#include "binaryK_kernel.h"
+#include "superfp_kernel.h"
+#include "bit_helper.h"
 #include "layernorm_kernel.h"
 #include "mm_kernel.h"
 #include "softmax_kernel.h"
@@ -381,8 +382,8 @@ float cast_superfp_nearest(float origin, int man_bits, int exp_bits,
   return ftarget;
 }
 
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades_l,
-                        int binades_u, bool saturate = false)
+Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits, int binades_l,
+                                int binades_u, bool saturate = false)
 {
   auto a_array = a.data_ptr<float>();
   auto o = zeros_like(a);
@@ -507,13 +508,6 @@ Tensor float_quantize_zero(Tensor a, int man_bits, int exp_bits,
   return o;
 }
 
-Tensor superfp_quantize_nearest(Tensor a, int man_bits, int exp_bits,
-                                int binades_l, int binades_u, bool saturate)
-{
-  return superfp_quantize(a, man_bits, exp_bits, binades_l, binades_u,
-                          saturate);
-}
-
 Tensor fp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
                    bool saturate, RoundMode round_mode,
                    SubnormalsMode subnormals_mode)
@@ -532,6 +526,16 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is
   auto o = zeros_like(a);
   binaryK_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
                  K, P, bias, prng_bits, is_signed, round_mode, saturation_mode, subnormals_mode);
+  return o;
+}
+
+Tensor superfp_quantize_v2(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                           int binades_l, int binades_h,
+                           bool saturate, RoundMode round_mode)
+{
+  auto o = zeros_like(a);
+  superfp_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),
+                 man_bits, exp_bits, bias, prng_bits, binades_l, binades_h, saturate, round_mode);
   return o;
 }
 

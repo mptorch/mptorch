@@ -156,6 +156,13 @@ Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bo
                              SubnormalsMode subnormals);
 
 /**
+ * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits, [binades_l], and [binades_h] lower and upper binades.
+ **/
+Tensor superfp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                             int binades_l, int binades_h, bool saturate, RoundMode round_mode);
+
+/**
  * perform matrix multiplication with quantized addition and multiplication
  * operations that simulate low-precision floating-point compute; input tensors
  * a (size M x K) and b (size K x N) are multiplied with the result stored in

@@ -429,6 +429,85 @@ __device__ float cast_superfp_nearest(float origin, int man_bits, int exp_bits, 
   return ftarget;
 }
 
+__device__ float cast_superfp_stochastic(float origin_float, uint32_t rand_prob,
+                                         int man_bits, int exp_bits, int prng_bits, int bias,
+                                         int binades_l, int binades_h, bool saturate)
+{
+
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  rand_prob = (rand_prob & mask) << 9 >> 9;
+
+  int32_t sat = saturate;
+  uint32_t target;
+  target = FLOAT_TO_BITS(&origin_float);
+  float ftarget{0u};
+
+  int32_t target_exp = (target << 1 >> 24) - 127;
+  int32_t min_exp = 1 - bias + (binades_l - 1);
+  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  bool subnormal = (target_exp < min_exp);
+  bool supnormal = (target_exp > max_exp);
+
+  if (subnormal)
+  {
+    rand_prob = ~((1 << (23 - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
+    ftarget = BITS_TO_FLOAT(&qtarget);
+  }
+  else if (supnormal)
+  {
+    if (target_exp == 128)
+    { // NaN/inf
+      if (saturate)
+      {
+        if ((target & 0x7FFFFFFF) == 0x7F800000)
+        { // inf
+          uint32_t qtarget = ((max_exp + binades_h * (1 << man_bits) + 127u) << 23);
+          return BITS_TO_FLOAT(&qtarget);
+        }
+        else
+        { // NaN
+          return origin_float;
+        }
+      }
+      else
+      {
+        return origin_float;
+      }
+    }
+    else if (target_exp >= max_exp + binades_h * (1 << man_bits) - 1 + sat)
+    { // overflow
+      if (saturate)
+      {
+        uint32_t qtarget = ((max_exp + binades_h * (1 << man_bits) + 127u) << 23);
+        return BITS_TO_FLOAT(&qtarget);
+      }
+      else
+      {
+        if (((target << 9) == 0u) && (target_exp == max_exp + binades_h * (1 << man_bits) - 1))
+          return origin_float;
+        else
+        {
+          float infty = INFINITY;
+          uint32_t qtarget = FLOAT_TO_BITS(&infty);
+          return BITS_TO_FLOAT(&qtarget);
+        }
+      }
+    }
+    rand_prob = ~((1 << (23 - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
+    ftarget = BITS_TO_FLOAT(&qtarget);
+  }
+  else
+  {
+    rand_prob = ~((1 << (23 - man_bits - prng_bits)) - 1);
+    uint32_t qtarget = round_bitwise_stochastic(target, rand_prob, 0);
+    ftarget = BITS_TO_FLOAT(&qtarget);
+  }
+
+  return ftarget;
+}
+
 __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size,
                                        int man_bits, int exp_bits,
                                        int binades_l, int binades_u,
@@ -437,6 +516,122 @@ __global__ void superfp_kernel_nearest(float *__restrict__ a, float *o, int size
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < size)
     o[index] = cast_superfp_nearest(a[index], man_bits, exp_bits, binades_l, binades_u, saturate);
+}
+
+__global__ void superfp_kernel_nearest_even(float *__restrict__ a, float *o, int size,
+                                            int man_bits, int exp_bits, int bias,
+                                            int binades_l, int binades_h,
+                                            bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_nearest_even(a[index], man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+}
+
+__global__ void superfp_kernel_nearest_away(float *__restrict__ a, float *o, int size,
+                                            int man_bits, int exp_bits, int bias,
+                                            int binades_l, int binades_h,
+                                            bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_nearest_away(a[index], man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+}
+
+__global__ void superfp_kernel_up(float *__restrict__ a, float *o, int size,
+                                  int man_bits, int exp_bits, int bias,
+                                  int binades_l, int binades_h,
+                                  bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_up(a[index], man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+}
+
+__global__ void superfp_kernel_down(float *__restrict__ a, float *o, int size,
+                                    int man_bits, int exp_bits, int bias,
+                                    int binades_l, int binades_h,
+                                    bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_down(a[index], man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+}
+
+__global__ void superfp_kernel_zero(float *__restrict__ a, float *o, int size,
+                                    int man_bits, int exp_bits, int bias,
+                                    int binades_l, int binades_h,
+                                    bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_zero(a[index], man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+}
+
+__global__ void superfp_kernel_stochastic(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+                                          int man_bits, int exp_bits, int prng_bits, int bias,
+                                          int binades_l, int binades_h,
+                                          bool saturate)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < size)
+    o[size] = cast_superfp_stochastic(a[index], (uint32_t)r[index], man_bits, exp_bits, prng_bits, bias, binades_l, binades_h, saturate);
+}
+
+void superfp_kernel(float *__restrict__ a, float *o, int size,
+                    int man_bits, int exp_bits, int bias,
+                    int binades_l, int binades_h,
+                    bool saturate,
+                    RoundMode round_mode)
+{
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+
+  switch (round_mode)
+  {
+  case RoundMode::RNE:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, binades_l, binades_h, saturate] __device__(float x)
+        { return cast_superfp_nearest_even(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate); });
+    break;
+
+  case RoundMode::RNA:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, binades_l, binades_h, saturate] __device__(float x)
+        { return cast_superfp_nearest_away(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate); });
+    break;
+
+  case RoundMode::RU:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, binades_l, binades_h, saturate] __device__(float x)
+        { return cast_superfp_up(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate); });
+    break;
+
+  case RoundMode::RD:
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, binades_l, binades_h, saturate] __device__(float x)
+        { return cast_superfp_down(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate); });
+    break;
+
+  default: // RZ
+    quant_kernel<<<blockNums, blockSize>>>(
+        a, o, size, [man_bits, exp_bits, bias, binades_l, binades_h, saturate] __device__(float x)
+        { return cast_superfp_zero(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate); });
+    break;
+  }
+}
+
+void superfp_kernel(float *__restrict__ a, int *__restrict__ r, float *o, int size,
+                    int man_bits, int exp_bits, int prng_bits, int bias,
+                    int binades_l, int binades_h,
+                    bool saturate,
+                    RoundMode round_mode)
+{
+  int blockSize = 1024;
+  int blockNums = (size + blockSize - 1) / blockSize;
+  quant_kernel<<<blockNums, blockSize>>>(
+      a, r, o, size, [man_bits, exp_bits, prng_bits, bias, binades_l, binades_h, saturate] __device__(float x, uint32_t rv)
+      { return cast_superfp_stochastic(x, rv, man_bits, exp_bits, prng_bits, bias, binades_l, binades_h, saturate); });
 }
 
 void mm_superfp_nearest(float *a, float *b, float *c, int M, int K, int N,

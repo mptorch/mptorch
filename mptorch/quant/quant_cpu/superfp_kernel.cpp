@@ -432,3 +432,56 @@ float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, in
 
   return ftarget;
 }
+
+void superfp_kernel(float *a, float *o, int size, int man_bits, int exp_bits, int bias, int prng_bits,
+                    int binades_l, int binades_h, bool saturate, RoundMode round_mode)
+{
+  std::function<float(float)> quantizer;
+
+  switch (round_mode)
+  {
+  case RoundMode::RNE:
+    quantizer = [man_bits, exp_bits, bias, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_nearest_even(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+
+  case RoundMode::RNA:
+    quantizer = [man_bits, exp_bits, bias, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_nearest_away(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+
+  case RoundMode::RU:
+    quantizer = [man_bits, exp_bits, bias, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_up(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+
+  case RoundMode::RD:
+    quantizer = [man_bits, exp_bits, bias, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_down(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+
+  case RoundMode::RZ:
+    quantizer = [man_bits, exp_bits, bias, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_zero(x, man_bits, exp_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+
+  default:
+    quantizer = [man_bits, exp_bits, bias, prng_bits, binades_l, binades_h, saturate](float x)
+    {
+      return cast_superfp_stochastic(x, man_bits, exp_bits, prng_bits, bias, binades_l, binades_h, saturate);
+    };
+    break;
+  }
+
+  quant_kernel(a, o, size, quantizer);
+}
