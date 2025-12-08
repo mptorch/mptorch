@@ -529,9 +529,9 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is
   return o;
 }
 
-Tensor superfp_quantize_v2(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
-                           int binades_l, int binades_h,
-                           bool saturate, RoundMode round_mode)
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                        int binades_l, int binades_h,
+                        bool saturate, RoundMode round_mode)
 {
   auto o = zeros_like(a);
   superfp_kernel(a.data_ptr<float>(), o.data_ptr<float>(), a.numel(),

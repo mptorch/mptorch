@@ -139,14 +139,6 @@ Tensor float_quantize_stochastic(Tensor a, int man_bits, int exp_bits,
                                  int prng_bits, bool subnormals, bool saturate);
 
 /**
- * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
- * with [man_bits] mantissa bits and [exp_bits] exponent bits.
- * Nearest Rounding.
- **/
-Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int binades_l,
-                        int binades_u, bool saturate);
-
-/**
  * perform matrix multiplication with quantized addition and multiplication
  * operations that simulate low-precision floating-point compute; input tensors
  * a (size M x K) and b (size K x N) are multiplied with the result stored in
@@ -405,9 +397,9 @@ Tensor binaryK_quantize(Tensor a, int K, int P, int bias, int prng_bits, bool is
                         RoundMode round_mode, SaturationMode saturation_mode,
                         SubnormalsMode subnormals_mode);
 
-Tensor superfp_quantize_v2(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
-                           int binades_l, int binades_h,
-                           bool saturate, RoundMode round_mode);
+Tensor superfp_quantize(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
+                        int binades_l, int binades_h,
+                        bool saturate, RoundMode round_mode);
 
 /**
  * Performs a softmax along the specified dimension, using custom floating

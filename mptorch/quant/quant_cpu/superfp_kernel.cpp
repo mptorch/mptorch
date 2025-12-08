@@ -16,8 +16,8 @@ float cast_superfp_nearest_even(float origin_float, int man_bits, int exp_bits, 
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - bias + (binades_l - 1);
-  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  int32_t min_exp = -bias + (binades_l - 1);
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - (binades_h - 1);
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
   if (subnormal)

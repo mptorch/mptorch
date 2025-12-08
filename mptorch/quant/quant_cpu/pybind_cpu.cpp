@@ -50,7 +50,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
       m.def("binaryK_quantize", &binaryK_quantize,
             "Custom-precision P3109 Floating-Point Quantization (CPU)");
 
-      m.def("superfp_quantize", &superfp_quantize_v2,
+      m.def("superfp_quantize", &superfp_quantize,
             "Custom-precision SuperNormal Floating-Point Quantization (CPU)");
 
       py::enum_<SaturationMode>(m, "SaturationMode", py::arithmetic(),

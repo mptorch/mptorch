@@ -10,5 +10,6 @@ __all__ = [
     "float_quantize_v2",
     "binaryK_quantize",
     "superfp_quantize",
+    "superfp_quantize_v2",
     "quantizer",
 ]

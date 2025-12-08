@@ -8,7 +8,7 @@ from torch.utils.cpp_extension import load
 import os
 import platform
 
-__all__ = ["float_quantize_v2", "binaryK_quantize"]
+__all__ = ["float_quantize_v2", "superfp_quantize_v2", "binaryK_quantize"]
 
 
 def get_sources(directory):
@@ -104,6 +104,17 @@ def translate_rounding_mode(module, rounding_mode: RoundMode):
     return enum_items[rounding_mode]
 
 
+def normalize_binades(binades: int | tuple[int] | tuple[int, int]) -> tuple[int, int]:
+    if isinstance(binades, int):
+        binades_l, binades_h = binades, 0
+    elif len(binades) == 1:
+        binades_l, binades_h = binades[0], binades[0]
+    else:
+        binades_l, binades_h = binades[0], binades[1]
+
+    return (binades_l, binades_h)
+
+
 def float_quantize_v2(
     x: torch.Tensor,
     exp: int,
@@ -158,4 +169,37 @@ def binaryK_quantize(
 
     return quant_module.binaryK_quantize(
         x.contiguous(), K, P, bias, prng_bits, is_signed, rnd_mode, sat_mode, sub_mode
+    )
+
+
+def superfp_quantize_v2(
+    x: torch.Tensor,
+    exp: int,
+    man: int,
+    binades: int | tuple[int] | tuple[int, int],
+    bias: int | None = None,
+    prng_bits: int = 0,
+    saturate: bool = False,
+    rounding_mode: RoundMode = RoundMode.RNE,
+) -> torch.Tensor:
+    assert (
+        0 <= prng_bits <= 23 - man
+    ), "prng_bits should be between 0 and 23 minus the number of mantissa bits"
+    quant_module = get_module(x)
+    rnd_mode = translate_rounding_mode(quant_module, rounding_mode)
+    if not bias:
+        bias = 2 ** (exp - 1)
+
+    binades_l, binades_h = normalize_binades(binades)
+
+    return quant_module.superfp_quantize(
+        x.contiguous(),
+        man,
+        exp,
+        bias,
+        prng_bits,
+        binades_l,
+        binades_h,
+        saturate,
+        rnd_mode,
     )
