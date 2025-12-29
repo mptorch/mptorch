@@ -302,6 +302,8 @@ Tensor superfp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int
         man_bits, exp_bits, prng_bits, bias, binades_l, binades_h,
         saturate, round_mode);
   }
+
+  return o;
 }
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max)

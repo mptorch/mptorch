@@ -16,17 +16,16 @@ float cast_superfp_nearest_even(float origin_float, int man_bits, int exp_bits, 
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = -bias + (binades_l - 1);
-  int32_t max_exp = (1 << exp_bits) - 1 - bias - (binades_h - 1);
+  int32_t min_exp = -bias + binades_l;
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - binades_h;
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
+
   if (subnormal)
   {
-    if (target_exp < min_exp - binades_l * (1 << man_bits)) // underflow
-      return 0.0f;
     uint32_t qtarget = round_bitwise_nearest_even(target);
 
-    if (((qtarget << 1 >> 24) - 127) < min_exp - binades_l * (1 << man_bits) + 1)
+    if (((qtarget << 1 >> 24) - 127) < min_exp - binades_l * (1 << man_bits) + 1) // underflow
       return 0.0f;
 
     ftarget = BITS_TO_FLOAT(&qtarget);
@@ -41,7 +40,8 @@ float cast_superfp_nearest_even(float origin_float, int man_bits, int exp_bits, 
         { // inf
           uint32_t qtarget =
               (target >> 31 << 31) |
-              ((max_exp + binades_h * (1 << man_bits) + 127u) << 23);
+              ((binades_h == 0) ? ((max_exp + 127u) << 23) | ((1u << 23) - (1u << (23 - man_bits + 1)))
+                                : ((max_exp + binades_h * (1 << man_bits) + 126u) << 23));
           return BITS_TO_FLOAT(&qtarget);
         }
         else
@@ -54,34 +54,46 @@ float cast_superfp_nearest_even(float origin_float, int man_bits, int exp_bits, 
         return origin_float;
       }
     }
-    else if (target_exp >= max_exp + binades_h * (1 << man_bits) - 1 + sat)
-    { // overflow
+    uint32_t qtarget = round_bitwise_nearest_even(target);
+    if (((qtarget << 1 >> 24) - 127) > max_exp + binades_h * (1 << man_bits)) // overflow
+    {
       if (saturate)
       {
-        uint32_t qtarget =
-            (target >> 31 << 31) |
-            ((max_exp + binades_h * (1 << man_bits) + 127u) << 23);
+        qtarget = (target >> 31 << 31) |
+                  ((binades_h == 0) ? ((max_exp + 127u) << 23) | ((1u << 23) - (1u << (23 - man_bits + 1)))
+                                    : ((max_exp + binades_h * (1 << man_bits) + 126u) << 23));
         return BITS_TO_FLOAT(&qtarget);
       }
       else
       {
-        if (((target << 9) == 0u) && (target_exp == max_exp + binades_h * (1 << man_bits) - 1))
-          return origin_float;
-        else
-        {
-          float infty = INFINITY;
-          uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
-          return BITS_TO_FLOAT(&qtarget);
-        }
+        float infty = INFINITY;
+        qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
+        return BITS_TO_FLOAT(&qtarget);
       }
     }
-    uint32_t qtarget = round_bitwise_nearest_even(target);
     ftarget = BITS_TO_FLOAT(&qtarget);
   }
   else
   {
     uint32_t qtarget = round_bitwise_nearest_even(target, man_bits);
     ftarget = BITS_TO_FLOAT(&qtarget);
+
+    // extra clipping if binades_h == 0
+    if (binades_h == 0)
+    {
+      uint32_t qmax = (target >> 31 << 31) | ((max_exp + 127u) << 23) | ((1u << 23) - (1u << (23 - man_bits + 1)));
+      float fqmax = BITS_TO_FLOAT(&qmax);
+      bool overflow = std::fabs(ftarget) > std::fabs(fqmax);
+      if (overflow)
+        if (saturate)
+          return fqmax;
+        else
+        {
+          float infty = INFINITY;
+          uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
+          return BITS_TO_FLOAT(&qtarget);
+        }
+    }
   }
 
   return ftarget;
@@ -96,8 +108,8 @@ float cast_superfp_nearest_away(float origin_float, int man_bits, int exp_bits, 
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - bias + (binades_l - 1);
-  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  int32_t min_exp = -bias + (binades_l - 1);
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - binades_h;
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
   if (subnormal)
@@ -106,7 +118,7 @@ float cast_superfp_nearest_away(float origin_float, int man_bits, int exp_bits, 
       return 0.0f;
     uint32_t qtarget = round_bitwise_nearest_away(target, 0);
 
-    if (((qtarget << 1 >> 24) - 127) < min_exp - binades_l * (1 << man_bits) + 1)
+    if (((qtarget << 1 >> 24) - 127) < min_exp - binades_l * (1 << man_bits) + 2)
       return 0.0f;
 
     ftarget = BITS_TO_FLOAT(&qtarget);
@@ -162,6 +174,23 @@ float cast_superfp_nearest_away(float origin_float, int man_bits, int exp_bits, 
   {
     uint32_t qtarget = round_bitwise_nearest_away(target, man_bits);
     ftarget = BITS_TO_FLOAT(&qtarget);
+
+    // extra clipping if binades_h == 0
+    if (binades_h == 0)
+    {
+      uint32_t qmax = (target >> 31 << 31) | ((max_exp + 127) << 23) | ((1 << 23) - (1 << (23 - man_bits + 1)));
+      float fqmax = BITS_TO_FLOAT(&qmax);
+      bool overflow = std::fabs(ftarget) > std::fabs(fqmax);
+      if (overflow)
+        if (saturate)
+          return fqmax;
+        else
+        {
+          float infty = INFINITY;
+          uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
+          return BITS_TO_FLOAT(&qtarget);
+        }
+    }
   }
 
   return ftarget;
@@ -179,8 +208,8 @@ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - bias + (binades_l - 1);
-  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  int32_t min_exp = -bias + (binades_l - 1);
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - binades_h;
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
   if (subnormal)
@@ -241,6 +270,23 @@ float cast_absolute_up(float origin_float, int man_bits, int exp_bits, int bias,
   {
     uint32_t qtarget = round_bitwise_up(target, man_bits);
     ftarget = BITS_TO_FLOAT(&qtarget);
+
+    // extra clipping if binades_h == 0
+    if (binades_h == 0)
+    {
+      uint32_t qmax = (target >> 31 << 31) | ((max_exp + 127) << 23) | ((1 << 23) - (1 << (23 - man_bits + 1)));
+      float fqmax = BITS_TO_FLOAT(&qmax);
+      bool overflow = std::fabs(ftarget) > std::fabs(fqmax);
+      if (overflow)
+        if (saturate)
+          return fqmax;
+        else
+        {
+          float infty = INFINITY;
+          uint32_t qtarget = (target >> 31 << 31) | FLOAT_TO_BITS(&infty);
+          return BITS_TO_FLOAT(&qtarget);
+        }
+    }
   }
 
   return ftarget;
@@ -258,8 +304,8 @@ float cast_absolute_down(float origin_float, int man_bits, int exp_bits, int bia
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - bias + (binades_l - 1);
-  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  int32_t min_exp = -bias + (binades_l - 1);
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - binades_h;
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
   if (subnormal)
@@ -368,8 +414,8 @@ float cast_superfp_stochastic(float origin_float, int man_bits, int exp_bits, in
   float ftarget{0u};
 
   int32_t target_exp = (target << 1 >> 24) - 127;
-  int32_t min_exp = 1 - bias + (binades_l - 1);
-  int32_t max_exp = (bias - 2) - (binades_h - 1);
+  int32_t min_exp = -bias + (binades_l - 1);
+  int32_t max_exp = (1 << exp_bits) - 1 - bias - (binades_h - 1);
   bool subnormal = (target_exp < min_exp);
   bool supnormal = (target_exp > max_exp);
 
