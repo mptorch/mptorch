@@ -75,6 +75,67 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__r
     c[row * N + col] = outer_sum;
 }
 
+// template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
+// __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+//                         int *__restrict__ s,
+//                         int *__restrict__ mans,
+//                         int *__restrict__ exps,
+//                         int M, int K, int N,
+//                         Qadd quant_add, Qmul quant_mul)
+// {
+
+//   // declare shared memory matrices for A and B matrices
+//   __shared__ float s_a[SHMEM_SIZE];
+//   __shared__ float s_b[SHMEM_SIZE];
+
+//   int tx = threadIdx.x;
+//   int ty = threadIdx.y;
+//   int col = blockIdx.x * blockDim.x + threadIdx.x;
+//   int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+//   float inner_sum = 0.0f;
+//   float outer_sum = 0.0f;
+//   int currFactor = 0;
+
+//   int prec = 0;
+//   if (row < M && col < N)
+//     prec = s[row * N + col];
+
+//   // sweep tile across matrix
+//   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+//   {
+//     // load in elements for this tile
+//     s_a[ty * blockDim.x + tx] =
+//         (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
+//     s_b[ty * blockDim.x + tx] =
+//         (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
+
+//     // wait for both tiles to be loaded in before doing computation
+//     __syncthreads();
+
+//     // do matrix multiplication on the small matrices
+//     for (int j = 0; j < blockDim.x; j++)
+//     {
+//       inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], mans[prec], exps[prec]), mans[prec], exps[prec]);
+//     }
+//     currFactor++;
+//     currFactor %= BLOCK_FACTOR;
+//     if (currFactor == 0)
+//     {
+//       outer_sum = quant_add(outer_sum + inner_sum, mans[prec], exps[prec]);
+//       inner_sum = 0.0f;
+//     }
+
+//     // wait for all threads to finish using current tiles
+//     // before loading in new ones
+//     __syncthreads();
+//   }
+
+//   // write back results
+//   if (row < M && col < N)
+//     c[row * N + col] = outer_sum;
+// }
+
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
                         int *__restrict__ s,
@@ -93,9 +154,7 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__r
   int col = blockIdx.x * blockDim.x + threadIdx.x;
   int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int currFactor = 0;
+  float tmp = 0.0f;
 
   int prec = 0;
   if (row < M && col < N)
@@ -116,14 +175,7 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__r
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++)
     {
-      inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], mans[prec], exps[prec]), mans[prec], exps[prec]);
-    }
-    currFactor++;
-    currFactor %= BLOCK_FACTOR;
-    if (currFactor == 0)
-    {
-      outer_sum = quant_add(outer_sum + inner_sum, mans[prec], exps[prec]);
-      inner_sum = 0.0f;
+      tmp = quant_add(tmp + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx], mans[prec], exps[prec]), mans[prec], exps[prec]);
     }
 
     // wait for all threads to finish using current tiles
@@ -133,7 +185,7 @@ __global__ void mm_impl(float *__restrict__ a, float *__restrict__ b, float *__r
 
   // write back results
   if (row < M && col < N)
-    c[row * N + col] = outer_sum;
+    c[row * N + col] = tmp;
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
@@ -251,6 +303,67 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float 
     c[row * N + col] = outer_sum;
 }
 
+// template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
+// __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
+//                             int *__restrict__ s,
+//                             int *__restrict__ mans,
+//                             int *__restrict__ exps,
+//                             int M, int K, int N,
+//                             Qfma quant_fma)
+// {
+
+//   // declare shared memory matrices for A and B matrices
+//   __shared__ float s_a[SHMEM_SIZE];
+//   __shared__ float s_b[SHMEM_SIZE];
+
+//   int tx = threadIdx.x;
+//   int ty = threadIdx.y;
+//   int col = blockIdx.x * blockDim.x + threadIdx.x;
+//   int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+//   float inner_sum = 0.0f;
+//   float outer_sum = 0.0f;
+//   int currFactor = 0;
+
+//   int prec = 0;
+//   if (row < M && col < N)
+//     prec = s[row * N + col];
+
+//   // sweep tile across matrix
+//   for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+//   {
+//     // load in elements for this tile
+//     s_a[ty * blockDim.x + tx] =
+//         (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
+//     s_b[ty * blockDim.x + tx] =
+//         (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
+
+//     // wait for both tiles to be loaded in before doing computation
+//     __syncthreads();
+
+//     // do matrix multiplication on the small matrices
+//     for (int j = 0; j < blockDim.x; j++)
+//     {
+//       inner_sum = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum), mans[prec], exps[prec]);
+//     }
+//     currFactor++;
+//     currFactor %= BLOCK_FACTOR;
+//     if (currFactor == 0)
+//     {
+//       outer_sum = quant_fma(outer_sum + inner_sum, mans[prec], exps[prec]);
+//       inner_sum = 0.0f;
+//     }
+
+//     // wait for all threads to finish using current tiles
+//     // before loading in new ones
+//     __syncthreads();
+//   }
+
+//   // write back results
+//   if (row < M && col < N)
+//     c[row * N + col] = outer_sum;
+// }
+
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
 __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float *__restrict__ c,
                             int *__restrict__ s,
@@ -269,9 +382,7 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float 
   int col = blockIdx.x * blockDim.x + threadIdx.x;
   int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-  float inner_sum = 0.0f;
-  float outer_sum = 0.0f;
-  int currFactor = 0;
+  float tmp = 0.0f;
 
   int prec = 0;
   if (row < M && col < N)
@@ -292,14 +403,7 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float 
     // do matrix multiplication on the small matrices
     for (int j = 0; j < blockDim.x; j++)
     {
-      inner_sum = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], inner_sum), mans[prec], exps[prec]);
-    }
-    currFactor++;
-    currFactor %= BLOCK_FACTOR;
-    if (currFactor == 0)
-    {
-      outer_sum = quant_fma(outer_sum + inner_sum, mans[prec], exps[prec]);
-      inner_sum = 0.0f;
+      tmp = quant_fma(fmaf(s_a[ty * blockDim.x + j], s_b[j * blockDim.x + tx], tmp), mans[prec], exps[prec]);
     }
 
     // wait for all threads to finish using current tiles
@@ -309,7 +413,7 @@ __global__ void mm_fma_impl(float *__restrict__ a, float *__restrict__ b, float 
 
   // write back results
   if (row < M && col < N)
-    c[row * N + col] = outer_sum;
+    c[row * N + col] = tmp;
 }
 
 template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qfma>
