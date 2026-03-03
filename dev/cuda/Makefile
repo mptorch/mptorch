@@ -9,7 +9,7 @@ ifeq ($(NVCC),)
 endif
 
 # Compiler flags
-CFLAGS = -O3 --use_fast_math
+CFLAGS = -O3 --use_fast_math -Xcompiler -fopenmp
 NVCCFLAGS = -lcublas -lcublasLt -std=c++17 --extended-lambda -Wno-deprecated-gpu-targets
 
 # Default rule for the CUDA files
