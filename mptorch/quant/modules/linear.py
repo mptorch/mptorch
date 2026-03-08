@@ -1,5 +1,5 @@
 from argparse import ArgumentError
-from typing import Callable
+from typing import Callable, Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -142,8 +142,8 @@ class QLinear(nn.Linear):
                     return x
 
             @staticmethod
-            def backward(ctx, grad_output):
-                return bwd_quant(grad_output)
+            def backward(ctx, grad_outputs):
+                return bwd_quant(grad_outputs)
 
         return round.apply
 
@@ -256,6 +256,7 @@ class QLinearMP(nn.Linear):
         kappa_phi_f=kappa_phi,
         kappa_v_f=kappa_v_mp,
         tol=0.1,
+        mode: Literal["dynamic", "collect", "static"] = "dynamic",
     ) -> None:
         super(QLinearMP, self).__init__(in_features, out_features, bias)
         self.formats = formats
@@ -270,6 +271,9 @@ class QLinearMP(nn.Linear):
         self.tol = tol
         self.kappa_phi_f = kappa_phi_f
         self.kappa_v_f = kappa_v_f
+        self.mode = mode
+        self.prec_count = torch.zeros(1, self.weight.shape[0]).int()
+        self.collect_runs = 0
 
         self.reset_quant_function()
 
@@ -300,92 +304,127 @@ class QLinearMP(nn.Linear):
 
         return round.apply
 
+    def set_mode(self, mode: Literal["dynamic", "collect", "static"]):
+        self.mode = mode
+        match mode:
+            case "collect":
+                self.prec_count = torch.zeros(1, self.weight.shape[0]).int()
+                self.collect_runs = 0
+            case "static":
+                self.set_static_prec(0.5)
+            case _:
+                pass
+
+    def set_static_prec(self, threshold: float):
+        self.mode = "static"
+        self.prec_count = torch.where(
+            self.prec_count / self.collect_runs > threshold, 2, 1
+        ).int()
+
     def forward(self, input):
         if self.formats.fwd_use_default_prec:
             return self.Qo(
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )
         else:
-            w = self.Qw(self.weight)
-            bias = self.Qb(self.bias)
-            mans = torch.tensor([23, 10, 3, 1], dtype=torch.int32, device=w.device)
-            exps = torch.tensor([8, 5, 4, 2], dtype=torch.int32, device=w.device)
+            if self.mode != "static":
+                w = self.Qw(self.weight)
+                bias = self.Qb(self.bias)
+                mans = torch.tensor([23, 10, 3, 1], dtype=torch.int32, device=w.device)
+                exps = torch.tensor([8, 5, 4, 2], dtype=torch.int32, device=w.device)
 
-            prec = (
-                torch.ones(input.shape[0], w.shape[0], device=w.device).int()
-                * self.formats.s
-            ).to(w.device)
+                prec = (
+                    torch.ones(input.shape[0], w.shape[0], device=w.device).int()
+                    * self.formats.s
+                ).to(w.device)
 
-            prec_phi = (
-                torch.ones(input.shape[0], w.shape[0], device=w.device).int()
-                * self.formats.s
-            ).to(w.device)
+                prec_phi = (
+                    torch.ones(input.shape[0], w.shape[0], device=w.device).int()
+                    * self.formats.s
+                ).to(w.device)
 
-            # analysis with kappa'
-            if self.activation is not None:
-                prec_fp8 = (torch.ones(input.shape[0], w.shape[0]).int() * 2).to(
-                    w.device
-                )
-                out_fp8 = qlinear_mp.apply(
-                    input, w, bias, self.formats, prec_fp8, mans, exps
-                )
+                # analysis with kappa'
+                if self.activation is not None:
+                    prec_fp8 = (torch.ones(input.shape[0], w.shape[0]).int() * 2).to(
+                        w.device
+                    )
+                    out_fp8 = qlinear_mp.apply(
+                        input, w, bias, self.formats, prec_fp8, mans, exps
+                    )
 
-                kappa_phi_fp8 = self.kappa_phi_f(
-                    out_fp8, self.d_activation(out_fp8), self.activation(out_fp8)
-                )
-                kappa_v_fp8 = self.kappa_v_f(
-                    w, bias, input, out_fp8, self.formats, prec_fp8, mans, exps
-                )
+                    kappa_phi_fp8 = self.kappa_phi_f(
+                        out_fp8, self.d_activation(out_fp8), self.activation(out_fp8)
+                    )
+                    kappa_v_fp8 = self.kappa_v_f(
+                        w, bias, input, out_fp8, self.formats, prec_fp8, mans, exps
+                    )
 
-                deno_fp8 = 1 / torch.abs(out_fp8)
-                num_fp8 = qlinear_mp.apply(
-                    torch.abs(input),
-                    torch.abs(w),
-                    torch.abs(bias),
-                    self.formats,
-                    prec_fp8,
-                    mans,
-                    exps,
-                )
+                    deno_fp8 = 1 / torch.abs(out_fp8)
+                    num_fp8 = qlinear_mp.apply(
+                        torch.abs(input),
+                        torch.abs(w),
+                        torch.abs(bias),
+                        self.formats,
+                        prec_fp8,
+                        mans,
+                        exps,
+                    )
 
-                self.deno_fp8 = deno_fp8.to(w.device)
-                self.num_fp8 = num_fp8.to(w.device)
+                    self.deno_fp8 = deno_fp8.to(w.device)
+                    self.num_fp8 = num_fp8.to(w.device)
 
-                # relu mask
-                prec_phi = torch.where(kappa_phi_fp8 == 0, 2, 1).int()
+                    # relu mask
+                    prec_phi = torch.where(kappa_phi_fp8 == 0, 2, 1).int()
 
-                prec = torch.where(kappa_phi_fp8 * deno_fp8 <= self.tol, 2, 1).int()
-                prec_fp8_mask = torch.where(
-                    kappa_phi_fp8 * deno_fp8 <= self.tol, 1, 0
-                ).int()
+                    prec = torch.where(kappa_phi_fp8 * deno_fp8 <= self.tol, 2, 1).int()
+                    prec_fp8_mask = torch.where(
+                        kappa_phi_fp8 * deno_fp8 <= self.tol, 1, 0
+                    ).int()
 
-                prec_fp16_mask = torch.ones_like(prec_fp8_mask, dtype=torch.int)
-                prec_fp16_mask -= prec_fp8_mask
+                    prec_fp16_mask = torch.ones_like(prec_fp8_mask, dtype=torch.int)
+                    prec_fp16_mask -= prec_fp8_mask
 
-                prec_fp16 = torch.ones(input.shape[0], w.shape[0]).int().to(w.device)
-                out_fp16 = qlinear_mp.apply(
-                    input, w, bias, self.formats, prec_fp16, mans, exps
-                )
-                out = out_fp8 * prec_fp8_mask + out_fp16 * prec_fp16_mask
+                    prec_fp16 = (
+                        torch.ones(input.shape[0], w.shape[0]).int().to(w.device)
+                    )
+                    out_fp16 = qlinear_mp.apply(
+                        input, w, bias, self.formats, prec_fp16, mans, exps
+                    )
+                    out = out_fp8 * prec_fp8_mask + out_fp16 * prec_fp16_mask
 
-                # store variables for experiments
-                self.kappa_v = kappa_v_fp8
-                self.kappa_phi = kappa_phi_fp8
-                self.kappa_fp8 = kappa_v_fp8 * kappa_phi_fp8
-                self.kappa_prime = deno_fp8 * kappa_phi_fp8
+                    # collect statistics for static precision run
+                    if self.mode == "collect":
+                        self.prec_count += prec_fp8_mask.sum(dim=0, keepdim=True)
+                        self.collect_runs += input.shape[0]
 
-                self.formats.s = prec
+                    # store variables for experiments
+                    self.kappa_v = kappa_v_fp8
+                    self.kappa_phi = kappa_phi_fp8
+                    self.kappa_fp8 = kappa_v_fp8 * kappa_phi_fp8
+                    self.kappa_prime = deno_fp8 * kappa_phi_fp8
+
+                    self.formats.s = prec
+                    self.prec = prec
+                    self.prec_phi = prec_phi
+                else:
+                    self.formats.s = prec.to(w.device)
+                    self.prec = prec.to(w.device)
+                    out = qlinear_mp.apply(
+                        input, w, bias, self.formats, prec, mans, exps
+                    )
+
                 self.prec = prec
-                self.prec_phi = prec_phi
-            else:
-                self.formats.s = prec.to(w.device)
-                self.prec = prec.to(w.device)
-                out = qlinear_mp.apply(input, w, bias, self.formats, prec, mans, exps)
+                self.count = torch.where(prec == 2, 1, 0).sum(
+                    tuple(range(len(prec.shape)))
+                )
+                self.count_phi = torch.where(prec_phi == 2, 1, 0).sum(
+                    tuple(range(len(prec_phi.shape)))
+                )
 
-            self.prec = prec
-            self.count = torch.where(prec == 2, 1, 0).sum(tuple(range(len(prec.shape))))
-            self.count_phi = torch.where(prec_phi == 2, 1, 0).sum(
-                tuple(range(len(prec_phi.shape)))
-            )
-
-            return out
+                return out
+            else:  # in 'static' mode
+                self.formats.s = self.prec_count.expand(input.shape[0], -1).to(w.device)
+                self.prec = self.formats.s
+                return qlinear_mp.apply(
+                    input, w, bias, self.formats, self.formats, self.prec, mans, exps
+                )
