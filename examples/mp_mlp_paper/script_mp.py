@@ -407,6 +407,7 @@ def accuracy_info(analyser, tol):
     total_count = np.zeros(args.num_layers)
 
     analyser.set_tol(tol)
+    analyser._mp_model(test_loader_post.dataset[0][0]).to(device)
     for l in analyser._mp_model.modules():
         if isinstance(l, qpt.QLinearMP):
             layers_analyser.append(l)
@@ -530,9 +531,6 @@ with open("results/mixed_precision.csv", mode="w", newline="") as mp_file:
             analyser.train(train_loader, test_loader)  # uncomment to train network
         else:
             analyser.load(network_name)  # load network
-        idx = train_dataset.targets == args.cls
-        train_dataset.targets = train_dataset.targets[idx]
-        train_dataset.data = train_dataset.data[idx]
         train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
         print("Collect mixed precision statistics...")
         generate_statistics(analyser=analyser, num_examples=args.num_examples, tol=tol)
