@@ -257,6 +257,7 @@ class QLinearMP(nn.Linear):
         kappa_v_f=kappa_v_mp,
         tol=0.1,
         mode: Literal["dynamic", "collect", "static"] = "dynamic",
+        static_prec: torch.Tensor | None = None,
     ) -> None:
         super(QLinearMP, self).__init__(in_features, out_features, bias)
         self.formats = formats
@@ -274,6 +275,7 @@ class QLinearMP(nn.Linear):
         self.mode = mode
         self.prec_count = torch.zeros(1, self.weight.shape[0]).int()
         self.collect_runs = 0
+        self.static_prec = static_prec
 
         self.reset_quant_function()
 
@@ -304,20 +306,27 @@ class QLinearMP(nn.Linear):
 
         return round.apply
 
-    def set_mode(self, mode: Literal["dynamic", "collect", "static"]):
+    def set_mode(
+        self,
+        mode: Literal["dynamic", "collect", "static"],
+        threshold: float | None = None,
+    ):
         self.mode = mode
         match mode:
             case "collect":
                 self.prec_count = torch.zeros(1, self.weight.shape[0]).int()
                 self.collect_runs = 0
             case "static":
-                self.set_static_prec(0.5)
+                if threshold:
+                    self.set_static_prec(threshold)
+                else:
+                    self.set_static_prec(self.tol)
             case _:
                 pass
 
     def set_static_prec(self, threshold: float):
         self.mode = "static"
-        self.prec_count = torch.where(
+        self.static_prec = torch.where(
             self.prec_count / self.collect_runs > threshold, 2, 1
         ).int()
 
@@ -327,12 +336,12 @@ class QLinearMP(nn.Linear):
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )
         else:
-            if self.mode != "static":
-                w = self.Qw(self.weight)
-                bias = self.Qb(self.bias)
-                mans = torch.tensor([23, 10, 3, 1], dtype=torch.int32, device=w.device)
-                exps = torch.tensor([8, 5, 4, 2], dtype=torch.int32, device=w.device)
+            w = self.Qw(self.weight)
+            bias = self.Qb(self.bias)
+            mans = torch.tensor([23, 10, 3, 1], dtype=torch.int32, device=w.device)
+            exps = torch.tensor([8, 5, 4, 2], dtype=torch.int32, device=w.device)
 
+            if self.mode != "static":
                 prec = (
                     torch.ones(input.shape[0], w.shape[0], device=w.device).int()
                     * self.formats.s
@@ -394,6 +403,7 @@ class QLinearMP(nn.Linear):
 
                     # collect statistics for static precision run
                     if self.mode == "collect":
+                        self.prec_count = self.prec_count.to(prec_fp8_mask.device)
                         self.prec_count += prec_fp8_mask.sum(dim=0, keepdim=True)
                         self.collect_runs += input.shape[0]
 
@@ -423,8 +433,13 @@ class QLinearMP(nn.Linear):
 
                 return out
             else:  # in 'static' mode
-                self.formats.s = self.prec_count.expand(input.shape[0], -1).to(w.device)
-                self.prec = self.formats.s
+                self.count = torch.where(self.static_prec == 2, 1, 0).sum(
+                    tuple(range(len(self.static_prec.shape)))
+                )
+                self.formats.s = self.static_prec.expand(input.shape[0], -1).to(
+                    w.device
+                )
+                self.prec = self.formats.s.detach()
                 return qlinear_mp.apply(
-                    input, w, bias, self.formats, self.formats, self.prec, mans, exps
+                    input, w, bias, self.formats, self.prec, mans, exps
                 )
