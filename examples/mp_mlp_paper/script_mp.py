@@ -407,7 +407,7 @@ def accuracy_info(analyser, tol):
     total_count = np.zeros(args.num_layers)
 
     analyser.set_tol(tol)
-    analyser._mp_model(test_loader_post.dataset[0][0]).to(device)
+    analyser._mp_model(test_loader_post.dataset[0][0].to(device))
     for l in analyser._mp_model.modules():
         if isinstance(l, qpt.QLinearMP):
             layers_analyser.append(l)
