@@ -2,16 +2,17 @@
 Custom precision matrix-matrix multiply lambda vs non-lambda version
 
 Compile example:
-nvcc -O3 custom_matmul.cu -o custom_matmul -lcublas --extended-lambda
+  nvcc -O3 custom_matmul.cu -o custom_matmul -lcublas --extended-lambda
+  (parallel CPU: add -Xcompiler -fopenmp)
 
 Run with:
-./custom_matmul
+  ./custom_matmul
 */
 
 #include <cuda_runtime.h>
-#include <cmath>
-#include <chrono>
-
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "common.h"
 
 // ------------------------------------------------------------------------------------
@@ -19,126 +20,127 @@ Run with:
 
 __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest(uint32_t target, int man_bits)
 {
-    uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-    uint32_t machine_eps = 1 << (22 - man_bits);
-    // tie breaking rule offset
+    const int shift_lo = 8 + man_bits;
+    const int shift_hi = 23 - man_bits;
+    uint32_t down = target << shift_lo >> shift_lo;
+    uint32_t machine_eps = 1u << (22 - man_bits);
     int offset = (down == machine_eps);
     uint32_t add_r = target + machine_eps;
-    // apply the mask
-    // this is the analogue of how you would do round
-    // to nearest integer using the floor function:
-    // round(x) = floor(x + 0.5)
-    return add_r & ~((1 << (23 - man_bits + offset)) - 1);
+    return add_r & ~((1u << (shift_hi + offset)) - 1u);
 }
 
-__host__ __device__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                           uint32_t quantized_num, bool saturate = false)
+__host__ __device__ __forceinline__ uint32_t clip_exponent_with_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+                                                                           uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
-    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) - man_bits + 127;
+    int quantized_exponent_store = (int)(quantized_num << 1u >> 24u);
+    const int exp_half_range = (1 << (exp_bits - 1)) - 2;
+    int min_exponent_store = -exp_half_range - man_bits + 127;
 
-    uint32_t old_sign = old_num >> 31 << 31;
-    // underflow or round to smallest non zero subnormal value
+    uint32_t old_sign = old_num & 0x80000000u;
     if (quantized_exponent_store < min_exponent_store)
     {
         int offset = (quantized_exponent_store == (min_exponent_store - 1));
-        quantized_num += offset * (1u << 23);
-        quantized_num = quantized_num | old_sign;
+        quantized_num = (quantized_num + (offset * (1u << 23))) | old_sign;
         quantized_num = offset * quantized_num;
     }
     return quantized_num;
 }
 
-__host__ __device__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
-                                                              uint32_t quantized_num, bool saturate = false)
+__host__ __device__ __forceinline__ uint32_t clip_exponent_without_subnormals(int exp_bits, int man_bits, uint32_t old_num,
+                                                                              uint32_t quantized_num, bool saturate = false)
 {
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
-    int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
-    int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
+    int quantized_exponent_store = (int)(quantized_num << 1u >> 24u);
+    const int exp_half_range = (1 << (exp_bits - 1)) - 2;
+    int max_exponent_store = exp_half_range + 1 + 127;
+    int min_exponent_store = -exp_half_range + 127;
 
-    uint32_t old_sign = old_num >> 31 << 31;
-    // saturate or overflow
+    uint32_t old_sign = old_num & 0x80000000u;
     if (quantized_exponent_store > max_exponent_store)
     {
         if (saturate)
         {
-            uint32_t max_man =
-                (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
-            uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
-            quantized_num = old_sign | max_num;
+            const int man_shift = 23 - man_bits;
+            uint32_t max_man = ((uint32_t)-1u >> 9u) >> man_shift << man_shift;
+            quantized_num = old_sign | ((uint32_t)max_exponent_store << 23u) | max_man;
         }
         else
         {
-            quantized_num = ((((uint32_t)1 << 31) - 1) ^ (((uint32_t)1 << 23) - 1));
-            quantized_num = quantized_num | old_sign;
+            quantized_num = old_sign | 0x7F7FFFFFu;
         }
-    } // underflow or round to smallest nonzero normal value
+    }
     else if (quantized_exponent_store < min_exponent_store)
     {
-        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
-        quantized_num = offset * (min_exponent_store << 23);
-        quantized_num |= old_sign;
+        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) & (unsigned)((old_num << 9u >> 9u) > (1u << 22u));
+        quantized_num = old_sign | (offset * (uint32_t)(min_exponent_store << 23));
     }
     return quantized_num;
 }
 
-__host__ __device__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
-                                          bool subnormal_support = true,
-                                          bool saturate = false)
+__host__ __device__ __forceinline__ float cast_fp_nearest(float origin_float, int man_bits, int exp_bits,
+                                                          bool subnormal_support = true,
+                                                          bool saturate = false)
 {
-    uint32_t target, quantize_bits;
-    target = FLOAT_TO_BITS(&origin_float);
-    float quantized;
+#if defined(__CUDA_ARCH__)
+    uint32_t target = __float_as_uint(origin_float);
+#else
+    uint32_t target = FLOAT_TO_BITS(&origin_float);
+#endif
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
-    int min_exp = -((1 << (exp_bits - 1)) - 2);
+    if (man_bits >= 23)
+        return origin_float;
+
+    int target_exp = (int)((target & 0x7FFFFFFFu) >> 23u) - 127;
+    const int min_exp = -((1 << (exp_bits - 1)) - 2);
     bool subnormal = (target_exp < min_exp);
-    bool noquantize = (man_bits >= 23);
 
-    if (noquantize)
+    if (subnormal && subnormal_support)
     {
-        quantized = origin_float;
+        int exp_diff = man_bits - (min_exp - target_exp);
+        int not_uflow = exp_diff > -1 || ((exp_diff == -1) & ((target << 9u) > 0u));
+        uint32_t quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
+        quantize_bits = clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+#if defined(__CUDA_ARCH__)
+        return __uint_as_float(quantize_bits);
+#else
+        return BITS_TO_FLOAT(&quantize_bits);
+#endif
     }
-    else
-    {
-        // handle subnormal inputs (if subnormal mode is active)
-        if (subnormal && subnormal_support)
-        {
-            int exp_diff = man_bits - (min_exp - target_exp);
-            int not_uflow = exp_diff > -1 || ((exp_diff == -1) && ((target << 9) > 0));
-            quantize_bits = not_uflow * round_bitwise_nearest(target, exp_diff);
-            quantize_bits =
-                clip_exponent_with_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
-            quantized = BITS_TO_FLOAT(&quantize_bits);
-        }
-        // handle NaN/inf inputs
-        else if (target_exp == 128)
-        {
-            quantized = origin_float;
-        }
-        // normal value range or overflow
-        else
-        {
-            quantize_bits = round_bitwise_nearest(target, man_bits);
-            quantize_bits =
-                clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
-            quantized = BITS_TO_FLOAT(&quantize_bits);
-        }
-    }
+    if (target_exp == 128)
+        return origin_float;
 
-    return quantized;
+    uint32_t quantize_bits = round_bitwise_nearest(target, man_bits);
+    quantize_bits = clip_exponent_without_subnormals(exp_bits, man_bits, target, quantize_bits, saturate);
+#if defined(__CUDA_ARCH__)
+    return __uint_as_float(quantize_bits);
+#else
+    return BITS_TO_FLOAT(&quantize_bits);
+#endif
 }
+
+// Templated quantizer for compile-time precision (enables constant propagation in kernels).
+template <int man_bits, int exp_bits, bool subnormals, bool saturate>
+struct QuantizeFn
+{
+    __device__ __forceinline__ float operator()(float x) const
+    {
+        return cast_fp_nearest(x, man_bits, exp_bits, subnormals, saturate);
+    }
+};
+
 // ------------------------------------------------------------------------------------
 // CPU Kernels
 template <class Qadd, class Qmul>
 void mm_cpu_kernel1(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
 {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     // naive version
     for (int i = 0; i < M; ++i)
         for (int j = 0; j < N; ++j)
@@ -153,16 +155,73 @@ void mm_cpu_kernel1(float *a, float *b, float *c, int M, int K, int N, Qadd quan
 template <class Qadd, class Qmul>
 void mm_cpu_kernel2(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
 {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     // cache-aware version
     for (int i = 0; i < M * N; ++i)
         c[i] = 0.f;
 
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     for (int i = 0; i < M; ++i)
         for (int k = 0; k < K; ++k)
             for (int j = 0; j < N; ++j)
             {
                 c[i * N + j] = quant_add(c[i * N + j] + quant_mul(a[i * K + k] * b[k * N + j]));
             }
+}
+
+template <class Qadd, class Qmul>
+void mm_cpu_kernel3(float *a, float *b, float *c, int M, int K, int N, Qadd quant_add, Qmul quant_mul)
+{
+    constexpr int TI = 16;
+    constexpr int TJ = 16;
+    constexpr int TK = 16;
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (int i0 = 0; i0 < M; i0 += TI)
+    {
+        int ti = (i0 + TI <= M) ? TI : (M - i0);
+        for (int j0 = 0; j0 < N; j0 += TJ)
+        {
+            int tj = (j0 + TJ <= N) ? TJ : (N - j0);
+
+            float c_tile[TI * TJ];
+            for (int i = 0; i < ti; ++i)
+                for (int j = 0; j < tj; ++j)
+                    c_tile[i * TJ + j] = 0.f;
+
+            for (int k0 = 0; k0 < K; k0 += TK)
+            {
+                int tk = (k0 + TK <= K) ? TK : (K - k0);
+
+                float a_tile[TI * TK];
+                float b_tile[TK * TJ];
+                for (int i = 0; i < ti; ++i)
+                    for (int k = 0; k < tk; ++k)
+                        a_tile[i * TK + k] = a[(i0 + i) * K + (k0 + k)];
+                for (int k = 0; k < tk; ++k)
+                    for (int j = 0; j < tj; ++j)
+                        b_tile[k * TJ + j] = b[(k0 + k) * N + (j0 + j)];
+
+                for (int i = 0; i < ti; ++i)
+                    for (int k = 0; k < tk; ++k)
+                    {
+                        float a_ik = a_tile[i * TK + k];
+                        for (int j = 0; j < tj; ++j)
+                            c_tile[i * TJ + j] = quant_add(c_tile[i * TJ + j] + quant_mul(a_ik * b_tile[k * TJ + j]));
+                    }
+            }
+
+            for (int i = 0; i < ti; ++i)
+                for (int j = 0; j < tj; ++j)
+                    c[(i0 + i) * N + (j0 + j)] = c_tile[i * TJ + j];
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------------
@@ -185,38 +244,29 @@ __global__ void mm_kernel1(float *__restrict__ a, float *__restrict__ b,
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-    float inner_sum = 0.0f;
-    float outer_sum = 0.0f;
-    int blockFactor = 1;
-    int currFactor = 0;
+    float tmp = 0.0f;
 
     // sweep tile across matrix
     for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
     {
-        // load in elements for this tile
+        // load in elements for this tile (__ldg for read-only cache)
         s_a[ty * blockDim.x + tx] =
-            (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
+            (row < M && i + tx < K) ? __ldg(&a[row * K + i + tx]) : 0.0f;
         s_b[ty * blockDim.x + tx] =
-            (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
+            (col < N && i + ty < K) ? __ldg(&b[i * N + ty * N + col]) : 0.0f;
 
         // wait for both tiles to be loaded in before doing computation
         __syncthreads();
 
         // do matrix multiplication on the small matrices
+#pragma unroll
         for (int j = 0; j < blockDim.x; j++)
         {
-            inner_sum = cast_fp_nearest(inner_sum + cast_fp_nearest(s_a[ty * blockDim.x + j] *
-                                                                        s_b[j * blockDim.x + tx],
-                                                                    man_mul, exp_mul, subnormals,
-                                                                    saturate),
-                                        man_add, exp_add, subnormals, saturate);
-        }
-        currFactor++;
-        currFactor %= blockFactor;
-        if (currFactor == 0)
-        {
-            outer_sum = cast_fp_nearest(outer_sum + inner_sum, man_add, exp_add, subnormals, saturate);
-            inner_sum = 0.0f;
+            tmp = cast_fp_nearest(tmp + cast_fp_nearest(s_a[ty * blockDim.x + j] *
+                                                            s_b[j * blockDim.x + tx],
+                                                        man_mul, exp_mul, subnormals,
+                                                        saturate),
+                                  man_add, exp_add, subnormals, saturate);
         }
 
         // wait for all threads to finish using current tiles
@@ -226,61 +276,63 @@ __global__ void mm_kernel1(float *__restrict__ a, float *__restrict__ b,
 
     // write back results
     if (row < M && col < N)
-        c[row * N + col] = outer_sum;
+        c[row * N + col] = tmp;
 }
 
-template <size_t BLOCK_FACTOR, size_t SHMEM_SIZE, class Qadd, class Qmul>
+template <ssize_t SHMEM_SIZE, class Qadd, class Qmul>
 __global__ void mm_kernel2(float *__restrict__ a, float *__restrict__ b,
                            float *__restrict__ c, int M, int K, int N,
                            Qadd quant_add, Qmul quant_mul)
 {
 
-    // declare shared memory matrices for A and B matrices
-    __shared__ float s_a[SHMEM_SIZE];
-    __shared__ float s_b[SHMEM_SIZE];
+    // double-buffered shared memory
+    __shared__ float s_a[2][SHMEM_SIZE];
+    __shared__ float s_b[2][SHMEM_SIZE];
 
     int tx = threadIdx.x;
     int ty = threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-    float inner_sum = 0.0f;
-    float outer_sum = 0.0f;
-    int currFactor = 0;
+    float tmp = 0.0f;
 
-    // sweep tile across matrix
-    for (int i = 0; i < K + blockDim.x - K % blockDim.x; i += blockDim.x)
+    const int numTiles = (K + blockDim.x - 1) / blockDim.x;
+
+    // load first tile into buffer 0
+    s_a[0][ty * blockDim.x + tx] =
+        (row < M && tx < K) ? __ldg(&a[row * K + tx]) : 0.0f;
+    s_b[0][ty * blockDim.x + tx] =
+        (col < N && ty < K) ? __ldg(&b[ty * N + col]) : 0.0f;
+
+    for (int i = 0; i < numTiles; ++i)
     {
-        // load in elements for this tile
-        s_a[ty * blockDim.x + tx] =
-            (row < M && i + tx < K) ? a[row * K + i + tx] : 0.0f;
-        s_b[ty * blockDim.x + tx] =
-            (col < N && i + ty < K) ? b[i * N + ty * N + col] : 0.0f;
-
-        // wait for both tiles to be loaded in before doing computation
         __syncthreads();
 
-        // do matrix multiplication on the small matrices
+        float *cur_a = s_a[i % 2];
+        float *cur_b = s_b[i % 2];
+
+        // do matrix multiplication on the current tile
+#pragma unroll
         for (int j = 0; j < blockDim.x; j++)
         {
-            inner_sum = quant_add(inner_sum + quant_mul(s_a[ty * blockDim.x + j] * s_b[j * blockDim.x + tx]));
-        }
-        currFactor++;
-        currFactor %= BLOCK_FACTOR;
-        if (currFactor == 0)
-        {
-            outer_sum = quant_add(outer_sum + inner_sum);
-            inner_sum = 0.0f;
+            tmp = quant_add(tmp + quant_mul(cur_a[ty * blockDim.x + j] * cur_b[j * blockDim.x + tx]));
         }
 
-        // wait for all threads to finish using current tiles
-        // before loading in new ones
+        // load next tile into the other buffer
+        if (i + 1 < numTiles)
+        {
+            int nextK = (i + 1) * blockDim.x;
+            s_a[(i + 1) % 2][ty * blockDim.x + tx] =
+                (row < M && nextK + tx < K) ? __ldg(&a[row * K + nextK + tx]) : 0.0f;
+            s_b[(i + 1) % 2][ty * blockDim.x + tx] =
+                (col < N && nextK + ty < K) ? __ldg(&b[nextK * N + ty * N + col]) : 0.0f;
+        }
         __syncthreads();
     }
 
     // write back results
     if (row < M && col < N)
-        c[row * N + col] = outer_sum;
+        c[row * N + col] = tmp;
 }
 
 template <size_t BLOCKSIZE, class Qadd, class Qmul>
@@ -293,10 +345,9 @@ __global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
     const int cRow = blockIdx.x;
     const int cCol = blockIdx.y;
 
-    // allocate buffer for current block in fast shared mem
-    // shared mem is shared between all threads in a block
-    __shared__ float As[BLOCKSIZE * BLOCKSIZE];
-    __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
+    // double-buffered shared memory
+    __shared__ float As[2][BLOCKSIZE * BLOCKSIZE];
+    __shared__ float Bs[2][BLOCKSIZE * BLOCKSIZE];
 
     // the inner row & col that we're accessing in this thread
     const int threadCol = threadIdx.x % BLOCKSIZE;
@@ -312,27 +363,36 @@ __global__ void mm_kernel3(float *__restrict__ a, float *__restrict__ b,
     int cId = cCol * BLOCKSIZE + threadCol;
     int rId = cRow * BLOCKSIZE + threadRow;
 
-    for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE)
-    {
-        // Have each thread load one of the elements in A & B
-        // Make the threadCol (=threadIdx.x) the consecutive index
-        // to allow global memory access coalescing
-        As[threadRow * BLOCKSIZE + threadCol] = (rId < M && bkIdx + threadCol < K) ? a[threadRow * K + threadCol] : 0.0f;
-        Bs[threadRow * BLOCKSIZE + threadCol] = (bkIdx + threadRow < K && cId < N) ? b[threadRow * N + threadCol] : 0.0f;
+    const int numTiles = (K + BLOCKSIZE - 1) / BLOCKSIZE;
 
-        // block threads in this block until cache is fully populated
+    // load first tile into buffer 0
+    As[0][threadRow * BLOCKSIZE + threadCol] = (rId < M && threadCol < K) ? __ldg(&a[threadRow * K + threadCol]) : 0.0f;
+    Bs[0][threadRow * BLOCKSIZE + threadCol] = (threadRow < K && cId < N) ? __ldg(&b[threadRow * N + threadCol]) : 0.0f;
+
+    for (int t = 0; t < numTiles; ++t)
+    {
         __syncthreads();
-        a += BLOCKSIZE;
-        b += BLOCKSIZE * N;
+
+        float *curAs = As[t % 2];
+        float *curBs = Bs[t % 2];
 
         // execute the dotproduct on the currently cached block
+#pragma unroll
         for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
         {
-            tmp = quant_add(tmp + quant_mul(As[threadRow * BLOCKSIZE + dotIdx] *
-                                            Bs[dotIdx * BLOCKSIZE + threadCol]));
+            tmp = quant_add(tmp + quant_mul(curAs[threadRow * BLOCKSIZE + dotIdx] *
+                                            curBs[dotIdx * BLOCKSIZE + threadCol]));
         }
-        // need to sync again at the end, to avoid faster threads
-        // fetching the next block into the cache before slower threads are done
+
+        // load next tile into the other buffer (from a+BLOCKSIZE, b+BLOCKSIZE*N)
+        if (t + 1 < numTiles)
+        {
+            int nextK = (t + 1) * BLOCKSIZE;
+            As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] = (rId < M && nextK + threadCol < K) ? __ldg(&a[BLOCKSIZE + threadRow * K + threadCol]) : 0.0f;
+            Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] = (nextK + threadRow < K && cId < N) ? __ldg(&b[BLOCKSIZE * N + threadRow * N + threadCol]) : 0.0f;
+        }
+        a += BLOCKSIZE;
+        b += BLOCKSIZE * N;
         __syncthreads();
     }
     if (rId < M && cId < N)
@@ -359,7 +419,7 @@ __global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
     const int threadCol = threadIdx.x % BN;
     const int threadRow = threadIdx.x / BN;
 
-    // allocate space for current blocktile in SMEM
+    // Single-buffer SMEM (double-buffering + BK>8 cost too much occupancy on most GPUs)
     __shared__ float As[BM * BK];
     __shared__ float Bs[BK * BN];
 
@@ -368,38 +428,27 @@ __global__ void mm_kernel4(float *__restrict__ a, float *__restrict__ b,
     b += cCol * BN;
     c += cRow * BM * N + cCol * BN;
 
-    // TODO: adjust this to each thread to load multiple entries and
-    // better exploit the cache sizes
-    // assert(BM * BK == blockDim.x);
-    // assert(BN * BK == blockDim.x);
-    const uint innerColA = threadIdx.x % BK; // warp-level GMEM coalescing
+    const uint innerColA = threadIdx.x % BK;
     const uint innerRowA = threadIdx.x / BK;
-    const uint innerColB = threadIdx.x % BN; // warp-level GMEM coalescing
+    const uint innerColB = threadIdx.x % BN;
     const uint innerRowB = threadIdx.x / BN;
 
-    // allocate thread-local cache for results in registerfile
     float threadResults[TM] = {0.0};
 
     int rId = cRow * BM + threadRow;
     int cId = cCol * BN + threadCol;
 
-    // outer loop over block tiles
     for (uint bkIdx = 0; bkIdx < K; bkIdx += BK)
     {
-        // populate the SMEM caches
-        As[innerRowA * BK + innerColA] = (rId < M && bkIdx + innerColA < K) ? a[innerRowA * K + innerColA] : 0.0f;
-        Bs[innerRowB * BN + innerColB] = (bkIdx + innerRowB < K && cId < N) ? b[innerRowB * N + innerColB] : 0.0f;
+        As[innerRowA * BK + innerColA] = (rId < M && bkIdx + innerColA < K) ? __ldg(&a[innerRowA * K + innerColA]) : 0.0f;
+        Bs[innerRowB * BN + innerColB] = (bkIdx + innerRowB < K && cId < N) ? __ldg(&b[innerRowB * N + innerColB]) : 0.0f;
         __syncthreads();
 
-        // advance blocktiles
         a += BK;
         b += BK * N;
 
-        // calculate per-thread results
         for (uint dotIdx = 0; dotIdx < BK; ++dotIdx)
         {
-            // we make the dot product loop the outside loop, which facilitates
-            // reuse of the Bs entry, which we can later cache in a tmp var.
             float tmpB = Bs[dotIdx * BN + threadCol];
             for (uint resIdx = 0; resIdx < TM; ++resIdx)
             {
@@ -438,13 +487,22 @@ void mm_cpu2(float *a, float *b, float *c, int M, int K, int N,
                    { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
+void mm_cpu3(float *a, float *b, float *c, int M, int K, int N,
+             int man_add, int exp_add, int man_mul, int exp_mul,
+             bool subnormals, bool saturate)
+{
+    mm_cpu_kernel3(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate](float x)
+                   { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate](float x)
+                   { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
+}
+
 void mm_cuda1(float *a, float *b, float *c, int M, int K, int N,
               int man_add, int exp_add, int man_mul, int exp_mul,
               bool subnormals, bool saturate)
 {
 
-    constexpr size_t THREADS_X{8U};
-    constexpr size_t THREADS_Y{8U};
+    constexpr size_t THREADS_X{16U};
+    constexpr size_t THREADS_Y{16U};
     constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
     dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
     dim3 const block_dim{
@@ -459,14 +517,14 @@ void mm_cuda2(float *a, float *b, float *c, int M, int K, int N,
               int man_add, int exp_add, int man_mul, int exp_mul,
               bool subnormals, bool saturate)
 {
-    constexpr size_t THREADS_X{8U};
-    constexpr size_t THREADS_Y{8U};
+    constexpr size_t THREADS_X{16U};
+    constexpr size_t THREADS_Y{16U};
     constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
     dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
     dim3 const block_dim{
         (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
         (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-    mm_kernel2<1u, SHMEM_SIZE>
+    mm_kernel2<SHMEM_SIZE>
         <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
                                     { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
                                     { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
@@ -477,12 +535,12 @@ void mm_cuda3(float *a, float *b, float *c, int M, int K, int N,
               bool subnormals, bool saturate)
 {
 
-    dim3 const thread_dim{1024U, 1U, 1U};
-    dim3 const block_dim{(uint)ceil_div(M, 32), (uint)ceil_div(N, 32), 1U};
-    mm_kernel3<32>
+    dim3 const thread_dim{256U, 1U, 1U};
+    dim3 const block_dim{(uint)ceil_div(M, 16), (uint)ceil_div(N, 16), 1U};
+    mm_kernel3<16>
         <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+                                    { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
+                                    { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
 void mm_cuda4(float *a, float *b, float *c, int M, int K, int N,
@@ -496,8 +554,8 @@ void mm_cuda4(float *a, float *b, float *c, int M, int K, int N,
     dim3 const block_dim((uint)ceil_div(N, BN), (uint)ceil_div(M, BM));
     dim3 const thread_dim((BM * BN) / TM);
     mm_kernel4<BM, BN, BK, TM><<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_add, exp_add, subnormals, saturate] __device__(float x)
-                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); });
+                                                          { return cast_fp_nearest(x, man_add, exp_add, subnormals, saturate); }, [man_mul, exp_mul, subnormals, saturate] __device__(float x)
+                                                          { return cast_fp_nearest(x, man_mul, exp_mul, subnormals, saturate); });
 }
 
 int main(int argc, const char **argv)
@@ -528,19 +586,20 @@ int main(int argc, const char **argv)
     printf("All results match. Starting benchmarks...\n\n");
 
     printf("CPU benchmarking...\n");
-    int repeat_times = 1;
+    int repeat_times = 10;
     float elapsed_time1 = benchmark_cpu_kernel(repeat_times, mm_cpu1, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
     float elapsed_time2 = benchmark_cpu_kernel(repeat_times, mm_cpu2, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
-    printf("time mm_cpu1 %.4f ms | time mm_cpu2 %.4f ms\n", elapsed_time1, elapsed_time2);
+    float elapsed_time3 = benchmark_cpu_kernel(repeat_times, mm_cpu3, a, b, c, M, K, N, 10, 5, 10, 5, true, true);
+    printf("time mm_cpu1 %.4f ms | time mm_cpu2 %.4f ms | time mm_cpu3 %.4f ms\n", elapsed_time1, elapsed_time2, elapsed_time3);
 
     printf("CUDA benchmarking...\n");
     repeat_times = 1000;
-    float elapsed_time3 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time4 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
-    float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time4 = benchmark_gpu_kernel(repeat_times, mm_cuda1, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time5 = benchmark_gpu_kernel(repeat_times, mm_cuda2, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time6 = benchmark_gpu_kernel(repeat_times, mm_cuda3, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
+    float elapsed_time7 = benchmark_gpu_kernel(repeat_times, mm_cuda4, d_a, d_b, d_c, M, K, N, 10, 5, 10, 5, true, true);
 
-    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda4 %.4f ms\n", elapsed_time3, elapsed_time4, elapsed_time5, elapsed_time6);
+    printf("time mm_cuda1 %.4f ms | time mm_cuda2 %.4f ms | time mm_cuda3 %.4f ms | time mm_cuda4 %.4f ms\n", elapsed_time4, elapsed_time5, elapsed_time6, elapsed_time7);
 
     // free memory
     free(a);
