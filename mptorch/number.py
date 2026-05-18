@@ -115,12 +115,6 @@ class FixedPoint(Number):
     def __init__(self, wl: int, fl: int, clamp: bool = True, symmetric: bool = False):
         assert wl > 0, "invalid bits for word length: {}".format(wl)
         assert fl > 0, "invalid bits for fractional length: {}".format(fl)
-        assert type(symmetric) == bool, "invalid type for clamping choice: {}".format(
-            type(clamp)
-        )
-        assert type(symmetric) == bool, "invalid type for symmetric: {}".format(
-            type(symmetric)
-        )
         self.wl = wl
         self.fl = fl
         self.clamp = clamp
