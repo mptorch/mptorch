@@ -1,7 +1,7 @@
+from mptorch.number import RoundMode
 import mptorch
 import mptorch.quant as qt
 import torch
-import torch.nn as nn
 from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
@@ -10,8 +10,8 @@ from tests.markers import available_devices
 @pytest.fixture
 def signal_q():
     man, exp = 22, 8
-    return lambda x: qt.superfp_quantize(
-        x, exp=exp, man=man, binades=(1, 1), rounding="RNE", saturate=False
+    return lambda x: qt.superfp_quantize_v2(
+        x, exp=exp, man=man, binades=(1, 1), saturate=False, rounding_mode=RoundMode.RNE
     )
 
 

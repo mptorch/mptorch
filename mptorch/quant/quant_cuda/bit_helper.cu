@@ -29,6 +29,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_stochastic(uint32_t t
 // rounds to nearest, ties to even
 __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t tie = 1 << (22 - man_bits);
   uint32_t add_r = target + tie;
@@ -49,6 +50,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_even(uint32_t
 // rounds to nearest, ties to away
 __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
 {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t tie = 1 << (22 - man_bits);
   uint32_t add_r = target + tie;
@@ -58,6 +60,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_nearest_away(uint32_t
 // rounds up, towards positive infinity
 __host__ __device__ __forceinline__ uint32_t round_bitwise_up(uint32_t target, int man_bits)
 {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t sign = target >> 31;
   uint32_t add_r = target + (sign ? 0 : mask);
@@ -67,6 +70,7 @@ __host__ __device__ __forceinline__ uint32_t round_bitwise_up(uint32_t target, i
 // rounds down, towards negative infinity
 __host__ __device__ __forceinline__ uint32_t round_bitwise_down(uint32_t target, int man_bits)
 {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
   uint32_t sign = target >> 31;
   uint32_t add_r = target + (sign ? mask : 0);

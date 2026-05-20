@@ -1,6 +1,6 @@
 import torch
 from mptorch.quant import superfp_quantize_v2
-from mptorch.number import RoundMode, SubnormalsMode
+from mptorch.number import RoundMode
 import pytest
 from tests.markers import available_devices
 
@@ -57,12 +57,14 @@ def test_binary6p3b4(test_data, device, mode):
     x = test_data[0].to(device)
     expected_saturate = test_data[1].to(device)
     expected_overflow = test_data[2].to(device)
-    quant_binary6p3b4_saturate = lambda x: superfp_quantize_v2(
-        x, 3, 2, (4, 0), saturate=True, rounding_mode=mode, bias=7
-    )
-    quant_binary6p3b4_overflow = lambda x: superfp_quantize_v2(
-        x, 3, 2, (4, 0), saturate=False, rounding_mode=mode, bias=7
-    )
+    def quant_binary6p3b4_saturate(x):
+        return superfp_quantize_v2(
+            x, 3, 2, (4, 0), saturate=True, rounding_mode=mode, bias=7
+        )
+    def quant_binary6p3b4_overflow(x):
+        return superfp_quantize_v2(
+            x, 3, 2, (4, 0), saturate=False, rounding_mode=mode, bias=7
+        )
 
     actual_saturate = quant_binary6p3b4_saturate(x)
     actual_overflow = quant_binary6p3b4_overflow(x)

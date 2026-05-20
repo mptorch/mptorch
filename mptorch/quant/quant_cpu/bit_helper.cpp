@@ -27,62 +27,51 @@ uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob,
 
 // rounds to nearest, ties to even
 uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits) {
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
-  // tie breaking rule offset
-  int offset = (down == machine_eps);
-  uint32_t add_r = target + machine_eps;
-  int shift_value = man_bits == 0
-                        ? 1 << (23 - man_bits + offset)
-                        : 1 << std::min<int>((23 - man_bits + offset), 23);
-  return (add_r & ~(shift_value - 1)) +
-         offset * (man_bits == 0) * (machine_eps << 1);
+  if (man_bits >= 23) return target;
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  uint32_t tie = 1 << (22 - man_bits);
+  uint32_t add_r = target + tie;
+  uint32_t quantized = add_r & ~mask;
+  uint32_t is_tie = (target & mask) == tie;
+  uint32_t odd = (man_bits == 0) ? 0 : 1; // if man_bits == 0, implicit bit is 1 (odd) so we always round up (carry to exponent)
+  return quantized & ~((is_tie & odd) << (23 - man_bits));
 }
 
 // rounds to nearest, ties to even (man_bits = 0 special case)
 uint32_t round_bitwise_nearest_even(uint32_t target) {
-  uint32_t man_val = 0x007FFFFF & target;
-  // tie breaking rule
-  int midpoint = (man_val == 0x00400000);
-  uint32_t add_r = target + 0x00400000;
-  int target_exp = (add_r << 1 >> 1 >> 23) - 127;
-  return (add_r & ~0x007FFFFF) - 0x00800000 * (target_exp % 2 != 0) * midpoint;
+  uint32_t tie = 0x00400000;
+  uint32_t quantized = (target + tie) & ~0x007FFFFF;
+  uint32_t is_tie = (target & 0x007FFFFF) == tie;
+  // If it's a tie and the resulting exponent LSB is 0 (making unbiased exponent odd), 
+  // we round down by subtracting 0x800000 from the carry-over.
+  return quantized - ((is_tie << 23) & ~quantized);
 }
 
 // rounds to nearest, ties to away
 uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits) {
-  uint32_t down = target << (8 + man_bits) >> (8 + man_bits);
-  uint32_t machine_eps = 0x7FFFFFFF & (1 << (22 - man_bits));
-  // tie breaking rule offset
-  int offset = (down == machine_eps);
-  uint32_t add_r = target + machine_eps;
-  int shift_value = man_bits == 0
-                        ? 1 << (23 - man_bits + offset)
-                        : 1 << std::min<int>((23 - man_bits + offset), 23);
-  return (add_r & ~(shift_value - 1)) +
-         offset * (man_bits > -1) * (machine_eps << 1);
+  if (man_bits >= 23) return target;
+  uint32_t mask = (1 << (23 - man_bits)) - 1;
+  uint32_t tie = 1 << (22 - man_bits);
+  uint32_t add_r = target + tie;
+  return add_r & ~mask;
 }
 
 // rounds up, towards positive infinity
 uint32_t round_bitwise_up(uint32_t target, int man_bits) {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
-  uint32_t nexact = ((target << 1 >> 1) & mask) > 0u ? 1u : 0u;
   uint32_t sign = target >> 31;
-  uint32_t rand_prob = (nexact & ~sign) << (23 - man_bits);
-  uint32_t add_r = target + rand_prob;
-  uint32_t quantized = add_r & ~mask;
-  return quantized;
+  uint32_t add_r = target + (sign ? 0 : mask);
+  return add_r & ~mask;
 }
 
 // rounds down, towards negative infinity
 uint32_t round_bitwise_down(uint32_t target, int man_bits) {
+  if (man_bits >= 23) return target;
   uint32_t mask = (1 << (23 - man_bits)) - 1;
-  uint32_t nexact = ((target << 1 >> 1) & mask) > 0u ? 1u : 0u;
   uint32_t sign = target >> 31;
-  uint32_t rand_prob = (nexact & sign) << (23 - man_bits);
-  uint32_t add_r = target + rand_prob;
-  uint32_t quantized = add_r & ~mask;
-  return quantized;
+  uint32_t add_r = target + (sign ? mask : 0);
+  return add_r & ~mask;
 }
 
 // clips the exponent of a binary8 float value

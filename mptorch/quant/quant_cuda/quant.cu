@@ -150,9 +150,51 @@ Tensor float_quantize_nearest_even_cuda(Tensor a,
   int blockNums = (size + blockSize - 1) / blockSize;
   SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
 
-  float_kernel_nearest_even<<<blockNums, blockSize>>>(
-      a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits,
-      saturate, subnormal_mode);
+  if (a.scalar_type() == kFloat) {
+      float_kernel_nearest_even<<<blockNums, blockSize>>>(
+          a.data_ptr<float>(), o.data_ptr<float>(), size, man_bits, exp_bits,
+          saturate, subnormal_mode);
+  } else if (a.scalar_type() == kHalf) {
+      int packed_size = size / 8;
+      int packed_blockNums = (packed_size + blockSize - 1) / blockSize;
+      
+      if (packed_size > 0) {
+          fp16_kernel_nearest_even_packed<<<packed_blockNums, blockSize>>>(
+              reinterpret_cast<const float4*>(a.data_ptr<at::Half>()), 
+              reinterpret_cast<float4*>(o.data_ptr<at::Half>()), 
+              packed_size, man_bits, exp_bits);
+      }
+      
+      int remainder_size = size % 8;
+      if (remainder_size > 0) {
+          int offset = packed_size * 8;
+          fp16_kernel_nearest_even_scalar<<<1, remainder_size>>>(
+              reinterpret_cast<const __half*>(a.data_ptr<at::Half>() + offset), 
+              reinterpret_cast<__half*>(o.data_ptr<at::Half>() + offset), 
+              remainder_size, man_bits, exp_bits);
+      }
+  } else if (a.scalar_type() == kBFloat16) {
+      int packed_size = size / 8;
+      int packed_blockNums = (packed_size + blockSize - 1) / blockSize;
+      
+      if (packed_size > 0) {
+          bfloat16_kernel_nearest_even_packed<<<packed_blockNums, blockSize>>>(
+              reinterpret_cast<const float4*>(a.data_ptr<at::BFloat16>()), 
+              reinterpret_cast<float4*>(o.data_ptr<at::BFloat16>()), 
+              packed_size, man_bits, exp_bits);
+      }
+      
+      int remainder_size = size % 8;
+      if (remainder_size > 0) {
+          int offset = packed_size * 8;
+          bfloat16_kernel_nearest_even_scalar<<<1, remainder_size>>>(
+              reinterpret_cast<const __nv_bfloat16*>(a.data_ptr<at::BFloat16>() + offset), 
+              reinterpret_cast<__nv_bfloat16*>(o.data_ptr<at::BFloat16>() + offset), 
+              remainder_size, man_bits, exp_bits);
+      }
+  } else {
+      TORCH_CHECK(false, "Unsupported scalar type for float_quantize_nearest_even_cuda");
+  }
   return o;
 }
 
