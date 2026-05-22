@@ -6,11 +6,11 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 
-__global__ void fp16_kernel_nearest_even_packed(const float4* __restrict__ a_packed, float4* __restrict__ o_packed, int packed_size, int man_bits, int exp_bits);
-__global__ void fp16_kernel_nearest_even_scalar(const __half* __restrict__ a, __half* __restrict__ o, int size, int man_bits, int exp_bits);
+__global__ void fp16_kernel_nearest_even_packed(const float4* __restrict__ a_packed, float4* __restrict__ o_packed, int packed_size, int man_bits, int exp_bits, bool saturate, SubnormalsMode subnormals);
+__global__ void fp16_kernel_nearest_even_scalar(const __half* __restrict__ a, __half* __restrict__ o, int size, int man_bits, int exp_bits, bool saturate, SubnormalsMode subnormals);
 
-__global__ void bfloat16_kernel_nearest_even_packed(const float4* __restrict__ a_packed, float4* __restrict__ o_packed, int packed_size, int man_bits, int exp_bits);
-__global__ void bfloat16_kernel_nearest_even_scalar(const __nv_bfloat16* __restrict__ a, __nv_bfloat16* __restrict__ o, int size, int man_bits, int exp_bits);
+__global__ void bfloat16_kernel_nearest_even_packed(const float4* __restrict__ a_packed, float4* __restrict__ o_packed, int packed_size, int man_bits, int exp_bits, bool saturate, SubnormalsMode subnormals);
+__global__ void bfloat16_kernel_nearest_even_scalar(const __nv_bfloat16* __restrict__ a, __nv_bfloat16* __restrict__ o, int size, int man_bits, int exp_bits, bool saturate, SubnormalsMode subnormals);
 
 __global__ void seed_init(curandState_t *state);
 

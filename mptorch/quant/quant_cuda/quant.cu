@@ -162,7 +162,7 @@ Tensor float_quantize_nearest_even_cuda(Tensor a,
           fp16_kernel_nearest_even_packed<<<packed_blockNums, blockSize>>>(
               reinterpret_cast<const float4*>(a.data_ptr<at::Half>()), 
               reinterpret_cast<float4*>(o.data_ptr<at::Half>()), 
-              packed_size, man_bits, exp_bits);
+              packed_size, man_bits, exp_bits, saturate, subnormal_mode);
       }
       
       int remainder_size = size % 8;
@@ -171,7 +171,7 @@ Tensor float_quantize_nearest_even_cuda(Tensor a,
           fp16_kernel_nearest_even_scalar<<<1, remainder_size>>>(
               reinterpret_cast<const __half*>(a.data_ptr<at::Half>() + offset), 
               reinterpret_cast<__half*>(o.data_ptr<at::Half>() + offset), 
-              remainder_size, man_bits, exp_bits);
+              remainder_size, man_bits, exp_bits, saturate, subnormal_mode);
       }
   } else if (a.scalar_type() == kBFloat16) {
       int packed_size = size / 8;
@@ -181,7 +181,7 @@ Tensor float_quantize_nearest_even_cuda(Tensor a,
           bfloat16_kernel_nearest_even_packed<<<packed_blockNums, blockSize>>>(
               reinterpret_cast<const float4*>(a.data_ptr<at::BFloat16>()), 
               reinterpret_cast<float4*>(o.data_ptr<at::BFloat16>()), 
-              packed_size, man_bits, exp_bits);
+              packed_size, man_bits, exp_bits, saturate, subnormal_mode);
       }
       
       int remainder_size = size % 8;
@@ -190,7 +190,7 @@ Tensor float_quantize_nearest_even_cuda(Tensor a,
           bfloat16_kernel_nearest_even_scalar<<<1, remainder_size>>>(
               reinterpret_cast<const __nv_bfloat16*>(a.data_ptr<at::BFloat16>() + offset), 
               reinterpret_cast<__nv_bfloat16*>(o.data_ptr<at::BFloat16>() + offset), 
-              remainder_size, man_bits, exp_bits);
+              remainder_size, man_bits, exp_bits, saturate, subnormal_mode);
       }
   } else {
       TORCH_CHECK(false, "Unsupported scalar type for float_quantize_nearest_even_cuda");
