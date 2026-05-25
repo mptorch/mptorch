@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mm_ops.h"
 #include "modes.h"
 #include <ATen/ATen.h>
 #include <cublas_v2.h>
@@ -144,23 +145,27 @@ Tensor superfp_quantize_nearest_cuda(Tensor a, int man_bits, int exp_bits,
  * quantize a FloatTensor into a low bit-width floating point Tensor
  * with [man_bits] mantissa bits and [exp_bits] exponent bits.
  **/
-Tensor fp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
-                        bool saturate, RoundMode round_mode, SubnormalsMode subnormals);
+Tensor fp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias,
+                        int prng_bits, bool saturate, RoundMode round_mode,
+                        SubnormalsMode subnormals);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point BinaryK Tensor
  * with a [K] bit wordlength and [P] bits of precision.
  **/
-Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits, bool is_signed,
-                             RoundMode round_mode, SaturationMode saturation_mode,
+Tensor binaryK_quantize_cuda(Tensor a, int K, int P, int bias, int prng_bits,
+                             bool is_signed, RoundMode round_mode,
+                             SaturationMode saturation_mode,
                              SubnormalsMode subnormals);
 
 /**
  * quantize a FloatTensor into a low bit-width floating point SuperFloat Tensor
- * with [man_bits] mantissa bits and [exp_bits] exponent bits, [binades_l], and [binades_h] lower and upper binades.
+ * with [man_bits] mantissa bits and [exp_bits] exponent bits, [binades_l], and
+ * [binades_h] lower and upper binades.
  **/
-Tensor superfp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias, int prng_bits,
-                             int binades_l, int binades_h, bool saturate, RoundMode round_mode);
+Tensor superfp_quantize_cuda(Tensor a, int man_bits, int exp_bits, int bias,
+                             int prng_bits, int binades_l, int binades_h,
+                             bool saturate, RoundMode round_mode);
 
 /**
  * perform matrix multiplication with quantized addition and multiplication
@@ -409,26 +414,20 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
  * about the I/O matrix datatypes and compute precision
  * used during the CUBLAS (B)MM calls.
  */
-struct CUBLASGemmConfig
-{
-    cudaDataType matrix_a;
-    cudaDataType matrix_b;
-    cudaDataType matrix_c;
-    cudaDataType scalar;
-    cublasComputeType_t compute;
+struct CUBLASGemmConfig {
+  cudaDataType matrix_a;
+  cudaDataType matrix_b;
+  cudaDataType matrix_c;
+  cudaDataType scalar;
+  cublasComputeType_t compute;
 
-    void summary() const;
+  void summary() const;
 };
 
 /**
  * Possible I/O matrix datatypes (binary32, binary16 and bfloat16).
  */
-enum class CUBLASMatrixType
-{
-    kF32,
-    kF16,
-    kBF16
-};
+enum class CUBLASMatrixType { kF32, kF16, kBF16 };
 
 /**
  * Compute precision/reduction configuration for CUBLAS computations.
@@ -436,13 +435,12 @@ enum class CUBLASMatrixType
  * downconversion and binary16/bfloat16/tfloat32 compute for binary32
  * I/O matrices.
  */
-enum class CUBLASComputeType
-{
-    kF32,
-    kF16,
-    kF32FastF16,
-    kF32FastBF16,
-    kF32FastTF32
+enum class CUBLASComputeType {
+  kF32,
+  kF16,
+  kF32FastF16,
+  kF32FastBF16,
+  kF32FastTF32
 };
 
 /**

@@ -1,19 +1,16 @@
 import torch
-from mptorch.quant.functional import qgelu
+from torch.testing import assert_close
 from mptorch.quant import QGELU
 from mptorch.quant import QGELUFormats
-from mptorch.quant import float_quantize
-from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
+from tests.quant import make_float_quantize_rne
 
 
 @pytest.fixture
 def signal_q():
     man, exp = 12, 8
-    return lambda x: float_quantize(
-        x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
-    )
+    return make_float_quantize_rne(man, exp)
 
 
 @pytest.fixture

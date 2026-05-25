@@ -2,11 +2,10 @@ import torch
 import torch.nn
 from mptorch import FloatingPoint
 from mptorch.quant import QSoftmaxFormats
-from mptorch.quant import float_quantize
-from mptorch.quant import functional as Q
 from mptorch.quant import QSoftmax
 import pytest
 from tests.markers import available_devices
+from tests.quant import make_float_quantize_rne
 
 
 @pytest.fixture(scope="module")
@@ -16,14 +15,7 @@ def fp_format():
 
 @pytest.fixture(scope="module")
 def quant_fp(fp_format):
-    return lambda x: float_quantize(
-        x,
-        exp=fp_format.exp,
-        man=fp_format.man,
-        rounding="RNE",
-        subnormals=True,
-        saturate=False,
-    )
+    return make_float_quantize_rne(fp_format.man, fp_format.exp)
 
 
 @pytest.fixture(scope="module")

@@ -1,8 +1,29 @@
 import torch
-from mptorch.quant import float_quantize_v2
+from mptorch.quant import float_quantize, float_quantize_v2
 from mptorch.number import RoundMode, SubnormalsMode
 import pytest
 from tests.markers import available_devices
+from tests.quant import make_float_quantize_rne
+from torch.testing import assert_close
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "man,exp",
+    [
+        (22, 8),
+        (12, 8),
+        (23, 8),
+        (10, 5),
+    ],
+)
+def test_float_quantize_v1_v2_rne_fixture_parity(device, man, exp):
+    a = torch.randn(32, device=device)
+    legacy = float_quantize(
+        a, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
+    )
+    unified = make_float_quantize_rne(man, exp)(a)
+    assert_close(legacy, unified, rtol=0.0, atol=0.0)
 
 
 @pytest.mark.parametrize("device", available_devices)

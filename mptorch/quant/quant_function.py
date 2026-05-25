@@ -9,12 +9,12 @@ from mptorch import (
     SaturationMode,
     RoundMode,
 )
-from torch.utils.cpp_extension import load
-import os
-import platform
+import warnings
 from typing import Literal, Any
 
 from .cublas import cublas_acceleration
+from .mm_ops import call_fp_mm, call_superfp_mm, call_fxp_mm
+from ._ext_loader import quant_cpu, quant_cuda
 
 __all__ = [
     "fixed_point_quantize",
@@ -50,49 +50,6 @@ __all__ = [
     "superfp_layernorm_forward",
     "superfp_layernorm_backward",
 ]
-
-
-def get_sources(directory):
-    sources = []
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".cpp") or file.endswith(".cu"):
-                sources.append(os.path.join(root, file))
-
-    return sources
-
-
-current_path = os.path.dirname(os.path.realpath(__file__))
-
-
-def get_extra_cflags():
-    match platform.system():
-        case "Windows":
-            return ["/std:c++20", "/openmp"]
-        case "Darwin":
-            return ["-std=c++20"]
-        case _:
-            return ["-std=c++20", "-fopenmp"]
-
-
-quant_cpu = load(
-    name="quant_cpu",
-    sources=get_sources(os.path.join(current_path, "quant_cpu")),
-    extra_cflags=get_extra_cflags(),
-)
-
-if torch.cuda.is_available():
-    extra_ldflags = []
-    if platform.system() == "Windows":
-        extra_ldflags.append("cublas.lib")
-    quant_cuda = load(
-        name="quant_cuda",
-        sources=get_sources(os.path.join(current_path, "quant_cuda")),
-        extra_ldflags=extra_ldflags,
-        extra_cuda_cflags=["--extended-lambda"],
-    )
-else:
-    quant_cuda = quant_cpu
 
 
 def assert_wl_fl(wl: int, fl: int, stage: str = ""):
@@ -1192,8 +1149,31 @@ def fxp_mm(
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
     assert a.device == b.device
-    quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+    wl_fma = wl_add
+    fl_fma = fl_add
+    if call_fxp_mm(
+        c,
+        a,
+        b,
+        wl_add=wl_add,
+        fl_add=fl_add,
+        wl_mul=wl_mul,
+        fl_mul=fl_mul,
+        wl_fma=wl_fma,
+        fl_fma=fl_fma,
+        rounding=rounding,
+        symmetric=symmetric,
+        use_fma=fma,
+    ):
+        return c
+
+    quant_module = get_module(a)
+    warnings.warn(
+        "fxp_mm fell back to legacy pybind MM bindings",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if rounding == "RNE":
         if not fma:
             quant_module.fixed_point_quantize_nearest_mm(
@@ -1306,8 +1286,36 @@ def float_mm(
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
     assert a.device == b.device
-    quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
+    if rounding == "SR":
+        if rbits_add <= 0:
+            rbits_add = 23 - man_add
+        if rbits_mul <= 0:
+            rbits_mul = 23 - man_mul
+    if call_fp_mm(
+        c,
+        a,
+        b,
+        man_add=man_add,
+        exp_add=exp_add,
+        man_mul=man_mul,
+        exp_mul=exp_mul,
+        rounding=rounding,
+        fma=fma,
+        subnormals=subnormals,
+        saturate=saturate,
+        compensated=compensated,
+        rbits_add=rbits_add,
+        rbits_mul=rbits_mul,
+    ):
+        return c
+
+    quant_module = get_module(a)
+    warnings.warn(
+        "float_mm fell back to legacy pybind MM bindings",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if rounding == "RNE":
         if not fma:
             quant_module.float_quantize_nearest_mm(
@@ -1414,12 +1422,39 @@ def superfp_mm(
     assert len(b.shape) == 2
     assert a.shape[1] == b.shape[0]
     assert a.device == b.device
-    quant_module = get_module(a)
     c = torch.zeros(a.shape[0], b.shape[1], device=a.device)
 
     binades_add_l, binades_add_h = normalize_binades(binades_add)
     binades_mul_l, binades_mul_h = normalize_binades(binades_mul)
 
+    if rounding == "RNE":
+        if call_superfp_mm(
+            c,
+            a,
+            b,
+            man_add=man_add,
+            exp_add=exp_add,
+            man_mul=man_mul,
+            exp_mul=exp_mul,
+            binades_add_l=binades_add_l,
+            binades_add_u=binades_add_h,
+            binades_mul_l=binades_mul_l,
+            binades_mul_u=binades_mul_h,
+            man_fma=man_add,
+            exp_fma=exp_add,
+            binades_fma_l=binades_add_l,
+            binades_fma_u=binades_add_h,
+            saturate=saturate,
+            use_fma=fma,
+        ):
+            return c
+
+    quant_module = get_module(a)
+    warnings.warn(
+        "superfp_mm fell back to legacy pybind MM bindings",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if rounding == "RNE":
         if not fma:
             quant_module.superfp_quantize_nearest_mm(

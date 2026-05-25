@@ -5,14 +5,13 @@ import torch.nn as nn
 from torch.testing import assert_close
 import pytest
 from tests.markers import available_devices
+from tests.quant import make_float_quantize_rne
 
 
 @pytest.fixture
 def signal_q():
     man, exp = 12, 8
-    return lambda x: qt.float_quantize(
-        x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False
-    )
+    return make_float_quantize_rne(man, exp)
 
 
 @pytest.fixture

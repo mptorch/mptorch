@@ -4,54 +4,22 @@ from mptorch import (
     SaturationMode,
     RoundMode,
 )
-from torch.utils.cpp_extension import load
-import os
-import platform
 
-__all__ = ["float_quantize_v2", "superfp_quantize_v2", "binaryK_quantize"]
+from ._ext_loader import quant_cpu, quant_cuda
 
-
-def get_sources(directory):
-    sources = []
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".cpp") or file.endswith(".cu"):
-                sources.append(os.path.join(root, file))
-
-    return sources
-
-
-current_path = os.path.dirname(os.path.realpath(__file__))
-
-
-def get_extra_cflags():
-    match platform.system():
-        case "Windows":
-            return ["/std:c++20", "/openmp"]
-        case "Darwin":
-            return ["-std=c++20"]
-        case _:
-            return ["-std=c++20", "-fopenmp"]
-
-
-quant_cpu = load(
-    name="quant_cpu",
-    sources=get_sources(os.path.join(current_path, "quant_cpu")),
-    extra_cflags=get_extra_cflags(),
-)
-
-if torch.cuda.is_available():
-    extra_ldflags = []
-    if platform.system() == "Windows":
-        extra_ldflags.append("cublas.lib")
-    quant_cuda = load(
-        name="quant_cuda",
-        sources=get_sources(os.path.join(current_path, "quant_cuda")),
-        extra_ldflags=extra_ldflags,
-        extra_cuda_cflags=["--extended-lambda"],
-    )
-else:
-    quant_cuda = quant_cpu
+__all__ = [
+    "float_quantize_v2",
+    "superfp_quantize_v2",
+    "binaryK_quantize",
+    "float_mm_v2",
+    "float_bmm_v2",
+    "superfp_mm_v2",
+    "superfp_bmm_v2",
+    "fxp_mm_v2",
+    "fxp_bmm_v2",
+    "quant_cpu",
+    "quant_cuda",
+]
 
 
 def assert_wl_fl(wl: int, fl: int, stage: str = ""):
@@ -203,3 +171,13 @@ def superfp_quantize_v2(
         saturate,
         rnd_mode,
     )
+
+
+from .mm_ops import (
+    float_bmm_v2,
+    float_mm_v2,
+    fxp_bmm_v2,
+    fxp_mm_v2,
+    superfp_bmm_v2,
+    superfp_mm_v2,
+)

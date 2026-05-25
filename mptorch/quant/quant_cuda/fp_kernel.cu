@@ -2,6 +2,7 @@
 #include "modes.h"
 #include "quant_kernel.h"
 #include "mm_kernel.h"
+#include "mm_dispatch.cuh"
 #include "sim_helper.cu"
 #include "layernorm_kernel.h"
 #include "softmax_kernel.h"
@@ -474,34 +475,14 @@ void mm_fp_nearest(float *a, float *b, float *c,
                    SubnormalsMode subnormals,
                    bool compensated)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   int bias_add = (1 << (exp_add - 1)) - 1;
   int bias_mul = (1 << (exp_mul - 1)) - 1;
-  if (compensated)
-  {
-    mm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
-        [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  }
-  else
-  {
-    mm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
-        [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  }
+  launch_mm_addmul(
+      a, b, c, M, K, N, 1, compensated,
+      [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
+      [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
 }
 
 void bmm_fp_nearest(float *a, float *b, float *c,
@@ -512,35 +493,14 @@ void bmm_fp_nearest(float *a, float *b, float *c,
                     SubnormalsMode subnormals,
                     bool compensated)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
   int bias_add = (1 << (exp_add - 1)) - 1;
   int bias_mul = (1 << (exp_mul - 1)) - 1;
-  if (compensated)
-  {
-    bmm_kahan_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
-        [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  }
-  else
-  {
-    bmm_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
-        [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  }
+  launch_mm_addmul(
+      a, b, c, M, K, N, B, compensated,
+      [man_add, exp_add, bias_add, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_add, exp_add, bias_add, saturate, subnormals); },
+      [man_mul, exp_mul, bias_mul, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_mul, exp_mul, bias_mul, saturate, subnormals); });
 }
 
 void mm_fp_fma_nearest(float *a, float *b, float *c,
@@ -550,28 +510,11 @@ void mm_fp_fma_nearest(float *a, float *b, float *c,
                        SubnormalsMode subnormals,
                        bool compensated)
 {
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   int bias_fma = (1 << (exp_fma - 1)) - 1;
-  if (compensated)
-  {
-    mm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  }
-  else
-  {
-    mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  }
+  launch_mm_fma(
+      a, b, c, M, K, N, 1, compensated,
+      [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
 }
 
 void bmm_fp_fma_nearest(float *a, float *b, float *c,
@@ -581,30 +524,11 @@ void bmm_fp_fma_nearest(float *a, float *b, float *c,
                         SubnormalsMode subnormals,
                         bool compensated)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
   int bias_fma = (1 << (exp_fma - 1)) - 1;
-  if (compensated)
-  {
-    bmm_kahan_fma_impl<SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  }
-  else
-  {
-    bmm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-        a, b, c, M, K, N,
-        [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
-        { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  }
+  launch_mm_fma(
+      a, b, c, M, K, N, B, compensated,
+      [man_fma, exp_fma, bias_fma, saturate, subnormals] __device__(float x)
+      { return cast_fp_nearest_even(x, man_fma, exp_fma, bias_fma, saturate, subnormals); });
 }
 
 void mm_fp_stochastic(float *a, float *b, float *c,
@@ -614,28 +538,14 @@ void mm_fp_stochastic(float *a, float *b, float *c,
                       bool saturate,
                       SubnormalsMode subnormals)
 {
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   int bias_add = (1 << (exp_add - 1)) - 1;
   int bias_mul = (1 << (exp_mul - 1)) - 1;
-  curandState_t *state;
-  cudaMalloc((void **)&state,
-             block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(state);
-  mm_sr_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
-      a, b, c,
-      state,
-      M, K, N,
+  launch_mm_stochastic<uint32_t>(
+      a, b, c, M, K, N, 1,
       [man_add, exp_add, bias_add, rbits_add, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_add, man_add, exp_add, bias_add, saturate, subnormals); },
       [man_mul, exp_mul, bias_mul, rbits_mul, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_mul, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  cudaFree(state);
 }
 
 void bmm_fp_stochastic(float *a, float *b, float *c,
@@ -645,29 +555,14 @@ void bmm_fp_stochastic(float *a, float *b, float *c,
                        bool saturate,
                        SubnormalsMode subnormals)
 {
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
   int bias_add = (1 << (exp_add - 1)) - 1;
   int bias_mul = (1 << (exp_mul - 1)) - 1;
-  curandState_t *state;
-  cudaMalloc((void **)&state,
-             block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(state);
-  bmm_sr_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
-      a, b, c,
-      state,
-      M, K, N,
+  launch_mm_stochastic<uint32_t>(
+      a, b, c, M, K, N, B,
       [man_add, exp_add, bias_add, rbits_add, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_add, man_add, exp_add, bias_add, saturate, subnormals); },
       [man_mul, exp_mul, bias_mul, rbits_mul, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_mul, man_mul, exp_mul, bias_mul, saturate, subnormals); });
-  cudaFree(state);
 }
 
 void mm_fp_fma_stochastic(float *a, float *b, float *c,
@@ -676,25 +571,11 @@ void mm_fp_fma_stochastic(float *a, float *b, float *c,
                           bool saturate,
                           SubnormalsMode subnormals)
 {
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
   int bias_fma = (1 << (exp_fma - 1)) - 1;
-  curandState_t *state;
-  cudaMalloc((void **)&state,
-             block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(state);
-  mm_sr_fma_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
-      a, b, c,
-      state,
-      M, K, N,
+  launch_mm_fma_stochastic<uint32_t>(
+      a, b, c, M, K, N, 1,
       [man_fma, exp_fma, bias_fma, rbits_fma, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_fma, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  cudaFree(state);
 }
 
 void bmm_fp_fma_stochastic(float *a, float *b, float *c,
@@ -703,26 +584,11 @@ void bmm_fp_fma_stochastic(float *a, float *b, float *c,
                            bool saturate,
                            SubnormalsMode subnormals)
 {
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
   int bias_fma = (1 << (exp_fma - 1)) - 1;
-  curandState_t *state;
-  cudaMalloc((void **)&state,
-             block_dim.x * block_dim.y * sizeof(curandState_t));
-  seed_init<<<block_dim, 1>>>(state);
-  bmm_sr_fma_impl<SHMEM_SIZE, uint32_t><<<block_dim, thread_dim>>>(
-      a, b, c,
-      state,
-      M, K, N,
+  launch_mm_fma_stochastic<uint32_t>(
+      a, b, c, M, K, N, B,
       [man_fma, exp_fma, bias_fma, rbits_fma, saturate, subnormals] __device__(float x, uint32_t rnd)
       { return cast_fp_stochastic(x, rnd, rbits_fma, man_fma, exp_fma, bias_fma, saturate, subnormals); });
-  cudaFree(state);
 }
 
 void softmax_forward_fp_nearest(float *a, float *o,

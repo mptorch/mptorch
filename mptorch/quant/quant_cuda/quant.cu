@@ -1,5 +1,6 @@
 #include "quant.h"
 #include "quant_kernel.h"
+#include "mm_ops.h"
 #include "modes.h"
 #include <ATen/ATen.h>
 #include <climits>
@@ -439,6 +440,222 @@ fixed_point_quantize_nearest_mask_cuda(Tensor a,
   return std::make_tuple(o, m);
 }
 
+void fp_mm_cuda(Tensor out, Tensor a, Tensor b, int64_t man_add, int64_t exp_add,
+                int64_t man_mul, int64_t exp_mul, int64_t man_fma, int64_t exp_fma,
+                int64_t round_mode, int64_t subnormals_mode, bool saturate,
+                bool compensated, bool use_fma, int64_t rbits_add, int64_t rbits_mul,
+                int64_t rbits_fma)
+{
+  TORCH_CHECK(out.is_cuda(), "out must be a CUDA tensor");
+  TORCH_CHECK(a.is_cuda(), "a must be a CUDA tensor");
+  TORCH_CHECK(b.is_cuda(), "b must be a CUDA tensor");
+  TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
+  TORCH_CHECK(a.is_contiguous(), "a must be contiguous");
+  TORCH_CHECK(b.is_contiguous(), "b must be contiguous");
+
+  MmDims dims = infer_mm_dims(a, b);
+  SubnormalsMode subnormal_mode =
+      static_cast<SubnormalsMode>(subnormals_mode);
+  RoundMode round = static_cast<RoundMode>(round_mode);
+  float *pa = a.data_ptr<float>();
+  float *pb = b.data_ptr<float>();
+  float *pc = out.data_ptr<float>();
+
+  const int man_add_i = static_cast<int>(man_add);
+  const int exp_add_i = static_cast<int>(exp_add);
+  const int man_mul_i = static_cast<int>(man_mul);
+  const int exp_mul_i = static_cast<int>(exp_mul);
+  const int man_fma_i = static_cast<int>(man_fma);
+  const int exp_fma_i = static_cast<int>(exp_fma);
+  const int rbits_add_i = static_cast<int>(rbits_add);
+  const int rbits_mul_i = static_cast<int>(rbits_mul);
+  const int rbits_fma_i = static_cast<int>(rbits_fma);
+
+  if (round == RoundMode::SR)
+  {
+    if (use_fma)
+    {
+      if (dims.batch > 1)
+        bmm_fp_fma_stochastic(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                              man_fma_i, exp_fma_i, rbits_fma_i, saturate,
+                              subnormal_mode);
+      else
+        mm_fp_fma_stochastic(pa, pb, pc, dims.M, dims.K, dims.N, man_fma_i,
+                             exp_fma_i, rbits_fma_i, saturate, subnormal_mode);
+    }
+    else if (dims.batch > 1)
+    {
+      bmm_fp_stochastic(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                        man_add_i, exp_add_i, rbits_add_i, man_mul_i,
+                        exp_mul_i, rbits_mul_i, saturate, subnormal_mode);
+    }
+    else
+    {
+      mm_fp_stochastic(pa, pb, pc, dims.M, dims.K, dims.N, man_add_i,
+                       exp_add_i, rbits_add_i, man_mul_i, exp_mul_i,
+                       rbits_mul_i, saturate, subnormal_mode);
+    }
+  }
+  else if (use_fma)
+  {
+    if (dims.batch > 1)
+      bmm_fp_fma_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                         man_fma_i, exp_fma_i, saturate, subnormal_mode,
+                         compensated);
+    else
+      mm_fp_fma_nearest(pa, pb, pc, dims.M, dims.K, dims.N, man_fma_i,
+                        exp_fma_i, saturate, subnormal_mode, compensated);
+  }
+  else if (dims.batch > 1)
+  {
+    bmm_fp_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N, man_add_i,
+                   exp_add_i, man_mul_i, exp_mul_i, saturate, subnormal_mode,
+                   compensated);
+  }
+  else
+  {
+    mm_fp_nearest(pa, pb, pc, dims.M, dims.K, dims.N, man_add_i, exp_add_i,
+                  man_mul_i, exp_mul_i, saturate, subnormal_mode, compensated);
+  }
+}
+
+void superfp_mm_cuda(Tensor out, Tensor a, Tensor b, int64_t man_add,
+                     int64_t exp_add, int64_t man_mul, int64_t exp_mul,
+                     int64_t man_fma, int64_t exp_fma, int64_t binades_add_l,
+                     int64_t binades_add_u, int64_t binades_mul_l,
+                     int64_t binades_mul_u, int64_t binades_fma_l,
+                     int64_t binades_fma_u, bool saturate, bool use_fma)
+{
+  TORCH_CHECK(out.is_cuda(), "out must be a CUDA tensor");
+  TORCH_CHECK(a.is_cuda(), "a must be a CUDA tensor");
+  TORCH_CHECK(b.is_cuda(), "b must be a CUDA tensor");
+  TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
+  TORCH_CHECK(a.is_contiguous(), "a must be contiguous");
+  TORCH_CHECK(b.is_contiguous(), "b must be contiguous");
+
+  MmDims dims = infer_mm_dims(a, b);
+  float *pa = a.data_ptr<float>();
+  float *pb = b.data_ptr<float>();
+  float *pc = out.data_ptr<float>();
+  const int man_add_i = static_cast<int>(man_add);
+  const int exp_add_i = static_cast<int>(exp_add);
+  const int man_mul_i = static_cast<int>(man_mul);
+  const int exp_mul_i = static_cast<int>(exp_mul);
+  const int man_fma_i = static_cast<int>(man_fma);
+  const int exp_fma_i = static_cast<int>(exp_fma);
+  const int binades_add_l_i = static_cast<int>(binades_add_l);
+  const int binades_add_u_i = static_cast<int>(binades_add_u);
+  const int binades_mul_l_i = static_cast<int>(binades_mul_l);
+  const int binades_mul_u_i = static_cast<int>(binades_mul_u);
+  const int binades_fma_l_i = static_cast<int>(binades_fma_l);
+  const int binades_fma_u_i = static_cast<int>(binades_fma_u);
+
+  if (use_fma)
+  {
+    if (dims.batch > 1)
+      bmm_superfp_fma_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                              man_fma_i, exp_fma_i, binades_fma_l_i,
+                              binades_fma_u_i, saturate);
+    else
+      mm_superfp_fma_nearest(pa, pb, pc, dims.M, dims.K, dims.N, man_fma_i,
+                             exp_fma_i, binades_fma_l_i, binades_fma_u_i,
+                             saturate);
+  }
+  else if (dims.batch > 1)
+  {
+    bmm_superfp_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                        man_add_i, exp_add_i, man_mul_i, exp_mul_i,
+                        binades_add_l_i, binades_add_u_i, binades_mul_l_i,
+                        binades_mul_u_i, saturate);
+  }
+  else
+  {
+    mm_superfp_nearest(pa, pb, pc, dims.M, dims.K, dims.N, man_add_i,
+                       exp_add_i, man_mul_i, exp_mul_i, binades_add_l_i,
+                       binades_add_u_i, binades_mul_l_i, binades_mul_u_i,
+                       saturate);
+  }
+}
+
+void fxp_mm_cuda(Tensor out, Tensor a, Tensor b, int64_t wl_add, int64_t fl_add,
+                 int64_t wl_mul, int64_t fl_mul, int64_t wl_fma, int64_t fl_fma,
+                 int64_t round_mode, bool symmetric, bool use_fma)
+{
+  TORCH_CHECK(out.is_cuda(), "out must be a CUDA tensor");
+  TORCH_CHECK(a.is_cuda(), "a must be a CUDA tensor");
+  TORCH_CHECK(b.is_cuda(), "b must be a CUDA tensor");
+  TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
+  TORCH_CHECK(a.is_contiguous(), "a must be contiguous");
+  TORCH_CHECK(b.is_contiguous(), "b must be contiguous");
+
+  MmDims dims = infer_mm_dims(a, b);
+  RoundMode round = static_cast<RoundMode>(round_mode);
+  float *pa = a.data_ptr<float>();
+  float *pb = b.data_ptr<float>();
+  float *pc = out.data_ptr<float>();
+  const int wl_add_i = static_cast<int>(wl_add);
+  const int fl_add_i = static_cast<int>(fl_add);
+  const int wl_mul_i = static_cast<int>(wl_mul);
+  const int fl_mul_i = static_cast<int>(fl_mul);
+  const int wl_fma_i = static_cast<int>(wl_fma);
+  const int fl_fma_i = static_cast<int>(fl_fma);
+
+  if (use_fma)
+  {
+    int sigma_fma = -fl_fma_i;
+    float t_min_fma, t_max_fma;
+    fixed_min_max(wl_fma_i, fl_fma_i, symmetric, &t_min_fma, &t_max_fma);
+    if (round == RoundMode::SR)
+    {
+      if (dims.batch > 1)
+        bmm_fxp_fma_stochastic(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                               sigma_fma, t_min_fma, t_max_fma);
+      else
+        mm_fxp_fma_stochastic(pa, pb, pc, dims.M, dims.K, dims.N, sigma_fma,
+                              t_min_fma, t_max_fma);
+    }
+    else if (dims.batch > 1)
+    {
+      bmm_fxp_fma_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                          sigma_fma, t_min_fma, t_max_fma);
+    }
+    else
+    {
+      mm_fxp_fma_nearest(pa, pb, pc, dims.M, dims.K, dims.N, sigma_fma,
+                         t_min_fma, t_max_fma);
+    }
+  }
+  else
+  {
+    int sigma_add = -fl_add_i;
+    int sigma_mul = -fl_mul_i;
+    float t_min_add, t_max_add, t_min_mul, t_max_mul;
+    fixed_min_max(wl_add_i, fl_add_i, symmetric, &t_min_add, &t_max_add);
+    fixed_min_max(wl_mul_i, fl_mul_i, symmetric, &t_min_mul, &t_max_mul);
+    if (round == RoundMode::SR)
+    {
+      if (dims.batch > 1)
+        bmm_fxp_stochastic(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N,
+                           sigma_add, t_min_add, t_max_add, sigma_mul,
+                           t_min_mul, t_max_mul);
+      else
+        mm_fxp_stochastic(pa, pb, pc, dims.M, dims.K, dims.N, sigma_add,
+                          t_min_add, t_max_add, sigma_mul, t_min_mul,
+                          t_max_mul);
+    }
+    else if (dims.batch > 1)
+    {
+      bmm_fxp_nearest(pa, pb, pc, dims.batch, dims.M, dims.K, dims.N, sigma_add,
+                      t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
+    }
+    else
+    {
+      mm_fxp_nearest(pa, pb, pc, dims.M, dims.K, dims.N, sigma_add, t_min_add,
+                     t_max_add, sigma_mul, t_min_mul, t_max_mul);
+    }
+  }
+}
+
 void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                     int M, int N, int K,
                                     int man_add, int exp_add,
@@ -447,12 +664,15 @@ void float_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                     bool saturate,
                                     bool compensated)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  mm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                M, K, N, man_add, exp_add, man_mul, exp_mul,
-                saturate, subnormal_mode, compensated);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  int64_t subnormal_mode = subnormals
+                               ? static_cast<int64_t>(SubnormalsMode::SUBNORMALS)
+                               : static_cast<int64_t>(SubnormalsMode::NORMALS);
+  fp_mm_cuda(c, a, b, man_add, exp_add, man_mul, exp_mul, man_add, exp_add,
+             static_cast<int64_t>(RoundMode::RNE), subnormal_mode, saturate,
+             compensated, false, 0, 0, 0);
 }
 
 void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -462,12 +682,15 @@ void float_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                         bool saturate,
                                         bool compensated)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  mm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                    M, K, N, man_fma, exp_fma,
-                    saturate, subnormal_mode, compensated);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  int64_t subnormal_mode = subnormals
+                               ? static_cast<int64_t>(SubnormalsMode::SUBNORMALS)
+                               : static_cast<int64_t>(SubnormalsMode::NORMALS);
+  fp_mm_cuda(c, a, b, man_fma, exp_fma, man_fma, exp_fma, man_fma, exp_fma,
+             static_cast<int64_t>(RoundMode::RNE), subnormal_mode, saturate,
+             compensated, true, 0, 0, 0);
 }
 
 void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
@@ -478,19 +701,8 @@ void float_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                      bool saturate,
                                      bool compensated)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  if (a.sizes().size() > 2)
-    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                   a.sizes()[0], M, K, N,
-                   man_add, exp_add, man_mul, exp_mul,
-                   saturate, subnormal_mode, compensated);
-  else
-    bmm_fp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                   1, M, K, N,
-                   man_add, exp_add, man_mul, exp_mul,
-                   saturate, subnormal_mode, compensated);
-  return;
+  float_quantize_nearest_mm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul,
+                                 exp_mul, subnormals, saturate, compensated);
 }
 
 void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -500,19 +712,8 @@ void float_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                          bool saturate,
                                          bool compensated)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  if (a.sizes().size() > 2)
-    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                       a.sizes()[0], M, K, N,
-                       man_fma, exp_fma,
-                       saturate, subnormal_mode, compensated);
-  else
-    bmm_fp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                       1, M, K, N,
-                       man_fma, exp_fma,
-                       saturate, subnormal_mode, compensated);
-  return;
+  float_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+                                     subnormals, saturate, compensated);
 }
 
 void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
@@ -523,11 +724,12 @@ void superfp_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                       int binades_mul_l, int binades_mul_u,
                                       bool saturate)
 {
-  mm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                     M, K, N, man_add, exp_add, man_mul, exp_mul,
-                     binades_add_l, binades_add_u,
-                     binades_mul_l, binades_mul_u,
-                     saturate);
+  (void)M;
+  (void)N;
+  (void)K;
+  superfp_mm_cuda(c, a, b, man_add, exp_add, man_mul, exp_mul, man_add,
+                  exp_add, binades_add_l, binades_add_u, binades_mul_l,
+                  binades_mul_u, binades_add_l, binades_add_u, saturate, false);
 }
 
 void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -536,11 +738,12 @@ void superfp_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                           int binades_fma_l, int binades_fma_u,
                                           bool saturate)
 {
-  mm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                         c.data_ptr<float>(), M, K, N, man_fma, exp_fma,
-                         binades_fma_l, binades_fma_u,
-                         saturate);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  superfp_mm_cuda(c, a, b, man_fma, exp_fma, man_fma, exp_fma, man_fma,
+                  exp_fma, binades_fma_l, binades_fma_u, binades_fma_l,
+                  binades_fma_u, binades_fma_l, binades_fma_u, saturate, true);
 }
 
 void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
@@ -551,17 +754,9 @@ void superfp_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                        int binades_mul_l, int binades_mul_u,
                                        bool saturate)
 {
-  if (a.sizes().size() > 2)
-    bmm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                        c.data_ptr<float>(), a.sizes()[0], M, K, N, man_add, exp_add,
-                        man_mul, exp_mul, binades_add_l, binades_add_u,
-                        binades_mul_l, binades_mul_u, saturate);
-  else
-    bmm_superfp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                        c.data_ptr<float>(), 1, M, K, N, man_add, exp_add, man_mul,
-                        exp_mul, binades_add_l, binades_add_u,
-                        binades_mul_l, binades_mul_u, saturate);
-  return;
+  superfp_quantize_nearest_mm_cuda(a, b, c, M, N, K, man_add, exp_add, man_mul,
+                                   exp_mul, binades_add_l, binades_add_u,
+                                   binades_mul_l, binades_mul_u, saturate);
 }
 
 void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -570,15 +765,8 @@ void superfp_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                            int binades_fma_l, int binades_fma_u,
                                            bool saturate)
 {
-  if (a.sizes().size() > 2)
-    bmm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                            c.data_ptr<float>(), a.sizes()[0], M, K, N, man_fma,
-                            exp_fma, binades_fma_l, binades_fma_u, saturate);
-  else
-    bmm_superfp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                            c.data_ptr<float>(), 1, M, K, N, man_fma, exp_fma,
-                            binades_fma_l, binades_fma_u, saturate);
-  return;
+  superfp_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+                                       binades_fma_l, binades_fma_u, saturate);
 }
 
 void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
@@ -587,14 +775,15 @@ void float_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                        int man_mul, int exp_mul, int rbits_mul,
                                        bool subnormals, bool saturate)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  mm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                   M, K, N,
-                   man_add, exp_add, rbits_add,
-                   man_mul, exp_mul, rbits_mul,
-                   saturate, subnormal_mode);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  int64_t subnormal_mode = subnormals
+                               ? static_cast<int64_t>(SubnormalsMode::SUBNORMALS)
+                               : static_cast<int64_t>(SubnormalsMode::NORMALS);
+  fp_mm_cuda(c, a, b, man_add, exp_add, man_mul, exp_mul, man_add, exp_add,
+             static_cast<int64_t>(RoundMode::SR), subnormal_mode, saturate,
+             false, false, rbits_add, rbits_mul, 0);
 }
 
 void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -602,13 +791,15 @@ void float_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                            int man_fma, int exp_fma, int rbits_fma,
                                            bool subnormals, bool saturate)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  mm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                       M, K, N,
-                       man_fma, exp_fma, rbits_fma,
-                       saturate, subnormal_mode);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  int64_t subnormal_mode = subnormals
+                               ? static_cast<int64_t>(SubnormalsMode::SUBNORMALS)
+                               : static_cast<int64_t>(SubnormalsMode::NORMALS);
+  fp_mm_cuda(c, a, b, man_fma, exp_fma, man_fma, exp_fma, man_fma, exp_fma,
+             static_cast<int64_t>(RoundMode::SR), subnormal_mode, saturate,
+             false, true, 0, 0, rbits_fma);
 }
 
 void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
@@ -617,20 +808,9 @@ void float_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                         int man_mul, int exp_mul, int rbits_mul,
                                         bool subnormals, bool saturate)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  if (a.sizes().size() > 2)
-    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                      a.sizes()[0], M, K, N,
-                      man_add, exp_add, rbits_add,
-                      man_mul, exp_mul, rbits_mul,
-                      saturate, subnormal_mode);
-  else
-    bmm_fp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                      1, M, K, N,
-                      man_add, exp_add, rbits_add,
-                      man_mul, exp_mul, rbits_mul,
-                      saturate, subnormal_mode);
+  float_quantize_stochastic_mm_cuda(a, b, c, M, N, K, man_add, exp_add,
+                                    rbits_add, man_mul, exp_mul, rbits_mul,
+                                    subnormals, saturate);
 }
 
 void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -638,18 +818,8 @@ void float_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                             int man_fma, int exp_fma, int rbits_fma,
                                             bool subnormals, bool saturate)
 {
-  SubnormalsMode subnormal_mode = subnormals ? SubnormalsMode::SUBNORMALS : SubnormalsMode::NORMALS;
-
-  if (a.sizes().size() > 2)
-    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                          a.sizes()[0], M, K, N,
-                          man_fma, exp_fma, rbits_fma,
-                          saturate, subnormal_mode);
-  else
-    bmm_fp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                          1, M, K, N,
-                          man_fma, exp_fma, rbits_fma,
-                          saturate, subnormal_mode);
+  float_quantize_stochastic_mm_fma_cuda(a, b, c, M, N, K, man_fma, exp_fma,
+                                        rbits_fma, subnormals, saturate);
 }
 
 void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
@@ -658,15 +828,11 @@ void fixed_point_quantize_nearest_mm_cuda(Tensor a, Tensor b, Tensor c,
                                           int wl_mul, int fl_mul,
                                           bool symmetric)
 {
-  int sigma_add = -fl_add;
-  int sigma_mul = -fl_mul;
-  float t_min_add, t_max_add, t_min_mul, t_max_mul;
-  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
-  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  mm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(), c.data_ptr<float>(),
-                 M, K, N, sigma_add, t_min_add, t_max_add, sigma_mul, t_min_mul,
-                 t_max_mul);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  fxp_mm_cuda(c, a, b, wl_add, fl_add, wl_mul, fl_mul, wl_add, fl_add,
+              static_cast<int64_t>(RoundMode::RNE), symmetric, false);
 }
 
 void fixed_point_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
@@ -675,21 +841,8 @@ void fixed_point_quantize_nearest_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                            int wl_mul, int fl_mul,
                                            bool symmetric)
 {
-
-  int sigma_add = -fl_add;
-  int sigma_mul = -fl_mul;
-  float t_min_add, t_max_add, t_min_mul, t_max_mul;
-  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
-  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  if (a.sizes().size() > 2)
-    bmm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                    c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_add,
-                    t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
-  else
-    bmm_fxp_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                    c.data_ptr<float>(), 1, M, K, N, sigma_add, t_min_add,
-                    t_max_add, sigma_mul, t_min_mul, t_max_mul);
-  return;
+  fixed_point_quantize_nearest_mm_cuda(a, b, c, M, N, K, wl_add, fl_add,
+                                       wl_mul, fl_mul, symmetric);
 }
 
 void fixed_point_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -697,13 +850,11 @@ void fixed_point_quantize_nearest_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                               int wl_fma, int fl_fma,
                                               bool symmetric)
 {
-  int sigma_fma = -fl_fma;
-  float t_min_fma, t_max_fma;
-  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  mm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                     c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
-                     t_max_fma);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  fxp_mm_cuda(c, a, b, wl_fma, fl_fma, wl_fma, fl_fma, wl_fma, fl_fma,
+              static_cast<int64_t>(RoundMode::RNE), symmetric, true);
 }
 
 void fixed_point_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -711,18 +862,8 @@ void fixed_point_quantize_nearest_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                int wl_fma, int fl_fma,
                                                bool symmetric)
 {
-  int sigma_fma = -fl_fma;
-  float t_min_fma, t_max_fma;
-  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  if (a.sizes().size() > 2)
-    bmm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                        c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_fma,
-                        t_min_fma, t_max_fma);
-  else
-    bmm_fxp_fma_nearest(a.data_ptr<float>(), b.data_ptr<float>(),
-                        c.data_ptr<float>(), 1, M, K, N, sigma_fma, t_min_fma,
-                        t_max_fma);
-  return;
+  fixed_point_quantize_nearest_mm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
+                                           symmetric);
 }
 
 void fixed_point_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
@@ -731,15 +872,11 @@ void fixed_point_quantize_stochastic_mm_cuda(Tensor a, Tensor b, Tensor c,
                                              int wl_mul, int fl_mul,
                                              bool symmetric)
 {
-  int sigma_add = -fl_add;
-  int sigma_mul = -fl_mul;
-  float t_min_add, t_max_add, t_min_mul, t_max_mul;
-  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
-  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  mm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                    c.data_ptr<float>(), M, K, N, sigma_add, t_min_add,
-                    t_max_add, sigma_mul, t_min_mul, t_max_mul);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  fxp_mm_cuda(c, a, b, wl_add, fl_add, wl_mul, fl_mul, wl_add, fl_add,
+              static_cast<int64_t>(RoundMode::SR), symmetric, false);
 }
 
 void fixed_point_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
@@ -748,20 +885,8 @@ void fixed_point_quantize_stochastic_bmm_cuda(Tensor a, Tensor b, Tensor c,
                                               int wl_mul, int fl_mul,
                                               bool symmetric)
 {
-  int sigma_add = -fl_add;
-  int sigma_mul = -fl_mul;
-  float t_min_add, t_max_add, t_min_mul, t_max_mul;
-  fixed_min_max(wl_add, fl_add, symmetric, &t_min_add, &t_max_add);
-  fixed_min_max(wl_mul, fl_mul, symmetric, &t_min_mul, &t_max_mul);
-  if (a.sizes().size() > 2)
-    bmm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), a.sizes()[0], M, K, N, sigma_add,
-                       t_min_add, t_max_add, sigma_mul, t_min_mul, t_max_mul);
-  else
-    bmm_fxp_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                       c.data_ptr<float>(), 1, M, K, N, sigma_add, t_min_add,
-                       t_max_add, sigma_mul, t_min_mul, t_max_mul);
-  return;
+  fixed_point_quantize_stochastic_mm_cuda(a, b, c, M, N, K, wl_add, fl_add,
+                                          wl_mul, fl_mul, symmetric);
 }
 
 void fixed_point_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -769,13 +894,11 @@ void fixed_point_quantize_stochastic_mm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                  int wl_fma, int fl_fma,
                                                  bool symmetric)
 {
-  int sigma_fma = -fl_fma;
-  float t_min_fma, t_max_fma;
-  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  mm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                        c.data_ptr<float>(), M, K, N, sigma_fma, t_min_fma,
-                        t_max_fma);
-  return;
+  (void)M;
+  (void)N;
+  (void)K;
+  fxp_mm_cuda(c, a, b, wl_fma, fl_fma, wl_fma, fl_fma, wl_fma, fl_fma,
+              static_cast<int64_t>(RoundMode::SR), symmetric, true);
 }
 
 void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
@@ -783,18 +906,8 @@ void fixed_point_quantize_stochastic_bmm_fma_cuda(Tensor a, Tensor b, Tensor c,
                                                   int wl_fma, int fl_fma,
                                                   bool symmetric)
 {
-  int sigma_fma = -fl_fma;
-  float t_min_fma, t_max_fma;
-  fixed_min_max(wl_fma, fl_fma, symmetric, &t_min_fma, &t_max_fma);
-  if (a.sizes().size() > 2)
-    bmm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                           c.data_ptr<float>(), a.sizes()[0], M, K, N,
-                           sigma_fma, t_min_fma, t_max_fma);
-  else
-    bmm_fxp_fma_stochastic(a.data_ptr<float>(), b.data_ptr<float>(),
-                           c.data_ptr<float>(), 1, M, K, N, sigma_fma,
-                           t_min_fma, t_max_fma);
-  return;
+  fixed_point_quantize_stochastic_mm_fma_cuda(a, b, c, M, N, K, wl_fma, fl_fma,
+                                              symmetric);
 }
 
 static DimSizes partition_tensor(Tensor input, std::vector<int> &dims)

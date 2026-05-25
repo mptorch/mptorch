@@ -27,6 +27,12 @@ float round(float a, float r, int sigma);
 
 void fixed_min_max(int wl, int fl, bool symmetric, float *t_min, float *t_max);
 
+float cast_fxp_nearest(float origin_float, int sigma, float t_min, float t_max);
+float cast_fxp_stochastic(float origin_float, int sigma, float t_min,
+                          float t_max);
+float cast_superfp_nearest(float origin, int man_bits, int exp_bits,
+                           int binades_l, int binades_u, bool saturate = false);
+
 uint32_t clip_exponent(int exp_bits, int man_bits, uint32_t old_num,
                        uint32_t quantized_num, bool saturate);
 

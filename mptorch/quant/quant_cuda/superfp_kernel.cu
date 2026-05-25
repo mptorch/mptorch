@@ -3,6 +3,7 @@
 #include "softmax_kernel.h"
 #include "layernorm_kernel.h"
 #include "mm_kernel.h"
+#include "mm_dispatch.cuh"
 #include <cmath>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -652,18 +653,12 @@ void mm_superfp_nearest(float *a, float *b, float *c, int M, int K, int N,
                         int binades_mul_l, int binades_mul_u,
                         bool saturate)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  mm_impl<1u, SHMEM_SIZE>
-      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, binades_add_l, binades_add_u, saturate] __device__(float x)
-                                  { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate] __device__(float x)
-                                  { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+  launch_mm_addmul(
+      a, b, c, M, K, N, 1, false,
+      [man_add, exp_add, binades_add_l, binades_add_u, saturate] __device__(float x)
+      { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); },
+      [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate] __device__(float x)
+      { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void bmm_superfp_nearest(float *a, float *b, float *c, int B, int M, int K, int N,
@@ -672,19 +667,12 @@ void bmm_superfp_nearest(float *a, float *b, float *c, int B, int M, int K, int 
                          int binades_mul_l, int binades_mul_u,
                          bool saturate)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
-  bmm_impl<1u, SHMEM_SIZE>
-      <<<block_dim, thread_dim>>>(a, b, c, M, K, N, [man_add, exp_add, binades_add_l, binades_add_u, saturate] __device__(float x)
-                                  { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); }, [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate] __device__(float x)
-                                  { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
+  launch_mm_addmul(
+      a, b, c, M, K, N, B, false,
+      [man_add, exp_add, binades_add_l, binades_add_u, saturate] __device__(float x)
+      { return cast_superfp_nearest(x, man_add, exp_add, binades_add_l, binades_add_u, saturate); },
+      [man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate] __device__(float x)
+      { return cast_superfp_nearest(x, man_mul, exp_mul, binades_mul_l, binades_mul_u, saturate); });
 }
 
 void mm_superfp_fma_nearest(float *a, float *b, float *c,
@@ -693,16 +681,8 @@ void mm_superfp_fma_nearest(float *a, float *b, float *c,
                             int binades_fma_l, int binades_fma_u,
                             bool saturate)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 const block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y, 1U};
-  mm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-      a, b, c, M, K, N,
+  launch_mm_fma(
+      a, b, c, M, K, N, 1, false,
       [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate] __device__(float x)
       { return cast_superfp_nearest(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
 }
@@ -711,17 +691,8 @@ void bmm_superfp_fma_nearest(float *a, float *b, float *c, int B, int M, int K,
                              int N, int man_fma, int exp_fma,
                              int binades_fma_l, int binades_fma_u, bool saturate)
 {
-
-  constexpr size_t THREADS_X{8U};
-  constexpr size_t THREADS_Y{8U};
-  constexpr size_t SHMEM_SIZE{THREADS_X * THREADS_Y};
-  dim3 const thread_dim{THREADS_X, THREADS_Y, 1U};
-  dim3 block_dim{
-      (static_cast<uint32_t>(N) + thread_dim.x - 1U) / thread_dim.x,
-      (static_cast<uint32_t>(M) + thread_dim.y - 1U) / thread_dim.y,
-      static_cast<uint32_t>(B)};
-  bmm_fma_impl<1u, SHMEM_SIZE><<<block_dim, thread_dim>>>(
-      a, b, c, M, K, N,
+  launch_mm_fma(
+      a, b, c, M, K, N, B, false,
       [man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate] __device__(float x)
       { return cast_superfp_nearest(x, man_fma, exp_fma, binades_fma_l, binades_fma_u, saturate); });
 }
