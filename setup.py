@@ -1,4 +1,5 @@
 import os
+import platform
 from pathlib import Path
 
 import torch
@@ -21,9 +22,9 @@ def collect_sources(subdir: str) -> list[str]:
 
 
 def get_extra_cflags() -> list[str]:
-    if os.name == "nt":
+    if platform.system() == "Windows":
         return ["/std:c++20", "/openmp"]
-    if os.uname().sysname == "Darwin":
+    if platform.system() == "Darwin":
         return ["-std=c++20"]
     return ["-std=c++20", "-fopenmp"]
 
