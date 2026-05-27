@@ -16,3 +16,10 @@ available_devices = [
         reason='No CUDA-capable device found.'
     ))
 ]
+
+cuda_devices = [
+    pytest.param("cuda", marks=pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason='No CUDA-capable device found.'
+    ))
+]

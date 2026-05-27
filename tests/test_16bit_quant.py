@@ -1,8 +1,11 @@
 import torch
+import pytest
 from mptorch.quant import float_quantize
+from tests.markers import cuda_devices
 
-def test_bf16_quant():
-    a = torch.randn(1024, device='cuda', dtype=torch.bfloat16) * 10
+@pytest.mark.parametrize("device", cuda_devices)
+def test_bf16_quant(device):
+    a = torch.randn(1024, device=device, dtype=torch.bfloat16) * 10
     
     # Run the new bfloat16 kernel
     res = float_quantize(a, man=3, exp=4, rounding="RNE")
@@ -28,8 +31,9 @@ def test_bf16_quant():
 
     print("BF16 quant test passed!")
 
-def test_fp16_quant():
-    a = torch.randn(1024, device='cuda', dtype=torch.float16) * 10
+@pytest.mark.parametrize("device", cuda_devices)
+def test_fp16_quant(device):
+    a = torch.randn(1024, device=device, dtype=torch.float16) * 10
     
     # Run the new fp16 kernel
     res = float_quantize(a, man=3, exp=4, rounding="RNE")
@@ -54,9 +58,4 @@ def test_fp16_quant():
     assert torch.equal(res_sub, res_expected_sub), "fp16 subnormal quantization doesn't match fp32 upcast quantization"
     
     print("FP16 quant test passed!")
-
-if __name__ == "__main__":
-    if torch.cuda.is_available():
-        test_bf16_quant()
-        test_fp16_quant()
 
