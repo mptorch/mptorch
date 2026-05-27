@@ -10,17 +10,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        cache: 'pip'
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
+        uv pip install --system -r requirements.txt
     - name: Install mptorch library version to test
       run: |
-        pip install -e .
+        uv pip install --system -e . --no-build-isolation
     - name: Test with pytest
       run: |
         pytest tests

@@ -1,12 +1,12 @@
 [project]
 name = "mptorch"
 dynamic = ["dependencies", "version"]
-license = "GPL-3.0"
+license = {text = "GPL-3.0"}
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.12"
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "torch", "ninja"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]
@@ -19,3 +19,11 @@ version = {attr = "mptorch.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.pip]
+extra-index-url = ["https://download.pytorch.org/whl/cu132"]

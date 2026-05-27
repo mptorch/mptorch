@@ -14,10 +14,10 @@ def collect_sources(subdir: str) -> list[str]:
     sources = []
     for path in (QUANT_DIR / subdir).rglob("*"):
         if path.suffix in {".cpp", ".cu"}:
-            sources.append(str(path))
+            sources.append(str(path.relative_to(ROOT)))
     shared_mm = QUANT_DIR / "mm_common.cpp"
     if shared_mm.exists():
-        sources.append(str(shared_mm))
+        sources.append(str(shared_mm.relative_to(ROOT)))
     return sources
 
 
