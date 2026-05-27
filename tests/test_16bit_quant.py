@@ -56,6 +56,7 @@ def test_fp16_quant():
     print("FP16 quant test passed!")
 
 if __name__ == "__main__":
-    test_bf16_quant()
-    test_fp16_quant()
+    if torch.cuda.is_available():
+        test_bf16_quant()
+        test_fp16_quant()
 

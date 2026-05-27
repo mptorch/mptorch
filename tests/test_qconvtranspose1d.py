@@ -39,7 +39,7 @@ def test_qconvtranspose1d_custom_mm(
         input_quant=signal_q,
         bias_quant=signal_q,
     )
-    x = torch.randn(1, 4, 60)
+    x = torch.randn(4, 4, 60)
     m = nn.ConvTranspose1d(
         4,
         4,
@@ -96,7 +96,7 @@ def test_qconvtranspose1d_default_mm(
         input_quant=signal_q,
         bias_quant=signal_q,
     )
-    x = torch.randn(1, 4, 60)
+    x = torch.randn(4, 4, 60)
     m = nn.ConvTranspose1d(
         4,
         4,
