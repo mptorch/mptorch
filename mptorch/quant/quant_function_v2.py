@@ -7,6 +7,15 @@ from mptorch import (
 
 from ._ext_loader import quant_cpu, quant_cuda
 
+from .mm_ops import (
+    float_bmm_v2,
+    float_mm_v2,
+    fxp_bmm_v2,
+    fxp_mm_v2,
+    superfp_bmm_v2,
+    superfp_mm_v2,
+)
+
 __all__ = [
     "float_quantize_v2",
     "superfp_quantize_v2",
@@ -171,13 +180,3 @@ def superfp_quantize_v2(
         saturate,
         rnd_mode,
     )
-
-
-from .mm_ops import (
-    float_bmm_v2,
-    float_mm_v2,
-    fxp_bmm_v2,
-    fxp_mm_v2,
-    superfp_bmm_v2,
-    superfp_mm_v2,
-)
