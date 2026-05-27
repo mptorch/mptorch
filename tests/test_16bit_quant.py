@@ -29,8 +29,6 @@ def test_bf16_quant(device):
     res_expected_sub = res_f32_sub.to(torch.bfloat16)
     assert torch.equal(res_sub, res_expected_sub), "bfloat16 subnormal quantization doesn't match fp32 upcast quantization"
 
-    print("BF16 quant test passed!")
-
 @pytest.mark.parametrize("device", cuda_devices)
 def test_fp16_quant(device):
     a = torch.randn(1024, device=device, dtype=torch.float16) * 10
@@ -56,6 +54,4 @@ def test_fp16_quant(device):
     # Compare
     res_expected_sub = res_f32_sub.to(torch.float16)
     assert torch.equal(res_sub, res_expected_sub), "fp16 subnormal quantization doesn't match fp32 upcast quantization"
-    
-    print("FP16 quant test passed!")
 
