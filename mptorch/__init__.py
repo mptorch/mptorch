@@ -1,6 +1,8 @@
 import os
 import torch
 
+from . import _C  # noqa: F401
+
 if torch.cuda.is_available():
     (major, minor) = torch.cuda.get_device_capability(0)
     if "TORCH_CUDA_ARCH_LIST" not in os.environ:

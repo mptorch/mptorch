@@ -1,54 +1,78 @@
 import os
-import platform
 from pathlib import Path
 
 import torch
 from setuptools import find_packages, setup
-from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CppExtension
+from torch.utils.cpp_extension import (
+    BuildExtension,
+    CUDAExtension,
+    CUDA_HOME,
+    CppExtension,
+)
 
-ROOT = Path(__file__).resolve().parent
-QUANT_DIR = ROOT / "mptorch" / "quant"
+library_name = "mptorch"
 
-
-def collect_sources(subdir: str) -> list[str]:
-    sources = []
-    for path in (QUANT_DIR / subdir).rglob("*"):
-        if path.suffix in {".cpp", ".cu"}:
-            sources.append(str(path.relative_to(ROOT)))
-    global_ops = QUANT_DIR / "quant_ops.cpp"
-    if global_ops.exists():
-        sources.append(str(global_ops.relative_to(ROOT)))
-    return sources
+if torch.__version__ >= "2.6.0":
+    py_limited_api = True
+else:
+    py_limited_api = False
 
 
-def get_extra_cflags() -> list[str]:
-    if platform.system() == "Windows":
-        return ["/std:c++20", "/openmp"]
-    if platform.system() == "Darwin":
-        return ["-std=c++20"]
-    return ["-std=c++20", "-fopenmp"]
+def get_extensions():
+    debug_mode = os.getenv("DEBUG", "0") == "1"
+    use_cuda = os.getenv("USE_CUDA", "1") == "1"
+    if debug_mode:
+        print("Compiling in debug mode")
 
+    use_cuda = use_cuda and torch.cuda.is_available() and CUDA_HOME is not None
+    extension = CUDAExtension if use_cuda else CppExtension
 
-ext_modules = [
-    CppExtension(
-        name="mptorch_quant_cpu",
-        sources=collect_sources("quant_cpu"),
-        extra_compile_args=get_extra_cflags(),
-    )
-]
+    extra_link_args = []
+    extra_compile_args = {
+        "cxx": [
+            "-std=c++20",
+            "-O3" if not debug_mode else "-O0",
+            "-fdiagnostics-color=always",
+        ],
+        "nvcc": [
+            "-O3" if not debug_mode else "-O0",
+            "--extended-lambda",
+        ],
+    }
+    if py_limited_api:
+        extra_compile_args["cxx"].append("-DPy_LIMITED_API=0x03090000")
+    if debug_mode:
+        extra_compile_args["cxx"].append("-g")
+        extra_compile_args["nvcc"].append("-g")
+        extra_link_args.extend(["-O0", "-g"])
 
-if torch.cuda.is_available():
-    ext_modules.append(
-        CUDAExtension(
-            name="mptorch_quant_cuda",
-            sources=collect_sources("quant_cuda"),
-            extra_compile_args={"cxx": get_extra_cflags(), "nvcc": ["--extended-lambda"]},
+    root = Path(__file__).resolve().parent
+    csrc = root / library_name / "csrc"
+    sources = sorted(str(p.relative_to(root)) for p in csrc.glob("*.cpp"))
+    sources += sorted(str(p.relative_to(root)) for p in (csrc / "cpu").glob("*.cpp"))
+    if use_cuda:
+        sources += sorted(str(p.relative_to(root)) for p in (csrc / "cuda").glob("*.cu"))
+
+    include_dirs = [str(csrc)]
+
+    ext_modules = [
+        extension(
+            f"{library_name}._C",
+            sources,
+            include_dirs=include_dirs,
+            extra_compile_args=extra_compile_args,
+            extra_link_args=extra_link_args,
+            py_limited_api=py_limited_api,
         )
-    )
+    ]
+
+    return ext_modules
+
 
 setup(
-    name="mptorch",
+    name=library_name,
     packages=find_packages(),
-    ext_modules=ext_modules,
+    ext_modules=get_extensions(),
     cmdclass={"build_ext": BuildExtension},
+    options={"bdist_wheel": {"py_limited_api": "cp39"}} if py_limited_api else {},
 )
