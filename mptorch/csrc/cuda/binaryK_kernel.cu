@@ -6,93 +6,94 @@
 
 using namespace at;
 
-namespace {
-
-void binaryK_kernel(float *__restrict__ a, float *o, int size,
-                    int K, int P, int bias, bool is_signed,
-                    RoundMode round_mode,
-                    SaturationMode saturation_mode,
-                    SubnormalsMode subnormals_mode)
+namespace
 {
-    int blockSize = 1024;
-    int blockNums = (size + blockSize - 1) / blockSize;
-    int man_bits, exp_bits;
-    if (is_signed)
+
+    void binaryK_kernel(float *__restrict__ a, float *o, int size,
+                        int K, int P, int bias, bool is_signed,
+                        RoundMode round_mode,
+                        SaturationMode saturation_mode,
+                        SubnormalsMode subnormals_mode)
     {
-        man_bits = P - 1;
-        exp_bits = K - P;
-    }
-    else
-    {
-        man_bits = P - 1;
-        exp_bits = K - P + 1;
-    }
+        int blockSize = 1024;
+        int blockNums = (size + blockSize - 1) / blockSize;
+        int man_bits, exp_bits;
+        if (is_signed)
+        {
+            man_bits = P - 1;
+            exp_bits = K - P;
+        }
+        else
+        {
+            man_bits = P - 1;
+            exp_bits = K - P + 1;
+        }
 
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+        cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-    switch (round_mode)
-    {
-    case RoundMode::RNE:
-        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
-            { return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-        break;
+        switch (round_mode)
+        {
+        case RoundMode::RNE:
+            quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+                a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
+                { return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+            break;
 
-    case RoundMode::RNA:
-        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
-            { return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-        break;
+        case RoundMode::RNA:
+            quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+                a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
+                { return cast_binaryK_nearest_away(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+            break;
 
-    case RoundMode::RU:
-        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
-            { return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-        break;
+        case RoundMode::RU:
+            quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+                a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
+                { return cast_binaryK_up(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+            break;
 
-    case RoundMode::RD:
-        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
-            { return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-        break;
+        case RoundMode::RD:
+            quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+                a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
+                { return cast_binaryK_down(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+            break;
 
-    default: // RZ
-        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-            a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
-            { return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-        break;
-    }
-}
-
-void binaryK_kernel(float *__restrict__ a,
-                    int *__restrict__ r, float *o, int size,
-                    int K, int P, int bias, int prng_bits, bool is_signed,
-                    RoundMode round_mode, SaturationMode saturation_mode,
-                    SubnormalsMode subnormals_mode)
-{
-    int blockSize = 1024;
-    int blockNums = (size + blockSize - 1) / blockSize;
-    int man_bits, exp_bits;
-    if (is_signed)
-    {
-        man_bits = P - 1;
-        exp_bits = K - P;
-    }
-    else
-    {
-        man_bits = P - 1;
-        exp_bits = K - P + 1;
+        default: // RZ
+            quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+                a, o, size, [man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x)
+                { return cast_binaryK_zero(x, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+            break;
+        }
     }
 
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    void binaryK_kernel(float *__restrict__ a,
+                        int *__restrict__ r, float *o, int size,
+                        int K, int P, int bias, int prng_bits, bool is_signed,
+                        RoundMode round_mode, SaturationMode saturation_mode,
+                        SubnormalsMode subnormals_mode)
+    {
+        int blockSize = 1024;
+        int blockNums = (size + blockSize - 1) / blockSize;
+        int man_bits, exp_bits;
+        if (is_signed)
+        {
+            man_bits = P - 1;
+            exp_bits = K - P;
+        }
+        else
+        {
+            man_bits = P - 1;
+            exp_bits = K - P + 1;
+        }
 
-    quant_kernel<<<blockNums, blockSize, 0, stream>>>(
-        a, r, o, size,
-        [man_bits, exp_bits, prng_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x, uint32_t rv)
-        { return cast_binaryK_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
-}
+        cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-}  // namespace
+        quant_kernel<<<blockNums, blockSize, 0, stream>>>(
+            a, r, o, size,
+            [man_bits, exp_bits, prng_bits, bias, is_signed, saturation_mode, subnormals_mode] __device__(float x, uint32_t rv)
+            { return cast_binaryK_stochastic(x, rv, prng_bits, man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode); });
+    }
+
+} // namespace
 
 Tensor binaryK_quantize_cuda(
     Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
