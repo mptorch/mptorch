@@ -8,11 +8,4 @@ if torch.cuda.is_available():
 
 from .number import *
 
-__version__ = "0.3.0"
-
-__all__ = [
-    "FixedPoint",
-    "BlockFloatingPoint",
-    "FloatingPoint",
-    "SuperNormalFloat",
-]
+__version__ = "0.4.0"

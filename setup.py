@@ -15,9 +15,9 @@ def collect_sources(subdir: str) -> list[str]:
     for path in (QUANT_DIR / subdir).rglob("*"):
         if path.suffix in {".cpp", ".cu"}:
             sources.append(str(path.relative_to(ROOT)))
-    shared_mm = QUANT_DIR / "mm_common.cpp"
-    if shared_mm.exists():
-        sources.append(str(shared_mm.relative_to(ROOT)))
+    global_ops = QUANT_DIR / "quant_ops.cpp"
+    if global_ops.exists():
+        sources.append(str(global_ops.relative_to(ROOT)))
     return sources
 
 
@@ -37,7 +37,7 @@ ext_modules = [
     )
 ]
 
-if torch.cuda.is_available() or os.environ.get("FORCE_CUDA", "0") == "1":
+if torch.cuda.is_available():
     ext_modules.append(
         CUDAExtension(
             name="mptorch_quant_cuda",
