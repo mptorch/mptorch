@@ -206,7 +206,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int ma
         return sign | quantized_num;
 
     int quantized_exponent_store = quantized_num << 1 >> 24;
-    int max_exponent_store = (bias - 1) + 126 + (man_bits > 1);
+    int max_exponent_store = ((1 << exp_bits) - 1 - bias) + 126 + (man_bits > 1);
     int min_exponent_store = -(bias - 1) + 127 - extended_normals;
     int finite = (saturation_mode == SaturationMode::SAT_FINITE);
 
@@ -257,7 +257,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int ma
         return quantized_num;
 
     int quantized_exponent_store = quantized_num << 1 >> 24;
-    int max_exponent_store = bias + 127;
+    int max_exponent_store = ((1 << exp_bits) - 1 - bias) + 127;
     int min_exponent_store = -(bias - 1) + 127 - extended_normals;
 
     uint32_t old_sign = old_num >> 31 << 31;

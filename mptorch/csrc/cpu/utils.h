@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-template <class Quant>
-void quant_kernel(float *a, float *o, int size, Quant quant)
+template <typename scalar_t, class Quant>
+void quant_kernel(scalar_t *a, scalar_t *o, int size, Quant quant)
 {
   for (int i{0}; i < size; ++i)
   {
@@ -11,8 +11,8 @@ void quant_kernel(float *a, float *o, int size, Quant quant)
   }
 }
 
-template <class Quant>
-void quant_kernel(float *a, int *r, float *o, int size, Quant quant)
+template <typename scalar_t, class Quant>
+void quant_kernel(scalar_t *a, int *r, scalar_t *o, int size, Quant quant)
 {
   for (int i{0}; i < size; ++i)
   {

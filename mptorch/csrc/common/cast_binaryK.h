@@ -235,8 +235,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
-    rand_prob = rand_prob << 9 >> 9;
-    rand_prob = rand_prob & ~((1 << (23 - man_bits - rand_bits)) - 1);
+    rand_prob = rand_prob & 0xF8000000u;
+    rand_prob = rand_prob & ~((1u << (23 - man_bits - rand_bits)) - 1u);
 
     if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
