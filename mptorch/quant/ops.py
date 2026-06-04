@@ -9,6 +9,13 @@ __all__ = [
     "binaryK_quantize",
 ]
 
+mantissa_size_mapping: dict[torch.dtype, int] = {
+    torch.bfloat16: 7,
+    torch.float16: 10,
+    torch.float32: 23,
+    torch.float64: 52,    
+}
+
 
 def binaryK_quantize(
     x: torch.Tensor,
@@ -22,7 +29,7 @@ def binaryK_quantize(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
 ) -> torch.Tensor:
     assert (
-        0 <= prng_bits <= 23 - (P - 1)
+        0 <= prng_bits <= mantissa_size_mapping[x.dtype] - (P - 1)
     ), "prng_bits should be between 0 and 23 minus the number of mantissa bits (P - 1)"
 
     if not bias:
