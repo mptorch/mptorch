@@ -76,7 +76,8 @@ class CustomArithConvNd(torch.autograd.Function):
         return output
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, *grad_outputs):
+        grad_output = grad_outputs[0]
         formats = ctx.formats
         stride = ctx.stride
         padding = ctx.padding
