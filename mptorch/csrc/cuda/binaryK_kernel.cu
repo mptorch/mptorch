@@ -1,6 +1,5 @@
 #include "../common/cast_binaryK.h"
 #include "../quant_ops.h"
-#include "utils.cuh"
 #include <ATen/cuda/CUDAContext.h>
 #include <climits>
 #include <cuda_fp16.h>
@@ -144,6 +143,47 @@ namespace
         }
     };
 
+    template <typename scalar_t, class Quant>
+    __global__ __launch_bounds__(256, 2)
+    void quant_kernel_all(scalar_t *__restrict__ a,
+                          int *__restrict__ r,
+                          scalar_t *o,
+                          int size,
+                          Quant quant)
+    {
+        constexpr int vec_elems = SIMDTraits<scalar_t>::vec_elems;
+        int vec_size = size / vec_elems;
+        int rem_size = size % vec_elems;
+
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int stride = gridDim.x * blockDim.x;
+
+        for (int i = idx; i < vec_size; i += stride)
+        {
+            const int4* a_vec = reinterpret_cast<const int4*>(a);
+            int4 in_i4 = a_vec[i];
+            float4 in = reinterpret_cast<const float4&>(in_i4);
+            
+            float4 out = (r == nullptr) ? quant.vec(in) : quant.vec_sr(in, r + i * (sizeof(float4) / sizeof(scalar_t)));
+            
+            int4 out_i4 = reinterpret_cast<const int4&>(out);
+            reinterpret_cast<int4*>(o)[i] = out_i4;
+        }
+
+        if (idx < rem_size)
+        {
+            int rem_idx = vec_size * vec_elems + idx;
+            if (r == nullptr)
+            {
+                o[rem_idx] = quant.scalar(a[rem_idx]);
+            }
+            else
+            {
+                o[rem_idx] = quant.scalar_sr(a[rem_idx], static_cast<uint32_t>(r[rem_idx]));
+            }
+        }
+    }
+
     template <typename scalar_t>
     void binaryK_kernel_impl(scalar_t *__restrict__ a, scalar_t *o, int size,
                              int K, int P, int bias, bool is_signed,
@@ -151,7 +191,7 @@ namespace
                              SaturationMode saturation_mode,
                              SubnormalsMode subnormals_mode)
     {
-        int blockSize = 256;
+        constexpr int BLOCK_SIZE = 256;
         int elements_per_vec = SIMDTraits<scalar_t>::vec_elems;
         int vec_size = size / elements_per_vec;
         int rem_size = size % elements_per_vec;
@@ -160,15 +200,9 @@ namespace
 
         auto launch_kernels = [&](auto quantizer)
         {
-            if (vec_size > 0)
-            {
-                int blockNums = (vec_size + blockSize - 1) / blockSize;
-                quant_kernel_vec<<<blockNums, blockSize, 0, stream>>>(a, o, vec_size, quantizer);
-            }
-            if (rem_size > 0)
-            {
-                quant_kernel_rem<<<1, rem_size, 0, stream>>>(a + vec_size * elements_per_vec, o + vec_size * elements_per_vec, rem_size, quantizer);
-            }
+            int max_threads = std::max(vec_size, rem_size);
+            int grid = std::max(1, (max_threads + BLOCK_SIZE - 1) / BLOCK_SIZE);
+            quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, nullptr, o, size, quantizer);
         };
 
         int man_bits = P - 1;
@@ -200,7 +234,7 @@ namespace
                                 SaturationMode saturation_mode,
                                 SubnormalsMode subnormals_mode)
     {
-        int blockSize = 256;
+        constexpr int BLOCK_SIZE = 256;
         int elements_per_vec = SIMDTraits<scalar_t>::vec_elems;
         int vec_size = size / elements_per_vec;
         int rem_size = size % elements_per_vec;
@@ -211,15 +245,9 @@ namespace
         int exp_bits = is_signed ? K - P : K - P + 1;
         auto quantizer = BinaryKQuantizer<scalar_t, RoundMode::SR>{man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode, prng_bits};
 
-        if (vec_size > 0)
-        {
-            int blockNums = (vec_size + blockSize - 1) / blockSize;
-            quant_kernel_vec_sr<<<blockNums, blockSize, 0, stream>>>(a, r, o, vec_size, quantizer);
-        }
-        if (rem_size > 0)
-        {
-            quant_kernel_rem_sr<<<1, rem_size, 0, stream>>>(a + vec_size * elements_per_vec, r + vec_size * elements_per_vec, o + vec_size * elements_per_vec, rem_size, quantizer);
-        }
+        int max_threads = std::max(vec_size, rem_size);
+        int grid = std::max(1, (max_threads + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, r, o, size, quantizer);
     }
 
 } // namespace
