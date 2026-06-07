@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cuda_runtime.h>
+#include "simd_traits.cuh"
 
 template <typename scalar_t, class Quant>
 __global__ __launch_bounds__(256, 2)

@@ -15,7 +15,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, int 
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int target_exp = (int)((target >> 23) & 0xFF) - 127;
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
@@ -64,7 +64,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, int 
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int target_exp = (int)((target >> 23) & 0xFF) - 127;
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
@@ -72,7 +72,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, int 
     if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         int exp_diff = man_bits - (min_exp - target_exp);
-        int not_uflow = exp_diff > -1 || (exp_diff == -1);
+        int not_uflow = exp_diff >= -1;
         quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
         quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
                                                       target, quantize_bits);
@@ -104,7 +104,7 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, int man_bits,
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int target_exp = (int)((target >> 23) & 0xFF) - 127;
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
@@ -143,7 +143,7 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, int man_bit
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int target_exp = (int)((target >> 23) & 0xFF) - 127;
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
@@ -231,7 +231,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     target = FLOAT_TO_BITS(&origin_float);
     float quantized;
 
-    int target_exp = (target << 1 >> 1 >> 23) - 127;
+    int target_exp = (int)((target >> 23) & 0xFF) - 127;
     int min_exp = -bias + 1;
     bool subnormal = (target_exp < min_exp);
 
@@ -241,7 +241,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
     {
         float shift_float, val;
-        int shift_bits = ((127 + min_exp) << 23) | (target >> 31 << 31);
+        int shift_bits = ((127 + min_exp) << 23) | (target & 0x80000000u);
         shift_float = BITS_TO_FLOAT(&shift_bits);
         val = origin_float + shift_float;
         target = FLOAT_TO_BITS(&val);

@@ -16,7 +16,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t extract_exponent(float *a)
 {
     uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
     // extract exponent bits (single precision, 1 sign bit, 23 mantissa bits)
-    temp = (temp << 1 >> 24);
+    temp = (temp >> 23) & 0xFFu;
     // adjust for exponent bias and virtual bit
     return temp - 127 + 1;
 }
@@ -96,18 +96,17 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_exponent(
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
     int max_exponent_store = (1 << (exp_bits - 1)) - 1 + 127;
     int min_exponent_store = -((1 << (exp_bits - 1)) - 2) + 127;
 
-    uint32_t old_sign = old_num >> 31 << 31;
+    uint32_t old_sign = old_num & 0x80000000u;
     // saturate or overflow
     if (quantized_exponent_store > max_exponent_store)
     {
         if (saturate)
         {
-            uint32_t max_man =
-                (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+            uint32_t max_man = 0x007FFFFFu & ~((1u << (23 - man_bits)) - 1u);
             uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
             quantized_num = old_sign | max_num;
         }
@@ -121,10 +120,10 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_exponent(
     {
         uint32_t min_num = ((uint32_t)min_exponent_store << 23);
         uint32_t middle_num = ((uint32_t)(min_exponent_store - 1) << 23);
-        uint32_t unsigned_quantized_num = quantized_num << 1 >> 1;
+        uint32_t unsigned_quantized_num = quantized_num & 0x7FFFFFFFu;
         if (unsigned_quantized_num > middle_num)
         {
-            uint32_t old_sign = old_num >> 31 << 31;
+            uint32_t old_sign = old_num & 0x80000000u;
             quantized_num = old_sign | min_num;
         }
         else
@@ -139,12 +138,12 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_exponent(
 CUDA_HOST_DEVICE_INLINE uint32_t clip_max_exponent(
     int man_bits, uint32_t max_exponent, uint32_t quantized_num)
 {
-    uint32_t quantized_exponent = quantized_num << 1 >> 24 << 23; // 1 sign bit, 23 mantissa bits
+    uint32_t quantized_exponent = quantized_num & 0x7F800000u; // 1 sign bit, 23 mantissa bits
     if (quantized_exponent > max_exponent)
     {
-        uint32_t max_man = (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits); // 1 sign bit, 8 exponent bits
+        uint32_t max_man = 0x007FFFFFu & ~((1u << (23 - man_bits)) - 1u); // 1 sign bit, 8 exponent bits
         uint32_t max_num = max_exponent | max_man;
-        uint32_t old_sign = quantized_num >> 31 << 31;
+        uint32_t old_sign = quantized_num & 0x80000000u;
         quantized_num = old_sign | max_num;
     }
     return quantized_num;
@@ -157,10 +156,10 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(int exp_bits, int
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
     int min_exponent_store = -(bias - 1) - man_bits + 127;
 
-    uint32_t old_sign = old_num >> 31 << 31;
+    uint32_t old_sign = old_num & 0x80000000u;
     // underflow or round to smallest non zero subnormal value
     if (quantized_exponent_store < min_exponent_store)
     {
@@ -179,10 +178,10 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(int exp_bits, 
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
     int min_exponent_store = -(bias - 1) - man_bits + 127;
 
-    uint32_t old_sign = old_num >> 31 << 31;
+    uint32_t old_sign = old_num & 0x80000000u;
     // underflow or round to smallest non zero subnormal value
     if (quantized_exponent_store < min_exponent_store)
     {
@@ -201,11 +200,11 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int ma
     if (quantized_num == 0)
         return quantized_num;
 
-    uint32_t sign = old_num >> 31 << 31;
+    uint32_t sign = old_num & 0x80000000u;
     if ((quantized_num == 0x7F800000 && saturation_mode != SaturationMode::SAT_FINITE) || (quantized_num > 0x7F800000))
         return sign | quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
     int max_exponent_store = ((1 << exp_bits) - 1 - bias) + 126 + (man_bits > 1);
     int min_exponent_store = -(bias - 1) + 127 - extended_normals;
     int finite = (saturation_mode == SaturationMode::SAT_FINITE);
@@ -256,17 +255,17 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int ma
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = quantized_num << 1 >> 24;
+    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
     int max_exponent_store = ((1 << exp_bits) - 1 - bias) + 127;
     int min_exponent_store = -(bias - 1) + 127 - extended_normals;
 
-    uint32_t old_sign = old_num >> 31 << 31;
+    uint32_t old_sign = old_num & 0x80000000u;
     // handle overflow
     if (quantized_exponent_store > max_exponent_store)
     {
         if (saturate)
         {
-            uint32_t max_man = (uint32_t)-1 << 9 >> 9 >> (23 - man_bits) << (23 - man_bits);
+            uint32_t max_man = 0x007FFFFFu & ~((1u << (23 - man_bits)) - 1u);
             uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
             quantized_num = old_sign | max_num;
         }
