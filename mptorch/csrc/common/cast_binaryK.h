@@ -28,8 +28,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, int 
                                    ? round_bitwise_nearest_even(target, exp_diff)
                                    : round_bitwise_nearest_even(target);
         quantize_bits = not_uflow * rounded_val;
-        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
-                                                      target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(target, quantize_bits,
+                                                      exp_bits, man_bits, bias);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -44,7 +44,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, int 
                             ? round_bitwise_nearest_even(target, man_bits)
                             : round_bitwise_nearest_even(target);
         quantize_bits = clip_normal_range_exponent(
-            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            target, quantize_bits, exp_bits, man_bits, bias, saturation_mode,
             subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
@@ -74,8 +74,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, int 
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff >= -1;
         quantize_bits = not_uflow * round_bitwise_nearest_away(target, exp_diff);
-        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
-                                                      target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(target, quantize_bits,
+                                                      exp_bits, man_bits, bias);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -88,7 +88,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, int 
     {
         quantize_bits = round_bitwise_nearest_away(target, man_bits);
         quantize_bits = clip_normal_range_exponent(
-            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            target, quantize_bits, exp_bits, man_bits, bias, saturation_mode,
             subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
@@ -113,8 +113,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, int man_bits,
     {
         int exp_diff = man_bits - (min_exp - target_exp);
         quantize_bits = round_bitwise_up(target, exp_diff < 0 ? 0 : exp_diff);
-        quantize_bits = clip_subnormal_range_exponent_up(exp_bits, man_bits, bias,
-                                                         target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent_up(target, quantize_bits,
+                                                         exp_bits, man_bits, bias);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -127,7 +127,7 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, int man_bits,
     {
         quantize_bits = round_bitwise_up(target, man_bits);
         quantize_bits = clip_normal_range_exponent(
-            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            target, quantize_bits, exp_bits, man_bits, bias, saturation_mode,
             subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
@@ -153,8 +153,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, int man_bit
         int exp_diff = man_bits - (min_exp - target_exp);
         int not_uflow = exp_diff > -1;
         quantize_bits = not_uflow * round_bitwise_down(target, exp_diff);
-        quantize_bits = clip_subnormal_range_exponent(exp_bits, man_bits, bias,
-                                                      target, quantize_bits);
+        quantize_bits = clip_subnormal_range_exponent(target, quantize_bits,
+                                                      exp_bits, man_bits, bias);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // handle NaN/inf inputs
@@ -167,7 +167,7 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, int man_bit
     {
         quantize_bits = round_bitwise_down(target, man_bits);
         quantize_bits = clip_normal_range_exponent(
-            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            target, quantize_bits, exp_bits, man_bits, bias, saturation_mode,
             subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
@@ -257,7 +257,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     {
         quantize_bits = round_bitwise_stochastic(target, rand_prob, man_bits);
         quantize_bits = clip_normal_range_exponent(
-            exp_bits, man_bits, bias, target, quantize_bits, saturation_mode,
+            target, quantize_bits, exp_bits, man_bits, bias, saturation_mode,
             subnormals == SubnormalsMode::EXTENDED_NORMALS);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }

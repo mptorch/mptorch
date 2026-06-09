@@ -90,8 +90,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_stochastic(uint32_t target, uint3
 }
 
 CUDA_HOST_DEVICE_INLINE uint32_t clip_exponent(
-    int exp_bits, int man_bits, uint32_t old_num,
-    uint32_t quantized_num, bool saturate)
+    uint32_t old_num, uint32_t quantized_num,
+    int exp_bits, int man_bits, bool saturate)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -136,7 +136,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_exponent(
 
 // clips the max exponent
 CUDA_HOST_DEVICE_INLINE uint32_t clip_max_exponent(
-    int man_bits, uint32_t max_exponent, uint32_t quantized_num)
+    uint32_t quantized_num, int man_bits, uint32_t max_exponent)
 {
     uint32_t quantized_exponent = quantized_num & 0x7F800000u; // 1 sign bit, 23 mantissa bits
     if (quantized_exponent > max_exponent)
@@ -150,8 +150,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_max_exponent(
 }
 
 // clips the exponent of a floating point format with subnormal values
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(int exp_bits, int man_bits, int bias,
-                                                               uint32_t old_num, uint32_t quantized_num)
+CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num, uint32_t quantized_num,
+                                                               int exp_bits, int man_bits, int bias)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -172,8 +172,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(int exp_bits, int
     return quantized_num;
 }
 
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(int exp_bits, int man_bits, int bias,
-                                                                  uint32_t old_num, uint32_t quantized_num)
+CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
+                                                                  int exp_bits, int man_bits, int bias)
 {
     if (quantized_num == 0)
         return quantized_num;
@@ -193,8 +193,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(int exp_bits, 
 }
 
 // clips the exponent of a floating point format without subnormal values (binaryK version)
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
-                                                            uint32_t old_num, uint32_t quantized_num,
+CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
+                                                            int exp_bits, int man_bits, int bias,
                                                             SaturationMode saturation_mode, bool extended_normals = false)
 {
     if (quantized_num == 0)
@@ -248,8 +248,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int ma
 }
 
 // clips the exponent of a floating point format without subnormal values (IEEE-754 style floats version)
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(int exp_bits, int man_bits, int bias,
-                                                            uint32_t old_num, uint32_t quantized_num,
+CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
+                                                            int exp_bits, int man_bits, int bias,
                                                             bool saturate, bool extended_normals = false)
 {
     if (quantized_num == 0)
