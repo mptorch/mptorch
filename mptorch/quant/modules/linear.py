@@ -164,7 +164,22 @@ class QLinear(nn.Linear):
                 F.linear(self.Qi(input), self.Qw(self.weight), self.Qb(self.bias))
             )
         else:
-            return qlinear(input, self.weight, self.bias, self.formats)
+            if self.formats.s:
+                mans = torch.tensor(
+                    [23, 10, 3, 1], dtype=torch.int32, device=self.weight.device
+                )
+                exps = torch.tensor(
+                    [8, 5, 4, 2], dtype=torch.int32, device=self.weight.device
+                )
+                prec = (
+                    torch.ones(input.shape[0], self.weight.shape[0]).int()
+                    * self.formats.s
+                ).to(self.weight.device)
+                return qlinear_mp.apply(
+                    input, self.weight, self.bias, self.formats, prec, mans, exps
+                )
+            else:
+                return qlinear(input, self.weight, self.bias, self.formats)
 
 
 class QLazyLinear(torch.nn.modules.lazy.LazyModuleMixin, QLinear):
