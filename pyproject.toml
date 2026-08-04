@@ -23,7 +23,8 @@ where = ["."]
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu132"
-explicit = true
 
 [tool.uv.pip]
 extra-index-url = ["https://download.pytorch.org/whl/cu132"]
+index-strategy = "unsafe-best-match"
+no-build-isolation = true
