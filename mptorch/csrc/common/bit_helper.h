@@ -201,6 +201,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
         return quantized_num;
 
     uint32_t sign = old_num & 0x80000000u;
+    quantized_num &= 0x7FFFFFFFu;
     if ((quantized_num == 0x7F800000 && saturation_mode != SaturationMode::SAT_FINITE) || (quantized_num > 0x7F800000))
         return sign | quantized_num;
 
@@ -218,15 +219,15 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
         switch (saturation_mode)
         {
         case SaturationMode::SAT_FINITE:
-            quantized_num = sign | max_num;
+            quantized_num = max_num;
             break;
 
         case SaturationMode::SAT_PROPAGATE:
-            quantized_num = sign | max_num;
+            quantized_num = max_num;
             break;
 
         default:
-            quantized_num = sign | 0x7F800000;
+            quantized_num = 0x7F800000;
             break;
         }
     }
@@ -234,15 +235,16 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
     {
         // handle overflow
         if (quantized_num > max_num && saturation_mode == SaturationMode::OVF_INF)
-            quantized_num = sign | 0x7F800000;
+            quantized_num = 0x7F800000;
     }
     // handle underflow
     else if (quantized_exponent_store < min_exponent_store)
     {
         uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
         quantized_num = offset * (min_exponent_store << 23);
-        quantized_num |= sign;
     }
+
+    quantized_num |= sign;
 
     return quantized_num;
 }
