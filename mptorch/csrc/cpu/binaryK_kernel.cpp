@@ -66,12 +66,21 @@ namespace
       };
       break;
 
-    default: // RZ
+    case RoundMode::RZ:
       quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode,
                    subnormals_mode](scalar_t x) -> scalar_t
       {
         return static_cast<scalar_t>(cast_binaryK_zero(static_cast<float>(x), man_bits, exp_bits, bias, is_signed,
                                                        saturation_mode, subnormals_mode));
+      };
+      break;
+
+    default: // RO
+      quantizer = [man_bits, exp_bits, bias, is_signed, saturation_mode,
+                   subnormals_mode](scalar_t x) -> scalar_t
+      {
+        return static_cast<scalar_t>(cast_binaryK_odd(static_cast<float>(x), man_bits, exp_bits, bias, is_signed,
+                                                      saturation_mode, subnormals_mode));
       };
       break;
     }

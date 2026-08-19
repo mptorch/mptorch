@@ -76,6 +76,22 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_down(uint32_t target, int man_bit
     return add_r & ~mask;
 }
 
+// rounds to odd: truncates towards zero to man_bits, then forces the least
+// significant kept bit to 1 if any of the truncated (discarded) bits were
+// nonzero (i.e. ORs the "sticky bit" of the discarded bits into the LSB).
+// When man_bits == 0 the kept "bit" is the exponent's LSB (there is no
+// explicit significand), so a nonzero sticky bit carries into the exponent
+// -- mirroring the man_bits == 0 handling in round_bitwise_nearest_even.
+CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_odd(uint32_t target, int man_bits)
+{
+    if (man_bits >= 23)
+        return target;
+    uint32_t mask = (1 << (23 - man_bits)) - 1;
+    uint32_t lsb = 1 << (23 - man_bits);
+    uint32_t sticky = (target & mask) != 0;
+    return (target & ~mask) | (sticky * lsb);
+}
+
 // stochastic rounding
 CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
 { // passing number of random bits as second parameter

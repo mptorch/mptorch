@@ -19,6 +19,7 @@ from tests.quant import bits_to_float, float_to_bits
         (RoundMode.TowardPositive, mptorch.number.RoundMode.RU),
         (RoundMode.TowardNegative, mptorch.number.RoundMode.RD),
         (RoundMode.TowardZero, mptorch.number.RoundMode.RZ),
+        (RoundMode.ToOdd, mptorch.number.RoundMode.RO),
     ],
 )
 @pytest.mark.parametrize(

@@ -55,6 +55,9 @@ Round down
 RZ:
 Round towards zero
 
+RO:
+Round to odd
+
 SR:
 Stochastic rounding
 */
@@ -65,5 +68,6 @@ enum class RoundMode
     RU,
     RD,
     RZ,
+    RO,
     SR
 };

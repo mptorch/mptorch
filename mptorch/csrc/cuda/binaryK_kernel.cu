@@ -32,6 +32,8 @@ namespace
                 return cast_binaryK_down(x_f, man_bits, exp_bits, bias, is_signed, sat_mode, sub_mode);
             if (RM == RoundMode::RZ)
                 return cast_binaryK_zero(x_f, man_bits, exp_bits, bias, is_signed, sat_mode, sub_mode);
+            if (RM == RoundMode::RO)
+                return cast_binaryK_odd(x_f, man_bits, exp_bits, bias, is_signed, sat_mode, sub_mode);
             return x_f;
         }
 
@@ -102,8 +104,11 @@ namespace
         case RoundMode::RD:
             launch_kernels(BinaryKQuantizer<scalar_t, RoundMode::RD>{man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode, 0});
             break;
-        default:
+        case RoundMode::RZ:
             launch_kernels(BinaryKQuantizer<scalar_t, RoundMode::RZ>{man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode, 0});
+            break;
+        default: // RO
+            launch_kernels(BinaryKQuantizer<scalar_t, RoundMode::RO>{man_bits, exp_bits, bias, is_signed, saturation_mode, subnormals_mode, 0});
             break;
         }
     }

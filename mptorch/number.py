@@ -27,4 +27,5 @@ class RoundMode(Enum):
     RU = 2  #: Return the smallest :math:`y` such that :math:`y \ge x`
     RD = 3  #: Return the largest :math:`y` such that :math:`y \le x`
     RZ = 4  #: Return the largest :math:`y` such that :math:`|y| \le |x|`
-    SR = 5  #: Stochastic Rounding
+    RO = 5  #: Round to odd
+    SR = 6  #: Stochastic Rounding
