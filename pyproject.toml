@@ -1,6 +1,6 @@
 [project]
 name = "mptorch"
-dynamic = ["dependencies", "version"]
+dynamic = ["dependencies", "optional-dependencies", "version"]
 license = {text = "GPL-3.0"}
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.12"
@@ -16,6 +16,9 @@ Issues = "https://github.com/mptorch/mptorch/issues"
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 version = {attr = "mptorch.__version__"}
+
+[tool.setuptools.dynamic.optional-dependencies]
+test = {file = ["requirements-test.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -4,25 +4,22 @@
 # Overview
 MPTorch is a wrapper framework built atop PyTorch that is designed to simulate the use of custom/mixed precision arithmetic in PyTorch, especially for DNN training.
 
-It reimplements the underlying computations of commonly used layers for CNNs (e.g. matrix multiplication and 2D convolutions) using user-specified floating-point 
-formats for each operation (e.g. addition, multiplication). All the operations are internally done using IEEE-754 32-bit floating-point arithmetic, with the results rounded to the specified format.
+It reimplements the underlying computations of commonly used layers (e.g. linear/matrix multiplication and 1D/2D/3D convolutions) so that the inputs, weights, biases and gradients of each operator can be quantized to a user-specified, per-tensor floating-point format. Quantization is opt-in per tensor: any format left unspecified simply falls back to plain PyTorch behavior.
 
-MPTorch is still in its early stages of development, but it is already capable of training convolutional neural networks using custom floating-point formats that are specified at the layer level (and for every operator type) for both forward and backward pass computations.
+MPTorch is still in its early stages of development, but it is already capable of training neural networks using custom floating-point formats that are specified at the layer level (and for every operator's inputs, outputs and gradients) for both forward and backward pass computations.
 
 ## Basic usage example
-The code is supposed to be straightforward to write for users familiar with PyTorch. The following example illustrates how a simple MLP example can be run:
+The code is supposed to be straightforward to write for users familiar with PyTorch. The following example illustrates how a simple MLP can be built and trained on MNIST with a custom, narrow floating-point format applied to its weights, activations and gradients:
 
 ```python
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import SGD
 from torch.utils.data import DataLoader
-import torchvision
 from torchvision import datasets, transforms
-from mptorch import FloatingPoint
+from mptorch.number import RoundMode
 import mptorch.quant as qpt
-from mptorch.optim import QOptim
-from mptorch.utils import trainer
 
 """Hyperparameters"""
 batch_size = 64  # batch size
@@ -55,23 +52,21 @@ test_loader = DataLoader(
 )
 
 """
-Specify the formats and quantization functions 
-for the layer operations and signals
+Specify the quantization function shared by every signal
+(weights, activations, biases and gradients) in the layers below.
+`binaryK_quantize` simulates a K-bit floating-point format with
+P mantissa (precision) bits, e.g. K=8, P=4 is a narrow 8-bit float.
 """
-exp, man = 5, 2
-fp_format = FloatingPoint(exp=exp, man=man, subnormals=True, saturate=False)
-quant_fp = lambda x: qpt.float_quantize(
-    x, exp=exp, man=man, rounding="RNE", subnormals=True, saturate=False)
+K, P = 8, 4
+quant_fp = lambda x: qpt.binaryK_quantize(x, K=K, P=P, rounding_mode=RoundMode.RNE)
 
 layer_formats = qpt.QAffineFormats(
-    fwd_mac=(fp_format, fp_format),
-    fwd_rnd="RNE",
-    bwd_mac=(fp_format, fp_format),
-    bwd_rnd="RNE",
     weight_quant=quant_fp,
     input_quant=quant_fp,
-    grad_quant=quant_fp,
     bias_quant=quant_fp,
+    wgrad_quant=quant_fp,
+    igrad_quant=quant_fp,
+    bgrad_quant=quant_fp,
 )
 
 """Construct the model"""
@@ -92,41 +87,32 @@ model = nn.Sequential(
 """Prepare and launch the training process"""
 model = model.to(device)
 optimizer = SGD(
-    model.parameters(), 
-    lr=lr_init, 
-    momentum=momentum, 
+    model.parameters(),
+    lr=lr_init,
+    momentum=momentum,
     weight_decay=weight_decay,
 )
 
-"""
-Specify the format to be used for updating model parameters
-"""
-acc_q = lambda x: qpt.float_quantize(
-    x, exp=8, man=15, rounding="RNE"
-)
-optimizer = QOptim(
-    optimizer,
-    acc_quant=acc_q,
-    momentum_quant=acc_q,
-)
+for epoch in range(num_epochs):
+    model.train()
+    for data, target in train_loader:
+        data, target = data.to(device), target.to(device)
+        optimizer.zero_grad()
+        loss = F.cross_entropy(model(data), target)
+        loss.backward()
+        optimizer.step()
 
-"""
-Utility function used to train the model (loss scaling is
-supported)
-"""
-trainer(
-    model,
-    train_loader,
-    test_loader,
-    num_epochs=num_epochs,
-    lr=lr_init,
-    batch_size=batch_size,
-    optimizer=optimizer,
-    device=device,
-    init_scale=1024.0,
-)
+    model.eval()
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            correct += (model(data).argmax(dim=1) == target).sum().item()
+    print(f"epoch {epoch}: test accuracy = {correct / len(test_dataset):.4f}")
 
 ```
+
+`QAffineFormats` also accepts `fwd_math`, `bwd_igrad_math` and `bwd_wgrad_math` callables for cases where the forward/backward arithmetic itself (not just the tensors going into it) needs to be simulated with a custom, non-default routine; leaving them unset (as above) falls back to plain PyTorch's `F.linear`/`F.conv*d` and autograd.
 
 ## Installation
 
@@ -135,11 +121,29 @@ Requirements:
 - Python >= 3.12
 - PyTorch >= 2.1
 - GCC >= 4.9 on Linux
-- CUDA >= 12.0 on Linux
+- CUDA >= 12.0 on Linux (only needed to build the CUDA kernels)
 
 Install MPTorch through pip (from the base directory):
 ```
 pip3 install -e .
+```
+
+By default, the CUDA extension is built whenever `torch.cuda.is_available()` and `CUDA_HOME` are set. To force a CPU-only build:
+```
+USE_CUDA=0 pip3 install -e .
+```
+
+To build with debug symbols and no optimization:
+```
+DEBUG=1 pip3 install -e .
+```
+
+### Running the tests
+
+The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren't required to just use the library, so they're kept in a separate `test` extra:
+```
+pip3 install -e ".[test]"
+pytest tests/
 ```
 
 ## Acknowledgements
