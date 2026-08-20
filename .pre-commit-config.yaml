@@ -9,8 +9,8 @@ repos:
   - repo: local
     hooks:
       - id: ty
-        name: ty check (mptorch/)
-        entry: ty check mptorch
+        name: ty check (mptorch/, tests/, benchmarks/)
+        entry: ty check mptorch tests benchmarks
         language: system
         pass_filenames: false
-        files: ^mptorch/.*\.py$
+        files: ^(mptorch|tests|benchmarks)/.*\.py$
