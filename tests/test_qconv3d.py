@@ -2,6 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.grad
 
 from mptorch.number import RoundMode
 from mptorch.quant import QAffineFormats, QConv3d, binaryK_quantize
@@ -30,6 +31,7 @@ def test_qconv3d_tier1_exact(device, bias):
     with torch.no_grad():
         q_layer.weight.copy_(vanilla.weight)
         if bias:
+            assert vanilla.bias is not None and q_layer.bias is not None
             q_layer.bias.copy_(vanilla.bias)
 
     x_v = torch.randn(2, 4, 8, 8, 8, device=device, dtype=dtype, requires_grad=True)
@@ -46,11 +48,17 @@ def test_qconv3d_tier1_exact(device, bias):
     loss_v.backward()
     loss_q.backward()
 
+    assert x_v.grad is not None
+    assert x_q.grad is not None
+    assert vanilla.weight.grad is not None
+    assert q_layer.weight.grad is not None
     assert torch.allclose(x_v.grad, x_q.grad, atol=1e-5), "Input grad divergence!"
     assert torch.allclose(vanilla.weight.grad, q_layer.weight.grad, atol=1e-5), (
         "Weight grad divergence!"
     )
     if bias:
+        assert vanilla.bias is not None and vanilla.bias.grad is not None
+        assert q_layer.bias is not None and q_layer.bias.grad is not None
         assert torch.allclose(vanilla.bias.grad, q_layer.bias.grad, atol=1e-5), (
             "Bias grad divergence!"
         )
@@ -80,6 +88,7 @@ def test_qconv3d_tier2_statistical(device, dtype, bias):
     with torch.no_grad():
         q_layer.weight.copy_(vanilla.weight)
         if bias:
+            assert vanilla.bias is not None and q_layer.bias is not None
             q_layer.bias.copy_(vanilla.bias)
 
     x_v = torch.randn(2, 4, 8, 8, 8, device=device, dtype=dtype, requires_grad=True)
@@ -97,6 +106,11 @@ def test_qconv3d_tier2_statistical(device, dtype, bias):
 
     out_v.backward(g_out)
     out_q.backward(g_out)
+
+    assert x_v.grad is not None
+    assert x_q.grad is not None
+    assert vanilla.weight.grad is not None
+    assert q_layer.weight.grad is not None
 
     cos_sim_igrad = F.cosine_similarity(
         x_v.grad.flatten().float(), x_q.grad.flatten().float(), dim=0
@@ -130,7 +144,11 @@ def test_qconv3d_tier3_manual_baseline(device, dtype, bias):
     )
 
     w = q_layer.weight.clone().detach().requires_grad_(True)
-    b = q_layer.bias.clone().detach().requires_grad_(True) if bias else None
+    if bias:
+        assert q_layer.bias is not None
+        b = q_layer.bias.clone().detach().requires_grad_(True)
+    else:
+        b = None
     x_man = torch.randn(2, 4, 8, 8, 8, device=device, dtype=dtype, requires_grad=True)
     x_q_layer = x_man.clone().detach().requires_grad_(True)
 
@@ -176,10 +194,13 @@ def test_qconv3d_tier3_manual_baseline(device, dtype, bias):
         groups=q_layer.groups,
     )
     if bias:
+        assert q_bgrad_out is not None
         bgrad_man = q_bgrad_out.sum(dim=(0, 2, 3, 4))
 
     out_layer.backward(g_out)
 
+    assert x_q_layer.grad is not None
+    assert q_layer.weight.grad is not None
     assert torch.allclose(x_q_layer.grad.detach(), igrad_man.detach(), atol=1e-3, rtol=1e-3), (
         "Manual Input Grad divergence!"
     )
@@ -187,6 +208,8 @@ def test_qconv3d_tier3_manual_baseline(device, dtype, bias):
         "Manual Weight Grad divergence!"
     )
     if bias:
+        assert q_layer.bias is not None
+        assert q_layer.bias.grad is not None
         assert torch.allclose(
             q_layer.bias.grad.detach(), bgrad_man.detach(), atol=1e-3, rtol=1e-3
         ), "Manual Bias Grad divergence!"
