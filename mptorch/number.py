@@ -6,9 +6,7 @@ __all__ = [
 
 from enum import Enum
 
-SaturationMode = Enum(
-    "SaturationMode", [("SAT_FINITE", 0), ("SAT_PROPAGATE", 1), ("OVF_INF", 2)]
-)
+SaturationMode = Enum("SaturationMode", [("SAT_FINITE", 0), ("SAT_PROPAGATE", 1), ("OVF_INF", 2)])
 
 SubnormalsMode = Enum(
     "SubnormalsMode", [("SUBNORMALS", 0), ("NORMALS", 1), ("EXTENDED_NORMALS", 2)]

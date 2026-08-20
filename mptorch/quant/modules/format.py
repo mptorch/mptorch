@@ -1,5 +1,6 @@
-import torch.nn as nn
-from typing import Callable, Optional
+from collections.abc import Callable
+
+from torch import nn
 
 
 class QAffineFormats(nn.Module):
@@ -15,15 +16,15 @@ class QAffineFormats(nn.Module):
 
     def __init__(
         self,
-        weight_quant: Optional[Callable] = None,
-        input_quant: Optional[Callable] = None,
-        bias_quant: Optional[Callable] = None,
-        wgrad_quant: Optional[Callable] = None,
-        igrad_quant: Optional[Callable] = None,
-        bgrad_quant: Optional[Callable] = None,
-        fwd_math: Optional[Callable] = None,
-        bwd_igrad_math: Optional[Callable] = None,
-        bwd_wgrad_math: Optional[Callable] = None,
+        weight_quant: Callable | None = None,
+        input_quant: Callable | None = None,
+        bias_quant: Callable | None = None,
+        wgrad_quant: Callable | None = None,
+        igrad_quant: Callable | None = None,
+        bgrad_quant: Callable | None = None,
+        fwd_math: Callable | None = None,
+        bwd_igrad_math: Callable | None = None,
+        bwd_wgrad_math: Callable | None = None,
     ):
         super().__init__()
 

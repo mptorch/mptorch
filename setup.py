@@ -4,10 +4,10 @@ from pathlib import Path
 import torch
 from setuptools import find_packages, setup
 from torch.utils.cpp_extension import (
-    BuildExtension,
-    CUDAExtension,
     CUDA_HOME,
+    BuildExtension,
     CppExtension,
+    CUDAExtension,
 )
 
 library_name = "mptorch"

@@ -1,7 +1,6 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
+from torch import nn
 
 from .format import QAffineFormats
 
@@ -15,15 +14,11 @@ class CustomArithLinear(torch.autograd.Function):
     """
 
     @staticmethod
-    def _default_bwd_igrad(
-        grad_output: torch.Tensor, weight: torch.Tensor
-    ) -> torch.Tensor:
+    def _default_bwd_igrad(grad_output: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
         return grad_output.matmul(weight)
 
     @staticmethod
-    def _default_bwd_wgrad(
-        grad_output: torch.Tensor, input: torch.Tensor
-    ) -> torch.Tensor:
+    def _default_bwd_wgrad(grad_output: torch.Tensor, input: torch.Tensor) -> torch.Tensor:
         gO_flat = grad_output.reshape(-1, grad_output.shape[-1])
         i_flat = input.reshape(-1, input.shape[-1])
         return gO_flat.t().matmul(i_flat)
@@ -34,11 +29,7 @@ class CustomArithLinear(torch.autograd.Function):
 
         q_input = formats.input_quant(input) if formats.input_quant else input
         q_weight = formats.weight_quant(weight) if formats.weight_quant else weight
-        q_bias = (
-            formats.bias_quant(bias)
-            if formats.bias_quant and bias is not None
-            else bias
-        )
+        q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
 
         if formats.fwd_math is not None:
             output = formats.fwd_math(q_input, q_weight, q_bias)
@@ -66,16 +57,12 @@ class CustomArithLinear(torch.autograd.Function):
         formats = ctx.formats
 
         if ctx.saved_structs is None:
-            q_input, q_weight, q_bias = ctx.saved_tensors
+            q_input, q_weight, _q_bias = ctx.saved_tensors
         else:
-            q_input, q_weight, q_bias = ctx.saved_structs
+            q_input, q_weight, _q_bias = ctx.saved_structs
 
-        q_igrad_output = (
-            formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output
-        )
-        q_wgrad_output = (
-            formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output
-        )
+        q_igrad_output = formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output
+        q_wgrad_output = formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output
 
         grad_input = grad_weight = grad_bias = None
 
@@ -118,7 +105,7 @@ class QLinear(nn.Linear):
         bias: bool = True,
         device=None,
         dtype=None,
-        formats: Optional[QAffineFormats] = None,
+        formats: QAffineFormats | None = None,
     ):
         super().__init__(in_features, out_features, bias, device, dtype)
         if formats is None:

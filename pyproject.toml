@@ -19,6 +19,7 @@ version = {attr = "mptorch.__version__"}
 
 [tool.setuptools.dynamic.optional-dependencies]
 test = {file = ["requirements-test.txt"]}
+dev = {file = ["requirements-dev.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -31,3 +32,20 @@ url = "https://download.pytorch.org/whl/cu132"
 extra-index-url = ["https://download.pytorch.org/whl/cu132"]
 index-strategy = "unsafe-best-match"
 no-build-isolation = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["temp", "backup", "build"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+
+[tool.ty.environment]
+python-version = "3.12"

@@ -1,10 +1,11 @@
-import torch
-from mptorch.quant import binaryK_quantize
-import mptorch
 import pytest
-from tests.markers import available_devices
-from gfloat import RoundMode, round_float, Signedness
+import torch
+from gfloat import RoundMode, Signedness, round_float
 from gfloat.formats import format_info_p3109
+
+import mptorch
+from mptorch.quant import binaryK_quantize
+from tests.markers import available_devices
 from tests.quant import bits_to_float, float_to_bits
 
 
@@ -22,9 +23,7 @@ from tests.quant import bits_to_float, float_to_bits
         (RoundMode.ToOdd, mptorch.number.RoundMode.RO),
     ],
 )
-@pytest.mark.parametrize(
-    "signedness", [(Signedness.Signed, True), (Signedness.Unsigned, False)]
-)
+@pytest.mark.parametrize("signedness", [(Signedness.Signed, True), (Signedness.Unsigned, False)])
 def test_binaryK_vs_gfloat(device, K, dtype, rounding_mode, signedness):
     for P in range(1, K):
         fi = format_info_p3109(K, P, signedness=signedness[0])
@@ -33,9 +32,7 @@ def test_binaryK_vs_gfloat(device, K, dtype, rounding_mode, signedness):
         istart_value = float_to_bits(start_value)
         increment = 0x7FFFFFFF & (1 << (22 - (P - 1) - 2))
 
-        vals_to_test = [
-            bits_to_float(istart_value + i * increment) for i in range(0, 2 ** (K + 2))
-        ]
+        vals_to_test = [bits_to_float(istart_value + i * increment) for i in range(2 ** (K + 2))]
         if signedness[1]:
             vals_to_test_neg = [-x for x in vals_to_test]
             vals_to_test = [vals_to_test, vals_to_test_neg]
@@ -47,16 +44,14 @@ def test_binaryK_vs_gfloat(device, K, dtype, rounding_mode, signedness):
         # so we convert to float32 for the reference path
         gqx = x.clone().detach().to("cpu").to(torch.float32)
         gqx.apply_(
-            lambda x: round_float(
+            lambda x, fi=fi: round_float(
                 fi,
                 x,
                 rnd=rounding_mode[0],
             )
         )
         gqx = gqx.to(device).to(dtype)
-        qx = binaryK_quantize(
-            x, K, P, rounding_mode=rounding_mode[1], is_signed=signedness[1]
-        )
+        qx = binaryK_quantize(x, K, P, rounding_mode=rounding_mode[1], is_signed=signedness[1])
 
         assert torch.all(qx == gqx)
 
@@ -64,22 +59,16 @@ def test_binaryK_vs_gfloat(device, K, dtype, rounding_mode, signedness):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("K", [4, 8])
 @pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.parametrize(
-    "signedness", [(Signedness.Signed, True), (Signedness.Unsigned, False)]
-)
+@pytest.mark.parametrize("signedness", [(Signedness.Signed, True), (Signedness.Unsigned, False)])
 def test_binaryK_stochastic(device, K, dtype, signedness):
     P = K - 2 if K > 4 else K - 1
 
     # 1. Exact Representable Identity & Bounding Guarantees
     # Generate random data strictly within [-0.9, 0.9] (or [0, 0.9]) to avoid overflow logic
     if signedness[1]:
-        x_rand = (
-            torch.rand(10000, dtype=dtype, device=device) * 1.8 - 0.9
-        ).requires_grad_(False)
+        x_rand = (torch.rand(10000, dtype=dtype, device=device) * 1.8 - 0.9).requires_grad_(False)
     else:
-        x_rand = (torch.rand(10000, dtype=dtype, device=device) * 0.9).requires_grad_(
-            False
-        )
+        x_rand = (torch.rand(10000, dtype=dtype, device=device) * 0.9).requires_grad_(False)
 
     # The number of bits truncated from the IEEE float32 mantissa
     prng_bits = 23 - (P - 1)
@@ -104,9 +93,9 @@ def test_binaryK_stochastic(device, K, dtype, signedness):
     )
 
     # Property 1: Exact representation identity (grid points shouldn't change)
-    assert torch.all(
-        q_sr_grid == x_grid
-    ), "Stochastic rounding altered an exactly representable grid point!"
+    assert torch.all(q_sr_grid == x_grid), (
+        "Stochastic rounding altered an exactly representable grid point!"
+    )
 
     # Quantize the non-representable random points using Stochastic mode
     q_sr_rand = binaryK_quantize(
@@ -125,12 +114,13 @@ def test_binaryK_stochastic(device, K, dtype, signedness):
         print(f"FAILED BOUNDS for {len(idx)} elements. First few:")
         for i in idx[:5]:
             print(
-                f"x={x_rand[i].item()}, RD={q_rd[i].item()}, RU={q_ru[i].item()}, SR={q_sr_rand[i].item()}"
+                f"x={x_rand[i].item()}, RD={q_rd[i].item()}, "
+                f"RU={q_ru[i].item()}, SR={q_sr_rand[i].item()}"
             )
 
-    assert torch.all(
-        valid_bounds
-    ), "Stochastic rounding produced a value outside the [RD, RU] bounds!"
+    assert torch.all(valid_bounds), (
+        "Stochastic rounding produced a value outside the [RD, RU] bounds!"
+    )
 
     # 3. Statistical Unbiasedness
     # Test a specific non-representable scalar value falling nicely inside the dynamic range
@@ -153,6 +143,6 @@ def test_binaryK_stochastic(device, K, dtype, signedness):
     # Tolerance based on generous confidence interval
     tolerance = 0.05
 
-    assert (
-        abs(mean_val - test_val) < tolerance
-    ), f"Stochastic rounding expectation biased! Expected {test_val}, got mean {mean_val}"
+    assert abs(mean_val - test_val) < tolerance, (
+        f"Stochastic rounding expectation biased! Expected {test_val}, got mean {mean_val}"
+    )

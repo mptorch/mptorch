@@ -13,3 +13,11 @@ at::Tensor binaryK_quantize_cpu(at::Tensor a, int64_t K, int64_t P,
                                 int64_t bias, int64_t prng_bits, bool is_signed,
                                 int64_t round_mode, int64_t saturation_mode,
                                 int64_t subnormals_mode);
+
+at::Tensor superfp_quantize_cuda(at::Tensor a, int64_t man_bits, int64_t exp_bits,
+                                 int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                                 bool is_signed, int64_t round_mode, int64_t saturation_mode);
+
+at::Tensor superfp_quantize_cpu(at::Tensor a, int64_t man_bits, int64_t exp_bits,
+                                int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                                bool is_signed, int64_t round_mode, int64_t saturation_mode);

@@ -3,6 +3,23 @@ name: Build and test
 on: [push]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Install lint tools
+      run: pip install -r requirements-dev.txt
+    - name: Ruff check
+      run: ruff check mptorch tests benchmarks
+    - name: Ruff format check
+      run: ruff format --check mptorch tests benchmarks
+    - name: ty check
+      run: ty check mptorch
+
   build-linux:
     runs-on: ubuntu-latest
     strategy:
