@@ -7,16 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.12'
     - name: Install lint tools
-      run: pip install -r requirements-dev.txt
+      run: uv pip install --system -r requirements-dev.txt
     - name: Ruff check
       run: ruff check mptorch tests benchmarks
     - name: Ruff format check
       run: ruff format --check mptorch tests benchmarks
+    - name: Install runtime dependencies for ty's import resolution
+      run: uv pip install --system -r requirements.txt
     - name: ty check
       run: ty check mptorch
 
