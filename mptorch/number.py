@@ -2,6 +2,7 @@ __all__ = [
     "SaturationMode",
     "SubnormalsMode",
     "RoundMode",
+    "AccumulateAlgorithm",
 ]
 
 from enum import Enum
@@ -27,3 +28,21 @@ class RoundMode(Enum):
     RZ = 4  #: Return the largest :math:`y` such that :math:`|y| \le |x|`
     RO = 5  #: Round to odd
     SR = 6  #: Stochastic Rounding
+
+
+class AccumulateAlgorithm(Enum):
+    """
+    Enum selecting how the partial products of a dot product are folded
+    into its running sum inside a custom-arithmetic GEMM core (see
+    :mod:`mptorch.quant.gemm`).
+
+    Only :attr:`NAIVE` is implemented today; :attr:`KAHAN`, :attr:`BLOCK`,
+    and :attr:`TREE` are reserved for future compensated-summation /
+    block-summation / tree-summation accumulators (see
+    ``dev/gemm_core_roadmap.md``).
+    """
+
+    NAIVE = 0  #: Quantize the running sum after every accumulation step.
+    KAHAN = 1  #: Kahan-compensated summation (not yet implemented).
+    BLOCK = 2  #: Two-level (FABSum-style) block summation (not yet implemented).
+    TREE = 3  #: Pairwise tree-reduction summation (not yet implemented).

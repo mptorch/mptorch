@@ -10,6 +10,7 @@ if torch.cuda.is_available():
         os.environ["TORCH_CUDA_ARCH_LIST"] = f"{major}.{minor}"
 
 from .number import (
+    AccumulateAlgorithm,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
@@ -21,4 +22,5 @@ __all__ = [
     "SaturationMode",
     "SubnormalsMode",
     "RoundMode",
+    "AccumulateAlgorithm",
 ]

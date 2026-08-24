@@ -18,9 +18,9 @@ jobs:
     - name: Install lint tools
       run: uv pip install --system -r requirements-dev.txt
     - name: Ruff check
-      run: ruff check mptorch tests benchmarks
+      run: ruff check mptorch tests dev/benchmarks
     - name: Ruff format check
-      run: ruff format --check mptorch tests benchmarks
+      run: ruff format --check mptorch tests dev/benchmarks
     - name: Install runtime dependencies for ty's import resolution
       run: uv pip install --system -r requirements.txt
     - name: ty check

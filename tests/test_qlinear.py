@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from mptorch.number import RoundMode
-from mptorch.quant import QAffineFormats, QLinear, binaryK_quantize
+from mptorch.quant import QAffineFormats, QLinear, binaryK_gemm_formats, binaryK_quantize
 from tests.markers import available_devices
 
 
@@ -214,4 +214,59 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
         assert q_layer.bias.grad is not None
         assert torch.allclose(q_layer.bias.grad.detach(), bgrad_man.detach(), atol=1e-5), (
             "Manual Bias Grad divergence!"
+        )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("bias", [True, False])
+@pytest.mark.parametrize("input_shape", [(8, 32), (4, 3, 32)])
+def test_qlinear_gemm_formats_end_to_end(device, bias, input_shape):
+    """
+    End-to-end check that `binaryK_gemm_formats` (mptorch/quant/gemm.py)
+    correctly wires the custom-arithmetic GEMM core into QAffineFormats'
+    fwd_math/bwd_igrad_math/bwd_wgrad_math hooks: forward should closely
+    track a vanilla nn.Linear (near-identity GEMM format), backward should
+    run and produce correctly-shaped, finite gradients, including for
+    inputs with extra leading (batch) dims that gemm.py must flatten before
+    calling the 2D-only GEMM op and reshape back afterwards.
+    """
+    dtype = torch.float32
+    formats = binaryK_gemm_formats(mul_K=33, mul_P=24)
+
+    vanilla = nn.Linear(32, 16, bias=bias, device=device, dtype=dtype)
+    q_layer = QLinear(32, 16, bias=bias, formats=formats, device=device, dtype=dtype)
+
+    with torch.no_grad():
+        q_layer.weight.copy_(vanilla.weight)
+        if bias:
+            q_layer.bias.copy_(vanilla.bias)
+
+    x_v = torch.randn(*input_shape, device=device, dtype=dtype, requires_grad=True)
+    x_q = x_v.clone().detach().requires_grad_(True)
+
+    out_v = vanilla(x_v)
+    out_q = q_layer(x_q)
+
+    assert out_q.shape == out_v.shape
+    assert torch.allclose(out_v, out_q, atol=1e-4, rtol=1e-4), "Forward pass divergence!"
+
+    g_out = torch.randn_like(out_v)
+    out_v.backward(g_out)
+    out_q.backward(g_out)
+
+    assert x_v.grad is not None
+    assert x_q.grad is not None and torch.isfinite(x_q.grad).all()
+    assert x_q.grad.shape == x_v.grad.shape
+    assert torch.allclose(x_v.grad, x_q.grad, atol=1e-3, rtol=1e-3), "Input grad divergence!"
+
+    assert vanilla.weight.grad is not None
+    assert q_layer.weight.grad is not None and torch.isfinite(q_layer.weight.grad).all()
+    assert torch.allclose(vanilla.weight.grad, q_layer.weight.grad, atol=1e-3, rtol=1e-3), (
+        "Weight grad divergence!"
+    )
+    if bias:
+        assert vanilla.bias is not None and vanilla.bias.grad is not None
+        assert q_layer.bias is not None and q_layer.bias.grad is not None
+        assert torch.allclose(vanilla.bias.grad, q_layer.bias.grad, atol=1e-4), (
+            "Bias grad divergence!"
         )

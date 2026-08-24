@@ -71,3 +71,32 @@ enum class RoundMode
     RO,
     SR
 };
+
+/*
+NAIVE:
+The running sum of a dot product is quantized (to the accumulate format)
+after every addition.
+
+KAHAN:
+Kahan-compensated summation of the (quantized) partial products, with the
+compensation term itself tracked in the accumulate format. Not yet
+implemented.
+
+BLOCK:
+Two-level (FABSum-style) block summation: partial products are locally
+summed in blocks (inner precision) before each block sum is folded (and
+quantized, at a possibly different, outer precision) into the running
+total. Not yet implemented.
+
+TREE:
+Partial products are locally combined pairwise (tree reduction) within a
+block before the block's reduced value is folded into the running total.
+Not yet implemented.
+*/
+enum class AccumulateAlgorithm
+{
+    NAIVE,
+    KAHAN,
+    BLOCK,
+    TREE
+};
