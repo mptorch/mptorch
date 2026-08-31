@@ -3,12 +3,7 @@
 #include "cast_binaryK.h"
 #include "cast_superfp.h"
 #include "modes.h"
-// PhiloxRNGEngine.h's inline philox_engine::randn() (unused here, but a
-// non-template class's inline method bodies are still compiled) calls
-// AT_ASSERT, which needs Exception.h explicitly -- PhiloxRNGEngine.h
-// doesn't pull it in itself.
-#include <c10/util/Exception.h>
-#include <ATen/core/PhiloxRNGEngine.h>
+#include "philox.h"
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
@@ -26,13 +21,13 @@
 // SplitMac/FusedMac's default member initializers stay well-formed; they're
 // never actually invoked.
 //
-// RoundMode::SR draws one random value per call from an at::philox_engine
-// (ATen/core/PhiloxRNGEngine.h) threaded through operator()/Mac::step
-// alongside the raw operands. The engine itself lives on NaiveAccumulator
-// below, seeded once per output element via seed_rng() before its K-loop
-// starts -- Multiplier/Adder stay stateless; only prng_bits (the width of
-// randomness used) is stored here. See dev/gemm_core_roadmap.md's GEMM
-// stochastic rounding section for the full design.
+// RoundMode::SR draws one random value per call from a PhiloxEngine
+// (philox.h) threaded through operator()/Mac::step alongside the raw
+// operands. The engine itself lives on NaiveAccumulator below, seeded once
+// per output element via seed_rng() before its K-loop starts --
+// Multiplier/Adder stay stateless; only prng_bits (the width of randomness
+// used) is stored here. See dev/gemm_core_roadmap.md's GEMM stochastic
+// rounding section for the full design.
 
 struct BinaryKMultiplier
 {
@@ -52,7 +47,7 @@ struct BinaryKMultiplier
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
     {
         float x = a * b;
         switch (round_mode)
@@ -91,7 +86,7 @@ struct SuperfpMultiplier
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
     {
         float x = a * b;
         switch (round_mode)
@@ -137,7 +132,7 @@ struct BinaryKAdder
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
     {
         switch (round_mode)
         {
@@ -175,7 +170,7 @@ struct SuperfpAdder
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
     {
         switch (round_mode)
         {
@@ -202,7 +197,7 @@ struct SuperfpAdder
 // stay in full precision (accumulate_quant=false / fma_quant=false).
 struct IdentityAdder
 {
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine & /*rng*/) const { return x; }
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine & /*rng*/) const { return x; }
 };
 
 // ------------------------------------------------------------------------------------
@@ -232,7 +227,7 @@ struct SplitMac
     Multiplier mul{};
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, PhiloxEngine &rng) const
     {
         return add(acc + mul(a, b, rng), rng);
     }
@@ -243,7 +238,7 @@ struct FusedMac
 {
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, at::philox_engine &rng) const
+    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, PhiloxEngine &rng) const
     {
         return add(fma_f32(a, b, acc), rng);
     }
@@ -269,7 +264,7 @@ struct NaiveAccumulator
 
     Mac mac{};
     float sum = 0.f;
-    at::philox_engine rng{};
+    PhiloxEngine rng{};
 
     CUDA_HOST_DEVICE_INLINE void seed_rng(uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
     {

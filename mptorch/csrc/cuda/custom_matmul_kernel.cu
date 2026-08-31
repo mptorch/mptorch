@@ -37,7 +37,19 @@ namespace
         return trans_b ? static_cast<float>(B[col * K + row]) : static_cast<float>(B[row * N + col]);
     }
 
-    template <typename scalar_t, class Accumulator>
+    // MIXED selects whether this instantiation carries the spatially-varying
+    // FormatPalette prologue below. It has to be a template parameter rather
+    // than the runtime `pal.n > 0` test it used to be: a *possible* write to
+    // acc.mac forces the Mac policy's format constants to live in registers
+    // for the whole K-loop, instead of being re-read from the constant bank
+    // where acc_proto already sits. That costs the split-mac kernels ~29 extra
+    // registers (109 vs 80 at BLOCKSIZE^2 threads) and roughly halves their
+    // throughput -- 34.7 -> 68.3 ms at 1024^3 on sm_89 -- on every
+    // single-format launch, which is nearly all of them. Instantiating the two
+    // shapes separately doubles this kernel's instantiation count; see
+    // dev/gemm_perf_audit.md (finding G4) for why that trade is worth taking
+    // and dev/benchmarks/gemm_kernel_tuning.cu for the A/B.
+    template <typename scalar_t, bool MIXED, class Accumulator>
     __global__ __launch_bounds__(BLOCKSIZE * BLOCKSIZE)
     void custom_matmul_kernel(
         const scalar_t *__restrict__ A, const scalar_t *__restrict__ B, scalar_t *__restrict__ C,
@@ -78,9 +90,12 @@ namespace
 
         // Spatially-varying mixed format: bind this output element's Mac
         // policy from the palette before the K-loop (see gemm_policy.h's
-        // FormatPalette). No-op on the single-format path (pal.n == 0).
-        if (pal.n > 0 && rId < M && cId < N)
-            acc.mac = pal.slots[prec_idx[rId * idx_row_stride + cId * idx_col_stride]];
+        // FormatPalette). Compiled out entirely on the single-format path.
+        if constexpr (MIXED)
+        {
+            if (pal.n > 0 && rId < M && cId < N)
+                acc.mac = pal.slots[prec_idx[rId * idx_row_stride + cId * idx_col_stride]];
+        }
 
         // load first tile into buffer 0
         As[0][threadRow * BLOCKSIZE + threadCol] =
@@ -95,7 +110,21 @@ namespace
             float *curAs = As[t % 2];
             float *curBs = Bs[t % 2];
 
-#pragma unroll
+            // Unroll 4, not the full 16: every accumulate() inlines the whole
+            // runtime RoundMode switch -- each mode's cast body, twice over for
+            // a split mac -- so unrolling all BLOCKSIZE steps expands this loop
+            // past any instruction cache and the kernel spends its time
+            // fetching code it never executes. 4 is at or within 3% of the
+            // measured optimum for all four mac policies and both the
+            // deterministic and SR paths (dev/benchmarks/gemm_kernel_tuning.cu;
+            // binaryK split at 1024^3: 16 -> 34.7 ms, 8 -> 29.8, 4 -> 26.6,
+            // 2 -> 25.7, 1 -> 28.6), and it is what keeps the runtime switch
+            // competitive with templating the kernel on RoundMode, so the
+            // instantiation count stays bounded. Worth nothing before finding
+            // G1 landed -- until the accumulator was register-resident this
+            // loop was bound by local-memory traffic, not instruction fetch.
+            // See dev/gemm_perf_audit.md (finding G2).
+#pragma unroll 4
             for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
             {
                 acc.accumulate(curAs[threadRow * BLOCKSIZE + dotIdx], curBs[dotIdx * BLOCKSIZE + threadCol]);
@@ -117,7 +146,7 @@ namespace
             C[rId * N + cId] = static_cast<scalar_t>(acc.finalize());
     }
 
-    template <typename scalar_t, class Accumulator>
+    template <typename scalar_t, bool MIXED = false, class Accumulator>
     void launch_custom_matmul(const scalar_t *a, const scalar_t *b, scalar_t *c,
                               int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
                               Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
@@ -129,7 +158,7 @@ namespace
                        static_cast<unsigned>((M + BLOCKSIZE - 1) / BLOCKSIZE));
         dim3 thread_dim(BLOCKSIZE * BLOCKSIZE);
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-        custom_matmul_kernel<scalar_t, Accumulator><<<block_dim, thread_dim, 0, stream>>>(
+        custom_matmul_kernel<scalar_t, MIXED, Accumulator><<<block_dim, thread_dim, 0, stream>>>(
             a, b, c, M, K, N, trans_a, trans_b, acc_proto, use_rng, rng_args,
             pal, prec_idx, idx_row_stride, idx_col_stride);
     }
@@ -511,8 +540,8 @@ at::Tensor binaryK_matmul_mixed_cuda(
                 pal.slots[i] = Mac{make_mul(i), add};
             }
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-            launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                           use_rng, rng_args, pal, p_idx, sr, sc);
+            launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                                 use_rng, rng_args, pal, p_idx, sr, sc);
         }
         else
         {
@@ -523,8 +552,8 @@ at::Tensor binaryK_matmul_mixed_cuda(
             for (int64_t i = 0; i < n_fmt; ++i)
                 pal.slots[i] = Mac{make_mul(i), IdentityAdder{}};
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-            launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                           use_rng, rng_args, pal, p_idx, sr, sc);
+            launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                                 use_rng, rng_args, pal, p_idx, sr, sc);
         } });
 
     return c;
@@ -599,8 +628,8 @@ at::Tensor superfp_matmul_mixed_cuda(
                 pal.slots[i] = Mac{make_mul(i), add};
             }
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-            launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                           use_rng, rng_args, pal, p_idx, sr, sc);
+            launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                                 use_rng, rng_args, pal, p_idx, sr, sc);
         }
         else
         {
@@ -611,8 +640,8 @@ at::Tensor superfp_matmul_mixed_cuda(
             for (int64_t i = 0; i < n_fmt; ++i)
                 pal.slots[i] = Mac{make_mul(i), IdentityAdder{}};
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-            launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                           use_rng, rng_args, pal, p_idx, sr, sc);
+            launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                                 use_rng, rng_args, pal, p_idx, sr, sc);
         } });
 
     return c;
@@ -682,8 +711,8 @@ at::Tensor binaryK_matmul_fma_mixed_cuda(
             pal.slots[i] = Mac{add};
         }
         NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-        launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, rng_args, pal, p_idx, sr, sc); });
+        launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, rng_args, pal, p_idx, sr, sc); });
 
     return c;
 }
@@ -744,8 +773,8 @@ at::Tensor superfp_matmul_fma_mixed_cuda(
             pal.slots[i] = Mac{add};
         }
         NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-        launch_custom_matmul<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, rng_args, pal, p_idx, sr, sc); });
+        launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, rng_args, pal, p_idx, sr, sc); });
 
     return c;
 }

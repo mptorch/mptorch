@@ -143,7 +143,7 @@ namespace
   // Draws one 64-bit seed from ATen's default CPU generator (respecting
   // torch.manual_seed, same as the elementwise binaryK_quantize/
   // superfp_quantize SR path's randint_like) to seed this matmul call's
-  // per-output-element at::philox_engine streams (see NaiveAccumulator::
+  // per-output-element PhiloxEngine streams (see NaiveAccumulator::
   // seed_rng in gemm_policy.h). Only called when RoundMode::SR is selected.
   uint64_t draw_cpu_seed()
   {
