@@ -45,4 +45,24 @@ TORCH_LIBRARY(mptorch, m)
         "int fma_bias, bool fma_is_signed, "
         "int accumulate_algorithm, int round_mode, int saturation_mode, "
         "int fma_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_mixed(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b, "
+        "int[] mul_K, int[] mul_P, int[] mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int[] acc_K, int[] acc_P, int[] acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, int saturation_mode, "
+        "int subnormals_mode, int mul_prng_bits, int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_mixed(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b, "
+        "int[] mul_man_bits, int[] mul_exp_bits, int[] mul_normal_binades, int[] mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int[] acc_man_bits, int[] acc_exp_bits, int[] acc_normal_binades, "
+        "int[] acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, int saturation_mode, "
+        "int mul_prng_bits, int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_fma_mixed(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b, "
+        "bool fma_quant, int[] fma_K, int[] fma_P, int[] fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int saturation_mode, "
+        "int subnormals_mode, int fma_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_fma_mixed(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b, "
+        "bool fma_quant, int[] fma_man_bits, int[] fma_exp_bits, int[] fma_normal_binades, "
+        "int[] fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int saturation_mode, "
+        "int fma_prng_bits) -> Tensor");
 }

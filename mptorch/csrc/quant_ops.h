@@ -79,3 +79,77 @@ at::Tensor superfp_matmul_fma_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool
                                   int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
                                   int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode,
                                   int64_t fma_prng_bits);
+
+at::Tensor binaryK_matmul_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                     bool trans_a, bool trans_b,
+                                     c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
+                                     c10::IntArrayRef mul_bias, bool mul_is_signed,
+                                     bool accumulate_quant, c10::IntArrayRef acc_K, c10::IntArrayRef acc_P,
+                                     c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                     int64_t accumulate_algorithm, int64_t round_mode,
+                                     int64_t saturation_mode, int64_t subnormals_mode,
+                                     int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor binaryK_matmul_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                    bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
+                                    c10::IntArrayRef mul_bias, bool mul_is_signed,
+                                    bool accumulate_quant, c10::IntArrayRef acc_K, c10::IntArrayRef acc_P,
+                                    c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                    int64_t accumulate_algorithm, int64_t round_mode,
+                                    int64_t saturation_mode, int64_t subnormals_mode,
+                                    int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor superfp_matmul_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                     bool trans_a, bool trans_b,
+                                     c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
+                                     c10::IntArrayRef mul_normal_binades, c10::IntArrayRef mul_bias,
+                                     bool mul_is_signed,
+                                     bool accumulate_quant, c10::IntArrayRef acc_man_bits,
+                                     c10::IntArrayRef acc_exp_bits, c10::IntArrayRef acc_normal_binades,
+                                     c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                     int64_t accumulate_algorithm, int64_t round_mode,
+                                     int64_t saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor superfp_matmul_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                    bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
+                                    c10::IntArrayRef mul_normal_binades, c10::IntArrayRef mul_bias,
+                                    bool mul_is_signed,
+                                    bool accumulate_quant, c10::IntArrayRef acc_man_bits,
+                                    c10::IntArrayRef acc_exp_bits, c10::IntArrayRef acc_normal_binades,
+                                    c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                    int64_t accumulate_algorithm, int64_t round_mode,
+                                    int64_t saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor binaryK_matmul_fma_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                         bool trans_a, bool trans_b, bool fma_quant,
+                                         c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
+                                         c10::IntArrayRef fma_bias, bool fma_is_signed,
+                                         int64_t accumulate_algorithm, int64_t round_mode,
+                                         int64_t saturation_mode, int64_t subnormals_mode,
+                                         int64_t fma_prng_bits);
+
+at::Tensor binaryK_matmul_fma_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                        bool trans_a, bool trans_b, bool fma_quant,
+                                        c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
+                                        c10::IntArrayRef fma_bias, bool fma_is_signed,
+                                        int64_t accumulate_algorithm, int64_t round_mode,
+                                        int64_t saturation_mode, int64_t subnormals_mode,
+                                        int64_t fma_prng_bits);
+
+at::Tensor superfp_matmul_fma_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                         bool trans_a, bool trans_b, bool fma_quant,
+                                         c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,
+                                         c10::IntArrayRef fma_normal_binades, c10::IntArrayRef fma_bias,
+                                         bool fma_is_signed, int64_t accumulate_algorithm,
+                                         int64_t round_mode, int64_t saturation_mode,
+                                         int64_t fma_prng_bits);
+
+at::Tensor superfp_matmul_fma_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                        bool trans_a, bool trans_b, bool fma_quant,
+                                        c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,
+                                        c10::IntArrayRef fma_normal_binades, c10::IntArrayRef fma_bias,
+                                        bool fma_is_signed, int64_t accumulate_algorithm,
+                                        int64_t round_mode, int64_t saturation_mode,
+                                        int64_t fma_prng_bits);

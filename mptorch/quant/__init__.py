@@ -8,9 +8,13 @@ from .modules import QAffineFormats, QConv1d, QConv2d, QConv3d, QLinear
 from .ops import (
     binaryK_matmul,
     binaryK_matmul_fma,
+    binaryK_matmul_fma_mixed,
+    binaryK_matmul_mixed,
     binaryK_quantize,
     superfp_matmul,
     superfp_matmul_fma,
+    superfp_matmul_fma_mixed,
+    superfp_matmul_mixed,
     superfp_quantize,
 )
 
@@ -21,6 +25,10 @@ __all__ = [
     "superfp_matmul",
     "binaryK_matmul_fma",
     "superfp_matmul_fma",
+    "binaryK_matmul_mixed",
+    "superfp_matmul_mixed",
+    "binaryK_matmul_fma_mixed",
+    "superfp_matmul_fma_mixed",
     "binaryK_gemm_formats",
     "superfp_gemm_formats",
     "binaryK_gemm_formats_fma",

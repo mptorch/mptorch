@@ -10,6 +10,8 @@
 #include <c10/util/Exception.h>
 #include <ATen/core/PhiloxRNGEngine.h>
 #include <cmath>
+#include <cstdint>
+#include <type_traits>
 
 // ------------------------------------------------------------------------------------
 // Multiplier policies: quantize a single dot-product term a*b.
@@ -263,6 +265,8 @@ struct FusedMac
 template <class Mac>
 struct NaiveAccumulator
 {
+    using mac_type = Mac;
+
     Mac mac{};
     float sum = 0.f;
     at::philox_engine rng{};
@@ -274,4 +278,37 @@ struct NaiveAccumulator
     }
     CUDA_HOST_DEVICE_INLINE void accumulate(float a, float b) { sum = mac.step(a, b, sum, rng); }
     CUDA_HOST_DEVICE_INLINE float finalize() const { return sum; }
+};
+
+// ------------------------------------------------------------------------------------
+// Spatially-varying (per-output-element) mixed-format support.
+//
+// A GEMM call may select, per output element C[row, col], which of up to
+// MAX_GEMM_FORMATS precomputed Mac policies drives that element's entire
+// K-reduction -- the analogue of the mm_impl prototype's per-element
+// precision index (temp/mm_kernel_new.h) but *without* re-deriving format
+// constants in the hot loop: every slot is a fully-built Mac (its
+// BinaryKParams/SuperfpParams already computed at construction, exactly
+// like the single-format ops' acc_proto.mac). The kernel's existing
+// per-element prologue -- right where RoundMode::SR seeds its stream --
+// copies the chosen slot into the Accumulator's Mac before the K-loop
+// starts; the loop itself stays byte-identical to the single-format path.
+//
+// FormatPalette is passed by value into the kernel alongside acc_proto
+// (same marshalling). It is kept flat -- a plain array + count -- per
+// dev/gemm_core_roadmap.md item 6's "keep kernel-argument policy structs
+// flat" lesson; Mac must stay trivially copyable to ride in it.
+//
+// prec_idx is read as prec_idx[row * idx_row_stride + col * idx_col_stride]
+// so one kernel path covers a dense [M, N] index (row_stride = N,
+// col_stride = 1), a per-row [M, 1] index (1, 0), and a per-column [1, N]
+// index (0, 1) with no branching. n == 0 selects the single-format path
+// and the hook is skipped entirely.
+constexpr int MAX_GEMM_FORMATS = 8;
+
+template <class Mac>
+struct FormatPalette
+{
+    Mac slots[MAX_GEMM_FORMATS] = {};
+    int n = 0;
 };

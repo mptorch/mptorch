@@ -27,11 +27,19 @@ def get_extensions():
     use_cuda = use_cuda and torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = []
+    # -fopenmp is required for at::parallel_for to actually parallelize: with
+    # this torch build's AT_PARALLEL_OPENMP backend, ATen/ParallelOpenMP.h's
+    # `#pragma omp parallel` is a header template inlined into *our* translation
+    # units, so without the flag it compiles to nothing and CPU kernels run
+    # single-threaded. torch itself links GNU libgomp, which is the same runtime
+    # gcc's -fopenmp uses, so there is no second OpenMP runtime to oversubscribe
+    # with. See dev/gemm_perf_audit.md (finding C1).
+    extra_link_args = ["-fopenmp"]
     extra_compile_args = {
         "cxx": [
             "-std=c++20",
             "-O3" if not debug_mode else "-O0",
+            "-fopenmp",
             "-fdiagnostics-color=always",
         ],
         "nvcc": [
