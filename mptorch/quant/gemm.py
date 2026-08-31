@@ -48,11 +48,13 @@ def binaryK_gemm_formats(
     *,
     mul_bias: int | None = None,
     mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
     accumulate_quant: bool = True,
     acc_K: int | None = None,
     acc_P: int | None = None,
     acc_bias: int | None = None,
     acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -62,6 +64,9 @@ def binaryK_gemm_formats(
     Build a ``QAffineFormats`` whose ``fwd_math``/``bwd_igrad_math``/
     ``bwd_wgrad_math`` run a Linear layer's dot products through a
     quantized binaryK GEMM core instead of a plain matmul.
+
+    ``mul_prng_bits``/``acc_prng_bits`` only matter when ``rounding_mode``
+    is ``RoundMode.SR`` -- see :func:`mptorch.quant.ops.binaryK_matmul`.
     """
 
     def _matmul(a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool) -> torch.Tensor:
@@ -74,11 +79,13 @@ def binaryK_gemm_formats(
             mul_P=mul_P,
             mul_bias=mul_bias,
             mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
             accumulate_quant=accumulate_quant,
             acc_K=acc_K,
             acc_P=acc_P,
             acc_bias=acc_bias,
             acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
@@ -113,6 +120,7 @@ def binaryK_gemm_formats_fma(
     fma_bias: int | None = None,
     fma_is_signed: bool = True,
     fma_quant: bool = True,
+    fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -124,6 +132,9 @@ def binaryK_gemm_formats_fma(
     hardware-style fused multiply-add rounded once (via
     :func:`mptorch.quant.ops.binaryK_matmul_fma`), rather than a quantized
     multiply followed by a separately quantized add.
+
+    ``fma_prng_bits`` only matters when ``rounding_mode`` is
+    ``RoundMode.SR``.
     """
 
     def _matmul(a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool) -> torch.Tensor:
@@ -137,6 +148,7 @@ def binaryK_gemm_formats_fma(
             fma_bias=fma_bias,
             fma_is_signed=fma_is_signed,
             fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
@@ -171,12 +183,14 @@ def superfp_gemm_formats(
     mul_bias: int,
     *,
     mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
     accumulate_quant: bool = True,
     acc_man_bits: int | None = None,
     acc_exp_bits: int | None = None,
     acc_normal_binades: int | None = None,
     acc_bias: int | None = None,
     acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -197,12 +211,14 @@ def superfp_gemm_formats(
             mul_normal_binades=mul_normal_binades,
             mul_bias=mul_bias,
             mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
             accumulate_quant=accumulate_quant,
             acc_man_bits=acc_man_bits,
             acc_exp_bits=acc_exp_bits,
             acc_normal_binades=acc_normal_binades,
             acc_bias=acc_bias,
             acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
@@ -237,6 +253,7 @@ def superfp_gemm_formats_fma(
     *,
     fma_is_signed: bool = True,
     fma_quant: bool = True,
+    fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -255,6 +272,7 @@ def superfp_gemm_formats_fma(
             fma_bias=fma_bias,
             fma_is_signed=fma_is_signed,
             fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,

@@ -2,7 +2,9 @@
 #include "../common/modes.h"
 #include "../quant_ops.h"
 #include <ATen/ATen.h>
+#include <ATen/CPUGeneratorImpl.h>
 #include <algorithm>
+#include <mutex>
 #include <vector>
 
 using namespace at;
@@ -16,12 +18,19 @@ namespace
   // arithmetic used to read them, no physical transpose is materialized.
   // Accumulator owns both the multiply and the accumulate step (via its Mac
   // policy -- see gemm_policy.h), so this kernel only ever calls
-  // accumulate(a, b)/finalize() and never multiplies operands itself.
+  // seed_rng()/accumulate(a, b)/finalize() and never multiplies operands
+  // itself. use_rng/seed drive RoundMode::SR: when set, each output
+  // element's Accumulator is seeded (keyed by its own global linear index,
+  // so the result is independent of tiling/thread-count) right after the
+  // per-tile Accumulator vector is placed at its final coordinates and
+  // before its K-reduction starts -- see gemm_policy.h's NaiveAccumulator
+  // for why this can't happen at the vector's construction instead.
   template <typename scalar_t, class Accumulator>
   void matmul_cpu_kernel_impl(const scalar_t *A, const scalar_t *B, scalar_t *C,
                               int64_t M, int64_t K, int64_t N,
                               bool trans_a, bool trans_b,
-                              Accumulator acc_proto)
+                              Accumulator acc_proto,
+                              bool use_rng, uint64_t seed)
   {
     constexpr int64_t TI = 32, TJ = 32, TK = 32;
 
@@ -35,6 +44,14 @@ namespace
       {
         int64_t tj = std::min<int64_t>(TJ, N - j0);
         std::vector<Accumulator> acc(static_cast<size_t>(ti * tj), acc_proto);
+
+        if (use_rng)
+        {
+          for (int64_t i = 0; i < ti; ++i)
+            for (int64_t j = 0; j < tj; ++j)
+              acc[static_cast<size_t>(i * tj + j)].seed_rng(
+                  seed, static_cast<uint64_t>((i0 + i) * N + (j0 + j)));
+        }
 
         for (int64_t k0 = 0; k0 < K; k0 += TK)
         {
@@ -70,8 +87,6 @@ namespace
   {
     TORCH_CHECK(a.dim() == 2 && b.dim() == 2, op_name, " expects 2D tensors, got ",
                a.dim(), "D and ", b.dim(), "D");
-    TORCH_CHECK(static_cast<RoundMode>(round_mode) == RoundMode::RNE, op_name,
-               ": only RoundMode.RNE is supported in this build");
     TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) == AccumulateAlgorithm::NAIVE,
                op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
   }
@@ -86,13 +101,27 @@ namespace
     TORCH_CHECK(K == K_b, op_name, ": inner dimensions must match (got ", K, " vs ", K_b, ")");
   }
 
+  // Draws one 64-bit seed from ATen's default CPU generator (respecting
+  // torch.manual_seed, same as the elementwise binaryK_quantize/
+  // superfp_quantize SR path's randint_like) to seed this matmul call's
+  // per-output-element at::philox_engine streams (see NaiveAccumulator::
+  // seed_rng in gemm_policy.h). Only called when RoundMode::SR is selected.
+  uint64_t draw_cpu_seed()
+  {
+    auto gen = at::get_generator_or_default<at::CPUGeneratorImpl>(
+        c10::nullopt, at::detail::getDefaultCPUGenerator());
+    std::lock_guard<std::mutex> lock(gen->mutex_);
+    return gen->random64();
+  }
+
 } // namespace
 
 Tensor binaryK_matmul_cpu(
     Tensor a, Tensor b, bool trans_a, bool trans_b,
     int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
     bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed,
-    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
+    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode,
+    int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
   check_matmul_inputs(a, b, "custom_matmul_binaryK", round_mode, accumulate_algorithm);
 
@@ -107,31 +136,37 @@ Tensor binaryK_matmul_cpu(
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   SubnormalsMode sub = static_cast<SubnormalsMode>(subnormals_mode);
+  RoundMode rm = static_cast<RoundMode>(round_mode);
 
   int mul_man_bits = static_cast<int>(mul_P - 1);
   int mul_exp_bits = static_cast<int>(mul_is_signed ? mul_K - mul_P : mul_K - mul_P + 1);
   int acc_man_bits = static_cast<int>(acc_P - 1);
   int acc_exp_bits = static_cast<int>(acc_is_signed ? acc_K - acc_P : acc_K - acc_P + 1);
 
+  bool use_rng = (rm == RoundMode::SR);
+  uint64_t seed = use_rng ? draw_cpu_seed() : 0;
+
   AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_cpu", [&]
                                   {
-    BinaryKMultiplier mul{mul_man_bits, mul_exp_bits, static_cast<int>(mul_bias), mul_is_signed, sat, sub};
+    BinaryKMultiplier mul{mul_man_bits, mul_exp_bits, static_cast<int>(mul_bias), mul_is_signed, sat, rm, sub,
+                          static_cast<int>(mul_prng_bits)};
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
     scalar_t *p_c = c.data_ptr<scalar_t>();
 
     if (accumulate_quant)
     {
-      BinaryKAdder add{acc_man_bits, acc_exp_bits, static_cast<int>(acc_bias), acc_is_signed, sat, sub};
+      BinaryKAdder add{acc_man_bits, acc_exp_bits, static_cast<int>(acc_bias), acc_is_signed, sat, rm, sub,
+                       static_cast<int>(acc_prng_bits)};
       using Mac = SplitMac<BinaryKMultiplier, BinaryKAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{mul, add}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     }
     else
     {
       using Mac = SplitMac<BinaryKMultiplier, IdentityAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{mul, IdentityAdder{}}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
   return c;
@@ -142,7 +177,8 @@ Tensor superfp_matmul_cpu(
     int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades, int64_t mul_bias, bool mul_is_signed,
     bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades,
     int64_t acc_bias, bool acc_is_signed,
-    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode)
+    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode,
+    int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
   check_matmul_inputs(a, b, "custom_matmul_superfp", round_mode, accumulate_algorithm);
 
@@ -156,11 +192,16 @@ Tensor superfp_matmul_cpu(
     return c;
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
+  RoundMode rm = static_cast<RoundMode>(round_mode);
+
+  bool use_rng = (rm == RoundMode::SR);
+  uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
   AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_cpu", [&]
                                   {
     SuperfpMultiplier mul{static_cast<int>(mul_man_bits), static_cast<int>(mul_exp_bits),
-                          static_cast<int>(mul_normal_binades), static_cast<int>(mul_bias), mul_is_signed, sat};
+                          static_cast<int>(mul_normal_binades), static_cast<int>(mul_bias), mul_is_signed, sat, rm,
+                          static_cast<int>(mul_prng_bits)};
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
     scalar_t *p_c = c.data_ptr<scalar_t>();
@@ -168,16 +209,17 @@ Tensor superfp_matmul_cpu(
     if (accumulate_quant)
     {
       SuperfpAdder add{static_cast<int>(acc_man_bits), static_cast<int>(acc_exp_bits),
-                       static_cast<int>(acc_normal_binades), static_cast<int>(acc_bias), acc_is_signed, sat};
+                       static_cast<int>(acc_normal_binades), static_cast<int>(acc_bias), acc_is_signed, sat, rm,
+                       static_cast<int>(acc_prng_bits)};
       using Mac = SplitMac<SuperfpMultiplier, SuperfpAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{mul, add}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     }
     else
     {
       using Mac = SplitMac<SuperfpMultiplier, IdentityAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{mul, IdentityAdder{}}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
   return c;
@@ -186,7 +228,8 @@ Tensor superfp_matmul_cpu(
 Tensor binaryK_matmul_fma_cpu(
     Tensor a, Tensor b, bool trans_a, bool trans_b,
     bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias, bool fma_is_signed,
-    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
+    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode,
+    int64_t fma_prng_bits)
 {
   check_matmul_inputs(a, b, "custom_matmul_binaryK_fma", round_mode, accumulate_algorithm);
 
@@ -201,9 +244,13 @@ Tensor binaryK_matmul_fma_cpu(
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   SubnormalsMode sub = static_cast<SubnormalsMode>(subnormals_mode);
+  RoundMode rm = static_cast<RoundMode>(round_mode);
 
   int fma_man_bits = static_cast<int>(fma_P - 1);
   int fma_exp_bits = static_cast<int>(fma_is_signed ? fma_K - fma_P : fma_K - fma_P + 1);
+
+  bool use_rng = (rm == RoundMode::SR);
+  uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
   AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_fma_cpu", [&]
                                   {
@@ -213,16 +260,17 @@ Tensor binaryK_matmul_fma_cpu(
 
     if (fma_quant)
     {
-      BinaryKAdder add{fma_man_bits, fma_exp_bits, static_cast<int>(fma_bias), fma_is_signed, sat, sub};
+      BinaryKAdder add{fma_man_bits, fma_exp_bits, static_cast<int>(fma_bias), fma_is_signed, sat, rm, sub,
+                       static_cast<int>(fma_prng_bits)};
       using Mac = FusedMac<BinaryKAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{add}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     }
     else
     {
       using Mac = FusedMac<IdentityAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{IdentityAdder{}}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
   return c;
@@ -232,7 +280,8 @@ Tensor superfp_matmul_fma_cpu(
     Tensor a, Tensor b, bool trans_a, bool trans_b,
     bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits, int64_t fma_normal_binades,
     int64_t fma_bias, bool fma_is_signed,
-    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode)
+    int64_t accumulate_algorithm, int64_t round_mode, int64_t saturation_mode,
+    int64_t fma_prng_bits)
 {
   check_matmul_inputs(a, b, "custom_matmul_superfp_fma", round_mode, accumulate_algorithm);
 
@@ -246,6 +295,10 @@ Tensor superfp_matmul_fma_cpu(
     return c;
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
+  RoundMode rm = static_cast<RoundMode>(round_mode);
+
+  bool use_rng = (rm == RoundMode::SR);
+  uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
   AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_fma_cpu", [&]
                                   {
@@ -256,16 +309,17 @@ Tensor superfp_matmul_fma_cpu(
     if (fma_quant)
     {
       SuperfpAdder add{static_cast<int>(fma_man_bits), static_cast<int>(fma_exp_bits),
-                       static_cast<int>(fma_normal_binades), static_cast<int>(fma_bias), fma_is_signed, sat};
+                       static_cast<int>(fma_normal_binades), static_cast<int>(fma_bias), fma_is_signed, sat, rm,
+                       static_cast<int>(fma_prng_bits)};
       using Mac = FusedMac<SuperfpAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{add}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     }
     else
     {
       using Mac = FusedMac<IdentityAdder>;
       NaiveAccumulator<Mac> acc_proto{Mac{IdentityAdder{}}, 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto);
+      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
   return c;

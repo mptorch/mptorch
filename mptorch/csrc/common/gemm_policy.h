@@ -3,35 +3,112 @@
 #include "cast_binaryK.h"
 #include "cast_superfp.h"
 #include "modes.h"
+// PhiloxRNGEngine.h's inline philox_engine::randn() (unused here, but a
+// non-template class's inline method bodies are still compiled) calls
+// AT_ASSERT, which needs Exception.h explicitly -- PhiloxRNGEngine.h
+// doesn't pull it in itself.
+#include <c10/util/Exception.h>
+#include <ATen/core/PhiloxRNGEngine.h>
 #include <cmath>
 
 // ------------------------------------------------------------------------------------
 // Multiplier policies: quantize a single dot-product term a*b.
+//
+// Each precomputes its cast function's format-derived constants
+// (BinaryKParams/SuperfpParams, see cast_binaryK.h/cast_superfp.h) once at
+// construction rather than on every operator() call (up to M*N*K times per
+// kernel launch). round_mode is a runtime field switched on inside
+// operator(), not a template parameter -- see dev/gemm_core_roadmap.md
+// (GEMM kernel section, item 6) for why templating on it would blow up the
+// kernel's instantiation count. Default constructors exist only so
+// SplitMac/FusedMac's default member initializers stay well-formed; they're
+// never actually invoked.
+//
+// RoundMode::SR draws one random value per call from an at::philox_engine
+// (ATen/core/PhiloxRNGEngine.h) threaded through operator()/Mac::step
+// alongside the raw operands. The engine itself lives on NaiveAccumulator
+// below, seeded once per output element via seed_rng() before its K-loop
+// starts -- Multiplier/Adder stay stateless; only prng_bits (the width of
+// randomness used) is stored here. See dev/gemm_core_roadmap.md's GEMM
+// stochastic rounding section for the full design.
 
 struct BinaryKMultiplier
 {
-    int man_bits, exp_bits, bias;
     bool is_signed;
-    SaturationMode saturation_mode;
     SubnormalsMode subnormals_mode;
+    RoundMode round_mode;
+    int prng_bits;
+    BinaryKParams params;
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b) const
+    BinaryKMultiplier() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKMultiplier(int man_bits, int exp_bits, int bias, bool is_signed,
+                                              SaturationMode saturation_mode, RoundMode round_mode,
+                                              SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), round_mode(round_mode), prng_bits(prng_bits),
+          params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
+                                     subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
-        return cast_binaryK_nearest_even(a * b, man_bits, exp_bits, bias, is_signed,
-                                          saturation_mode, subnormals_mode);
+    }
+
+    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, at::philox_engine &rng) const
+    {
+        float x = a * b;
+        switch (round_mode)
+        {
+        case RoundMode::RNA:
+            return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
+        case RoundMode::RU:
+            return cast_binaryK_up(x, is_signed, subnormals_mode, params);
+        case RoundMode::RD:
+            return cast_binaryK_down(x, is_signed, subnormals_mode, params);
+        case RoundMode::RZ:
+            return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
+        case RoundMode::RO:
+            return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
+        case RoundMode::SR:
+            return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
+        default: // RoundMode::RNE
+            return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
+        }
     }
 };
 
 struct SuperfpMultiplier
 {
-    int man_bits, exp_bits, normal_binades, bias;
     bool is_signed;
-    SaturationMode saturation_mode;
+    RoundMode round_mode;
+    int prng_bits;
+    SuperfpParams params;
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b) const
+    SuperfpMultiplier() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpMultiplier(int man_bits, int exp_bits, int normal_binades, int bias,
+                                              bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                              int prng_bits = 0)
+        : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
+          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
-        return cast_superfp_nearest_even(a * b, man_bits, exp_bits, normal_binades, bias,
-                                         is_signed, saturation_mode);
+    }
+
+    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, at::philox_engine &rng) const
+    {
+        float x = a * b;
+        switch (round_mode)
+        {
+        case RoundMode::RNA:
+            return cast_superfp_nearest_away(x, is_signed, params);
+        case RoundMode::RU:
+            return cast_superfp_up(x, is_signed, params);
+        case RoundMode::RD:
+            return cast_superfp_down(x, is_signed, params);
+        case RoundMode::RZ:
+            return cast_superfp_zero(x, is_signed, params);
+        case RoundMode::RO:
+            return cast_superfp_odd(x, is_signed, params);
+        case RoundMode::SR:
+            return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
+        default: // RoundMode::RNE
+            return cast_superfp_nearest_even(x, is_signed, params);
+        }
     }
 };
 
@@ -42,28 +119,79 @@ struct SuperfpMultiplier
 
 struct BinaryKAdder
 {
-    int man_bits, exp_bits, bias;
     bool is_signed;
-    SaturationMode saturation_mode;
     SubnormalsMode subnormals_mode;
+    RoundMode round_mode;
+    int prng_bits;
+    BinaryKParams params;
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x) const
+    BinaryKAdder() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKAdder(int man_bits, int exp_bits, int bias, bool is_signed,
+                                         SaturationMode saturation_mode, RoundMode round_mode,
+                                         SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), round_mode(round_mode), prng_bits(prng_bits),
+          params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
+                                     subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
-        return cast_binaryK_nearest_even(x, man_bits, exp_bits, bias, is_signed,
-                                         saturation_mode, subnormals_mode);
+    }
+
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine &rng) const
+    {
+        switch (round_mode)
+        {
+        case RoundMode::RNA:
+            return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
+        case RoundMode::RU:
+            return cast_binaryK_up(x, is_signed, subnormals_mode, params);
+        case RoundMode::RD:
+            return cast_binaryK_down(x, is_signed, subnormals_mode, params);
+        case RoundMode::RZ:
+            return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
+        case RoundMode::RO:
+            return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
+        case RoundMode::SR:
+            return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
+        default: // RoundMode::RNE
+            return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
+        }
     }
 };
 
 struct SuperfpAdder
 {
-    int man_bits, exp_bits, normal_binades, bias;
     bool is_signed;
-    SaturationMode saturation_mode;
+    RoundMode round_mode;
+    int prng_bits;
+    SuperfpParams params;
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x) const
+    SuperfpAdder() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpAdder(int man_bits, int exp_bits, int normal_binades, int bias,
+                                         bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                         int prng_bits = 0)
+        : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
+          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
-        return cast_superfp_nearest_even(x, man_bits, exp_bits, normal_binades, bias,
-                                         is_signed, saturation_mode);
+    }
+
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine &rng) const
+    {
+        switch (round_mode)
+        {
+        case RoundMode::RNA:
+            return cast_superfp_nearest_away(x, is_signed, params);
+        case RoundMode::RU:
+            return cast_superfp_up(x, is_signed, params);
+        case RoundMode::RD:
+            return cast_superfp_down(x, is_signed, params);
+        case RoundMode::RZ:
+            return cast_superfp_zero(x, is_signed, params);
+        case RoundMode::RO:
+            return cast_superfp_odd(x, is_signed, params);
+        case RoundMode::SR:
+            return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
+        default: // RoundMode::RNE
+            return cast_superfp_nearest_even(x, is_signed, params);
+        }
     }
 };
 
@@ -72,26 +200,20 @@ struct SuperfpAdder
 // stay in full precision (accumulate_quant=false / fma_quant=false).
 struct IdentityAdder
 {
-    CUDA_HOST_DEVICE_INLINE float operator()(float x) const { return x; }
+    CUDA_HOST_DEVICE_INLINE float operator()(float x, at::philox_engine & /*rng*/) const { return x; }
 };
 
 // ------------------------------------------------------------------------------------
 // Mac (multiply-accumulate step) policies: compute one dot-product step
 // from the raw operands and the running sum -- step(a, b, acc) -> acc'.
-// Accumulator policies (below) are Mac-generic: they never multiply
-// operands themselves, only ever call Mac::step, so the same Accumulator
-// works for either arithmetic style.
+// SplitMac quantizes the product and the sum separately (two roundings).
+// FusedMac quantizes a single hardware-style fused multiply-add's result
+// (one rounding, matching a real FMA unit), reusing Adder as its result
+// quantizer. Accumulator policies below are Mac-generic (only ever call
+// Mac::step), so the same Accumulator drives either.
 //
-// SplitMac quantizes the product and the sum separately (two roundings) --
-// this is the original design. FusedMac quantizes a single hardware-style
-// fused multiply-add's result (one rounding, matching a real FMA unit and
-// dev/cuda/custom_matmul_fma.cu); it reuses Adder as its result quantizer,
-// since quantizing an FMA's result is the same operation as quantizing a
-// running sum, just applied to a different raw value.
-//
-// Tree-based summation (see dev/gemm_core_roadmap.md) is SplitMac-only: a
-// fused multiply-add has no standalone product term to hand to a pairwise
-// tree combiner.
+// Tree-based summation (dev/gemm_core_roadmap.md) is SplitMac-only: a fused
+// multiply-add has no standalone product term for a pairwise tree combiner.
 
 CUDA_HOST_DEVICE_INLINE float fma_f32(float a, float b, float c)
 {
@@ -108,9 +230,9 @@ struct SplitMac
     Multiplier mul{};
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc) const
+    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, at::philox_engine &rng) const
     {
-        return add(acc + mul(a, b));
+        return add(acc + mul(a, b, rng), rng);
     }
 };
 
@@ -119,30 +241,37 @@ struct FusedMac
 {
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc) const
+    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, at::philox_engine &rng) const
     {
-        return add(fma_f32(a, b, acc));
+        return add(fma_f32(a, b, acc), rng);
     }
 };
 
 // ------------------------------------------------------------------------------------
-// Accumulator policies: own a dot product's running reduction state.
+// Accumulator policies: own a dot product's running reduction state. A GEMM
+// kernel only ever calls seed_rng()/accumulate()/finalize() on one --
+// accumulate() takes raw operands (not a pre-multiplied term) so a Mac-
+// generic Accumulator can drive either SplitMac or FusedMac. Only
+// NaiveAccumulator (AccumulateAlgorithm::NAIVE) is implemented so far; see
+// dev/gemm_core_roadmap.md for Kahan/block/tree variants.
 //
-// A GEMM kernel only ever calls accumulate()/finalize() on an Accumulator --
-// new accumulation algorithms (Kahan-compensated summation, block
-// summation, tree summation, ...) are added by writing a new policy with
-// this same two-method interface, without touching any kernel code.
-// accumulate() takes the raw dot-product operands (not a pre-multiplied
-// term), precisely so a Mac-generic Accumulator can drive either SplitMac
-// or FusedMac. Only NaiveAccumulator (mirroring AccumulateAlgorithm::NAIVE)
-// is implemented so far; see dev/gemm_core_roadmap.md for the rest.
-
+// seed_rng() is the RoundMode::SR lifecycle hook: the kernel calls it once
+// per output element, right after the Accumulator is placed at its final
+// coordinates and before its K-loop starts -- necessary because a CPU
+// tile's Accumulator vector is copy-constructed from one prototype, so
+// per-element identity isn't known until after construction.
 template <class Mac>
 struct NaiveAccumulator
 {
     Mac mac{};
     float sum = 0.f;
+    at::philox_engine rng{};
 
-    CUDA_HOST_DEVICE_INLINE void accumulate(float a, float b) { sum = mac.step(a, b, sum); }
+    CUDA_HOST_DEVICE_INLINE void seed_rng(uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
+    {
+        rng.reset_state(seed, subsequence);
+        rng.set_offset(offset);
+    }
+    CUDA_HOST_DEVICE_INLINE void accumulate(float a, float b) { sum = mac.step(a, b, sum, rng); }
     CUDA_HOST_DEVICE_INLINE float finalize() const { return sum; }
 };

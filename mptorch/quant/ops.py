@@ -96,11 +96,13 @@ def binaryK_matmul(
     mul_P: int,
     mul_bias: int | None = None,
     mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
     accumulate_quant: bool = True,
     acc_K: int | None = None,
     acc_P: int | None = None,
     acc_bias: int | None = None,
     acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -117,6 +119,11 @@ def binaryK_matmul(
     is additionally cast to the format given by ``acc_K``/``acc_P`` after
     every accumulation step. With ``accumulate_quant=False`` the running sum
     stays in full precision -- only the multiply is quantized.
+
+    ``mul_prng_bits``/``acc_prng_bits`` only matter when ``rounding_mode``
+    is ``RoundMode.SR`` (stochastic): they set the number of random
+    mantissa bits used by the multiply/accumulate rounding respectively,
+    same convention as :func:`binaryK_quantize`'s ``prng_bits``.
 
     ``a`` and ``b`` must be 2D; batched/rank>2 callers should flatten their
     leading dimensions first (see ``mptorch.quant.gemm`` for an example that
@@ -138,6 +145,14 @@ def binaryK_matmul(
     elif acc_bias is None:
         acc_bias = 0
 
+    assert 0 <= mul_prng_bits <= mantissa_size_mapping[a.dtype] - (mul_P - 1), (
+        "mul_prng_bits should be between 0 and 23 minus the number of mantissa bits (mul_P - 1)"
+    )
+    if accumulate_quant:
+        assert 0 <= acc_prng_bits <= mantissa_size_mapping[a.dtype] - (acc_P - 1), (
+            "acc_prng_bits should be between 0 and 23 minus the number of mantissa bits (acc_P - 1)"
+        )
+
     return torch.ops.mptorch.custom_matmul_binaryK.default(
         a.contiguous(),
         b.contiguous(),
@@ -156,6 +171,8 @@ def binaryK_matmul(
         rounding_mode.value,
         saturation_mode.value,
         subnormals_mode.value,
+        mul_prng_bits,
+        acc_prng_bits,
     )
 
 
@@ -170,12 +187,14 @@ def superfp_matmul(
     mul_normal_binades: int,
     mul_bias: int,
     mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
     accumulate_quant: bool = True,
     acc_man_bits: int | None = None,
     acc_exp_bits: int | None = None,
     acc_normal_binades: int | None = None,
     acc_bias: int | None = None,
     acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -183,9 +202,10 @@ def superfp_matmul(
     """
     superfp analog of :func:`binaryK_matmul` -- see its docstring for the
     general contract (2D-only, ``trans_a``/``trans_b``,
-    ``accumulate_quant``). ``acc_man_bits``/``acc_exp_bits``/
-    ``acc_normal_binades``/``acc_bias`` default to the multiply format's
-    values when omitted and ``accumulate_quant`` is true.
+    ``accumulate_quant``, ``mul_prng_bits``/``acc_prng_bits``).
+    ``acc_man_bits``/``acc_exp_bits``/``acc_normal_binades``/``acc_bias``
+    default to the multiply format's values when omitted and
+    ``accumulate_quant`` is true.
     """
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
@@ -201,6 +221,15 @@ def superfp_matmul(
         acc_exp_bits = acc_exp_bits or 0
         acc_normal_binades = acc_normal_binades or 0
         acc_bias = acc_bias or 0
+
+    assert 0 <= mul_prng_bits <= mantissa_size_mapping[a.dtype] - mul_man_bits, (
+        "mul_prng_bits should be between 0 and 23 minus the number of mantissa bits (mul_man_bits)"
+    )
+    if accumulate_quant:
+        assert 0 <= acc_prng_bits <= mantissa_size_mapping[a.dtype] - acc_man_bits, (
+            "acc_prng_bits should be between 0 and 23 minus the number of "
+            "mantissa bits (acc_man_bits)"
+        )
 
     return torch.ops.mptorch.custom_matmul_superfp.default(
         a.contiguous(),
@@ -221,6 +250,8 @@ def superfp_matmul(
         accumulate_algorithm.value,
         rounding_mode.value,
         saturation_mode.value,
+        mul_prng_bits,
+        acc_prng_bits,
     )
 
 
@@ -235,6 +266,7 @@ def binaryK_matmul_fma(
     fma_bias: int | None = None,
     fma_is_signed: bool = True,
     fma_quant: bool = True,
+    fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
@@ -253,12 +285,20 @@ def binaryK_matmul_fma(
     rounding beyond fp32 itself) -- the FMA analog of
     :func:`binaryK_matmul`'s ``accumulate_quant=False``.
 
+    ``fma_prng_bits`` only matters when ``rounding_mode`` is
+    ``RoundMode.SR`` (stochastic) -- see :func:`binaryK_matmul`'s
+    ``mul_prng_bits``/``acc_prng_bits`` for the convention.
+
     ``a`` and ``b`` must be 2D; batched/rank>2 callers should flatten their
     leading dimensions first (see ``mptorch.quant.gemm`` for an example that
     does this for ``QAffineFormats``).
     """
     if not fma_bias:
         fma_bias = 2 ** (fma_K - fma_P - 1) if fma_is_signed else 2 ** (fma_K - fma_P)
+
+    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - (fma_P - 1), (
+        "fma_prng_bits should be between 0 and 23 minus the number of mantissa bits (fma_P - 1)"
+    )
 
     return torch.ops.mptorch.custom_matmul_binaryK_fma.default(
         a.contiguous(),
@@ -274,6 +314,7 @@ def binaryK_matmul_fma(
         rounding_mode.value,
         saturation_mode.value,
         subnormals_mode.value,
+        fma_prng_bits,
     )
 
 
@@ -289,11 +330,16 @@ def superfp_matmul_fma(
     fma_bias: int,
     fma_is_signed: bool = True,
     fma_quant: bool = True,
+    fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
 ) -> torch.Tensor:
     """superfp analog of :func:`binaryK_matmul_fma` -- see its docstring."""
+    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - fma_man_bits, (
+        "fma_prng_bits should be between 0 and 23 minus the number of mantissa bits (fma_man_bits)"
+    )
+
     return torch.ops.mptorch.custom_matmul_superfp_fma.default(
         a.contiguous(),
         b.contiguous(),
@@ -308,4 +354,5 @@ def superfp_matmul_fma(
         accumulate_algorithm.value,
         rounding_mode.value,
         saturation_mode.value,
+        fma_prng_bits,
     )
