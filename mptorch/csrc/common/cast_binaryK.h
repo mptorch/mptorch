@@ -76,7 +76,26 @@ struct BinaryKParams
     uint32_t max_num;
     // for clip_subnormal_range_exponent
     int subnormal_min_exponent_store;
+    // Float-arithmetic RNE fast path -- see cast_binaryK_rne_fast below.
+    // fast_rne is the format half of the gate; the caller ANDs it with
+    // subnormals == SubnormalsMode::SUBNORMALS.
+    bool fast_rne;
+    float fast_split_c;    // 2^(23 - man_bits) + 1, the Veltkamp splitting constant
+    float fast_magic;      // 1.5 * 2^(23 + min_exp - man_bits), the subnormal grid's magic constant
+    float fast_min_normal; // 2^min_exp: below this the subnormal grid applies
+    float fast_max_finite; // largest finite magnitude the format stores (= max_num)
+    float fast_clamp_hi;   // 2 * max_finite: keeps fast_split_c * x from overflowing
+    float fast_ovf;        // what an out-of-range magnitude becomes (inf, or max_finite)
 };
+
+// 2^e as a float, for e in [-126, 127]. Used to build the fast path's
+// constants without pulling <cmath> into a header that CUDA device code
+// includes; the values are all exact powers of two by construction.
+CUDA_HOST_DEVICE_INLINE float binaryK_pow2f(int e)
+{
+    uint32_t bits = (uint32_t)(e + 127) << 23;
+    return BITS_TO_FLOAT(&bits);
+}
 
 CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_bits, int bias,
                                                           SaturationMode saturation_mode,
@@ -99,14 +118,122 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
     p.max_num = normal_p.max_num;
 
     p.subnormal_min_exponent_store = make_subnormal_range_params(man_bits, bias).min_exponent_store;
+
+    // ---- gate and constants for the float-arithmetic RNE fast path.
+    // Every condition below is a range check on the derived exponents: each
+    // guarantees that one of the fast path's four float operations stays
+    // inside binary32 and therefore exact. See cast_binaryK_rne_fast.
+    int e_split = 23 - man_bits;                     // fast_split_c = 2^e_split + 1
+    int e_magic = 23 + p.min_exp - man_bits;         // fast_magic  = 1.5 * 2^e_magic
+    int max_exp = p.max_exponent_store - 127;        // unbiased exponent of max_num
+    p.fast_rne =
+        // man_bits == 0 takes round_bitwise_nearest_even's structurally
+        // different zero-argument overload (ties on the exponent's parity,
+        // not the significand's), which the Veltkamp split does not model;
+        // man_bits > 22 leaves the magic add without the half-binade of
+        // headroom it needs to stay inside its own binade.
+        man_bits >= 1 && man_bits <= 22 &&
+        // SAT_PROPAGATE leaves a value whose exponent is exactly
+        // max_exponent_store unclamped even when its significand exceeds
+        // max_num, so max_num is not that mode's largest finite magnitude
+        // and the single fast_max_finite compare cannot express it.
+        saturation_mode != SaturationMode::SAT_PROPAGATE &&
+        // 2^min_exp, 1.5 * 2^e_magic and the subnormal grid step
+        // 2^(min_exp - man_bits) must all be normal binary32 values.
+        p.min_exp >= -126 && p.min_exp <= 126 &&
+        p.min_exp - man_bits >= -126 &&
+        e_magic >= -126 && e_magic <= 126 &&
+        // 2 * max_finite (the clamp) and fast_split_c * that product must
+        // both stay finite: |clamp_hi| < 2^(max_exp + 2) and
+        // fast_split_c < 2^(e_split + 1).
+        max_exp <= 126 && max_exp + e_split + 3 <= 128 &&
+        // The subnormal range has to sit below the format's largest finite
+        // value. It need not: exp_bits == 1 with man_bits == 1 puts
+        // max_exponent_store *below* min_exp, and the integer path's
+        // subnormal branch runs clip_subnormal_range_exponent, which only
+        // handles underflow -- so it returns values above max_num rather
+        // than saturating them, which the fast path's single saturating
+        // compare cannot reproduce. min_exp <= max_exp implies
+        // 2^min_exp <= max_finite, which is the condition that matters.
+        p.min_exp <= max_exp;
+
+    p.fast_split_c = binaryK_pow2f(e_split) + 1.0f;
+    p.fast_magic = 1.5f * binaryK_pow2f(e_magic);
+    p.fast_min_normal = binaryK_pow2f(p.min_exp);
+    p.fast_max_finite = BITS_TO_FLOAT(&p.max_num);
+    p.fast_clamp_hi = 2.0f * p.fast_max_finite;
+    uint32_t inf_bits = 0x7F800000u;
+    p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? BITS_TO_FLOAT(&inf_bits) : p.fast_max_finite;
+    if (!p.fast_rne)
+    {
+        // keep the unused constants finite so a disabled gate can never
+        // produce a signalling value if the path is ever entered by mistake
+        p.fast_split_c = 1.0f;
+        p.fast_magic = 1.0f;
+        p.fast_min_normal = 0.0f;
+        p.fast_max_finite = 0.0f;
+        p.fast_clamp_hi = 0.0f;
+        p.fast_ovf = 0.0f;
+    }
     return p;
 }
+
+// Float-arithmetic replacement for cast_binaryK_nearest_even's bit-twiddling
+// body, for the formats make_binaryK_params' gate admits. Round-to-nearest-
+// even is what binary32 hardware already does, so the whole cast reduces to
+// putting the value on the target format's grid and letting the FPU round:
+//
+//   * a Veltkamp split rounds to man_bits + 1 significand bits at any
+//     exponent (Dekker's theorem: with c = 2^s + 1, t - (t - x) is x rounded
+//     to 24 - s bits, exactly, provided nothing overflows);
+//   * a magic-constant add rounds onto the subnormal range's fixed absolute
+//     spacing of 2^(min_exp - man_bits);
+//   * saturation is one compare and one select on the *rounded* magnitude.
+//
+// Roughly 14 instructions and no branches, against ~125 instructions with
+// ~17 data-dependent branches for the integer path. Verified against that
+// path over all 2^32 float inputs for every admitted format --
+// dev/benchmarks/gemm_cast_float_arith.cu.
+//
+// CUDA only, and deliberately so: the identity depends on `t` being a
+// separately rounded binary32 value, which the _rn intrinsics guarantee.
+// Plain `*`/`-` let nvcc contract the split into an FMA and the identity
+// breaks (248 M mismatches in the exhaustive sweep); on the host the same
+// hazard exists via -ffp-contract, with no equally cheap way to forbid it,
+// so host builds keep the integer path.
+#if defined(__CUDA_ARCH__)
+CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const BinaryKParams &p)
+{
+    float ax = fabsf(origin_float);
+    // clamp before rounding so the Veltkamp product cannot overflow; anything
+    // at or above the clamp is out of the format's range either way.
+    float xc = copysignf(fminf(ax, p.fast_clamp_hi), origin_float);
+    float sub = __fsub_rn(__fadd_rn(xc, p.fast_magic), p.fast_magic);
+    float t = __fmul_rn(p.fast_split_c, xc);
+    float nrm = __fsub_rn(t, __fsub_rn(t, xc));
+    float y = (ax < p.fast_min_normal) ? sub : nrm;
+    if (fabsf(y) > p.fast_max_finite)
+        y = copysignf(p.fast_ovf, origin_float);
+    // inf and NaN pass through unchanged (the integer path's target_exp == 128
+    // branch); a single ordered compare covers both.
+    return (ax < __int_as_float(0x7F800000)) ? y : origin_float;
+}
+#endif
 
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool is_signed,
                                                         SubnormalsMode subnormals, const BinaryKParams &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
+
+#if defined(__CUDA_ARCH__)
+    // Warp-uniform in the single-format kernels (every thread reads the same
+    // acc_proto) and per-slot uniform in the mixed ones, so the test itself
+    // costs a predicated compare; the integer body below is jumped over, not
+    // fetched.
+    if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
+        return cast_binaryK_rne_fast(origin_float, p);
+#endif
 
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
