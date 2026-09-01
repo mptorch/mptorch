@@ -73,19 +73,19 @@ namespace
   }
 
   template <typename scalar_t, bool IsSigned>
-  void superfp_kernel_sr_impl(const scalar_t *a, const int *r, scalar_t *o, int64_t size,
+  void superfp_kernel_sr_impl(const scalar_t *a, scalar_t *o, int64_t size,
                               int man_bits, int exp_bits, int normal_binades, int bias,
-                              int prng_bits, SaturationMode saturation_mode)
+                              int prng_bits, uint64_t seed, SaturationMode saturation_mode)
   {
     const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
                                                 bias, saturation_mode);
 
-    quant_kernel(a, r, o, size,
-                 [=](scalar_t x, uint32_t rv) -> scalar_t
-                 {
-                   return static_cast<scalar_t>(cast_superfp_stochastic(
-                       static_cast<float>(x), rv, prng_bits, IsSigned, p));
-                 });
+    quant_kernel_sr(a, o, size, seed,
+                    [=](scalar_t x, uint32_t rv) -> scalar_t
+                    {
+                      return static_cast<scalar_t>(cast_superfp_stochastic(
+                          static_cast<float>(x), rv, prng_bits, IsSigned, p));
+                    });
   }
 
 } // namespace
@@ -122,18 +122,17 @@ Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
   }
   else
   {
-    auto rand_ints = randint_like(a_c, INT_MAX, device(a_c.device()).dtype(kInt));
-    const int *p_r = rand_ints.data_ptr<int>();
+    const uint64_t seed = draw_cpu_seed();
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a_c.scalar_type(), "superfp_quantize_cpu_sr", [&]
                                     {
       const scalar_t *p_a = a_c.data_ptr<scalar_t>();
       scalar_t *p_o = o.data_ptr<scalar_t>();
       if (is_signed)
-        superfp_kernel_sr_impl<scalar_t, true>(p_a, p_r, p_o, size, man_bits_, exp_bits_,
-                       normal_binades_, bias_, prng_bits_, saturation_mode_);
+        superfp_kernel_sr_impl<scalar_t, true>(p_a, p_o, size, man_bits_, exp_bits_,
+                       normal_binades_, bias_, prng_bits_, seed, saturation_mode_);
       else
-        superfp_kernel_sr_impl<scalar_t, false>(p_a, p_r, p_o, size, man_bits_, exp_bits_,
-                       normal_binades_, bias_, prng_bits_, saturation_mode_); });
+        superfp_kernel_sr_impl<scalar_t, false>(p_a, p_o, size, man_bits_, exp_bits_,
+                       normal_binades_, bias_, prng_bits_, seed, saturation_mode_); });
   }
 
   return o;

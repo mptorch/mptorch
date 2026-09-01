@@ -184,7 +184,8 @@ namespace
 
     // Draws (seed, offset) from ATen's default CUDA generator (respecting
     // torch.manual_seed, same as the elementwise binaryK_quantize/
-    // superfp_quantize SR path's randint_like), reserving `counter_offset`
+    // superfp_quantize SR path's quant_rng_engine_inputs in cuda/utils.cuh),
+    // reserving `counter_offset`
     // 128-bit Philox blocks so a subsequent unrelated RNG-consuming op
     // doesn't reuse the same (seed, offset) pair -- the standard native
     // CUDA RNG kernel idiom (see e.g. native/cuda/Dropout.cu upstream).

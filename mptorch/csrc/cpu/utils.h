@@ -1,7 +1,11 @@
 #pragma once
 
+#include "../common/philox.h"
+#include <ATen/ATen.h>
+#include <ATen/CPUGeneratorImpl.h>
 #include <ATen/Parallel.h>
 #include <cstdint>
+#include <mutex>
 
 // Elementwise quantization drivers.
 //
@@ -19,8 +23,8 @@
 // the pragma comes from a header template inlined into this translation
 // unit. Chunks are disjoint and each output element depends only on the
 // input element at the same index, so results are independent of the thread
-// count -- RoundMode::SR included, since its randomness is drawn into a
-// tensor up front rather than per thread.
+// count -- RoundMode::SR included, since quant_kernel_sr keys each element's
+// random draw on that same global index rather than on a per-thread stream.
 namespace mptorch_cpu
 {
   // A sixteenth of ATen's own default (at::internal::GRAIN_SIZE, 32768).
@@ -44,13 +48,46 @@ void quant_kernel(const scalar_t *a, scalar_t *o, int64_t size, Quant quant)
                    });
 }
 
+// RoundMode::SR. This used to take a `const int *r` -- an int32 tensor of
+// draws that binaryK_quantize_cpu / superfp_quantize_cpu materialized with
+// randint_like before every call. Two things were wrong with that. It cost an
+// allocation and a full extra read/write pass the size of the input, and
+// ATen's CPU generator is serial, so the fill did not scale with
+// torch.set_num_threads while the quantization around it did: at eight
+// threads the draw was the majority of the call. See finding E1 in
+// dev/gemm_perf_audit.md.
+//
+// Element `i` takes word `i & 3` of Philox block `i >> 2`, so one 10-round
+// generate is amortized over four elements and each element's value is a
+// function of its own index -- which is what keeps the result independent of
+// the thread count and of where at::parallel_for happens to cut the chunks.
+// `seed` comes from draw_cpu_seed() below, once per call.
 template <typename scalar_t, class Quant>
-void quant_kernel(const scalar_t *a, const int *r, scalar_t *o, int64_t size, Quant quant)
+void quant_kernel_sr(const scalar_t *a, scalar_t *o, int64_t size, uint64_t seed, Quant quant)
 {
   at::parallel_for(0, size, mptorch_cpu::quant_grain_size,
                    [=](int64_t begin, int64_t end)
                    {
+                     PhiloxBlock blk;
                      for (int64_t i = begin; i < end; ++i)
-                       o[i] = quant(a[i], (uint32_t)r[i]);
+                     {
+                       if (i == begin || (i & 3) == 0)
+                         blk = philox_block(seed, (uint64_t)(i >> 2), 0);
+                       o[i] = quant(a[i], blk.word((int)(i & 3)));
+                     }
                    });
+}
+
+// One 64-bit seed from ATen's default CPU generator, so torch.manual_seed
+// still governs a RoundMode::SR call exactly as it did when the draws came
+// from randint_like. Shared with custom_matmul_kernel.cpp, which seeds the
+// GEMM's per-output-element PhiloxEngine streams from the same draw (see
+// NaiveAccumulator::seed_rng in gemm_policy.h). Only called when
+// RoundMode::SR is selected.
+inline uint64_t draw_cpu_seed()
+{
+  auto gen = at::get_generator_or_default<at::CPUGeneratorImpl>(
+      c10::nullopt, at::detail::getDefaultCPUGenerator());
+  std::lock_guard<std::mutex> lock(gen->mutex_);
+  return gen->random64();
 }

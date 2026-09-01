@@ -1,7 +1,6 @@
 #include "../common/cast_superfp.h"
 #include "../quant_ops.h"
 #include <ATen/cuda/CUDAContext.h>
-#include <climits>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "utils.cuh"
@@ -61,12 +60,6 @@ namespace
             return SIMDTraits<scalar_t>::process(x, [&](float val, int /*idx*/)
                                                  { return eval(val); });
         }
-
-        __device__ __forceinline__ float4 vec_sr(float4 x, const int *r) const
-        {
-            return SIMDTraits<scalar_t>::process(x, [&](float val, int idx)
-                                                 { return eval_sr(val, static_cast<uint32_t>(r[idx])); });
-        }
     };
 
     template <typename scalar_t>
@@ -86,7 +79,7 @@ namespace
         {
             int64_t max_threads = std::max(vec_size, rem_size);
             int grid = grid_for(max_threads, BLOCK_SIZE);
-            quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, nullptr, o, size, quantizer);
+            quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer);
         };
 
         const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
@@ -116,7 +109,7 @@ namespace
     }
 
     template <typename scalar_t>
-    void superfp_kernel_sr_impl(const scalar_t *__restrict__ a, const int *__restrict__ r,
+    void superfp_kernel_sr_impl(const scalar_t *__restrict__ a,
                                 scalar_t *o, int64_t size,
                                 int man_bits, int exp_bits, int normal_binades, int bias, int prng_bits,
                                 bool is_signed, SaturationMode saturation_mode)
@@ -134,7 +127,8 @@ namespace
 
         int64_t max_threads = std::max(vec_size, rem_size);
         int grid = grid_for(max_threads, BLOCK_SIZE);
-        quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, r, o, size, quantizer);
+        at::PhiloxCudaState rng_args = quant_rng_engine_inputs();
+        quant_kernel_all_sr<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer, rng_args);
     }
 
 } // namespace
@@ -171,10 +165,8 @@ Tensor superfp_quantize_cuda(
         }
         else
         {
-            auto rand_ints = randint_like(a_c, INT_MAX, device(a_c.device()).dtype(kInt));
-            const int *p_r = rand_ints.data_ptr<int>();
             superfp_kernel_sr_impl<scalar_t>(
-                p_a, p_r, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, prng_bits_,
+                p_a, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, prng_bits_,
                 is_signed, saturation_mode_);
         } });
 

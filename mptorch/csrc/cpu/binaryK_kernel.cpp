@@ -108,8 +108,8 @@ namespace
   }
 
   template <typename scalar_t, bool IsSigned>
-  void binaryK_kernel_sr_impl(const scalar_t *a, const int *r, scalar_t *o, int64_t size,
-                              int K, int P, int bias, int prng_bits,
+  void binaryK_kernel_sr_impl(const scalar_t *a, scalar_t *o, int64_t size,
+                              int K, int P, int bias, int prng_bits, uint64_t seed,
                               SaturationMode saturation_mode,
                               SubnormalsMode subnormals_mode)
   {
@@ -119,13 +119,13 @@ namespace
         man_bits, exp_bits, bias, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
 
-    quant_kernel(a, r, o, size,
-                 [=](scalar_t x, uint32_t rv) -> scalar_t
-                 {
-                   return static_cast<scalar_t>(cast_binaryK_stochastic(
-                       static_cast<float>(x), rv, prng_bits, IsSigned,
-                       subnormals_mode, p));
-                 });
+    quant_kernel_sr(a, o, size, seed,
+                    [=](scalar_t x, uint32_t rv) -> scalar_t
+                    {
+                      return static_cast<scalar_t>(cast_binaryK_stochastic(
+                          static_cast<float>(x), rv, prng_bits, IsSigned,
+                          subnormals_mode, p));
+                    });
   }
 
 } // namespace
@@ -167,17 +167,16 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
   }
   else
   {
-    auto rand_ints = randint_like(a_c, INT_MAX, device(a_c.device()).dtype(kInt));
-    const int *p_r = rand_ints.data_ptr<int>();
+    const uint64_t seed = draw_cpu_seed();
     AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a_c.scalar_type(), "binaryK_quantize_cpu_sr", [&]
                                     {
       const scalar_t *p_a = a_c.data_ptr<scalar_t>();
       scalar_t *p_o = o.data_ptr<scalar_t>();
       if (is_signed)
-        binaryK_kernel_sr_impl<scalar_t, true>(p_a, p_r, p_o, size, K_, P_, bias_, prng_bits_,
+        binaryK_kernel_sr_impl<scalar_t, true>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
                        saturation_mode_, subnormals_mode_);
       else
-        binaryK_kernel_sr_impl<scalar_t, false>(p_a, p_r, p_o, size, K_, P_, bias_, prng_bits_,
+        binaryK_kernel_sr_impl<scalar_t, false>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
                        saturation_mode_, subnormals_mode_); });
   }
 

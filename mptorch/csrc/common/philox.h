@@ -146,3 +146,59 @@ private:
         ++c3;
     }
 };
+
+// The four words of one Philox 128-bit block, addressed by position rather
+// than consumed as a stream.
+//
+// This is what the *elementwise* SR quantizers want, and it is a different
+// access pattern from the GEMM's. There, one thread owns one output element
+// and draws K (or 2K) values in sequence, so PhiloxEngine's stream interface
+// fits. Here every element consumes exactly one random value, so a stream per
+// element would throw away three words of every block it generates. Keying
+// the block on `index >> 2` instead and picking word `index & 3` amortizes
+// one 10-round generate over four consecutive elements -- which is also
+// exactly one vectorized float lane group, so the vector path costs one
+// generate per iteration for float and two for half/bfloat16.
+//
+// Named scalars and a switch rather than an array, for the reason at the top
+// of this file: an array member read at a runtime index cannot be promoted
+// to registers, and would put the caller's whole frame in local memory.
+struct PhiloxBlock
+{
+    uint32_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+
+    CUDA_HOST_DEVICE_INLINE uint32_t word(int k) const
+    {
+        switch (k & 3)
+        {
+        case 0:
+            return w0;
+        case 1:
+            return w1;
+        case 2:
+            return w2;
+        default:
+            return w3;
+        }
+    }
+};
+
+// Generate block `subsequence` of the (seed, offset) stream. Same counter
+// layout as PhiloxEngine's own -- (offset, subsequence) as the 128-bit
+// counter, seed as the key -- so blocks drawn here and streams drawn through
+// the engine never collide as long as their subsequences differ, which is
+// the standard ATen convention (one subsequence per element or per thread,
+// `counter_offset` blocks of `offset` reserved per call).
+CUDA_HOST_DEVICE_INLINE PhiloxBlock philox_block(uint64_t seed, uint64_t subsequence,
+                                                 uint64_t offset)
+{
+    PhiloxEngine e;
+    e.reset_state(seed, subsequence);
+    e.set_offset(offset);
+    PhiloxBlock b;
+    b.w0 = e();
+    b.w1 = e();
+    b.w2 = e();
+    b.w3 = e();
+    return b;
+}

@@ -1,6 +1,7 @@
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
 #include "../quant_ops.h"
+#include "utils.h"
 #include <ATen/ATen.h>
 #include <ATen/CPUGeneratorImpl.h>
 #include <ATen/Parallel.h>
@@ -138,19 +139,6 @@ namespace
     int64_t K_b = trans_b ? b.size(1) : b.size(0);
     N = trans_b ? b.size(0) : b.size(1);
     TORCH_CHECK(K == K_b, op_name, ": inner dimensions must match (got ", K, " vs ", K_b, ")");
-  }
-
-  // Draws one 64-bit seed from ATen's default CPU generator (respecting
-  // torch.manual_seed, same as the elementwise binaryK_quantize/
-  // superfp_quantize SR path's randint_like) to seed this matmul call's
-  // per-output-element PhiloxEngine streams (see NaiveAccumulator::
-  // seed_rng in gemm_policy.h). Only called when RoundMode::SR is selected.
-  uint64_t draw_cpu_seed()
-  {
-    auto gen = at::get_generator_or_default<at::CPUGeneratorImpl>(
-        c10::nullopt, at::detail::getDefaultCPUGenerator());
-    std::lock_guard<std::mutex> lock(gen->mutex_);
-    return gen->random64();
   }
 
   // Validates a spatially-varying mixed-format op's per-output-element
