@@ -1,4 +1,6 @@
 import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 import torch
@@ -16,6 +18,25 @@ if torch.__version__ >= "2.6.0":
     py_limited_api = True
 else:
     py_limited_api = False
+
+
+def compiler_accepts(flag: str) -> bool:
+    """True if the C++ compiler that will build the extension accepts `flag`."""
+    cxx = os.environ.get("CXX", "c++")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "probe.cpp"
+        src.write_text("int main() { return 0; }\n")
+        try:
+            return (
+                subprocess.run(
+                    [cxx, *flag.split(), "-c", str(src), "-o", str(src.with_suffix(".o"))],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ).returncode
+                == 0
+            )
+        except OSError:
+            return False
 
 
 def get_extensions():
@@ -47,6 +68,20 @@ def get_extensions():
             "--extended-lambda",
         ],
     }
+    # GCC caps how much a translation unit may grow through inlining at 20% of
+    # its own size (--param inline-unit-growth). The CPU quantization kernels
+    # blow past that: each instantiates a ~150-instruction format cast, and
+    # binaryK_kernel.cpp alone has 48 of them (4 dtypes x 6 round modes x
+    # signed/unsigned). Past the cap GCC stops inlining the cast into the
+    # elementwise loop, which costs a call per element and blocks the constant
+    # folding the templated is_signed exists for. Raising the cap is worth
+    # 2.8x on binaryK_quantize (14.3 -> 5.3 ns/element, 4M f32, e4m3, RNE,
+    # one thread) and is bit-exact. It is a GCC/Clang spelling, hence the
+    # probe. See dev/gemm_perf_audit.md (finding C4).
+    inline_growth = "--param inline-unit-growth=400"
+    if compiler_accepts(inline_growth):
+        extra_compile_args["cxx"].extend(inline_growth.split())
+
     if py_limited_api:
         extra_compile_args["cxx"].append("-DPy_LIMITED_API=0x03090000")
     if debug_mode:
