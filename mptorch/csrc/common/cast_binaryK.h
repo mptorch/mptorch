@@ -800,6 +800,35 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     else
     {
         quantize_bits = round_bitwise_stochastic(target, rand_prob, p.man_bits);
+#if defined(__CUDA_ARCH__)
+        // The SR half of item 7. Stochastic rounding itself has no hardware
+        // analogue -- binary32 rounds to nearest, so nothing in the FPU
+        // reproduces "add random bits below the retained significand, then
+        // truncate", and the three lines above stay exactly as they are. What
+        // SR *does* share with RNE is everything after the rounding, and
+        // clip_normal_range_exponent is the expensive part: five branches to
+        // decide a value the same single compare G3 uses can decide.
+        //
+        // Two facts make the compare sufficient here, and both are already in
+        // the gate. Saturation is a magnitude test on the rounded value --
+        // that is fast_rne's `saturation_mode != SAT_PROPAGATE`. And the clip's
+        // *underflow* arm is unreachable: `add_r & ~mask` clears low
+        // significand bits but never lowers an exponent, so a value that
+        // entered this branch at or above min_exp leaves it there too, which
+        // is what `subnormals == SUBNORMALS` guarantees (anything below took
+        // the subnormal arm above).
+        //
+        // The flag is fast_rne rather than one of its own: its remaining
+        // conditions are the Veltkamp split's, which SR does not use, so
+        // reusing it only ever gates SR off where it could have run
+        // (man_bits == 0, and the split-product bound). One flag, one sweep.
+        // Verified in dev/benchmarks/gemm_cast_sr_arith.cu.
+        if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
+        {
+            float y = BITS_TO_FLOAT(&quantize_bits);
+            return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
+        }
+#endif
         quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
                                                    p.min_exponent_store, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
