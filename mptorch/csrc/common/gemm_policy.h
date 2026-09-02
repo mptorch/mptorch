@@ -4,9 +4,11 @@
 #include "cast_superfp.h"
 #include "modes.h"
 #include "philox.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
+#include <vector>
 
 // ------------------------------------------------------------------------------------
 // Multiplier policies: quantize a single dot-product term a*b.
@@ -267,14 +269,78 @@ struct FusedMac
 // dev/gemm_core_roadmap.md for Kahan/block/tree variants.
 //
 // seed_rng() is the RoundMode::SR lifecycle hook: the kernel calls it once
-// per output element, right after the Accumulator is placed at its final
-// coordinates and before its K-loop starts -- necessary because a CPU
-// tile's Accumulator vector is copy-constructed from one prototype, so
-// per-element identity isn't known until after construction.
+// per output element, right before that element's K-loop starts -- necessary
+// because a CPU tile's per-element state is created in bulk, so per-element
+// identity isn't known at construction.
+//
+// There are two shapes of this. A GPU thread owns one whole Accumulator and
+// keeps it in registers, which is what the object form below is for. A CPU
+// tile needs one per output element, and giving each of them a whole
+// Accumulator meant a copy of the Mac policy per element -- see NaiveTile.
+
+// Per-output-element reduction state for a CPU tile (host-only).
+//
+// The Mac policy is uniform across a single-format call and comes from the
+// palette on the mixed one, so it has no business being copied per element:
+// a split-mac binaryK Accumulator is 224 B (BinaryKParams 72 -> multiplier 88
+// -> SplitMac 176, plus the 44 B engine), which made a 32x32 tile a 224 KB
+// heap allocation and as many bytes of copy-construction to carry one float
+// of running sum each. NaiveTile holds the state and nothing else, split so
+// that what the K-loop touches on every step is a dense float array: the SR
+// streams are 44 B apiece and exist only when RoundMode::SR does, and the six
+// deterministic modes -- which never draw -- share one idle engine at stride
+// zero rather than each owning one. See dev/gemm_perf_audit.md (finding C3).
+//
+// The kernel reads the tile through a NaiveTileView taken once per tile, not
+// through the vectors: the K-loop must be able to keep the base pointers in
+// registers, which it cannot do through a std::vector member the stores in
+// the loop body might alias.
+struct NaiveTileView
+{
+    float *__restrict__ sums;
+    PhiloxEngine *__restrict__ rng;
+};
+
+struct NaiveTile
+{
+    std::vector<float> sums;
+    std::vector<PhiloxEngine> streams;
+
+    // Called once per worker task rather than per tile: the buffers are
+    // reused across every tile that task takes.
+    //
+    // The streams are allocated whether or not RoundMode::SR is on, which
+    // wastes 44 B per element under the six deterministic modes -- 45 KB per
+    // worker task, never read. Both ways of avoiding that cost more than it
+    // does: a runtime stride leaves a multiply in the innermost loop, and a
+    // compile-time one duplicates the whole K-loop, which measured 7-12%
+    // slower on the split macs whose cast bodies are the largest. Measured,
+    // not assumed; see dev/gemm_perf_audit.md (C3).
+    void resize(int64_t n)
+    {
+        sums.resize(static_cast<size_t>(n));
+        streams.resize(static_cast<size_t>(n));
+    }
+
+    NaiveTileView view() { return {sums.data(), streams.data()}; }
+
+    void begin(int64_t n) { std::fill_n(sums.data(), static_cast<size_t>(n), 0.f); }
+
+    void seed_rng(int64_t idx, uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
+    {
+        PhiloxEngine &e = streams[static_cast<size_t>(idx)];
+        e.reset_state(seed, subsequence);
+        e.set_offset(offset);
+    }
+
+    float finalize(int64_t idx) const { return sums[static_cast<size_t>(idx)]; }
+};
+
 template <class Mac>
 struct NaiveAccumulator
 {
     using mac_type = Mac;
+    using tile_type = NaiveTile;
 
     Mac mac{};
     float sum = 0.f;
@@ -287,6 +353,17 @@ struct NaiveAccumulator
     }
     CUDA_HOST_DEVICE_INLINE void accumulate(float a, float b) { sum = mac.step(a, b, sum, rng); }
     CUDA_HOST_DEVICE_INLINE float finalize() const { return sum; }
+
+    // Tile form of accumulate(), host-only: the running sum and the SR stream
+    // come from the tile, the format policy from `m` -- one shared Mac for
+    // the whole call on the single-format path, this element's palette slot
+    // on the mixed one. Same expression as the object form above, in the same
+    // order, so the two produce identical values.
+    static inline void accumulate(const NaiveTileView &t, int64_t idx, const Mac &m,
+                                  float a, float b)
+    {
+        t.sums[idx] = m.step(a, b, t.sums[idx], t.rng[idx]);
+    }
 };
 
 // ------------------------------------------------------------------------------------

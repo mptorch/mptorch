@@ -23,24 +23,33 @@ namespace
   // arithmetic used to read them, no physical transpose is materialized.
   // Accumulator owns both the multiply and the accumulate step (via its Mac
   // policy -- see gemm_policy.h), so this kernel only ever calls
-  // seed_rng()/accumulate(a, b)/finalize() and never multiplies operands
-  // itself. use_rng/seed drive RoundMode::SR: when set, each output
-  // element's Accumulator is seeded (keyed by its own global linear index,
-  // so the result is independent of tiling/thread-count) right after the
-  // per-tile Accumulator vector is placed at its final coordinates and
-  // before its K-reduction starts -- see gemm_policy.h's NaiveAccumulator
-  // for why this can't happen at the vector's construction instead.
-  template <typename scalar_t, class Accumulator>
-  void matmul_cpu_kernel_impl(const scalar_t *A, const scalar_t *B, scalar_t *C,
+  // seed_rng()/accumulate()/finalize() and never multiplies operands itself.
+  // The per-output-element reduction state lives in the Accumulator's tile
+  // type rather than in one Accumulator per element (finding C3), so what
+  // the K-loop strides through is a dense array of floats. use_rng/seed
+  // drive RoundMode::SR: when set, each output element's stream is seeded
+  // (keyed by its own global linear index, so the result is independent of
+  // tiling and thread count) before its K-reduction starts.
+
+  // MIXED selects whether this instantiation carries the spatially-varying
+  // FormatPalette prologue, exactly as it does on the GPU (finding G4) and
+  // for the same reason: with the Mac no longer stored per output element
+  // (finding C3), the single-format path wants one Mac held in registers for
+  // the whole call, which a runtime `pal.n > 0` test would turn back into a
+  // per-element pointer load in the innermost loop.
+  template <typename scalar_t, bool MIXED = false, class Accumulator>
+  void matmul_cpu_kernel_impl(const scalar_t *__restrict__ A, const scalar_t *__restrict__ B,
+                              scalar_t *__restrict__ C,
                               int64_t M, int64_t K, int64_t N,
                               bool trans_a, bool trans_b,
                               Accumulator acc_proto,
                               bool use_rng, uint64_t seed,
                               FormatPalette<typename Accumulator::mac_type> pal = {},
-                              const int32_t *prec_idx = nullptr,
+                              const int32_t *__restrict__ prec_idx = nullptr,
                               int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
   {
     constexpr int64_t TI = 32, TJ = 32, TK = 32;
+    using Mac = typename Accumulator::mac_type;
 
     const int64_t n_tiles_i = (M + TI - 1) / TI;
     const int64_t n_tiles_j = (N + TJ - 1) / TJ;
@@ -67,31 +76,51 @@ namespace
 
     at::parallel_for(0, n_tiles, grain, [&](int64_t tile_begin, int64_t tile_end)
     {
-      for (int64_t tile = tile_begin; tile < tile_end; ++tile)
+      // One tile's worth of reduction state per worker task, reused across
+      // every tile the task takes rather than rebuilt per tile: TI*TJ running
+      // sums and TI*TJ Philox streams (gemm_policy.h's NaiveTile, finding
+      // C3 -- see there for why the streams are allocated even for the six
+      // round modes that never draw). The Mac policy stays out of it: one
+      // copy for the whole call below, or a pointer per element into the
+      // palette on the mixed path.
+      typename Accumulator::tile_type tile;
+      tile.resize(TI * TJ);
+      const auto tv = tile.view();
+
+      // The single-format path's one Mac, held by value in the task's frame
+      // rather than re-read per output element. By value and not by
+      // reference: taking a reference to the caller's acc_proto measured
+      // 5-8% slower on the split macs.
+      const Mac mac_single = acc_proto.mac;
+      const Mac *slot_of[MIXED ? TI * TJ : 1]; // the mixed path's per-element slots
+
+      for (int64_t tile_id = tile_begin; tile_id < tile_end; ++tile_id)
       {
-        const int64_t i0 = (tile / n_tiles_j) * TI;
-        const int64_t j0 = (tile % n_tiles_j) * TJ;
+        const int64_t i0 = (tile_id / n_tiles_j) * TI;
+        const int64_t j0 = (tile_id % n_tiles_j) * TJ;
         const int64_t ti = std::min<int64_t>(TI, M - i0);
         const int64_t tj = std::min<int64_t>(TJ, N - j0);
-        std::vector<Accumulator> acc(static_cast<size_t>(ti * tj), acc_proto);
+        tile.begin(ti * tj);
 
         if (use_rng)
         {
           for (int64_t i = 0; i < ti; ++i)
             for (int64_t j = 0; j < tj; ++j)
-              acc[static_cast<size_t>(i * tj + j)].seed_rng(
-                  seed, static_cast<uint64_t>((i0 + i) * N + (j0 + j)));
+              tile.seed_rng(i * tj + j, seed, static_cast<uint64_t>((i0 + i) * N + (j0 + j)));
         }
 
-        // Spatially-varying mixed format: bind each output element's Mac
-        // policy from the palette before its K-reduction (see gemm_policy.h's
-        // FormatPalette). No-op on the single-format path (pal.n == 0).
-        if (pal.n > 0)
+        // Spatially-varying mixed format: resolve each output element's Mac
+        // policy from the palette before its K-reduction, in the same place
+        // and the same order the whole slot used to be copied into that
+        // element's accumulator (see gemm_policy.h's FormatPalette). Pointers
+        // into the palette rather than copies of it: the palette outlives the
+        // call and an element's slot never changes mid-reduction.
+        if constexpr (MIXED)
         {
           for (int64_t i = 0; i < ti; ++i)
             for (int64_t j = 0; j < tj; ++j)
-              acc[static_cast<size_t>(i * tj + j)].mac =
-                  pal.slot(prec_idx[(i0 + i) * idx_row_stride + (j0 + j) * idx_col_stride]);
+              slot_of[i * tj + j] =
+                  &pal.slot(prec_idx[(i0 + i) * idx_row_stride + (j0 + j) * idx_col_stride]);
         }
 
         for (int64_t k0 = 0; k0 < K; k0 += TK)
@@ -109,7 +138,9 @@ namespace
                 float bVal = trans_b
                                 ? static_cast<float>(B[(j0 + j) * K + (k0 + k)])
                                 : static_cast<float>(B[(k0 + k) * N + (j0 + j)]);
-                acc[static_cast<size_t>(i * tj + j)].accumulate(aVal, bVal);
+                const int64_t idx = i * tj + j;
+                Accumulator::accumulate(tv, idx, MIXED ? *slot_of[MIXED ? idx : 0] : mac_single,
+                                        aVal, bVal);
               }
             }
           }
@@ -117,8 +148,7 @@ namespace
 
         for (int64_t i = 0; i < ti; ++i)
           for (int64_t j = 0; j < tj; ++j)
-            C[(i0 + i) * N + (j0 + j)] =
-                static_cast<scalar_t>(acc[static_cast<size_t>(i * tj + j)].finalize());
+            C[(i0 + i) * N + (j0 + j)] = static_cast<scalar_t>(tile.finalize(i * tj + j));
       }
     });
   }
@@ -496,8 +526,8 @@ Tensor binaryK_matmul_mixed_cpu(
         pal.slots[i] = Mac{make_mul(i), add};
       }
       NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, seed, pal, p_idx, sr, sc);
+      matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, seed, pal, p_idx, sr, sc);
     }
     else
     {
@@ -508,8 +538,8 @@ Tensor binaryK_matmul_mixed_cpu(
       for (int64_t i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_mul(i), IdentityAdder{}};
       NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, seed, pal, p_idx, sr, sc);
+      matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, seed, pal, p_idx, sr, sc);
     } });
 
   return mptorch::widen_float64(c, widen_f64);
@@ -587,8 +617,8 @@ Tensor superfp_matmul_mixed_cpu(
         pal.slots[i] = Mac{make_mul(i), add};
       }
       NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, seed, pal, p_idx, sr, sc);
+      matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, seed, pal, p_idx, sr, sc);
     }
     else
     {
@@ -599,8 +629,8 @@ Tensor superfp_matmul_mixed_cpu(
       for (int64_t i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_mul(i), IdentityAdder{}};
       NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-      matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                       use_rng, seed, pal, p_idx, sr, sc);
+      matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                             use_rng, seed, pal, p_idx, sr, sc);
     } });
 
   return mptorch::widen_float64(c, widen_f64);
@@ -672,8 +702,8 @@ Tensor binaryK_matmul_fma_mixed_cpu(
       pal.slots[i] = Mac{add};
     }
     NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-    matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                     use_rng, seed, pal, p_idx, sr, sc); });
+    matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                           use_rng, seed, pal, p_idx, sr, sc); });
 
   return mptorch::widen_float64(c, widen_f64);
 }
@@ -737,8 +767,8 @@ Tensor superfp_matmul_fma_mixed_cpu(
       pal.slots[i] = Mac{add};
     }
     NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
-    matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
-                                     use_rng, seed, pal, p_idx, sr, sc); });
+    matmul_cpu_kernel_impl<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
+                                           use_rng, seed, pal, p_idx, sr, sc); });
 
   return mptorch::widen_float64(c, widen_f64);
 }

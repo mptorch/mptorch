@@ -1,5 +1,6 @@
 #include "../common/cast_binaryK.h"
 #include "../common/modes.h"
+#include "../common/dispatch.h"
 #include "utils.h"
 #include <ATen/ATen.h>
 
@@ -135,6 +136,11 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                             int64_t round_mode, int64_t saturation_mode,
                             int64_t subnormals_mode)
 {
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a);
+
   // data_ptr() walks storage linearly, so a non-contiguous input would be
   // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
   // but a direct torch.ops.mptorch.binaryK_quant call need not.
@@ -154,7 +160,7 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
 
   if (round_mode_ != RoundMode::SR)
   {
-    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a_c.scalar_type(), "binaryK_quantize_cpu", [&]
+    MPTORCH_DISPATCH_QUANT_TYPES(a_c.scalar_type(), "binaryK_quantize_cpu", [&]
                                     {
       const scalar_t *p_a = a_c.data_ptr<scalar_t>();
       scalar_t *p_o = o.data_ptr<scalar_t>();
@@ -168,7 +174,7 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
   else
   {
     const uint64_t seed = draw_cpu_seed();
-    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a_c.scalar_type(), "binaryK_quantize_cpu_sr", [&]
+    MPTORCH_DISPATCH_QUANT_TYPES(a_c.scalar_type(), "binaryK_quantize_cpu_sr", [&]
                                     {
       const scalar_t *p_a = a_c.data_ptr<scalar_t>();
       scalar_t *p_o = o.data_ptr<scalar_t>();
@@ -180,5 +186,5 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                        saturation_mode_, subnormals_mode_); });
   }
 
-  return o;
+  return mptorch::widen_float64(o, widen_f64);
 }
