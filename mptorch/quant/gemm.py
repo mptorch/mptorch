@@ -98,7 +98,14 @@ def binaryK_gemm_formats(
         x_flat, x_shape = _flatten_leading(q_input)
         out = _matmul(x_flat, q_weight, trans_a=False, trans_b=True)
         out = out.reshape(*x_shape[:-1], q_weight.shape[0])
-        return out + q_bias if q_bias is not None else out
+        # add_ rather than +: `out` is a view of a tensor the op allocated
+        # inside this call and has no other referent, so folding the bias in
+        # place is bit-identical and saves an output-sized allocation per
+        # forward. Guarded on dtype so a bias in a wider dtype still promotes
+        # the way `out + q_bias` did instead of raising.
+        if q_bias is None:
+            return out
+        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
@@ -161,7 +168,14 @@ def binaryK_gemm_formats_fma(
         x_flat, x_shape = _flatten_leading(q_input)
         out = _matmul(x_flat, q_weight, trans_a=False, trans_b=True)
         out = out.reshape(*x_shape[:-1], q_weight.shape[0])
-        return out + q_bias if q_bias is not None else out
+        # add_ rather than +: `out` is a view of a tensor the op allocated
+        # inside this call and has no other referent, so folding the bias in
+        # place is bit-identical and saves an output-sized allocation per
+        # forward. Guarded on dtype so a bias in a wider dtype still promotes
+        # the way `out + q_bias` did instead of raising.
+        if q_bias is None:
+            return out
+        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
@@ -230,7 +244,14 @@ def superfp_gemm_formats(
         x_flat, x_shape = _flatten_leading(q_input)
         out = _matmul(x_flat, q_weight, trans_a=False, trans_b=True)
         out = out.reshape(*x_shape[:-1], q_weight.shape[0])
-        return out + q_bias if q_bias is not None else out
+        # add_ rather than +: `out` is a view of a tensor the op allocated
+        # inside this call and has no other referent, so folding the bias in
+        # place is bit-identical and saves an output-sized allocation per
+        # forward. Guarded on dtype so a bias in a wider dtype still promotes
+        # the way `out + q_bias` did instead of raising.
+        if q_bias is None:
+            return out
+        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
@@ -284,7 +305,14 @@ def superfp_gemm_formats_fma(
         x_flat, x_shape = _flatten_leading(q_input)
         out = _matmul(x_flat, q_weight, trans_a=False, trans_b=True)
         out = out.reshape(*x_shape[:-1], q_weight.shape[0])
-        return out + q_bias if q_bias is not None else out
+        # add_ rather than +: `out` is a view of a tensor the op allocated
+        # inside this call and has no other referent, so folding the bias in
+        # place is bit-identical and saves an output-sized allocation per
+        # forward. Guarded on dtype so a bias in a wider dtype still promotes
+        # the way `out + q_bias` did instead of raising.
+        if q_bias is None:
+            return out
+        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
 
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
