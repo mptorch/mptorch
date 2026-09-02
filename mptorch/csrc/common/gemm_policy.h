@@ -70,19 +70,25 @@ struct BinaryKMultiplier
     }
 };
 
-struct SuperfpMultiplier
+// LEAN selects between the two SuperfpParams spellings (cast_superfp.h): the
+// stored one everywhere by default, the derived one where a FormatPalette
+// copies the whole policy into registers and the seven floats are what it
+// cannot afford. Nothing else about the policy changes -- LEAN is not visible
+// past `params`, and the two produce identical values.
+template <bool LEAN = false>
+struct SuperfpMultiplierT
 {
     bool is_signed;
     RoundMode round_mode;
     int prng_bits;
-    SuperfpParams params;
+    SuperfpParamsT<LEAN> params;
 
-    SuperfpMultiplier() = default;
-    CUDA_HOST_DEVICE_INLINE SuperfpMultiplier(int man_bits, int exp_bits, int normal_binades, int bias,
-                                              bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
-                                              int prng_bits = 0)
+    SuperfpMultiplierT() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT(int man_bits, int exp_bits, int normal_binades, int bias,
+                                               bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                               int prng_bits = 0)
         : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
-          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<LEAN>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
 
@@ -108,6 +114,9 @@ struct SuperfpMultiplier
         }
     }
 };
+
+using SuperfpMultiplier = SuperfpMultiplierT<>;
+using SuperfpMultiplierLean = SuperfpMultiplierT<true>;
 
 // ------------------------------------------------------------------------------------
 // Adder policies: quantize a single running-sum update. Used inside a Mac
@@ -154,19 +163,21 @@ struct BinaryKAdder
     }
 };
 
-struct SuperfpAdder
+// LEAN as on SuperfpMultiplierT above.
+template <bool LEAN = false>
+struct SuperfpAdderT
 {
     bool is_signed;
     RoundMode round_mode;
     int prng_bits;
-    SuperfpParams params;
+    SuperfpParamsT<LEAN> params;
 
-    SuperfpAdder() = default;
-    CUDA_HOST_DEVICE_INLINE SuperfpAdder(int man_bits, int exp_bits, int normal_binades, int bias,
-                                         bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
-                                         int prng_bits = 0)
+    SuperfpAdderT() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpAdderT(int man_bits, int exp_bits, int normal_binades, int bias,
+                                          bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                          int prng_bits = 0)
         : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
-          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<LEAN>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
 
@@ -191,6 +202,9 @@ struct SuperfpAdder
         }
     }
 };
+
+using SuperfpAdder = SuperfpAdderT<>;
+using SuperfpAdderLean = SuperfpAdderT<true>;
 
 // No-op adder: used when only the multiply (Split) or the fused step
 // (Fused) should be quantized and the running sum is meant to otherwise

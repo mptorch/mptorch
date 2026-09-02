@@ -641,6 +641,11 @@ at::Tensor binaryK_matmul_mixed_cuda(
                                      static_cast<int>(mul_prng_bits)};
         };
 
+        // No lean-params branch here, unlike superfp_matmul_mixed_cuda below:
+        // this Mac is the file's biggest at 112 registers, and deriving
+        // BinaryKParams' six fast-path floats only takes it to 99 -- 80 is what
+        // a third resident block needs, so it would pay the arithmetic for
+        // nothing. Measured, not assumed; see dev/gemm_perf_audit.md (G10).
         if (accumulate_quant)
         {
             using Mac = SplitMac<BinaryKMultiplier, BinaryKAdder>;
@@ -728,24 +733,29 @@ at::Tensor superfp_matmul_mixed_cuda(
         const scalar_t *p_b = b_c.data_ptr<scalar_t>();
         scalar_t *p_c = c.data_ptr<scalar_t>();
 
-        auto make_mul = [&](int64_t i) {
-            return SuperfpMultiplier{static_cast<int>(mul_man_bits[i]), static_cast<int>(mul_exp_bits[i]),
-                                     static_cast<int>(mul_normal_binades[i]), static_cast<int>(mul_bias[i]),
-                                     mul_is_signed, sat, rm, static_cast<int>(mul_prng_bits)};
-        };
-
         if (accumulate_quant)
         {
-            using Mac = SplitMac<SuperfpMultiplier, SuperfpAdder>;
+            // Two full superfp policies per palette slot is the one Mac in this
+            // file that runs out of registers: at 100 it gets 2 blocks resident
+            // per SM where its single-format twin gets 5. The Lean spelling
+            // rebuilds the seven fast-path floats where they are used instead
+            // of carrying them, which buys back a block for the same values.
+            // Only this branch: the IdentityAdder one below already fits, and
+            // paying the arithmetic there would be a straight loss. See
+            // dev/gemm_perf_audit.md (finding G10).
+            using Mac = SplitMac<SuperfpMultiplierLean, SuperfpAdderLean>;
             static_assert(std::is_trivially_copyable_v<Mac>, "Mac must be trivially copyable to ride in FormatPalette");
             FormatPalette<Mac> pal;
             pal.n = static_cast<int>(n_fmt);
             for (int64_t i = 0; i < n_fmt; ++i)
             {
-                SuperfpAdder add{static_cast<int>(acc_man_bits[i]), static_cast<int>(acc_exp_bits[i]),
-                                 static_cast<int>(acc_normal_binades[i]), static_cast<int>(acc_bias[i]),
-                                 acc_is_signed, sat, rm, static_cast<int>(acc_prng_bits)};
-                pal.slots[i] = Mac{make_mul(i), add};
+                SuperfpMultiplierLean mul{static_cast<int>(mul_man_bits[i]), static_cast<int>(mul_exp_bits[i]),
+                                          static_cast<int>(mul_normal_binades[i]), static_cast<int>(mul_bias[i]),
+                                          mul_is_signed, sat, rm, static_cast<int>(mul_prng_bits)};
+                SuperfpAdderLean add{static_cast<int>(acc_man_bits[i]), static_cast<int>(acc_exp_bits[i]),
+                                     static_cast<int>(acc_normal_binades[i]), static_cast<int>(acc_bias[i]),
+                                     acc_is_signed, sat, rm, static_cast<int>(acc_prng_bits)};
+                pal.slots[i] = Mac{mul, add};
             }
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
             launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
@@ -758,7 +768,12 @@ at::Tensor superfp_matmul_mixed_cuda(
             FormatPalette<Mac> pal;
             pal.n = static_cast<int>(n_fmt);
             for (int64_t i = 0; i < n_fmt; ++i)
-                pal.slots[i] = Mac{make_mul(i), IdentityAdder{}};
+            {
+                SuperfpMultiplier mul{static_cast<int>(mul_man_bits[i]), static_cast<int>(mul_exp_bits[i]),
+                                      static_cast<int>(mul_normal_binades[i]), static_cast<int>(mul_bias[i]),
+                                      mul_is_signed, sat, rm, static_cast<int>(mul_prng_bits)};
+                pal.slots[i] = Mac{mul, IdentityAdder{}};
+            }
             NaiveAccumulator<Mac> acc_proto{pal.slots[0], 0.f};
             launch_custom_matmul<scalar_t, true>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
                                                  use_rng, rng_args, pal, p_idx, sr, sc);

@@ -2,6 +2,7 @@
 
 #include "bit_helper.h"
 #include "modes.h"
+#include <type_traits>
 
 // superfp has no subnormals: below the "supernormal" region (which repurposes
 // what would otherwise be subnormal encoding space to extend the exponent
@@ -79,11 +80,69 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float,
     return quantized;
 }
 
-// Precomputed-parameter overload of cast_superfp_nearest_even -- see the
-// analogous BinaryKParams/cast_binaryK_nearest_even overload in
+// 2^e as a float, for e in [-126, 127]. The binaryK twin of this lives in
+// cast_binaryK.h; duplicated rather than shared so neither header has to
+// include the other for one four-line helper.
+CUDA_HOST_DEVICE_INLINE float superfp_pow2f(int e)
+{
+    uint32_t bits = (uint32_t)(e + 127) << 23;
+    return BITS_TO_FLOAT(&bits);
+}
+
+// The same, with the exponent pinned to what binary32 can encode. Used only
+// by the LEAN params below, for two separate reasons:
+//   * e == -127 encodes as +0.0f exactly, which is what makes the low clamp
+//     reproduce make_superfp_params' `no_underflow ? 0.0f` select rather than
+//     merely approximate it -- no_underflow *is* supernormal_cutoff <= -127.
+//   * outside the fast-RNE gate the cutoffs are unconstrained, and the stored
+//     form answers that by zeroing its constants. Pinning both ends is the
+//     derived form's version of the same promise: every constant it hands back
+//     is a finite non-negative float whatever the format fields say.
+CUDA_HOST_DEVICE_INLINE float superfp_pow2f_clamped(int e)
+{
+    e = (e < -127) ? -127 : e;
+    e = (e > 127) ? 127 : e;
+    return superfp_pow2f(e);
+}
+
+// The seven constants cast_superfp_rne_fast (and the RNE-gated tail of
+// cast_superfp_stochastic) work from. Each is a pure function of the format
+// fields above it, so a params struct can either carry them or rebuild them at
+// the point of use -- see SuperfpParamsT.
+struct SuperfpFastConstants
+{
+    float split_c;    // 2^(23 - man_bits) + 1, the Veltkamp splitting constant
+    float normal_min; // 2^normal_cutoff: at or above this the normal region applies
+    float super_min;  // 2^supernormal_cutoff, the smallest supernormal magnitude
+    float super_half; // 2^(supernormal_cutoff - 1), the flush-to-zero midpoint
+    float max_finite; // largest finite magnitude the format stores (= max_num)
+    float clamp_hi;   // 2 * max_finite: keeps split_c * x from overflowing
+    float ovf;        // what an out-of-range magnitude becomes (inf, or max_finite)
+};
+
+struct SuperfpNoFastConstants
+{
+};
+
+// Parameter pack for the precomputed-parameter cast_superfp_* overloads -- see
+// the analogous BinaryKParams/cast_binaryK_nearest_even overload in
 // cast_binaryK.h. Only covers RNE, matching the GEMM core's current scope.
 // Flat by design -- see dev/gemm_core_roadmap.md item 6.
-struct SuperfpParams
+//
+// LEAN = false stores the seven floats; LEAN = true derives them on each read.
+// Both spellings return bit-identical constants wherever fast_rne is set, which
+// is the only place anything reads them -- the accessors below are the whole of
+// the difference, and every caller goes through them.
+//
+// Which to pick is a register question, not a correctness one. A kernel whose
+// params ride in the constant bank gets the stored floats for free and should
+// take them; a kernel that copies a Mac out of a FormatPalette into registers
+// pays one register per float per format, twice over for a SplitMac, and would
+// rather spend a few ALU ops. On sm_89 that is the difference between 2 and 3
+// resident blocks for the mixed superfp split-mac. See dev/gemm_perf_audit.md
+// (finding G10, and R4 for the measurement that says not to do it everywhere).
+template <bool LEAN>
+struct SuperfpParamsT : std::conditional_t<LEAN, SuperfpNoFastConstants, SuperfpFastConstants>
 {
     int man_bits; // kept raw: drives the man_bits > 0 round-formula selection
     int bias;     // kept raw: cast_superfp_odd's man_bits == 0 branch needs it directly
@@ -102,30 +161,81 @@ struct SuperfpParams
     uint32_t max_num;
     // Float-arithmetic RNE fast path -- see cast_superfp_rne_fast below.
     // Unlike BinaryKParams::fast_rne there is no second half to the gate:
-    // superfp takes no SubnormalsMode, so the flag alone decides.
+    // superfp takes no SubnormalsMode, so the flag alone decides. Stored in
+    // both spellings: it is a long predicate over the format fields, not a
+    // constant worth rebuilding, and it gates every read below.
     bool fast_rne;
-    float fast_split_c;    // 2^(23 - man_bits) + 1, the Veltkamp splitting constant
-    float fast_normal_min; // 2^normal_cutoff: at or above this the normal region applies
-    float fast_super_min;  // 2^supernormal_cutoff, the smallest supernormal magnitude
-    float fast_super_half; // 2^(supernormal_cutoff - 1), the flush-to-zero midpoint
-    float fast_max_finite; // largest finite magnitude the format stores (= max_num)
-    float fast_clamp_hi;   // 2 * max_finite: keeps fast_split_c * x from overflowing
-    float fast_ovf;        // what an out-of-range magnitude becomes (inf, or max_finite)
+
+    CUDA_HOST_DEVICE_INLINE float fast_split_c() const
+    {
+        if constexpr (LEAN)
+            return superfp_pow2f_clamped(23 - man_bits) + 1.0f;
+        else
+            return this->split_c;
+    }
+    CUDA_HOST_DEVICE_INLINE float fast_normal_min() const
+    {
+        if constexpr (LEAN)
+            return superfp_pow2f_clamped(normal_cutoff);
+        else
+            return this->normal_min;
+    }
+    // the low clamp is the no_underflow select: see superfp_pow2f_clamped
+    CUDA_HOST_DEVICE_INLINE float fast_super_min() const
+    {
+        if constexpr (LEAN)
+            return superfp_pow2f_clamped(supernormal_cutoff);
+        else
+            return this->super_min;
+    }
+    CUDA_HOST_DEVICE_INLINE float fast_super_half() const
+    {
+        if constexpr (LEAN)
+            return superfp_pow2f_clamped(supernormal_cutoff - 1);
+        else
+            return this->super_half;
+    }
+    CUDA_HOST_DEVICE_INLINE float fast_max_finite() const
+    {
+        if constexpr (LEAN)
+        {
+            // a local copy: BITS_TO_FLOAT casts away nothing, and max_num is
+            // const through a const member function
+            uint32_t bits = max_num;
+            return BITS_TO_FLOAT(&bits);
+        }
+        else
+            return this->max_finite;
+    }
+    CUDA_HOST_DEVICE_INLINE float fast_clamp_hi() const
+    {
+        if constexpr (LEAN)
+            return 2.0f * fast_max_finite();
+        else
+            return this->clamp_hi;
+    }
+    CUDA_HOST_DEVICE_INLINE float fast_ovf() const
+    {
+        if constexpr (LEAN)
+        {
+            uint32_t inf_bits = 0x7F800000u;
+            return (saturation_mode == SaturationMode::OVF_INF) ? BITS_TO_FLOAT(&inf_bits) : fast_max_finite();
+        }
+        else
+            return this->ovf;
+    }
 };
 
-// 2^e as a float, for e in [-126, 127]. The binaryK twin of this lives in
-// cast_binaryK.h; duplicated rather than shared so neither header has to
-// include the other for one four-line helper.
-CUDA_HOST_DEVICE_INLINE float superfp_pow2f(int e)
-{
-    uint32_t bits = (uint32_t)(e + 127) << 23;
-    return BITS_TO_FLOAT(&bits);
-}
+using SuperfpParams = SuperfpParamsT<false>;
+using SuperfpParamsLean = SuperfpParamsT<true>;
 
-CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_bits, int normal_binades,
-                                                          int bias, SaturationMode saturation_mode)
+// LEAN defaults to false so every existing caller keeps the stored form; only
+// the mixed GEMM entry points that are register-bound ask for the other.
+template <bool LEAN = false>
+CUDA_HOST_DEVICE_INLINE SuperfpParamsT<LEAN> make_superfp_params(int man_bits, int exp_bits, int normal_binades,
+                                                                 int bias, SaturationMode saturation_mode)
 {
-    SuperfpParams p;
+    SuperfpParamsT<LEAN> p;
     p.man_bits = man_bits;
     p.bias = bias;
 
@@ -199,30 +309,36 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
         // at or above that branch's floor.
         p.normal_cutoff >= min_exp;
 
-    bool no_underflow = p.supernormal_cutoff <= -127;
-    p.fast_split_c = superfp_pow2f(e_split) + 1.0f;
-    p.fast_normal_min = superfp_pow2f(p.normal_cutoff);
-    // zeros when the underflow region is out of binary32's reach: the guard
-    // `ax > 0` then admits every nonzero input to the supernormal result, and
-    // fmaxf against 0 leaves it alone -- which is what "nothing underflows"
-    // means. Zero itself still takes the `else` arm and stays (signed) zero.
-    p.fast_super_min = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff);
-    p.fast_super_half = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff - 1);
-    p.fast_max_finite = BITS_TO_FLOAT(&p.max_num);
-    p.fast_clamp_hi = 2.0f * p.fast_max_finite;
-    uint32_t inf_bits = 0x7F800000u;
-    p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? BITS_TO_FLOAT(&inf_bits) : p.fast_max_finite;
-    if (!p.fast_rne)
+    // The LEAN form has nowhere to put these: its accessors rebuild each one
+    // from the fields already set above, which is the whole of the difference
+    // between the two spellings. See SuperfpParamsT.
+    if constexpr (!LEAN)
     {
-        // keep the unused constants finite so a disabled gate can never
-        // produce a signalling value if the path is ever entered by mistake
-        p.fast_split_c = 1.0f;
-        p.fast_normal_min = 0.0f;
-        p.fast_super_min = 0.0f;
-        p.fast_super_half = 0.0f;
-        p.fast_max_finite = 0.0f;
-        p.fast_clamp_hi = 0.0f;
-        p.fast_ovf = 0.0f;
+        bool no_underflow = p.supernormal_cutoff <= -127;
+        p.split_c = superfp_pow2f(e_split) + 1.0f;
+        p.normal_min = superfp_pow2f(p.normal_cutoff);
+        // zeros when the underflow region is out of binary32's reach: the guard
+        // `ax > 0` then admits every nonzero input to the supernormal result, and
+        // fmaxf against 0 leaves it alone -- which is what "nothing underflows"
+        // means. Zero itself still takes the `else` arm and stays (signed) zero.
+        p.super_min = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff);
+        p.super_half = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff - 1);
+        p.max_finite = BITS_TO_FLOAT(&p.max_num);
+        p.clamp_hi = 2.0f * p.max_finite;
+        uint32_t inf_bits = 0x7F800000u;
+        p.ovf = (saturation_mode == SaturationMode::OVF_INF) ? BITS_TO_FLOAT(&inf_bits) : p.max_finite;
+        if (!p.fast_rne)
+        {
+            // keep the unused constants finite so a disabled gate can never
+            // produce a signalling value if the path is ever entered by mistake
+            p.split_c = 1.0f;
+            p.normal_min = 0.0f;
+            p.super_min = 0.0f;
+            p.super_half = 0.0f;
+            p.max_finite = 0.0f;
+            p.clamp_hi = 0.0f;
+            p.ovf = 0.0f;
+        }
     }
     return p;
 }
@@ -272,20 +388,21 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
 // CUDA only, for the same reason as the binaryK twin: the Veltkamp identity
 // needs `t` separately rounded, which only the _rn intrinsics guarantee.
 #if defined(__CUDA_ARCH__)
-CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const SuperfpParamsT<LEAN> &p)
 {
     float ax = fabsf(origin_float);
     const float inf = __int_as_float(0x7F800000);
 
-    if (ax >= p.fast_normal_min)
+    if (ax >= p.fast_normal_min())
     {
         // normal region: clamp before rounding so the Veltkamp product cannot
         // overflow; anything at or above the clamp is out of range either way.
-        float xc = fminf(ax, p.fast_clamp_hi);
-        float t = __fmul_rn(p.fast_split_c, xc);
+        float xc = fminf(ax, p.fast_clamp_hi());
+        float t = __fmul_rn(p.fast_split_c(), xc);
         float nrm = __fsub_rn(t, __fsub_rn(t, xc));
-        if (nrm > p.fast_max_finite)
-            nrm = p.fast_ovf;
+        if (nrm > p.fast_max_finite())
+            nrm = p.fast_ovf();
         return copysignf((ax < inf) ? nrm : ax, origin_float);
     }
 
@@ -299,15 +416,16 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
     float spn = BITS_TO_FLOAT(&q);
     // fmaxf covers the topmost underflow binade, whose nearest power of two is
     // below the region but which rounds up into it.
-    spn = (ax > p.fast_super_half) ? fmaxf(spn, p.fast_super_min) : 0.0f;
+    spn = (ax > p.fast_super_half()) ? fmaxf(spn, p.fast_super_min()) : 0.0f;
     // copysignf carries the sign -- and a NaN's payload -- back onto the
     // magnitude, so the NaN case returns the input's exact bit pattern.
     return copysignf((ax < inf) ? spn : ax, origin_float);
 }
 #endif
 
+template <bool LEAN>
 CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool is_signed,
-                                                         const SuperfpParams &p)
+                                                         const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -421,8 +539,9 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_away(float origin_float,
 }
 
 // Precomputed-parameter overload of cast_superfp_nearest_away above.
+template <bool LEAN>
 CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_away(float origin_float, bool is_signed,
-                                                         const SuperfpParams &p)
+                                                         const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -552,7 +671,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float,
 }
 
 // Precomputed-parameter overload of cast_superfp_odd above.
-CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float, bool is_signed, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float, bool is_signed, const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -669,7 +789,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_up(float origin_float,
 }
 
 // Precomputed-parameter overload of cast_superfp_absolute_up above.
-CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_up(float origin_float, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_up(float origin_float, const SuperfpParamsT<LEAN> &p)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -755,7 +876,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_down(float origin_float,
 }
 
 // Precomputed-parameter overload of cast_superfp_absolute_down above.
-CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_down(float origin_float, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_down(float origin_float, const SuperfpParamsT<LEAN> &p)
 {
     uint32_t target, quantize_bits;
     target = FLOAT_TO_BITS(&origin_float);
@@ -849,7 +971,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_zero(float origin_float,
 }
 
 // Precomputed-parameter overloads of cast_superfp_up/_down/_zero above.
-CUDA_HOST_DEVICE_INLINE float cast_superfp_up(float origin_float, bool is_signed, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_up(float origin_float, bool is_signed, const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -866,7 +989,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_up(float origin_float, bool is_signed
         return -cast_superfp_absolute_down(-origin_float, p);
 }
 
-CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_signed, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_signed, const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -881,7 +1005,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_sign
         return -cast_superfp_absolute_up(-origin_float, p);
 }
 
-CUDA_HOST_DEVICE_INLINE float cast_superfp_zero(float origin_float, bool is_signed, const SuperfpParams &p)
+template <bool LEAN>
+CUDA_HOST_DEVICE_INLINE float cast_superfp_zero(float origin_float, bool is_signed, const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float >= 0.0f)
         return cast_superfp_down(origin_float, is_signed, p);
@@ -952,8 +1077,9 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
 // cast_binaryK_stochastic's precomputed overload, rand_prob/rand_bits stay
 // per-call arguments -- only the region-cutoff and round-to-nearest-even
 // constants precompute away.
+template <bool LEAN>
 CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32_t rand_prob, int rand_bits,
-                                                       bool is_signed, const SuperfpParams &p)
+                                                       bool is_signed, const SuperfpParamsT<LEAN> &p)
 {
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
@@ -1002,7 +1128,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
         if (p.fast_rne)
         {
             float y = BITS_TO_FLOAT(&quantize_bits);
-            return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
+            return (fabsf(y) > p.fast_max_finite()) ? copysignf(p.fast_ovf(), origin_float) : y;
         }
 #endif
         quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
