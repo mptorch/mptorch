@@ -1,4 +1,5 @@
 #include "../common/gemm_policy.h"
+#include "../common/dispatch.h"
 #include "../common/modes.h"
 #include "../quant_ops.h"
 #include "utils.h"
@@ -90,7 +91,7 @@ namespace
           for (int64_t i = 0; i < ti; ++i)
             for (int64_t j = 0; j < tj; ++j)
               acc[static_cast<size_t>(i * tj + j)].mac =
-                  pal.slots[prec_idx[(i0 + i) * idx_row_stride + (j0 + j) * idx_col_stride]];
+                  pal.slot(prec_idx[(i0 + i) * idx_row_stride + (j0 + j) * idx_col_stride]);
         }
 
         for (int64_t k0 = 0; k0 < K; k0 += TK)
@@ -174,8 +175,11 @@ namespace
       TORCH_CHECK(false, op_name, ": prec_idx shape must be [M, N], [M, 1] or [1, N] (M=", M,
                  ", N=", N, "), got [", r, ", ", c, "]");
     }
-    int64_t lo = pidx.min().item<int64_t>();
-    int64_t hi = pidx.max().item<int64_t>();
+    // one pass over the map rather than two; there is no device sync to
+    // save here, which is why the CUDA twin's memo has no counterpart
+    auto bounds = at::aminmax(pidx);
+    int64_t lo = std::get<0>(bounds).item<int64_t>();
+    int64_t hi = std::get<1>(bounds).item<int64_t>();
     TORCH_CHECK(lo >= 0 && hi < n_formats, op_name, ": prec_idx entries must be in [0, ", n_formats,
                "), got range [", lo, ", ", hi, "]");
     pidx_out = pidx;
@@ -204,11 +208,15 @@ Tensor binaryK_matmul_cpu(
   int64_t M, K, N;
   matmul_output_shape(a, b, trans_a, trans_b, "custom_matmul_binaryK", M, K, N);
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   SubnormalsMode sub = static_cast<SubnormalsMode>(subnormals_mode);
@@ -222,7 +230,7 @@ Tensor binaryK_matmul_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_matmul_cpu", [&]
                                   {
     BinaryKMultiplier mul{mul_man_bits, mul_exp_bits, static_cast<int>(mul_bias), mul_is_signed, sat, rm, sub,
                           static_cast<int>(mul_prng_bits)};
@@ -245,7 +253,7 @@ Tensor binaryK_matmul_cpu(
       matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 Tensor superfp_matmul_cpu(
@@ -261,11 +269,15 @@ Tensor superfp_matmul_cpu(
   int64_t M, K, N;
   matmul_output_shape(a, b, trans_a, trans_b, "custom_matmul_superfp", M, K, N);
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   RoundMode rm = static_cast<RoundMode>(round_mode);
@@ -273,7 +285,7 @@ Tensor superfp_matmul_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "superfp_matmul_cpu", [&]
                                   {
     SuperfpMultiplier mul{static_cast<int>(mul_man_bits), static_cast<int>(mul_exp_bits),
                           static_cast<int>(mul_normal_binades), static_cast<int>(mul_bias), mul_is_signed, sat, rm,
@@ -298,7 +310,7 @@ Tensor superfp_matmul_cpu(
       matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 Tensor binaryK_matmul_fma_cpu(
@@ -312,11 +324,15 @@ Tensor binaryK_matmul_fma_cpu(
   int64_t M, K, N;
   matmul_output_shape(a, b, trans_a, trans_b, "custom_matmul_binaryK_fma", M, K, N);
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   SubnormalsMode sub = static_cast<SubnormalsMode>(subnormals_mode);
@@ -328,7 +344,7 @@ Tensor binaryK_matmul_fma_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_fma_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_matmul_fma_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -349,7 +365,7 @@ Tensor binaryK_matmul_fma_cpu(
       matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 Tensor superfp_matmul_fma_cpu(
@@ -364,11 +380,15 @@ Tensor superfp_matmul_fma_cpu(
   int64_t M, K, N;
   matmul_output_shape(a, b, trans_a, trans_b, "custom_matmul_superfp_fma", M, K, N);
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   SaturationMode sat = static_cast<SaturationMode>(saturation_mode);
   RoundMode rm = static_cast<RoundMode>(round_mode);
@@ -376,7 +396,7 @@ Tensor superfp_matmul_fma_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_fma_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "superfp_matmul_fma_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -398,7 +418,7 @@ Tensor superfp_matmul_fma_cpu(
       matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto, use_rng, seed);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 // Spatially-varying (per-output-element) mixed-format binaryK GEMM: same
@@ -426,11 +446,15 @@ Tensor binaryK_matmul_mixed_cpu(
                          static_cast<int64_t>(acc_K.size()), static_cast<int64_t>(acc_P.size()),
                          static_cast<int64_t>(acc_bias.size())});
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   Tensor pidx;
   int64_t sr = 0, sc = 0;
@@ -444,7 +468,7 @@ Tensor binaryK_matmul_mixed_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_mixed_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_matmul_mixed_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -488,7 +512,7 @@ Tensor binaryK_matmul_mixed_cpu(
                                        use_rng, seed, pal, p_idx, sr, sc);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 // superfp analogue of binaryK_matmul_mixed_cpu -- see its comment.
@@ -516,11 +540,15 @@ Tensor superfp_matmul_mixed_cpu(
                          static_cast<int64_t>(acc_normal_binades.size()),
                          static_cast<int64_t>(acc_bias.size())});
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   Tensor pidx;
   int64_t sr = 0, sc = 0;
@@ -533,7 +561,7 @@ Tensor superfp_matmul_mixed_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_mixed_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "superfp_matmul_mixed_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -575,7 +603,7 @@ Tensor superfp_matmul_mixed_cpu(
                                        use_rng, seed, pal, p_idx, sr, sc);
     } });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 // Spatially-varying (per-output-element) mixed-format binaryK FMA GEMM: same
@@ -603,11 +631,15 @@ Tensor binaryK_matmul_fma_mixed_cpu(
   check_palette_lengths(n_fmt, "custom_matmul_binaryK_fma_mixed",
                         {static_cast<int64_t>(fma_P.size()), static_cast<int64_t>(fma_bias.size())});
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   Tensor pidx;
   int64_t sr = 0, sc = 0;
@@ -621,7 +653,7 @@ Tensor binaryK_matmul_fma_mixed_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "binaryK_matmul_fma_mixed_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_matmul_fma_mixed_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -643,7 +675,7 @@ Tensor binaryK_matmul_fma_mixed_cpu(
     matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
                                      use_rng, seed, pal, p_idx, sr, sc); });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }
 
 // superfp analogue of binaryK_matmul_fma_mixed_cpu -- see its comment.
@@ -666,11 +698,15 @@ Tensor superfp_matmul_fma_mixed_cpu(
                          static_cast<int64_t>(fma_normal_binades.size()),
                          static_cast<int64_t>(fma_bias.size())});
 
+  // float64 in, float64 out, narrowed here instead of on every load so the
+  // dispatch below need not instantiate for double -- same values, see
+  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
+  const bool widen_f64 = mptorch::narrow_float64(a, b);
   auto a_c = a.contiguous();
   auto b_c = b.contiguous();
   auto c = at::empty({M, N}, a.options());
   if (M == 0 || N == 0)
-    return c;
+    return mptorch::widen_float64(c, widen_f64);
 
   Tensor pidx;
   int64_t sr = 0, sc = 0;
@@ -683,7 +719,7 @@ Tensor superfp_matmul_fma_mixed_cpu(
   bool use_rng = (rm == RoundMode::SR);
   uint64_t seed = use_rng ? draw_cpu_seed() : 0;
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, a.scalar_type(), "superfp_matmul_fma_mixed_cpu", [&]
+  MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "superfp_matmul_fma_mixed_cpu", [&]
                                   {
     const scalar_t *p_a = a_c.data_ptr<scalar_t>();
     const scalar_t *p_b = b_c.data_ptr<scalar_t>();
@@ -704,5 +740,5 @@ Tensor superfp_matmul_fma_mixed_cpu(
     matmul_cpu_kernel_impl<scalar_t>(p_a, p_b, p_c, M, K, N, trans_a, trans_b, acc_proto,
                                      use_rng, seed, pal, p_idx, sr, sc); });
 
-  return c;
+  return mptorch::widen_float64(c, widen_f64);
 }

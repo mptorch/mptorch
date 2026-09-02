@@ -300,10 +300,23 @@ struct NaiveAccumulator
 // index (0, 1) with no branching. n == 0 selects the single-format path
 // and the hook is skipped entirely.
 constexpr int MAX_GEMM_FORMATS = 8;
+static_assert((MAX_GEMM_FORMATS & (MAX_GEMM_FORMATS - 1)) == 0,
+              "MAX_GEMM_FORMATS must be a power of two: slot() masks with it");
 
 template <class Mac>
 struct FormatPalette
 {
     Mac slots[MAX_GEMM_FORMATS] = {};
     int n = 0;
+
+    // Read a slot by precision index. The index is masked rather than
+    // trusted: resolve_prec_idx bounds-checks the whole map host-side, but
+    // that check is memoized per map (see custom_matmul_kernel.cu), so the
+    // mask is what guarantees an index outside [0, n) can only ever pick the
+    // wrong *slot* and never read past the array. One AND, on a path that is
+    // compiled out entirely when MIXED is false.
+    CUDA_HOST_DEVICE_INLINE const Mac &slot(int32_t idx) const
+    {
+        return slots[idx & (MAX_GEMM_FORMATS - 1)];
+    }
 };
