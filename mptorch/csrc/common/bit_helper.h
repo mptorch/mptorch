@@ -115,15 +115,6 @@ CUDA_HOST_DEVICE_INLINE float fmin_nonneg(float a, float b) { return (a < b) ? a
 CUDA_HOST_DEVICE_INLINE float fmax_nonneg(float a, float b) { return (a > b) ? a : b; }
 #endif
 
-CUDA_HOST_DEVICE_INLINE uint32_t extract_exponent(float *a)
-{
-    uint32_t temp = *(reinterpret_cast<uint32_t *>(a));
-    // extract exponent bits (single precision, 1 sign bit, 23 mantissa bits)
-    temp = (temp >> 23) & 0xFFu;
-    // adjust for exponent bias and virtual bit
-    return temp - 127 + 1;
-}
-
 // rounds to nearest, ties to even
 CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
 {
@@ -146,16 +137,25 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target)
     return quantized - ((is_tie << 23) & ~quantized);
 }
 
-// Precomputed-parameter overloads below: same bit-twiddling as the
-// man_bits/exp_bits/bias-taking functions above, but reading values derived
-// from those format parameters instead of recomputing them every call. A
-// GEMM Multiplier/Adder (gemm_policy.h) precomputes these once at
-// construction and reuses them across its whole kernel launch (up to M*N*K
-// calls); the *_bits-taking originals stay in use everywhere else
-// (elementwise binaryK_quantize/superfp_quantize). Deliberately flat
-// (no nested structs) -- see dev/gemm_roadmap.md item 6 for the
-// compile-time blowup that motivated this. RoundMode::SR is out of scope
-// here (needs a per-call random value, not a format constant).
+// Precomputed-parameter forms below: same bit-twiddling as the
+// man_bits/exp_bits/bias-taking functions, but reading values derived from
+// those format parameters once instead of recomputing them on every call. A
+// GEMM Multiplier/Adder (gemm_policy.h) precomputes them at construction and
+// reuses them for a whole kernel launch (up to M*N*K calls); the elementwise
+// quantizers do the same once per tensor. Deliberately flat (no nested
+// structs) -- see dev/gemm_roadmap.md item 6 for the compile-time blowup that
+// motivated this. RoundMode::SR is out of scope here (it needs a per-call
+// random value, not a format constant).
+//
+// Which spelling each helper still keeps differs, and the question is whether
+// its integer argument is always a format constant:
+//
+//   round_bitwise_*   both forms. The casts call the man_bits-taking one with
+//                     a per-value exp_diff in their subnormal branches, so it
+//                     is live in the extension, not only in the sweeps.
+//   clip_*            precomputed only. The format-taking forms went to
+//                     dev/benchmarks/reference_casts.h along with the casts
+//                     that were their last callers (finding H2).
 
 // Precomputed for round_bitwise_nearest_even(target, man_bits) and reused by
 // nearest-away/up/down/odd's precomputed overloads below (they share the
@@ -299,33 +299,10 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_stochastic(uint32_t target, uint3
     return quantized;
 }
 
-// clips the exponent of a floating point format with subnormal values
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num, uint32_t quantized_num,
-                                                               int exp_bits, int man_bits, int bias)
-{
-    if (quantized_num == 0)
-        return quantized_num;
-
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
-    int min_exponent_store = -(bias - 1) - man_bits + 127;
-
-    uint32_t old_sign = old_num & 0x80000000u;
-    // underflow or round to smallest non zero subnormal value
-    if (quantized_exponent_store < min_exponent_store)
-    {
-        int offset = (quantized_exponent_store == (min_exponent_store - 1));
-        quantized_num += offset * (1u << 23);
-        quantized_num |= old_sign;
-        quantized_num *= offset;
-    }
-
-    return quantized_num;
-}
-
-// Precomputed for clip_subnormal_range_exponent -- exp_bits is accepted by
-// the original for signature symmetry with its sibling clip functions but
-// unused by its body, so only min_exponent_store (derived from man_bits/
-// bias) needs precomputing.
+// Precomputed for clip_subnormal_range_exponent. exp_bits is accepted by the
+// format-taking form (dev/benchmarks/reference_casts.h) for signature symmetry
+// with its sibling clip functions but unused by its body, so only
+// min_exponent_store -- derived from man_bits and bias -- needs precomputing.
 struct SubnormalRangeParams
 {
     int min_exponent_store;
@@ -359,29 +336,10 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
     return quantized_num;
 }
 
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
-                                                                  int exp_bits, int man_bits, int bias)
-{
-    if (quantized_num == 0)
-        return quantized_num;
-
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
-    int min_exponent_store = -(bias - 1) - man_bits + 127;
-
-    uint32_t old_sign = old_num & 0x80000000u;
-    // underflow or round to smallest non zero subnormal value
-    if (quantized_exponent_store < min_exponent_store)
-    {
-        quantized_num = min_exponent_store << 23;
-        quantized_num |= old_sign;
-    }
-
-    return quantized_num;
-}
-
-// Precomputed sibling of clip_subnormal_range_exponent_up above -- shares
-// SubnormalRangeParams/make_subnormal_range_params with the plain
-// clip_subnormal_range_exponent overload.
+// The _up variant: clamps an underflowing nonzero value to the smallest
+// subnormal rather than to zero, for the directed and round-to-odd modes.
+// Shares SubnormalRangeParams/make_subnormal_range_params with the plain
+// clip_subnormal_range_exponent above.
 CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
                                                                   int min_exponent_store)
 {
@@ -400,65 +358,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_n
     return quantized_num;
 }
 
-// clips the exponent of a floating point format without subnormal values (binaryK version)
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
-                                                            int exp_bits, int man_bits, int bias,
-                                                            SaturationMode saturation_mode, bool extended_normals = false)
-{
-    if (quantized_num == 0)
-        return quantized_num;
-
-    uint32_t sign = old_num & 0x80000000u;
-    quantized_num &= 0x7FFFFFFFu;
-    if ((quantized_num == 0x7F800000 && saturation_mode != SaturationMode::SAT_FINITE) || (quantized_num > 0x7F800000))
-        return sign | quantized_num;
-
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
-    int max_exponent_store = ((1 << exp_bits) - 1 - bias) + 126 + (man_bits > 1);
-    int min_exponent_store = -(bias - 1) + 127 - extended_normals;
-    int finite = (saturation_mode == SaturationMode::SAT_FINITE);
-
-    uint32_t max_man = ((0x007FFFFF >> (23 - man_bits)) - 1 + finite) << (23 - man_bits);
-    uint32_t max_num = ((uint32_t)max_exponent_store << 23) | max_man;
-
-    // handle overflow
-    if (quantized_exponent_store > max_exponent_store)
-    {
-        switch (saturation_mode)
-        {
-        case SaturationMode::SAT_FINITE:
-            quantized_num = max_num;
-            break;
-
-        case SaturationMode::SAT_PROPAGATE:
-            quantized_num = max_num;
-            break;
-
-        default:
-            quantized_num = 0x7F800000;
-            break;
-        }
-    }
-    else if (quantized_exponent_store == max_exponent_store)
-    {
-        // handle overflow
-        if (quantized_num > max_num && saturation_mode == SaturationMode::OVF_INF)
-            quantized_num = 0x7F800000;
-    }
-    // handle underflow
-    else if (quantized_exponent_store < min_exponent_store)
-    {
-        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
-        quantized_num = offset * (min_exponent_store << 23);
-    }
-
-    quantized_num |= sign;
-
-    return quantized_num;
-}
-
-// Precomputed for clip_normal_range_exponent above (the overload
-// cast_binaryK_nearest_even/cast_superfp_nearest_even use).
+// Precomputed for clip_normal_range_exponent -- the form every cast in
+// cast_binaryK.h and cast_superfp.h calls.
 struct NormalRangeParams
 {
     SaturationMode saturation_mode; // still needed raw: selects the overflow branch's outcome
