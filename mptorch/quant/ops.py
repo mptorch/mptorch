@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any, NamedTuple
 
 import torch
 
@@ -30,6 +31,153 @@ mantissa_size_mapping: dict[torch.dtype, int] = {
 }
 
 
+# --- format defaulting, written once ----------------------------------------
+#
+# The wrappers below all resolve the same handful of things: the exponent bias
+# a binaryK format defaults to, the accumulate format's fallback to the
+# multiply format's, and whether a stochastic-rounding request fits inside the
+# storage dtype. The palette (mixed) wrappers do the same per entry. What
+# follows is that logic in one place, so the eight GEMM wrappers are a
+# signature, a docstring and the schema's argument order.
+
+
+def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
+    """binaryK's default exponent bias: the middle of the exponent range."""
+    return 2 ** (K - P - 1) if is_signed else 2 ** (K - P)
+
+
+def _prng_terms(*terms: tuple[str, int, int]) -> tuple[int, tuple[tuple[str, int, int], ...]]:
+    """Fold `(name, prng_bits, man_bits)` constraints into one storage-width bound.
+
+    Stochastic rounding draws its random bits from the storage mantissa *below*
+    the target format's, so a `man_bits`-wide format asking for `prng_bits` of
+    noise needs a storage dtype carrying at least their sum. The lower bound on
+    `prng_bits` is checked here, since it depends on nothing but the format;
+    the sum is what the call itself checks against its operand dtype.
+    """
+    for name, prng_bits, _ in terms:
+        assert prng_bits >= 0, f"{name} must be non-negative, got {prng_bits}"
+    return max(p + m for _, p, m in terms), terms
+
+
+def _prng_overflow(terms: tuple[tuple[str, int, int], ...], dtype: torch.dtype) -> str:
+    """The message for a `_prng_terms` bound the storage dtype cannot meet.
+
+    Only ever called on the failing branch of an assert, so the formatting is
+    free on the path that matters.
+    """
+    have = mantissa_size_mapping[dtype]
+    asked = "; ".join(f"{name}={p} under a {m}-bit mantissa" for name, p, m in terms)
+    return (
+        f"{dtype} carries {have} mantissa bits, too few for {asked}: a format's "
+        "mantissa and its stochastic-rounding bits have to fit in the storage dtype together"
+    )
+
+
+def _assert_prng_fits(dtype: torch.dtype, name: str, prng_bits: int, man_bits: int) -> None:
+    """`_prng_terms` and its storage-dtype check together, for a single format."""
+    needed, terms = _prng_terms((name, prng_bits, man_bits))
+    assert needed <= mantissa_size_mapping[dtype], _prng_overflow(terms, dtype)
+
+
+def _palette_list(val: int | Sequence[int], n: int, name: str) -> list[int]:
+    """Broadcast a scalar to an n-length list, or validate a sequence's length."""
+    if isinstance(val, int):
+        return [val] * n
+    out = list(val)
+    if len(out) != n:
+        raise ValueError(f"{name} must have length {n} (the palette size), got {len(out)}")
+    return out
+
+
+def _palette_list_or(
+    val: int | Sequence[int] | None, default: list[int], n: int, name: str
+) -> list[int]:
+    """:func:`_palette_list`, but ``None`` falls back to ``default``."""
+    return default if val is None else _palette_list(val, n, name)
+
+
+def _palette_pair(
+    first: Sequence[int], second: Sequence[int], second_name: str, fn: str
+) -> tuple[list[int], list[int], int]:
+    """The two per-entry sequences that define a palette, as lists, with its size.
+
+    Every mixed op takes one such pair -- `(K, P)` or `(man_bits, exp_bits)` --
+    whose common length is the palette size every other palette argument is
+    broadcast or defaulted against.
+    """
+    first_l, second_l = list(first), list(second)
+    n = len(first_l)
+    if n < 1:
+        raise ValueError(f"{fn} needs at least one palette format")
+    if len(second_l) != n:
+        raise ValueError(
+            f"{second_name} must have length {n} (the palette size), got {len(second_l)}"
+        )
+    return first_l, second_l, n
+
+
+def _binaryK_palette_bias(
+    bias: int | Sequence[int] | None, K_l: list[int], P_l: list[int], is_signed: bool, name: str
+) -> list[int]:
+    """:func:`_binaryK_bias` per palette entry, or the given scalar/sequence broadcast."""
+    if bias is None:
+        return [_binaryK_bias(k, p, is_signed) for k, p in zip(K_l, P_l, strict=True)]
+    return _palette_list(bias, len(K_l), name)
+
+
+# --- a GEMM call, resolved ---------------------------------------------------
+
+
+class _GemmSpec(NamedTuple):
+    """One GEMM's formats resolved into exactly what the op takes.
+
+    `args` is every schema argument after the operands and the transpose
+    flags, in order. `needed` is the narrowest storage mantissa that admits
+    the stochastic-rounding request, and `terms` is what that maximum came
+    from -- kept unformatted because it is only ever read on failure.
+
+    The split exists so a caller with a fixed format can resolve once and call
+    many times: `mptorch.quant.gemm`'s factories build a spec per layer and
+    bind it into the layer's math hooks, where the old code re-derived every
+    default and re-ran every check on each forward and backward pass.
+    """
+
+    op: Callable[..., torch.Tensor]
+    args: tuple[Any, ...]
+    needed: int
+    terms: tuple[tuple[str, int, int], ...]
+
+
+def _run_gemm(
+    spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool
+) -> torch.Tensor:
+    """Call a resolved GEMM. All that is left per call is the operand dtype."""
+    assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
+    return spec.op(a.contiguous(), b.contiguous(), trans_a, trans_b, *spec.args)
+
+
+def _run_gemm_mixed(
+    spec: _GemmSpec,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    prec_idx: torch.Tensor,
+    trans_a: bool,
+    trans_b: bool,
+) -> torch.Tensor:
+    """:func:`_run_gemm` for the palette ops, whose schema takes `prec_idx` third.
+
+    `prec_idx` is passed through as given: narrowing and packing it is the
+    C++ side's job, and it memoizes the bounds check against the tensor it is
+    handed (finding G5b), which a `.to()` here would defeat.
+    """
+    assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
+    return spec.op(a.contiguous(), b.contiguous(), prec_idx, trans_a, trans_b, *spec.args)
+
+
+# --- elementwise quantizers --------------------------------------------------
+
+
 def binaryK_quantize(
     x: torch.Tensor,
     K: int,
@@ -41,15 +189,10 @@ def binaryK_quantize(
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
 ) -> torch.Tensor:
-    assert 0 <= prng_bits <= mantissa_size_mapping[x.dtype] - (P - 1), (
-        "prng_bits should be between 0 and 23 minus the number of mantissa bits (P - 1)"
-    )
+    _assert_prng_fits(x.dtype, "prng_bits", prng_bits, P - 1)
 
     if not bias:
-        if is_signed:
-            bias = 2 ** (K - P - 1)
-        else:
-            bias = 2 ** (K - P)
+        bias = _binaryK_bias(K, P, is_signed)
 
     return torch.ops.mptorch.binaryK_quant.default(
         x.contiguous(),
@@ -75,9 +218,7 @@ def superfp_quantize(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
 ) -> torch.Tensor:
-    assert 0 <= prng_bits <= mantissa_size_mapping[x.dtype] - man_bits, (
-        "prng_bits should be between 0 and 23 minus the number of mantissa bits (man_bits)"
-    )
+    _assert_prng_fits(x.dtype, "prng_bits", prng_bits, man_bits)
 
     return torch.ops.mptorch.superfp_quant.default(
         x.contiguous(),
@@ -89,6 +230,73 @@ def superfp_quantize(
         is_signed,
         rounding_mode.value,
         saturation_mode.value,
+    )
+
+
+# --- single-format GEMMs -----------------------------------------------------
+
+
+def _binaryK_spec(
+    *,
+    mul_K: int,
+    mul_P: int,
+    mul_bias: int | None = None,
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    accumulate_quant: bool = True,
+    acc_K: int | None = None,
+    acc_P: int | None = None,
+    acc_bias: int | None = None,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+) -> _GemmSpec:
+    """Resolve :func:`binaryK_matmul`'s formats -- see it for the contract."""
+    if acc_is_signed is None:
+        acc_is_signed = mul_is_signed
+    if accumulate_quant:
+        acc_K = mul_K if acc_K is None else acc_K
+        acc_P = mul_P if acc_P is None else acc_P
+    else:
+        acc_K = acc_K or 0
+        acc_P = acc_P or 0
+
+    if not mul_bias:
+        mul_bias = _binaryK_bias(mul_K, mul_P, mul_is_signed)
+    if accumulate_quant and not acc_bias:
+        acc_bias = _binaryK_bias(acc_K, acc_P, acc_is_signed)
+    elif acc_bias is None:
+        acc_bias = 0
+
+    terms = [("mul_prng_bits", mul_prng_bits, mul_P - 1)]
+    if accumulate_quant:
+        terms.append(("acc_prng_bits", acc_prng_bits, acc_P - 1))
+    needed, terms_t = _prng_terms(*terms)
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_binaryK.default,
+        (
+            mul_K,
+            mul_P,
+            mul_bias,
+            mul_is_signed,
+            accumulate_quant,
+            acc_K,
+            acc_P,
+            acc_bias,
+            acc_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            subnormals_mode.value,
+            mul_prng_bits,
+            acc_prng_bits,
+        ),
+        needed,
+        terms_t,
     )
 
 
@@ -133,52 +341,97 @@ def binaryK_matmul(
 
     ``a`` and ``b`` must be 2D; batched/rank>2 callers should flatten their
     leading dimensions first (see ``mptorch.quant.gemm`` for an example that
-    does this for ``QAffineFormats``).
+    does this for ``QAffineFormats``). Callers holding one format across many
+    calls should use those factories rather than this function: they resolve
+    the format once instead of on every call.
     """
+    return _run_gemm(
+        _binaryK_spec(
+            mul_K=mul_K,
+            mul_P=mul_P,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            accumulate_quant=accumulate_quant,
+            acc_K=acc_K,
+            acc_P=acc_P,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
+        ),
+        a,
+        b,
+        trans_a,
+        trans_b,
+    )
+
+
+def _superfp_spec(
+    *,
+    mul_man_bits: int,
+    mul_exp_bits: int,
+    mul_normal_binades: int,
+    mul_bias: int,
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    accumulate_quant: bool = True,
+    acc_man_bits: int | None = None,
+    acc_exp_bits: int | None = None,
+    acc_normal_binades: int | None = None,
+    acc_bias: int | None = None,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+) -> _GemmSpec:
+    """Resolve :func:`superfp_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
     if accumulate_quant:
-        acc_K = mul_K if acc_K is None else acc_K
-        acc_P = mul_P if acc_P is None else acc_P
-    else:
-        acc_K = acc_K or 0
-        acc_P = acc_P or 0
-
-    if not mul_bias:
-        mul_bias = 2 ** (mul_K - mul_P - 1) if mul_is_signed else 2 ** (mul_K - mul_P)
-    if accumulate_quant and not acc_bias:
-        acc_bias = 2 ** (acc_K - acc_P - 1) if acc_is_signed else 2 ** (acc_K - acc_P)
-    elif acc_bias is None:
-        acc_bias = 0
-
-    assert 0 <= mul_prng_bits <= mantissa_size_mapping[a.dtype] - (mul_P - 1), (
-        "mul_prng_bits should be between 0 and 23 minus the number of mantissa bits (mul_P - 1)"
-    )
-    if accumulate_quant:
-        assert 0 <= acc_prng_bits <= mantissa_size_mapping[a.dtype] - (acc_P - 1), (
-            "acc_prng_bits should be between 0 and 23 minus the number of mantissa bits (acc_P - 1)"
+        acc_man_bits = mul_man_bits if acc_man_bits is None else acc_man_bits
+        acc_exp_bits = mul_exp_bits if acc_exp_bits is None else acc_exp_bits
+        acc_normal_binades = (
+            mul_normal_binades if acc_normal_binades is None else acc_normal_binades
         )
+        acc_bias = mul_bias if acc_bias is None else acc_bias
+    else:
+        acc_man_bits = acc_man_bits or 0
+        acc_exp_bits = acc_exp_bits or 0
+        acc_normal_binades = acc_normal_binades or 0
+        acc_bias = acc_bias or 0
 
-    return torch.ops.mptorch.custom_matmul_binaryK.default(
-        a.contiguous(),
-        b.contiguous(),
-        trans_a,
-        trans_b,
-        mul_K,
-        mul_P,
-        mul_bias,
-        mul_is_signed,
-        accumulate_quant,
-        acc_K,
-        acc_P,
-        acc_bias,
-        acc_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        subnormals_mode.value,
-        mul_prng_bits,
-        acc_prng_bits,
+    terms = [("mul_prng_bits", mul_prng_bits, mul_man_bits)]
+    if accumulate_quant:
+        terms.append(("acc_prng_bits", acc_prng_bits, acc_man_bits))
+    needed, terms_t = _prng_terms(*terms)
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_superfp.default,
+        (
+            mul_man_bits,
+            mul_exp_bits,
+            mul_normal_binades,
+            mul_bias,
+            mul_is_signed,
+            accumulate_quant,
+            acc_man_bits,
+            acc_exp_bits,
+            acc_normal_binades,
+            acc_bias,
+            acc_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            mul_prng_bits,
+            acc_prng_bits,
+        ),
+        needed,
+        terms_t,
     )
 
 
@@ -213,51 +466,66 @@ def superfp_matmul(
     default to the multiply format's values when omitted and
     ``accumulate_quant`` is true.
     """
-    if acc_is_signed is None:
-        acc_is_signed = mul_is_signed
-    if accumulate_quant:
-        acc_man_bits = mul_man_bits if acc_man_bits is None else acc_man_bits
-        acc_exp_bits = mul_exp_bits if acc_exp_bits is None else acc_exp_bits
-        acc_normal_binades = (
-            mul_normal_binades if acc_normal_binades is None else acc_normal_binades
-        )
-        acc_bias = mul_bias if acc_bias is None else acc_bias
-    else:
-        acc_man_bits = acc_man_bits or 0
-        acc_exp_bits = acc_exp_bits or 0
-        acc_normal_binades = acc_normal_binades or 0
-        acc_bias = acc_bias or 0
-
-    assert 0 <= mul_prng_bits <= mantissa_size_mapping[a.dtype] - mul_man_bits, (
-        "mul_prng_bits should be between 0 and 23 minus the number of mantissa bits (mul_man_bits)"
-    )
-    if accumulate_quant:
-        assert 0 <= acc_prng_bits <= mantissa_size_mapping[a.dtype] - acc_man_bits, (
-            "acc_prng_bits should be between 0 and 23 minus the number of "
-            "mantissa bits (acc_man_bits)"
-        )
-
-    return torch.ops.mptorch.custom_matmul_superfp.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm(
+        _superfp_spec(
+            mul_man_bits=mul_man_bits,
+            mul_exp_bits=mul_exp_bits,
+            mul_normal_binades=mul_normal_binades,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            accumulate_quant=accumulate_quant,
+            acc_man_bits=acc_man_bits,
+            acc_exp_bits=acc_exp_bits,
+            acc_normal_binades=acc_normal_binades,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+        ),
+        a,
+        b,
         trans_a,
         trans_b,
-        mul_man_bits,
-        mul_exp_bits,
-        mul_normal_binades,
-        mul_bias,
-        mul_is_signed,
-        accumulate_quant,
-        acc_man_bits,
-        acc_exp_bits,
-        acc_normal_binades,
-        acc_bias,
-        acc_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        mul_prng_bits,
-        acc_prng_bits,
+    )
+
+
+def _binaryK_fma_spec(
+    *,
+    fma_K: int,
+    fma_P: int,
+    fma_bias: int | None = None,
+    fma_is_signed: bool = True,
+    fma_quant: bool = True,
+    fma_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+) -> _GemmSpec:
+    """Resolve :func:`binaryK_matmul_fma`'s format -- see it for the contract."""
+    if not fma_bias:
+        fma_bias = _binaryK_bias(fma_K, fma_P, fma_is_signed)
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, fma_P - 1))
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_binaryK_fma.default,
+        (
+            fma_quant,
+            fma_K,
+            fma_P,
+            fma_bias,
+            fma_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            subnormals_mode.value,
+            fma_prng_bits,
+        ),
+        needed,
+        terms,
     )
 
 
@@ -299,28 +567,58 @@ def binaryK_matmul_fma(
     leading dimensions first (see ``mptorch.quant.gemm`` for an example that
     does this for ``QAffineFormats``).
     """
-    if not fma_bias:
-        fma_bias = 2 ** (fma_K - fma_P - 1) if fma_is_signed else 2 ** (fma_K - fma_P)
-
-    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - (fma_P - 1), (
-        "fma_prng_bits should be between 0 and 23 minus the number of mantissa bits (fma_P - 1)"
-    )
-
-    return torch.ops.mptorch.custom_matmul_binaryK_fma.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm(
+        _binaryK_fma_spec(
+            fma_K=fma_K,
+            fma_P=fma_P,
+            fma_bias=fma_bias,
+            fma_is_signed=fma_is_signed,
+            fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
+        ),
+        a,
+        b,
         trans_a,
         trans_b,
-        fma_quant,
-        fma_K,
-        fma_P,
-        fma_bias,
-        fma_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        subnormals_mode.value,
-        fma_prng_bits,
+    )
+
+
+def _superfp_fma_spec(
+    *,
+    fma_man_bits: int,
+    fma_exp_bits: int,
+    fma_normal_binades: int,
+    fma_bias: int,
+    fma_is_signed: bool = True,
+    fma_quant: bool = True,
+    fma_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+) -> _GemmSpec:
+    """Resolve :func:`superfp_matmul_fma`'s format -- see it for the contract."""
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, fma_man_bits))
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_superfp_fma.default,
+        (
+            fma_quant,
+            fma_man_bits,
+            fma_exp_bits,
+            fma_normal_binades,
+            fma_bias,
+            fma_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            fma_prng_bits,
+        ),
+        needed,
+        terms,
     )
 
 
@@ -342,43 +640,31 @@ def superfp_matmul_fma(
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
 ) -> torch.Tensor:
     """superfp analog of :func:`binaryK_matmul_fma` -- see its docstring."""
-    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - fma_man_bits, (
-        "fma_prng_bits should be between 0 and 23 minus the number of mantissa bits (fma_man_bits)"
-    )
-
-    return torch.ops.mptorch.custom_matmul_superfp_fma.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm(
+        _superfp_fma_spec(
+            fma_man_bits=fma_man_bits,
+            fma_exp_bits=fma_exp_bits,
+            fma_normal_binades=fma_normal_binades,
+            fma_bias=fma_bias,
+            fma_is_signed=fma_is_signed,
+            fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+        ),
+        a,
+        b,
         trans_a,
         trans_b,
-        fma_quant,
-        fma_man_bits,
-        fma_exp_bits,
-        fma_normal_binades,
-        fma_bias,
-        fma_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        fma_prng_bits,
     )
 
 
-def _palette_list(val: int | Sequence[int], n: int, name: str) -> list[int]:
-    """Broadcast a scalar to an n-length list, or validate a sequence's length."""
-    if isinstance(val, int):
-        return [val] * n
-    out = list(val)
-    if len(out) != n:
-        raise ValueError(f"{name} must have length {n} (the palette size), got {len(out)}")
-    return out
-
-
-def _palette_list_or(
-    val: int | Sequence[int] | None, default: list[int], n: int, name: str
-) -> list[int]:
-    """:func:`_palette_list`, but ``None`` falls back to ``default``."""
-    return default if val is None else _palette_list(val, n, name)
+# --- palette (spatially-varying mixed-format) GEMMs --------------------------
+#
+# These resolve in the wrapper rather than in a separate builder like the four
+# above: a `_GemmSpec` is worth splitting out only where something holds one
+# across many calls, and no `QAffineFormats` factory takes a palette yet.
 
 
 def binaryK_matmul_mixed(
@@ -434,69 +720,53 @@ def binaryK_matmul_mixed(
     the tensor you pass, so a map built fresh each call is re-checked each
     call.
     """
-    mul_K = list(mul_K)
-    mul_P = list(mul_P)
-    n = len(mul_K)
-    if n < 1:
-        raise ValueError("binaryK_matmul_mixed needs at least one palette format")
-    if len(mul_P) != n:
-        raise ValueError(f"mul_P must have length {n} (the palette size), got {len(mul_P)}")
+    mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
 
-    if mul_bias is None:
-        mul_bias_l = [
-            2 ** (k - p - 1) if mul_is_signed else 2 ** (k - p)
-            for k, p in zip(mul_K, mul_P, strict=True)
-        ]
-    else:
-        mul_bias_l = _palette_list(mul_bias, n, "mul_bias")
-
+    mul_bias_l = _binaryK_palette_bias(mul_bias, mul_K_l, mul_P_l, mul_is_signed, "mul_bias")
     if accumulate_quant:
-        acc_K_l = _palette_list_or(acc_K, mul_K, n, "acc_K")
-        acc_P_l = _palette_list_or(acc_P, mul_P, n, "acc_P")
-        if acc_bias is None:
-            acc_bias_l = [
-                2 ** (k - p - 1) if acc_is_signed else 2 ** (k - p)
-                for k, p in zip(acc_K_l, acc_P_l, strict=True)
-            ]
-        else:
-            acc_bias_l = _palette_list(acc_bias, n, "acc_bias")
+        acc_K_l = _palette_list_or(acc_K, mul_K_l, n, "acc_K")
+        acc_P_l = _palette_list_or(acc_P, mul_P_l, n, "acc_P")
+        acc_bias_l = _binaryK_palette_bias(acc_bias, acc_K_l, acc_P_l, acc_is_signed, "acc_bias")
     else:
         acc_K_l = [0] * n
         acc_P_l = [0] * n
         acc_bias_l = [0] * n
 
-    _prng_bits_bound = mantissa_size_mapping[a.dtype]
-    assert 0 <= mul_prng_bits <= _prng_bits_bound - (max(mul_P) - 1), (
-        "mul_prng_bits must be in [0, 23 - (max palette mul_P - 1)]"
-    )
+    prng = [("mul_prng_bits", mul_prng_bits, max(mul_P_l) - 1)]
     if accumulate_quant:
-        assert 0 <= acc_prng_bits <= _prng_bits_bound - (max(acc_P_l) - 1), (
-            "acc_prng_bits must be in [0, 23 - (max palette acc_P - 1)]"
-        )
+        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_P_l) - 1))
+    needed, terms = _prng_terms(*prng)
 
-    return torch.ops.mptorch.custom_matmul_binaryK_mixed.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm_mixed(
+        _GemmSpec(
+            torch.ops.mptorch.custom_matmul_binaryK_mixed.default,
+            (
+                mul_K_l,
+                mul_P_l,
+                mul_bias_l,
+                mul_is_signed,
+                accumulate_quant,
+                acc_K_l,
+                acc_P_l,
+                acc_bias_l,
+                acc_is_signed,
+                accumulate_algorithm.value,
+                rounding_mode.value,
+                saturation_mode.value,
+                subnormals_mode.value,
+                mul_prng_bits,
+                acc_prng_bits,
+            ),
+            needed,
+            terms,
+        ),
+        a,
+        b,
         prec_idx,
         trans_a,
         trans_b,
-        mul_K,
-        mul_P,
-        mul_bias_l,
-        mul_is_signed,
-        accumulate_quant,
-        acc_K_l,
-        acc_P_l,
-        acc_bias_l,
-        acc_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        subnormals_mode.value,
-        mul_prng_bits,
-        acc_prng_bits,
     )
 
 
@@ -532,13 +802,9 @@ def superfp_matmul_mixed(
     an ``n``-length sequence, or (for ``acc_*``) ``None`` to fall back to the
     corresponding ``mul_*`` entry.
     """
-    mul_man_bits = list(mul_man_bits)
-    mul_exp_bits = list(mul_exp_bits)
-    n = len(mul_man_bits)
-    if n < 1:
-        raise ValueError("superfp_matmul_mixed needs at least one palette format")
-    if len(mul_exp_bits) != n:
-        raise ValueError(f"mul_exp_bits must have length {n} (the palette size)")
+    mul_mb_l, mul_eb_l, n = _palette_pair(
+        mul_man_bits, mul_exp_bits, "mul_exp_bits", "superfp_matmul_mixed"
+    )
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
 
@@ -546,8 +812,8 @@ def superfp_matmul_mixed(
     mul_bias_l = _palette_list(mul_bias, n, "mul_bias")
 
     if accumulate_quant:
-        acc_mb_l = _palette_list_or(acc_man_bits, mul_man_bits, n, "acc_man_bits")
-        acc_eb_l = _palette_list_or(acc_exp_bits, mul_exp_bits, n, "acc_exp_bits")
+        acc_mb_l = _palette_list_or(acc_man_bits, mul_mb_l, n, "acc_man_bits")
+        acc_eb_l = _palette_list_or(acc_exp_bits, mul_eb_l, n, "acc_exp_bits")
         acc_nb_l = _palette_list_or(acc_normal_binades, mul_nb_l, n, "acc_normal_binades")
         acc_bias_l = _palette_list_or(acc_bias, mul_bias_l, n, "acc_bias")
     else:
@@ -556,37 +822,40 @@ def superfp_matmul_mixed(
         acc_nb_l = [0] * n
         acc_bias_l = [0] * n
 
-    _prng_bits_bound = mantissa_size_mapping[a.dtype]
-    assert 0 <= mul_prng_bits <= _prng_bits_bound - max(mul_man_bits), (
-        "mul_prng_bits must be in [0, 23 - max palette mul_man_bits]"
-    )
+    prng = [("mul_prng_bits", mul_prng_bits, max(mul_mb_l))]
     if accumulate_quant:
-        assert 0 <= acc_prng_bits <= _prng_bits_bound - max(acc_mb_l), (
-            "acc_prng_bits must be in [0, 23 - max palette acc_man_bits]"
-        )
+        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_mb_l)))
+    needed, terms = _prng_terms(*prng)
 
-    return torch.ops.mptorch.custom_matmul_superfp_mixed.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm_mixed(
+        _GemmSpec(
+            torch.ops.mptorch.custom_matmul_superfp_mixed.default,
+            (
+                mul_mb_l,
+                mul_eb_l,
+                mul_nb_l,
+                mul_bias_l,
+                mul_is_signed,
+                accumulate_quant,
+                acc_mb_l,
+                acc_eb_l,
+                acc_nb_l,
+                acc_bias_l,
+                acc_is_signed,
+                accumulate_algorithm.value,
+                rounding_mode.value,
+                saturation_mode.value,
+                mul_prng_bits,
+                acc_prng_bits,
+            ),
+            needed,
+            terms,
+        ),
+        a,
+        b,
         prec_idx,
         trans_a,
         trans_b,
-        mul_man_bits,
-        mul_exp_bits,
-        mul_nb_l,
-        mul_bias_l,
-        mul_is_signed,
-        accumulate_quant,
-        acc_mb_l,
-        acc_eb_l,
-        acc_nb_l,
-        acc_bias_l,
-        acc_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        mul_prng_bits,
-        acc_prng_bits,
     )
 
 
@@ -628,42 +897,33 @@ def binaryK_matmul_fma_mixed(
     format, so a palette of it would make ``prec_idx`` a no-op; use
     :func:`binaryK_matmul_fma` for the unquantized fused step.
     """
-    fma_K = list(fma_K)
-    fma_P = list(fma_P)
-    n = len(fma_K)
-    if n < 1:
-        raise ValueError("binaryK_matmul_fma_mixed needs at least one palette format")
-    if len(fma_P) != n:
-        raise ValueError(f"fma_P must have length {n} (the palette size), got {len(fma_P)}")
+    fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
+    fma_bias_l = _binaryK_palette_bias(fma_bias, fma_K_l, fma_P_l, fma_is_signed, "fma_bias")
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_P_l) - 1))
 
-    if fma_bias is None:
-        fma_bias_l = [
-            2 ** (k - p - 1) if fma_is_signed else 2 ** (k - p)
-            for k, p in zip(fma_K, fma_P, strict=True)
-        ]
-    else:
-        fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
-
-    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - (max(fma_P) - 1), (
-        "fma_prng_bits must be in [0, 23 - (max palette fma_P - 1)]"
-    )
-
-    return torch.ops.mptorch.custom_matmul_binaryK_fma_mixed.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm_mixed(
+        _GemmSpec(
+            torch.ops.mptorch.custom_matmul_binaryK_fma_mixed.default,
+            (
+                fma_quant,
+                fma_K_l,
+                fma_P_l,
+                fma_bias_l,
+                fma_is_signed,
+                accumulate_algorithm.value,
+                rounding_mode.value,
+                saturation_mode.value,
+                subnormals_mode.value,
+                fma_prng_bits,
+            ),
+            needed,
+            terms,
+        ),
+        a,
+        b,
         prec_idx,
         trans_a,
         trans_b,
-        fma_quant,
-        fma_K,
-        fma_P,
-        fma_bias_l,
-        fma_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        subnormals_mode.value,
-        fma_prng_bits,
     )
 
 
@@ -692,35 +952,34 @@ def superfp_matmul_fma_mixed(
     sequences defining the palette size ``n``; ``fma_normal_binades``/
     ``fma_bias`` may each be a scalar or an ``n``-length sequence.
     """
-    fma_man_bits = list(fma_man_bits)
-    fma_exp_bits = list(fma_exp_bits)
-    n = len(fma_man_bits)
-    if n < 1:
-        raise ValueError("superfp_matmul_fma_mixed needs at least one palette format")
-    if len(fma_exp_bits) != n:
-        raise ValueError(f"fma_exp_bits must have length {n} (the palette size)")
-
+    fma_mb_l, fma_eb_l, n = _palette_pair(
+        fma_man_bits, fma_exp_bits, "fma_exp_bits", "superfp_matmul_fma_mixed"
+    )
     fma_nb_l = _palette_list(fma_normal_binades, n, "fma_normal_binades")
     fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_mb_l)))
 
-    assert 0 <= fma_prng_bits <= mantissa_size_mapping[a.dtype] - max(fma_man_bits), (
-        "fma_prng_bits must be in [0, 23 - max palette fma_man_bits]"
-    )
-
-    return torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default(
-        a.contiguous(),
-        b.contiguous(),
+    return _run_gemm_mixed(
+        _GemmSpec(
+            torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default,
+            (
+                fma_quant,
+                fma_mb_l,
+                fma_eb_l,
+                fma_nb_l,
+                fma_bias_l,
+                fma_is_signed,
+                accumulate_algorithm.value,
+                rounding_mode.value,
+                saturation_mode.value,
+                fma_prng_bits,
+            ),
+            needed,
+            terms,
+        ),
+        a,
+        b,
         prec_idx,
         trans_a,
         trans_b,
-        fma_quant,
-        fma_man_bits,
-        fma_exp_bits,
-        fma_nb_l,
-        fma_bias_l,
-        fma_is_signed,
-        accumulate_algorithm.value,
-        rounding_mode.value,
-        saturation_mode.value,
-        fma_prng_bits,
     )
