@@ -195,28 +195,30 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
 // path over all 2^32 float inputs for every admitted format --
 // dev/benchmarks/gemm_cast_float_arith.cu.
 //
-// CUDA only, and deliberately so: the identity depends on `t` being a
-// separately rounded binary32 value, which the _rn intrinsics guarantee.
-// Plain `*`/`-` let nvcc contract the split into an FMA and the identity
-// breaks (248 M mismatches in the exhaustive sweep); on the host the same
-// hazard exists via -ffp-contract, with no equally cheap way to forbid it,
-// so host builds keep the integer path.
-#if defined(__CUDA_ARCH__)
+// Correct only where the arithmetic is not contracted: the identity depends on
+// `t` being a separately rounded binary32 value, and letting the compiler fuse
+// the split's multiply and subtract into an FMA breaks it (248 M mismatches in
+// the exhaustive sweep when nvcc was allowed to). That is why the operations
+// are named rather than written as `*` and `-`, and why the path is behind
+// MPTORCH_FAST_CAST: on the device the _rn intrinsics forbid contraction by
+// themselves, on the host it takes -ffp-contract=off, which only the build can
+// promise. See bit_helper.h.
+#if defined(MPTORCH_FAST_CAST)
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const BinaryKParams &p)
 {
     float ax = fabsf(origin_float);
     // clamp before rounding so the Veltkamp product cannot overflow; anything
     // at or above the clamp is out of the format's range either way.
-    float xc = copysignf(fminf(ax, p.fast_clamp_hi), origin_float);
-    float sub = __fsub_rn(__fadd_rn(xc, p.fast_magic), p.fast_magic);
-    float t = __fmul_rn(p.fast_split_c, xc);
-    float nrm = __fsub_rn(t, __fsub_rn(t, xc));
+    float xc = copysignf(fmin_nonneg(ax, p.fast_clamp_hi), origin_float);
+    float sub = rn_sub(rn_add(xc, p.fast_magic), p.fast_magic);
+    float t = rn_mul(p.fast_split_c, xc);
+    float nrm = rn_sub(t, rn_sub(t, xc));
     float y = (ax < p.fast_min_normal) ? sub : nrm;
     if (fabsf(y) > p.fast_max_finite)
         y = copysignf(p.fast_ovf, origin_float);
     // inf and NaN pass through unchanged (the integer path's target_exp == 128
     // branch); a single ordered compare covers both.
-    return (ax < __int_as_float(0x7F800000)) ? y : origin_float;
+    return (ax < bits_to_float(0x7F800000u)) ? y : origin_float;
 }
 #endif
 
@@ -226,11 +228,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
-#if defined(__CUDA_ARCH__)
+#if defined(MPTORCH_FAST_CAST)
     // Warp-uniform in the single-format kernels (every thread reads the same
     // acc_proto) and per-slot uniform in the mixed ones, so the test itself
     // costs a predicated compare; the integer body below is jumped over, not
-    // fetched.
+    // fetched. On the host it is loop-invariant over a whole GEMM and the
+    // branch predictor sees one outcome forever.
     if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
         return cast_binaryK_rne_fast(origin_float, p);
 #endif
@@ -800,7 +803,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     else
     {
         quantize_bits = round_bitwise_stochastic(target, rand_prob, p.man_bits);
-#if defined(__CUDA_ARCH__)
+#if defined(MPTORCH_FAST_CAST)
         // The SR half of item 7. Stochastic rounding itself has no hardware
         // analogue -- binary32 rounds to nearest, so nothing in the FPU
         // reproduces "add random bits below the retained significand, then

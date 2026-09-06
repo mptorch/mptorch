@@ -385,22 +385,23 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<LEAN> make_superfp_params(int man_bits, i
 // select: `inf >= fast_normal_min` is true so inf takes the normal arm, and
 // every compare against NaN is false so NaN takes the supernormal one.
 //
-// CUDA only, for the same reason as the binaryK twin: the Veltkamp identity
-// needs `t` separately rounded, which only the _rn intrinsics guarantee.
-#if defined(__CUDA_ARCH__)
+// Contraction-sensitive for the same reason as the binaryK twin: the Veltkamp
+// identity needs `t` separately rounded, hence the named operations and the
+// MPTORCH_FAST_CAST gate. See bit_helper.h.
+#if defined(MPTORCH_FAST_CAST)
 template <bool LEAN>
 CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const SuperfpParamsT<LEAN> &p)
 {
     float ax = fabsf(origin_float);
-    const float inf = __int_as_float(0x7F800000);
+    const float inf = bits_to_float(0x7F800000u);
 
     if (ax >= p.fast_normal_min())
     {
         // normal region: clamp before rounding so the Veltkamp product cannot
         // overflow; anything at or above the clamp is out of range either way.
-        float xc = fminf(ax, p.fast_clamp_hi());
-        float t = __fmul_rn(p.fast_split_c(), xc);
-        float nrm = __fsub_rn(t, __fsub_rn(t, xc));
+        float xc = fmin_nonneg(ax, p.fast_clamp_hi());
+        float t = rn_mul(p.fast_split_c(), xc);
+        float nrm = rn_sub(t, rn_sub(t, xc));
         if (nrm > p.fast_max_finite())
             nrm = p.fast_ovf();
         return copysignf((ax < inf) ? nrm : ax, origin_float);
@@ -414,9 +415,9 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
     uint32_t is_tie = (ab & 0x007FFFFFu) == 0x00400000u;
     q -= ((is_tie << 23) & ~q);
     float spn = BITS_TO_FLOAT(&q);
-    // fmaxf covers the topmost underflow binade, whose nearest power of two is
-    // below the region but which rounds up into it.
-    spn = (ax > p.fast_super_half()) ? fmaxf(spn, p.fast_super_min()) : 0.0f;
+    // the max covers the topmost underflow binade, whose nearest power of two
+    // is below the region but which rounds up into it.
+    spn = (ax > p.fast_super_half()) ? fmax_nonneg(spn, p.fast_super_min()) : 0.0f;
     // copysignf carries the sign -- and a NaN's payload -- back onto the
     // magnitude, so the NaN case returns the input's exact bit pattern.
     return copysignf((ax < inf) ? spn : ax, origin_float);
@@ -430,10 +431,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
-#if defined(__CUDA_ARCH__)
+#if defined(MPTORCH_FAST_CAST_SUPERFP_RNE)
     // Warp-uniform in the single-format kernels and per-slot uniform in the
     // mixed ones, so the test costs a predicated compare and the integer body
-    // below is jumped over, not fetched. See cast_binaryK_nearest_even.
+    // below is jumped over, not fetched. See cast_binaryK_nearest_even -- and
+    // bit_helper.h for why this is the one fast path the host does not take.
     if (p.fast_rne)
         return cast_superfp_rne_fast(origin_float, p);
 #endif
@@ -1118,7 +1120,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
     {
         uint32_t rand_prob_man = rand_bits_raw & ~((1u << (23 - p.man_bits - rand_bits)) - 1u);
         quantize_bits = round_bitwise_stochastic(target, rand_prob_man, p.man_bits);
-#if defined(__CUDA_ARCH__)
+#if defined(MPTORCH_FAST_CAST)
         // The same compare-instead-of-clip as cast_binaryK_stochastic's normal
         // arm -- see the note there for why one magnitude test reproduces
         // clip_normal_range_exponent. The clip's underflow arm is unreachable

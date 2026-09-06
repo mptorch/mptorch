@@ -21,12 +21,12 @@ else:
     py_limited_api = False
 
 
-def compiler_accepts(flag: str) -> bool:
-    """True if the C++ compiler that will build the extension accepts `flag`."""
+def compiler_accepts(flag: str, source: str = "int main() { return 0; }\n") -> bool:
+    """True if the C++ compiler that will build the extension compiles `source` with `flag`."""
     cxx = os.environ.get("CXX", "c++")
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "probe.cpp"
-        src.write_text("int main() { return 0; }\n")
+        src.write_text(source)
         try:
             return (
                 subprocess.run(
@@ -107,6 +107,38 @@ def get_extensions():
     inline_growth = "--param inline-unit-growth=400"
     if compiler_accepts(inline_growth):
         extra_compile_args["cxx"].extend(inline_growth.split())
+
+    # The float-arithmetic cast fast paths (common/bit_helper.h's
+    # MPTORCH_FAST_CAST) are exact only where a float expression is evaluated
+    # as a float and no two operations are contracted into one. Both are
+    # properties of the build, not of the source, so they are asked for here
+    # and the paths are only admitted if the answer is yes:
+    #
+    #   -ffp-contract=off  forbids the contraction. It costs nothing: nothing
+    #                      in csrc wants an implicit FMA (gemm_policy.h's
+    #                      fma_f32 asks for one explicitly, via std::fma, which
+    #                      the flag does not touch), and on the baseline x86-64
+    #                      this builds for there is no FMA instruction to
+    #                      contract into in the first place -- the flag is
+    #                      insurance against a CFLAGS or -march that adds one.
+    #   FLT_EVAL_METHOD    must be 0, i.e. no x87 excess precision. SSE is the
+    #                      default on x86-64 so this holds there; the probe is
+    #                      what makes it a checked assumption rather than an
+    #                      assumed one on any other target.
+    #
+    # Both or neither, since either one alone is not enough. nvcc is left out:
+    # its device pass turns the paths on by itself (the _rn intrinsics carry
+    # the no-contraction guarantee in the source), and its host pass compiles
+    # these headers under a host compiler these flags never reach.
+    # See dev/gemm_roadmap.md (finding C5).
+    fp_contract = "-ffp-contract=off"
+    if compiler_accepts(
+        fp_contract,
+        "#include <cfloat>\nint main() { static_assert(FLT_EVAL_METHOD == 0); return 0; }\n",
+    ):
+        extra_compile_args["cxx"].extend([fp_contract, "-DMPTORCH_FAST_CAST=1"])
+    else:
+        print("Fast cast paths off: this compiler cannot promise unfused float32 arithmetic.")
 
     if py_limited_api:
         extra_compile_args["cxx"].append("-DPy_LIMITED_API=0x03090000")

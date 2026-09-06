@@ -1,6 +1,7 @@
 #pragma once
 
 #include "modes.h"
+#include <cmath>
 #include <cstdint>
 
 #ifdef __CUDACC__
@@ -9,8 +10,110 @@
 #define CUDA_HOST_DEVICE_INLINE inline
 #endif
 
+// MPTORCH_FAST_CAST admits the float-arithmetic cast fast paths in
+// cast_binaryK.h and cast_superfp.h (findings G3, G7, G8). They replace ~125
+// branchy integer instructions with ~14 branchless float ones, and they are
+// exact only if every arithmetic operation they name is a separately rounded
+// binary32 operation: the Veltkamp split's `t - (t - x)` is Dekker's identity,
+// which a fused multiply-add silently breaks (248 M mismatches over the
+// exhaustive sweep when nvcc was allowed to contract it).
+//
+// Device code always qualifies -- the paths are written with the _rn
+// intrinsics, which name the rounding and cannot be contracted -- so the
+// default below turns them on for the device pass of any .cu, whether it is
+// built by setup.py or by hand (dev/benchmarks, temp/). Host code qualifies
+// only when the build can also promise no contraction, which is a compiler
+// flag rather than a property of the source, so there the macro comes from the
+// command line: setup.py defines it together with -ffp-contract=off, both or
+// neither. It is deliberately not passed to nvcc, whose host pass compiles
+// these same headers under a host compiler we do not hand flags to.
+//
+// See dev/gemm_roadmap.md (finding C5).
+#if !defined(MPTORCH_FAST_CAST) && defined(__CUDA_ARCH__)
+#define MPTORCH_FAST_CAST 1
+#endif
+
+// Of the four paths the contract admits, three pay on both backends and one
+// does not. cast_superfp_rne_fast trades the integer path's ~17 branches for a
+// Veltkamp split plus a region branch, and superfp's integer path is not the
+// expensive one binaryK's is: its supernormal arm -- where ordinary data lives,
+// since normal_binades is usually 1 or 2 -- is already five operations. On a
+// GPU that still wins, because warps are close to region-uniform and the
+// branch is nearly free. On a host it pays only where ordinary data does not
+// go: 1.11x with the operands in the normal region, 0.74x with them in the
+// supernormal one -- and normal_binades is usually 1 or 2, which is what puts
+// them there (dev/gemm_roadmap.md, finding C5). So the host keeps the integer
+// path for that one cast. The function itself stays defined under the contract
+// above, so the host sweeps still verify it -- it is rejected on speed, not on
+// correctness, and the two are worth being able to tell apart.
+#if defined(MPTORCH_FAST_CAST) && defined(__CUDA_ARCH__)
+#define MPTORCH_FAST_CAST_SUPERFP_RNE 1
+#endif
+
+// The half of that contract a header can check. setup.py probes the compiler it
+// is about to invoke, but the flags torch actually builds with are Python's own
+// CFLAGS plus ours, which the probe never sees -- so an x87 target reaching this
+// far should stop the build rather than quietly round every intermediate to 80
+// bits and take the identity with it. (Contraction has no such tell: neither GCC
+// nor Clang defines a macro for -ffp-contract, which is why that half is a
+// compiler flag paired with an exhaustive sweep instead.)
+#if defined(MPTORCH_FAST_CAST) && !defined(__CUDACC__)
+#include <cfloat>
+static_assert(FLT_EVAL_METHOD == 0,
+              "MPTORCH_FAST_CAST needs float expressions evaluated in float; "
+              "this target has excess precision (x87). Drop -DMPTORCH_FAST_CAST.");
+#endif
+
 #define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
 #define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
+
+// The two spellings the fast paths need that differ between host and device.
+//
+// `bits_to_float` is BITS_TO_FLOAT for a value rather than an lvalue, standing
+// in for the device-only __int_as_float; on both sides it is a reinterpret and
+// compiles to nothing.
+//
+// rn_add/rn_sub/rn_mul are the binary32 operations the Veltkamp split needs
+// rounded on their own. On the device that is what __fadd_rn and friends mean.
+// On the host the plain operators already are IEEE binary32 operations -- the
+// only thing that can merge two of them is contraction into an FMA, which
+// MPTORCH_FAST_CAST's contract forbids -- so the shim is the operator itself,
+// named so the requirement stays legible at the call site. (fma_f32 in
+// gemm_policy.h is the reverse case: the one place an FMA is intended, spelled
+// explicitly so no flag can take it away.)
+CUDA_HOST_DEVICE_INLINE float bits_to_float(uint32_t bits)
+{
+    return BITS_TO_FLOAT(&bits);
+}
+
+#if defined(__CUDA_ARCH__)
+CUDA_HOST_DEVICE_INLINE float rn_add(float a, float b) { return __fadd_rn(a, b); }
+CUDA_HOST_DEVICE_INLINE float rn_sub(float a, float b) { return __fsub_rn(a, b); }
+CUDA_HOST_DEVICE_INLINE float rn_mul(float a, float b) { return __fmul_rn(a, b); }
+#else
+CUDA_HOST_DEVICE_INLINE float rn_add(float a, float b) { return a + b; }
+CUDA_HOST_DEVICE_INLINE float rn_sub(float a, float b) { return a - b; }
+CUDA_HOST_DEVICE_INLINE float rn_mul(float a, float b) { return a * b; }
+#endif
+
+// min/max where the fast paths use them: on a magnitude clamped against a
+// positive bound, never on a negative operand. Under that precondition the
+// ternary and fminf/fmaxf agree everywhere, NaN included -- every compare
+// against a NaN is false, so both spellings return the bound, which is the
+// arm the fast paths' final select overrides anyway.
+//
+// Two spellings because each backend folds exactly one of them into its
+// single instruction and neither folds the other: GCC will not turn fminf
+// into minss (their NaN results differ in general) and emits a libm call in
+// the middle of the GEMM's inner loop, worth 1.12x of the whole CPU GEMM;
+// nvcc will not turn the ternary into min.f32 and emits setp + selp.
+#if defined(__CUDA_ARCH__)
+CUDA_HOST_DEVICE_INLINE float fmin_nonneg(float a, float b) { return fminf(a, b); }
+CUDA_HOST_DEVICE_INLINE float fmax_nonneg(float a, float b) { return fmaxf(a, b); }
+#else
+CUDA_HOST_DEVICE_INLINE float fmin_nonneg(float a, float b) { return (a < b) ? a : b; }
+CUDA_HOST_DEVICE_INLINE float fmax_nonneg(float a, float b) { return (a > b) ? a : b; }
+#endif
 
 CUDA_HOST_DEVICE_INLINE uint32_t extract_exponent(float *a)
 {
