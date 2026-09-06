@@ -24,7 +24,7 @@ inline int grid_for(int64_t work, int block)
 // Draws (seed, offset) from ATen's default CUDA generator for one elementwise
 // RoundMode::SR launch, reserving a single 128-bit Philox block per
 // subsequence so a subsequent unrelated RNG-consuming op doesn't reuse the
-// same pair. The same idiom as custom_matmul_kernel.cu's
+// same pair. The same idiom as custom_matmul_kernel.cuh's
 // matmul_rng_engine_inputs, and the same generator the SR path used to draw
 // from through randint_like, so torch.manual_seed still governs the result.
 // One block is enough because each subsequence here is consumed by exactly

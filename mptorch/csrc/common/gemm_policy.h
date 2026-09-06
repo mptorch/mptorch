@@ -16,34 +16,43 @@
 // Each precomputes its cast function's format-derived constants
 // (BinaryKParams/SuperfpParams, see cast_binaryK.h/cast_superfp.h) once at
 // construction rather than on every operator() call (up to M*N*K times per
-// kernel launch). round_mode is a runtime field switched on inside
-// operator(), not a template parameter -- see dev/gemm_core_roadmap.md
-// (GEMM kernel section, item 6) for why templating on it would blow up the
-// kernel's instantiation count. Default constructors exist only so
-// SplitMac/FusedMac's default member initializers stay well-formed; they're
-// never actually invoked.
+// kernel launch). Default constructors exist only so SplitMac/FusedMac's
+// default member initializers stay well-formed; they're never actually
+// invoked.
+//
+// RM is a template parameter, not the runtime field it used to be (finding
+// K1). The original design took the opposite trade -- one instantiation
+// carrying a `switch (round_mode)` over seven cast bodies, to keep the
+// GEMM's instantiation count near 32 -- and that was the right call while
+// the count was the binding constraint. It stopped being: with the storage
+// dtype no longer a template parameter either (finding K2) there is room,
+// and the runtime switch turned out to cost 1.2-1.8x of *kernel time*,
+// because a split mac's seven bodies twice over is more instruction memory
+// than the K-loop can fetch from. One `if constexpr` chain, one live body,
+// and the K-loop can be fully unrolled again. prng_bits stays a runtime
+// field: it is one integer read, not a code path.
 //
 // RoundMode::SR draws one random value per call from a PhiloxEngine
 // (philox.h) threaded through operator()/Mac::step alongside the raw
 // operands. The engine itself lives on NaiveAccumulator below, seeded once
 // per output element via seed_rng() before its K-loop starts --
 // Multiplier/Adder stay stateless; only prng_bits (the width of randomness
-// used) is stored here. See dev/gemm_core_roadmap.md's GEMM stochastic
+// used) is stored here. See dev/gemm_roadmap.md's GEMM stochastic
 // rounding section for the full design.
 
-struct BinaryKMultiplier
+template <RoundMode RM>
+struct BinaryKMultiplierT
 {
     bool is_signed;
     SubnormalsMode subnormals_mode;
-    RoundMode round_mode;
     int prng_bits;
     BinaryKParams params;
 
-    BinaryKMultiplier() = default;
-    CUDA_HOST_DEVICE_INLINE BinaryKMultiplier(int man_bits, int exp_bits, int bias, bool is_signed,
-                                              SaturationMode saturation_mode, RoundMode round_mode,
-                                              SubnormalsMode subnormals_mode, int prng_bits = 0)
-        : is_signed(is_signed), subnormals_mode(subnormals_mode), round_mode(round_mode), prng_bits(prng_bits),
+    BinaryKMultiplierT() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT(int man_bits, int exp_bits, int bias, bool is_signed,
+                                               SaturationMode saturation_mode,
+                                               SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
           params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
                                      subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
@@ -52,23 +61,20 @@ struct BinaryKMultiplier
     CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
     {
         float x = a * b;
-        switch (round_mode)
-        {
-        case RoundMode::RNA:
+        if constexpr (RM == RoundMode::RNA)
             return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
-        case RoundMode::RU:
+        else if constexpr (RM == RoundMode::RU)
             return cast_binaryK_up(x, is_signed, subnormals_mode, params);
-        case RoundMode::RD:
+        else if constexpr (RM == RoundMode::RD)
             return cast_binaryK_down(x, is_signed, subnormals_mode, params);
-        case RoundMode::RZ:
+        else if constexpr (RM == RoundMode::RZ)
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
-        case RoundMode::RO:
+        else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        case RoundMode::SR:
+        else if constexpr (RM == RoundMode::SR)
             return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
-        default: // RoundMode::RNE
+        else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
-        }
     }
 };
 
@@ -77,19 +83,18 @@ struct BinaryKMultiplier
 // copies the whole policy into registers and the seven floats are what it
 // cannot afford. Nothing else about the policy changes -- LEAN is not visible
 // past `params`, and the two produce identical values.
-template <bool LEAN = false>
+template <RoundMode RM, bool LEAN = false>
 struct SuperfpMultiplierT
 {
     bool is_signed;
-    RoundMode round_mode;
     int prng_bits;
     SuperfpParamsT<LEAN> params;
 
     SuperfpMultiplierT() = default;
     CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT(int man_bits, int exp_bits, int normal_binades, int bias,
-                                               bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                               bool is_signed, SaturationMode saturation_mode,
                                                int prng_bits = 0)
-        : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
+        : is_signed(is_signed), prng_bits(prng_bits),
           params(make_superfp_params<LEAN>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
@@ -97,47 +102,46 @@ struct SuperfpMultiplierT
     CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
     {
         float x = a * b;
-        switch (round_mode)
-        {
-        case RoundMode::RNA:
+        if constexpr (RM == RoundMode::RNA)
             return cast_superfp_nearest_away(x, is_signed, params);
-        case RoundMode::RU:
+        else if constexpr (RM == RoundMode::RU)
             return cast_superfp_up(x, is_signed, params);
-        case RoundMode::RD:
+        else if constexpr (RM == RoundMode::RD)
             return cast_superfp_down(x, is_signed, params);
-        case RoundMode::RZ:
+        else if constexpr (RM == RoundMode::RZ)
             return cast_superfp_zero(x, is_signed, params);
-        case RoundMode::RO:
+        else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        case RoundMode::SR:
+        else if constexpr (RM == RoundMode::SR)
             return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
-        default: // RoundMode::RNE
+        else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
-        }
     }
 };
 
-using SuperfpMultiplier = SuperfpMultiplierT<>;
-using SuperfpMultiplierLean = SuperfpMultiplierT<true>;
+template <RoundMode RM>
+using SuperfpMultiplier = SuperfpMultiplierT<RM, false>;
+template <RoundMode RM>
+using SuperfpMultiplierLean = SuperfpMultiplierT<RM, true>;
 
 // ------------------------------------------------------------------------------------
 // Adder policies: quantize a single running-sum update. Used inside a Mac
 // policy (below), either as the "add" half of a split multiply-then-add, or
 // as the single quantizer applied to a fused multiply-add's result.
 
-struct BinaryKAdder
+template <RoundMode RM>
+struct BinaryKAdderT
 {
     bool is_signed;
     SubnormalsMode subnormals_mode;
-    RoundMode round_mode;
     int prng_bits;
     BinaryKParams params;
 
-    BinaryKAdder() = default;
-    CUDA_HOST_DEVICE_INLINE BinaryKAdder(int man_bits, int exp_bits, int bias, bool is_signed,
-                                         SaturationMode saturation_mode, RoundMode round_mode,
-                                         SubnormalsMode subnormals_mode, int prng_bits = 0)
-        : is_signed(is_signed), subnormals_mode(subnormals_mode), round_mode(round_mode), prng_bits(prng_bits),
+    BinaryKAdderT() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKAdderT(int man_bits, int exp_bits, int bias, bool is_signed,
+                                          SaturationMode saturation_mode,
+                                          SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
           params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
                                      subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
@@ -145,68 +149,63 @@ struct BinaryKAdder
 
     CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
     {
-        switch (round_mode)
-        {
-        case RoundMode::RNA:
+        if constexpr (RM == RoundMode::RNA)
             return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
-        case RoundMode::RU:
+        else if constexpr (RM == RoundMode::RU)
             return cast_binaryK_up(x, is_signed, subnormals_mode, params);
-        case RoundMode::RD:
+        else if constexpr (RM == RoundMode::RD)
             return cast_binaryK_down(x, is_signed, subnormals_mode, params);
-        case RoundMode::RZ:
+        else if constexpr (RM == RoundMode::RZ)
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
-        case RoundMode::RO:
+        else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        case RoundMode::SR:
+        else if constexpr (RM == RoundMode::SR)
             return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
-        default: // RoundMode::RNE
+        else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
-        }
     }
 };
 
 // LEAN as on SuperfpMultiplierT above.
-template <bool LEAN = false>
+template <RoundMode RM, bool LEAN = false>
 struct SuperfpAdderT
 {
     bool is_signed;
-    RoundMode round_mode;
     int prng_bits;
     SuperfpParamsT<LEAN> params;
 
     SuperfpAdderT() = default;
     CUDA_HOST_DEVICE_INLINE SuperfpAdderT(int man_bits, int exp_bits, int normal_binades, int bias,
-                                          bool is_signed, SaturationMode saturation_mode, RoundMode round_mode,
+                                          bool is_signed, SaturationMode saturation_mode,
                                           int prng_bits = 0)
-        : is_signed(is_signed), round_mode(round_mode), prng_bits(prng_bits),
+        : is_signed(is_signed), prng_bits(prng_bits),
           params(make_superfp_params<LEAN>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
 
     CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
     {
-        switch (round_mode)
-        {
-        case RoundMode::RNA:
+        if constexpr (RM == RoundMode::RNA)
             return cast_superfp_nearest_away(x, is_signed, params);
-        case RoundMode::RU:
+        else if constexpr (RM == RoundMode::RU)
             return cast_superfp_up(x, is_signed, params);
-        case RoundMode::RD:
+        else if constexpr (RM == RoundMode::RD)
             return cast_superfp_down(x, is_signed, params);
-        case RoundMode::RZ:
+        else if constexpr (RM == RoundMode::RZ)
             return cast_superfp_zero(x, is_signed, params);
-        case RoundMode::RO:
+        else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        case RoundMode::SR:
+        else if constexpr (RM == RoundMode::SR)
             return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
-        default: // RoundMode::RNE
+        else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
-        }
     }
 };
 
-using SuperfpAdder = SuperfpAdderT<>;
-using SuperfpAdderLean = SuperfpAdderT<true>;
+template <RoundMode RM>
+using SuperfpAdder = SuperfpAdderT<RM, false>;
+template <RoundMode RM>
+using SuperfpAdderLean = SuperfpAdderT<RM, true>;
 
 // No-op adder: used when only the multiply (Split) or the fused step
 // (Fused) should be quantized and the running sum is meant to otherwise
@@ -225,7 +224,7 @@ struct IdentityAdder
 // quantizer. Accumulator policies below are Mac-generic (only ever call
 // Mac::step), so the same Accumulator drives either.
 //
-// Tree-based summation (dev/gemm_core_roadmap.md) is SplitMac-only: a fused
+// Tree-based summation (dev/gemm_roadmap.md) is SplitMac-only: a fused
 // multiply-add has no standalone product term for a pairwise tree combiner.
 
 CUDA_HOST_DEVICE_INLINE float fma_f32(float a, float b, float c)
@@ -266,7 +265,7 @@ struct FusedMac
 // accumulate() takes raw operands (not a pre-multiplied term) so a Mac-
 // generic Accumulator can drive either SplitMac or FusedMac. Only
 // NaiveAccumulator (AccumulateAlgorithm::NAIVE) is implemented so far; see
-// dev/gemm_core_roadmap.md for Kahan/block/tree variants.
+// dev/gemm_roadmap.md for Kahan/block/tree variants.
 //
 // seed_rng() is the RoundMode::SR lifecycle hook: the kernel calls it once
 // per output element, right before that element's K-loop starts -- necessary
@@ -382,7 +381,7 @@ struct NaiveAccumulator
 //
 // FormatPalette is passed by value into the kernel alongside acc_proto
 // (same marshalling). It is kept flat -- a plain array + count -- per
-// dev/gemm_core_roadmap.md item 6's "keep kernel-argument policy structs
+// dev/gemm_roadmap.md item 6's "keep kernel-argument policy structs
 // flat" lesson; Mac must stay trivially copyable to ride in it.
 //
 // prec_idx is read as prec_idx[row * idx_row_stride + col * idx_col_stride]
@@ -402,7 +401,7 @@ struct FormatPalette
 
     // Read a slot by precision index. The index is masked rather than
     // trusted: resolve_prec_idx bounds-checks the whole map host-side, but
-    // that check is memoized per map (see custom_matmul_kernel.cu), so the
+    // that check is memoized per map (see cuda/custom_matmul_kernel.cuh), so
     // mask is what guarantees an index outside [0, n) can only ever pick the
     // wrong *slot* and never read past the array. One AND, on a path that is
     // compiled out entirely when MIXED is false.

@@ -127,7 +127,7 @@ struct SuperfpNoFastConstants
 // Parameter pack for the precomputed-parameter cast_superfp_* overloads -- see
 // the analogous BinaryKParams/cast_binaryK_nearest_even overload in
 // cast_binaryK.h. Only covers RNE, matching the GEMM core's current scope.
-// Flat by design -- see dev/gemm_core_roadmap.md item 6.
+// Flat by design -- see dev/gemm_roadmap.md item 6.
 //
 // LEAN = false stores the seven floats; LEAN = true derives them on each read.
 // Both spellings return bit-identical constants wherever fast_rne is set, which

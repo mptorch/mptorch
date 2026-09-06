@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../common/philox.h"
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 #include <ATen/CPUGeneratorImpl.h>
 #include <ATen/Parallel.h>
 #include <cstdint>
@@ -80,8 +80,8 @@ void quant_kernel_sr(const scalar_t *a, scalar_t *o, int64_t size, uint64_t seed
 
 // One 64-bit seed from ATen's default CPU generator, so torch.manual_seed
 // still governs a RoundMode::SR call exactly as it did when the draws came
-// from randint_like. Shared with custom_matmul_kernel.cpp, which seeds the
-// GEMM's per-output-element PhiloxEngine streams from the same draw (see
+// from randint_like. Shared with the custom_matmul_*.cpp GEMM entry points,
+// which seed their per-output-element PhiloxEngine streams from it (see
 // NaiveAccumulator::seed_rng in gemm_policy.h). Only called when
 // RoundMode::SR is selected.
 inline uint64_t draw_cpu_seed()

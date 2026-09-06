@@ -2,7 +2,7 @@
 #include "../common/modes.h"
 #include "../common/dispatch.h"
 #include "utils.h"
-#include <ATen/ATen.h>
+#include <ATen/ops/empty_like.h>
 
 using namespace at;
 

@@ -57,7 +57,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, int 
 // (gemm_policy.h) instead of re-deriving man_bits/exp_bits/bias-derived
 // constants on every call. See bit_helper.h's "Precomputed-parameter
 // overloads" note. Only covers RNE, matching the GEMM core's current scope.
-// Flat by design -- see dev/gemm_core_roadmap.md item 6.
+// Flat by design -- see dev/gemm_roadmap.md item 6.
 struct BinaryKParams
 {
     int man_bits; // kept raw: drives the subnormal branch's data-dependent

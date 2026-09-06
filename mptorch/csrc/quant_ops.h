@@ -1,6 +1,11 @@
 #pragma once
 
-#include <ATen/ATen.h>
+// <ATen/ATen.h> is deliberately not used here: it pulls ATen/Functions.h, the
+// declaration of every operator in ATen, which costs 22 s per translation unit
+// through nvcc and is why every .cu in this extension used to take ~43 s
+// before it compiled a line of its own. This header set is what these files
+// actually need. See dev/gemm_roadmap.md (finding B2).
+#include <ATen/core/Tensor.h>
 #include <cstdint>
 
 at::Tensor binaryK_quantize_cuda(at::Tensor a, int64_t K, int64_t P,

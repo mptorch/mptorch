@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -37,6 +38,31 @@ def compiler_accepts(flag: str) -> bool:
             )
         except OSError:
             return False
+
+
+def ensure_ninja_on_path() -> bool:
+    """Make torch's ninja probe succeed when ninja is installed but not on PATH.
+
+    `BuildExtension` picks its backend with `is_ninja_available()`, which shells
+    out to `ninja --version` -- a plain PATH lookup. The ninja that
+    pyproject.toml's `requires` pulls in is a Python package whose executable
+    lands in the environment's script directory, so the probe succeeds with the
+    venv activated and fails when its interpreter is invoked by path
+    (`.venv/bin/pip3 install -e .`, which is how this repo documents building).
+    Torch then falls back to distutils, which compiles the nine translation
+    units one at a time: 360 s against 103 s on a 16-core machine, with no
+    error and one easily-missed warning. See dev/gemm_roadmap.md (finding B0).
+    """
+    if shutil.which("ninja") is not None:
+        return True
+    try:
+        from ninja import BIN_DIR
+    except ImportError:
+        return False
+    if shutil.which("ninja", path=BIN_DIR) is None:
+        return False
+    os.environ["PATH"] = os.pathsep.join([BIN_DIR, os.environ.get("PATH", "")])
+    return True
 
 
 def get_extensions():
@@ -88,6 +114,24 @@ def get_extensions():
         extra_compile_args["cxx"].append("-g")
         extra_compile_args["nvcc"].append("-g")
         extra_link_args.extend(["-O0", "-g"])
+    else:
+        # torch.utils.cpp_extension builds host .cpp files with Python's own
+        # CFLAGS (`self.compiler.compiler_so[1:]`), which on a CPython built
+        # the usual way carries -g. Nothing here asks for it, and it is
+        # expensive: these TUs inline a ~150-instruction format cast into
+        # dozens of unrolled loop bodies, and GCC's var-tracking then dominates
+        # the compile. Compiled on its own, the CPU GEMM host code (then one
+        # cpu/custom_matmul_kernel.cpp, since split into four -- finding B2)
+        # was 78 s / 13.7 MB of object with -g and 57 s / 1.0 MB without; the
+        # other host TUs are 1.5-1.7x. Debug info was 16.5 MB of the 23.7 MB .so,
+        # which drops to 7.3 MB. Bit-exact and codegen-identical: .text and
+        # .nv_fatbin come out byte for byte the same (unlike dropping Python's
+        # -fno-omit-frame-pointer, which perturbs .text for no measurable
+        # gain). Our flags land after Python's on the command line, so the last
+        # -g wins. The .cu files never saw -g in the first place: torch's ninja
+        # path passes only preprocessor options and our own nvcc flags to
+        # nvcc. See dev/gemm_roadmap.md (finding B1).
+        extra_compile_args["cxx"].append("-g0")
 
     root = Path(__file__).resolve().parent
     csrc = root / library_name / "csrc"
@@ -112,10 +156,17 @@ def get_extensions():
     return ext_modules
 
 
+# Decided here rather than left to BuildExtension's own probe so that the
+# serial fallback is a stated outcome instead of a silent one, and so USE_NINJA=0
+# can ask for it deliberately (torch offers no env-var opt-out of its own).
+use_ninja = os.getenv("USE_NINJA", "1") == "1" and ensure_ninja_on_path()
+if not use_ninja:
+    print("Building without ninja: translation units will compile one at a time.")
+
 setup(
     name=library_name,
     packages=find_packages(),
     ext_modules=get_extensions(),
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass={"build_ext": BuildExtension.with_options(use_ninja=use_ninja)},
     options={"bdist_wheel": {"py_limited_api": "cp39"}} if py_limited_api else {},
 )

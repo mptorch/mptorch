@@ -1,9 +1,9 @@
 """
 Perf sanity check for the custom-arithmetic GEMM core
-(mptorch.quant.binaryK_matmul / superfp_matmul, see dev/gemm_core_roadmap.md)
+(mptorch.quant.binaryK_matmul / superfp_matmul, see dev/gemm_roadmap.md)
 against plain torch.matmul on the same shapes. Not a hard gate -- just a way
 to see the fused kernel is in the right ballpark, and to compare tile-size
-choices when iterating on mptorch/csrc/cuda/custom_matmul_kernel.cu.
+choices when iterating on mptorch/csrc/cuda/custom_matmul_kernel.cuh.
 
 Run with: python3 dev/benchmarks/benchmark_qmatmul.py
 """

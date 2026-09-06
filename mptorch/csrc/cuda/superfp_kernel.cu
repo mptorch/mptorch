@@ -2,6 +2,7 @@
 #include "../common/dispatch.h"
 #include "../quant_ops.h"
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/ops/empty_like.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "utils.cuh"

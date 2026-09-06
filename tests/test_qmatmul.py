@@ -273,7 +273,7 @@ def test_superfp_matmul_tier3_manual_baseline(device, dtype):
 # ------------------------------------------------------------------------------------
 # Rounding mode selection: every deterministic RoundMode (RNE/RNA/RU/RD/RZ/RO)
 # is wired through to the GEMM kernel's Multiplier/Adder, each with its own
-# precomputed-parameter fast path (see gemm_policy.h / dev/gemm_core_roadmap.md
+# precomputed-parameter fast path (see gemm_policy.h / dev/gemm_roadmap.md
 # Roadmap item 6). Reuses the Tier 3 manual-baseline pattern above, since bit-
 # exact agreement is the whole point -- a near-identity/statistical tolerance
 # wouldn't catch a mode being silently ignored or mismatched between the
@@ -451,6 +451,39 @@ def test_binaryK_matmul_rejects_non_2d():
     b = torch.randn(4, 5)
     with pytest.raises(RuntimeError):
         binaryK_matmul(a, b, mul_K=8, mul_P=4)
+
+
+# The GEMM kernels take their operands as `const void *` plus a runtime dtype
+# tag (finding K2), so the storage dtype is checked once on the host instead of
+# by `data_ptr<scalar_t>()` inside a per-dtype dispatch. That check has to keep
+# rejecting a pair the kernel cannot load as one type. float64 counts as
+# mismatched here on purpose: it is narrowed to float32 only when *both*
+# operands are float64, so that a disagreeing pair is rejected rather than
+# quietly made to agree.
+@pytest.mark.parametrize(
+    "dtype_a, dtype_b",
+    [
+        (torch.float32, torch.float16),
+        (torch.bfloat16, torch.float16),
+        (torch.float64, torch.float32),
+    ],
+)
+@pytest.mark.parametrize("device", available_devices)
+def test_matmul_rejects_mismatched_operand_dtypes(device, dtype_a, dtype_b):
+    a = torch.randn(4, 3, device=device).to(dtype_a)
+    b = torch.randn(5, 3, device=device).to(dtype_b)
+    with pytest.raises(RuntimeError):
+        binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4)
+    with pytest.raises(RuntimeError):
+        superfp_matmul(
+            a,
+            b,
+            trans_b=True,
+            mul_man_bits=3,
+            mul_exp_bits=4,
+            mul_normal_binades=1,
+            mul_bias=7,
+        )
 
 
 # ------------------------------------------------------------------------------------

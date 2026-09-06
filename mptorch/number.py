@@ -39,7 +39,7 @@ class AccumulateAlgorithm(Enum):
     Only :attr:`NAIVE` is implemented today; :attr:`KAHAN`, :attr:`BLOCK`,
     and :attr:`TREE` are reserved for future compensated-summation /
     block-summation / tree-summation accumulators (see
-    ``dev/gemm_core_roadmap.md``).
+    ``dev/gemm_roadmap.md``).
     """
 
     NAIVE = 0  #: Quantize the running sum after every accumulation step.

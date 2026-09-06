@@ -50,7 +50,7 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target)
 // construction and reuses them across its whole kernel launch (up to M*N*K
 // calls); the *_bits-taking originals stay in use everywhere else
 // (elementwise binaryK_quantize/superfp_quantize). Deliberately flat
-// (no nested structs) -- see dev/gemm_core_roadmap.md item 6 for the
+// (no nested structs) -- see dev/gemm_roadmap.md item 6 for the
 // compile-time blowup that motivated this. RoundMode::SR is out of scope
 // here (needs a per-call random value, not a format constant).
 
