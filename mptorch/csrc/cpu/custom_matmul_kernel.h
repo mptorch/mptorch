@@ -8,24 +8,20 @@
 // TU, 92.7 s of a 111.2 s build (67.1 s compiled on its own, against 30.8 s
 // for the largest of the four that replaced it).
 
-#include "../common/dispatch.h"
+#include "../common/gemm_args.h"
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
-#include <ATen/core/Tensor.h>
+#include "utils.h" // draw_cpu_seed
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h> // at::internal::GRAIN_SIZE lives here
-#include <ATen/ops/aminmax.h>
 #include <algorithm>
-#include <initializer_list>
 
 namespace mptorch::gemm_cpu
 {
-  // Confined to this namespace, rather than dumped into the file scope of
-  // everything that includes this header.
-  using namespace at;
+  using mptorch::gemm::GemmShape;
 
   // The operands' storage dtype is a runtime argument rather than a template
-  // parameter of the kernel (mptorch::GemmDtype, common/dispatch.h -- finding
+  // parameter of the kernel (mptorch::GemmDtype, common/gemm_dtype.h -- finding
   // K2). On the GPU that is a switch inside the load; here it would be a
   // switch in the innermost loop, which is not free, so the kernel does what
   // a BLAS does instead and packs each 32x32 operand tile into a float buffer
@@ -258,74 +254,55 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  inline void check_matmul_inputs(const Tensor &a, const Tensor &b, const char *op_name,
-                           int64_t round_mode, int64_t accumulate_algorithm)
+  // The CPU half of what common/gemm_host.h's driver needs. Its CUDA twin is
+  // split across cuda/gemm_backend.h and the .cu files because a .cu must not
+  // see at::Tensor (finding H1); here there is no such boundary, so the whole
+  // backend is this one struct.
+  struct CpuBackend
   {
-    TORCH_CHECK(a.dim() == 2 && b.dim() == 2, op_name, " expects 2D tensors, got ",
-               a.dim(), "D and ", b.dim(), "D");
-    TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) == AccumulateAlgorithm::NAIVE,
-               op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
-  }
+    struct LaunchContext
+    {
+      uint64_t seed = 0;
+    };
 
-  inline void matmul_output_shape(const Tensor &a, const Tensor &b, bool trans_a, bool trans_b,
-                           const char *op_name, int64_t &M, int64_t &K, int64_t &N)
-  {
-    M = trans_a ? a.size(1) : a.size(0);
-    K = trans_a ? a.size(0) : a.size(1);
-    int64_t K_b = trans_b ? b.size(1) : b.size(0);
-    N = trans_b ? b.size(0) : b.size(1);
-    TORCH_CHECK(K == K_b, op_name, ": inner dimensions must match (got ", K, " vs ", K_b, ")");
-  }
+    // No counter to reserve, unlike the CUDA generator: NaiveTile::seed_rng
+    // keys each output element's stream on this one seed plus the element's
+    // global linear index, so a call consumes exactly one draw however many
+    // values its K-reduction goes on to need.
+    static LaunchContext make_context(bool use_rng, uint64_t /*draws_per_thread*/)
+    {
+      return LaunchContext{use_rng ? draw_cpu_seed() : 0};
+    }
 
-  // Validates a spatially-varying mixed-format op's per-output-element
-  // precision index and derives the (row_stride, col_stride) pair the
-  // kernel reads it with -- accepting a dense [M, N] map, a per-row [M, 1]
-  // map, or a per-column [1, N] map (see gemm_policy.h's FormatPalette).
-  // Bounds-checks every entry against the palette size and hands back the
-  // contiguous int32 tensor to keep alive across the kernel call.
-  inline void resolve_prec_idx(const Tensor &prec_idx, const Tensor &ref, int64_t M, int64_t N,
-                        const char *op_name, int64_t n_formats, Tensor &pidx_out,
-                        int64_t &idx_row_stride, int64_t &idx_col_stride)
-  {
-    TORCH_CHECK(prec_idx.dim() == 2, op_name, ": prec_idx must be 2D, got ", prec_idx.dim(), "D");
-    Tensor pidx = prec_idx.to(ref.device(), at::kInt).contiguous();
-    int64_t r = pidx.size(0), c = pidx.size(1);
-    if (r == M && c == N)
+    // One body for all eight ops -- the Args names the policy, and that is the
+    // only thing that differed between the eight entry points this replaced.
+    // LEAN=false: the Lean superfp spelling exists to buy back a resident
+    // block on the GPU, and there is no occupancy cliff to buy it back from
+    // here. See dev/gemm_perf_audit.md (finding G10).
+    template <class Args>
+    static void launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
-      idx_row_stride = N;
-      idx_col_stride = 1;
+      mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+      {
+        constexpr RoundMode RM = decltype(rm_c)::value;
+        if constexpr (Args::mixed)
+        {
+          args.template with_palette<RM, false>([&](auto acc, const auto &pal)
+          {
+            matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                         acc, s.use_rng, ctx.seed, pal, s.prec_idx,
+                                         s.idx_row_stride, s.idx_col_stride);
+          });
+        }
+        else
+        {
+          args.template with_accumulator<RM, false>([&](auto acc)
+          {
+            matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                   acc, s.use_rng, ctx.seed);
+          });
+        }
+      });
     }
-    else if (r == M && c == 1)
-    {
-      idx_row_stride = 1;
-      idx_col_stride = 0;
-    }
-    else if (r == 1 && c == N)
-    {
-      idx_row_stride = 0;
-      idx_col_stride = 1;
-    }
-    else
-    {
-      TORCH_CHECK(false, op_name, ": prec_idx shape must be [M, N], [M, 1] or [1, N] (M=", M,
-                 ", N=", N, "), got [", r, ", ", c, "]");
-    }
-    // one pass over the map rather than two; there is no device sync to
-    // save here, which is why the CUDA twin's memo has no counterpart
-    auto bounds = at::aminmax(pidx);
-    int64_t lo = std::get<0>(bounds).item<int64_t>();
-    int64_t hi = std::get<1>(bounds).item<int64_t>();
-    TORCH_CHECK(lo >= 0 && hi < n_formats, op_name, ": prec_idx entries must be in [0, ", n_formats,
-               "), got range [", lo, ", ", hi, "]");
-    pidx_out = pidx;
-  }
-
-  inline void check_palette_lengths(int64_t n, const char *op_name, std::initializer_list<int64_t> other_lens)
-  {
-    TORCH_CHECK(n >= 1 && n <= MAX_GEMM_FORMATS, op_name, ": expected 1..", MAX_GEMM_FORMATS,
-               " palette formats, got ", n);
-    for (int64_t l : other_lens)
-      TORCH_CHECK(l == n, op_name, ": every palette parameter list must have length ", n,
-                 " (got one of length ", l, ")");
-  }
+  };
 } // namespace mptorch::gemm_cpu

@@ -25,30 +25,26 @@
 // would only multiply that ~25 s fixed cost again for nothing.
 //
 // These were file-local (an anonymous namespace) before the split and are a
-// named namespace now: a header's anonymous namespace would give each
-// including TU its own copy of the memo below, where there was one. The
-// kernel is a template either way, so nvcc still sees a full specialization
-// per launch -- the eight GEMM kernels' measured throughput is unchanged.
-
-#include "../common/gemm_policy.h"
-#include "../common/dispatch.h"
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
+// named namespace now. The kernel is a template either way, so nvcc still
+// sees a full specialization per launch -- the eight GEMM kernels' measured
+// throughput is unchanged.
+//
+// H1 then took everything that was not the kernel out of here: the host
+// prologue and the prec_idx memo are common/gemm_host.h, the policy factories
+// are common/gemm_args.h, and the entry points are custom_matmul_entry.cpp.
+// What is left carries no ATen at all, which is what makes the four .cu files
+// cheap to compile -- see cuda/gemm_backend.h.
+#include "../common/gemm_args.h"
+#include "gemm_backend.h"
 #include <ATen/cuda/PhiloxUtils.cuh>
-#include <ATen/ops/aminmax.h>
-#include <ATen/ops/stack.h>
+#include <c10/util/BFloat16.h>
+#include <c10/util/Half.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
-#include <algorithm>
-#include <initializer_list>
-#include <vector>
-#include <mutex>
 
 namespace mptorch::gemm_cuda
 {
-    // Confined to this namespace, rather than dumped into the file scope of
-    // everything that includes this header.
-    using namespace at;
+    using mptorch::gemm::GemmShape;
 
     // Double-buffered tiled GEMM, ported from the mm_kernel3 prototype in
     // dev/cuda/custom_matmul.cu (benchmarked slightly faster than the
@@ -59,7 +55,7 @@ namespace mptorch::gemm_cuda
     constexpr int BLOCKSIZE = 16;
 
     // The operands' storage dtype is a kernel *argument*, not a template
-    // parameter -- see mptorch::GemmDtype in common/dispatch.h for why
+    // parameter -- see mptorch::GemmDtype in common/gemm_dtype.h for why
     // (finding K2). The switch is warp-uniform, it is reached twice per
     // BLOCKSIZE K-steps rather than once per accumulate, and it sits next to
     // the global load whose latency it hides behind.
@@ -237,10 +233,15 @@ namespace mptorch::gemm_cuda
             store_elem(C, rId * N + cId, dt, acc.finalize());
     }
 
+    // The launcher the four .cu files instantiate. The stream arrives from
+    // the driver rather than being fetched here: getCurrentCUDAStream() lives
+    // behind <ATen/cuda/CUDAContext.h>, which is most of what this file no
+    // longer includes.
     template <bool MIXED = false, class Accumulator>
     void launch_custom_matmul(const void *a, const void *b, void *c, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
                               Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
+                              cudaStream_t stream,
                               FormatPalette<typename Accumulator::mac_type> pal = {},
                               const int32_t *prec_idx = nullptr,
                               int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
@@ -248,191 +249,44 @@ namespace mptorch::gemm_cuda
         dim3 block_dim(static_cast<unsigned>((N + BLOCKSIZE - 1) / BLOCKSIZE),
                        static_cast<unsigned>((M + BLOCKSIZE - 1) / BLOCKSIZE));
         dim3 thread_dim(BLOCKSIZE * BLOCKSIZE);
-        cudaStream_t stream = at::cuda::getCurrentCUDAStream();
         custom_matmul_kernel<MIXED, Accumulator><<<block_dim, thread_dim, 0, stream>>>(
             a, b, c, dt, M, K, N, trans_a, trans_b, acc_proto, use_rng, rng_args,
             pal, prec_idx, idx_row_stride, idx_col_stride);
     }
 
-    inline void check_matmul_inputs(const Tensor &a, const Tensor &b, const char *op_name,
-                             int64_t round_mode, int64_t accumulate_algorithm)
-    {
-        TORCH_CHECK(a.dim() == 2 && b.dim() == 2, op_name, " expects 2D tensors, got ",
-                   a.dim(), "D and ", b.dim(), "D");
-        TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) == AccumulateAlgorithm::NAIVE,
-                   op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
-    }
-
-    inline void matmul_output_shape(const Tensor &a, const Tensor &b, bool trans_a, bool trans_b,
-                             const char *op_name, int64_t &M, int64_t &K, int64_t &N)
-    {
-        M = trans_a ? a.size(1) : a.size(0);
-        K = trans_a ? a.size(0) : a.size(1);
-        int64_t K_b = trans_b ? b.size(1) : b.size(0);
-        N = trans_b ? b.size(0) : b.size(1);
-        TORCH_CHECK(K == K_b, op_name, ": inner dimensions must match (got ", K, " vs ", K_b, ")");
-    }
-
-    // Draws (seed, offset) from ATen's default CUDA generator (respecting
-    // torch.manual_seed, same as the elementwise binaryK_quantize/
-    // superfp_quantize SR path's quant_rng_engine_inputs in cuda/utils.cuh),
-    // reserving `counter_offset`
-    // 128-bit Philox blocks so a subsequent unrelated RNG-consuming op
-    // doesn't reuse the same (seed, offset) pair -- the standard native
-    // CUDA RNG kernel idiom (see e.g. native/cuda/Dropout.cu upstream).
-    // Only called when RoundMode::SR is selected. draws_per_thread is a
-    // safe upper bound on how many random values any single output
-    // element's thread may draw over its K-step reduction (2*K for
-    // SplitMac's independent mul/add draws, K for FusedMac's single draw
-    // per step) -- Philox batches 4 draws per 128-bit block.
-    inline at::PhiloxCudaState matmul_rng_engine_inputs(uint64_t draws_per_thread)
-    {
-        auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
-            c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
-        uint64_t counter_offset = (draws_per_thread + 3) / 4;
-        std::lock_guard<std::mutex> lock(gen->mutex_);
-        return gen->philox_cuda_state(counter_offset);
-    }
-
-    // Remembers precision maps that have already passed the bounds check
-    // below, so a map reused across calls is checked once rather than every
-    // time.
+    // One body for all eight ops. The Args is the only thing that differs
+    // between them, and all it does is name which policy to build
+    // (common/gemm_args.h); the eight entry points that used to spell this out
+    // one at a time are now two calls in custom_matmul_entry.cpp.
     //
-    // The check needs the index *values* on the host, and on CUDA that means
-    // a device-to-host copy, which drains the stream before the GEMM is even
-    // launched: 0.23 ms per call on an RTX 4060 laptop under WSL2, against
-    // 0.27 ms for an entire 64^3 mixed GEMM. A map is normally built once
-    // and reused, so this skips the copy while the same tensor comes back
-    // unchanged. A miss runs exactly the check it always ran, with the same
-    // error and the same message.
-    //
-    // The key is the TensorImpl's address plus its version counter, and the
-    // entry holds a weak reference to that impl. The weak reference is what
-    // makes comparing raw addresses sound: it keeps the impl's control block
-    // (not its storage -- the map itself is not pinned) alive, so no other
-    // tensor can be constructed at that address while an entry still names
-    // it. The version counter catches every in-place write that goes through
-    // ATen. Two cases are deliberately never memoized: a CPU tensor, which
-    // has no sync to save, and a tensor with no version counter (created
-    // under torch.inference_mode), which has nothing to invalidate against.
-    // Both take the full check on every call.
-    //
-    // FormatPalette::slot masks the index into range regardless, so nothing
-    // here can turn a stale entry into an out-of-bounds read.
-    // See dev/gemm_perf_audit.md (finding G5).
-    struct ValidatedPrecIdx
+    // LEAN=true is this backend's answer to the one question gemm_args.h asks
+    // it: the superfp mixed palette holds two full policies per slot and runs
+    // out of registers at 100, where the Lean spelling rebuilds the fast-path
+    // floats instead of carrying them and buys a resident block back. The CPU
+    // has no such cliff and answers false. See dev/gemm_perf_audit.md (G10).
+    template <class Args>
+    void CudaBackend::launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
-        c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl> impl;
-        const c10::TensorImpl *raw;
-        uint32_t version;
-        int64_t n_formats;
-    };
-
-    constexpr size_t PREC_IDX_MEMO_SLOTS = 4;
-    inline std::mutex g_prec_idx_memo_mutex;
-    inline std::vector<ValidatedPrecIdx> g_prec_idx_memo;
-
-    // (impl address, version) if this tensor is a candidate for the memo.
-    inline bool prec_idx_memo_key(const at::Tensor &pidx, const c10::TensorImpl *&raw, uint32_t &version)
-    {
-        if (!pidx.is_cuda())
-            return false;
-        c10::TensorImpl *impl = pidx.unsafeGetTensorImpl();
-        if (!impl->version_counter().enabled())
-            return false;
-        raw = impl;
-        version = impl->version_counter().current_version();
-        return true;
-    }
-
-    inline bool prec_idx_already_validated(const at::Tensor &pidx, int64_t n_formats)
-    {
-        const c10::TensorImpl *raw = nullptr;
-        uint32_t version = 0;
-        if (!prec_idx_memo_key(pidx, raw, version))
-            return false;
-        std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
-        for (const ValidatedPrecIdx &e : g_prec_idx_memo)
-            if (e.raw == raw && e.version == version && e.n_formats == n_formats)
-                return true;
-        return false;
-    }
-
-    inline void remember_validated_prec_idx(const at::Tensor &pidx, int64_t n_formats)
-    {
-        const c10::TensorImpl *raw = nullptr;
-        uint32_t version = 0;
-        if (!prec_idx_memo_key(pidx, raw, version))
-            return;
-        std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
-        // drop entries whose tensor is gone, and any stale record of this one
-        auto dead = std::remove_if(g_prec_idx_memo.begin(), g_prec_idx_memo.end(),
-                                   [&](const ValidatedPrecIdx &e)
-                                   { return e.impl.expired() || e.raw == raw; });
-        g_prec_idx_memo.erase(dead, g_prec_idx_memo.end());
-        if (g_prec_idx_memo.size() >= PREC_IDX_MEMO_SLOTS)
-            g_prec_idx_memo.erase(g_prec_idx_memo.begin());
-        g_prec_idx_memo.push_back(ValidatedPrecIdx{
-            c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl>(pidx.getIntrusivePtr()),
-            raw, version, n_formats});
-    }
-
-    // Validates a spatially-varying mixed-format op's per-output-element
-    // precision index and derives the (row_stride, col_stride) pair the
-    // kernel reads it with -- accepting a dense [M, N] map, a per-row
-    // [M, 1] map, or a per-column [1, N] map (see gemm_policy.h's
-    // FormatPalette). Casts to int32 on the operand's device, bounds-checks
-    // every entry against the palette size (see the memo above for when that
-    // costs a device sync), and hands back the contiguous tensor to keep
-    // alive across the launch.
-    inline void resolve_prec_idx(const at::Tensor &prec_idx, const at::Tensor &ref, int64_t M, int64_t N,
-                          const char *op_name, int64_t n_formats, at::Tensor &pidx_out,
-                          int64_t &idx_row_stride, int64_t &idx_col_stride)
-    {
-        TORCH_CHECK(prec_idx.dim() == 2, op_name, ": prec_idx must be 2D, got ", prec_idx.dim(), "D");
-        at::Tensor pidx = prec_idx.to(ref.device(), at::kInt).contiguous();
-        int64_t r = pidx.size(0), c = pidx.size(1);
-        if (r == M && c == N)
+        mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
         {
-            idx_row_stride = N;
-            idx_col_stride = 1;
-        }
-        else if (r == M && c == 1)
-        {
-            idx_row_stride = 1;
-            idx_col_stride = 0;
-        }
-        else if (r == 1 && c == N)
-        {
-            idx_row_stride = 0;
-            idx_col_stride = 1;
-        }
-        else
-        {
-            TORCH_CHECK(false, op_name, ": prec_idx shape must be [M, N], [M, 1] or [1, N] (M=", M,
-                       ", N=", N, "), got [", r, ", ", c, "]");
-        }
-        if (!prec_idx_already_validated(pidx, n_formats))
-        {
-            // aminmax is one reduction and one 2-element copy back, where
-            // min().item() and max().item() were two of each.
-            auto mm = at::aminmax(pidx);
-            auto bounds = at::stack({std::get<0>(mm), std::get<1>(mm)}).cpu();
-            const int32_t *b = bounds.data_ptr<int32_t>();
-            int64_t lo = b[0], hi = b[1];
-            TORCH_CHECK(lo >= 0 && hi < n_formats, op_name, ": prec_idx entries must be in [0, ", n_formats,
-                       "), got range [", lo, ", ", hi, "]");
-            remember_validated_prec_idx(pidx, n_formats);
-        }
-        pidx_out = pidx;
-    }
-
-    inline void check_palette_lengths(int64_t n, const char *op_name, std::initializer_list<int64_t> other_lens)
-    {
-        TORCH_CHECK(n >= 1 && n <= MAX_GEMM_FORMATS, op_name, ": expected 1..", MAX_GEMM_FORMATS,
-                   " palette formats, got ", n);
-        for (int64_t l : other_lens)
-            TORCH_CHECK(l == n, op_name, ": every palette parameter list must have length ", n,
-                       " (got one of length ", l, ")");
+            constexpr RoundMode RM = decltype(rm_c)::value;
+            if constexpr (Args::mixed)
+            {
+                args.template with_palette<RM, true>([&](auto acc, const auto &pal)
+                {
+                    launch_custom_matmul<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a,
+                                               s.trans_b, acc, s.use_rng, ctx.rng, ctx.stream,
+                                               pal, s.prec_idx, s.idx_row_stride, s.idx_col_stride);
+                });
+            }
+            else
+            {
+                args.template with_accumulator<RM, true>([&](auto acc)
+                {
+                    launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                         acc, s.use_rng, ctx.rng, ctx.stream);
+                });
+            }
+        });
     }
 } // namespace mptorch::gemm_cuda

@@ -1,9 +1,9 @@
 #pragma once
 
+#include "gemm_dtype.h"
 #include "modes.h"
 #include <ATen/core/Tensor.h>
 #include <ATen/Dispatch.h>
-#include <type_traits>
 
 // Type dispatch for the GEMM and elementwise quantize entry points.
 //
@@ -20,6 +20,11 @@
 // the load) and lets the dispatch drop at::ScalarType::Double, which is a
 // quarter of the GEMM's 52 kernel instantiations and of the compile time
 // and .nv_fatbin that go with them. See dev/gemm_perf_audit.md (finding G6).
+//
+// The GEMM's half of this -- mptorch::GemmDtype and dispatch_round_mode --
+// moved to common/gemm_dtype.h, which carries no ATen, so the .cu files can
+// name them without paying for <ATen/core/Tensor.h> (finding H1). This header
+// includes it, so every existing spelling still resolves from here.
 #define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)      \
   AT_DISPATCH_SWITCH(                                      \
       TYPE, NAME,                                          \
@@ -30,66 +35,9 @@
 namespace mptorch
 {
 
-  // Turns a runtime RoundMode into a compile-time one (finding K1): `f` is
-  // called with an std::integral_constant naming the mode, so the policies it
-  // builds carry a single cast body instead of a seven-way switch. This is
-  // what the elementwise quantizers' own entry points already did by hand
-  // (see cuda/binaryK_kernel.cu's launch_kernels); the GEMM's eight entry
-  // points get it from here rather than each repeating the switch.
-  //
-  // It costs one instantiation of the caller's body per mode, all seven of
-  // which are host code that builds a policy struct and launches -- the
-  // kernels behind them are the only thing that multiplies, and K2 divided
-  // that count by three first, which is why the pair ships together.
-  template <class F>
-  void dispatch_round_mode(RoundMode rm, F &&f)
-  {
-    switch (rm)
-    {
-    case RoundMode::RNA:
-      f(std::integral_constant<RoundMode, RoundMode::RNA>{});
-      break;
-    case RoundMode::RU:
-      f(std::integral_constant<RoundMode, RoundMode::RU>{});
-      break;
-    case RoundMode::RD:
-      f(std::integral_constant<RoundMode, RoundMode::RD>{});
-      break;
-    case RoundMode::RZ:
-      f(std::integral_constant<RoundMode, RoundMode::RZ>{});
-      break;
-    case RoundMode::RO:
-      f(std::integral_constant<RoundMode, RoundMode::RO>{});
-      break;
-    case RoundMode::SR:
-      f(std::integral_constant<RoundMode, RoundMode::SR>{});
-      break;
-    default: // RoundMode::RNE
-      f(std::integral_constant<RoundMode, RoundMode::RNE>{});
-      break;
-    }
-  }
-
-  // The GEMM kernels take their operands as `const void *` plus one of these
-  // instead of being instantiated once per storage dtype (finding K2). The
-  // paragraph above is the whole argument: `scalar_t` was never anything but
-  // the load/store type, so the three instantiations of a GEMM differed in two
-  // tile loads per 16 K-steps and one store per output element, and tripled
-  // everything else -- the cast bodies, the unrolled K-loop, the compile time
-  // and the SASS. The same `static_cast<float>` still runs; which one is
-  // chosen at runtime rather than at compile time, so the values are
-  // identical. The elementwise quantizers keep the macro: they *are* the
-  // load/store, and they vectorize per dtype (SIMDTraits).
-  enum class GemmDtype : int
-  {
-    Float = 0,
-    Half = 1,
-    BFloat16 = 2,
-  };
-
-  // Also the check that `data_ptr<scalar_t>()` used to make for free: a
-  // GEMM whose operands disagree, or whose dtype the kernel cannot load,
-  // must be rejected rather than reinterpreted.
+  // The check that `data_ptr<scalar_t>()` used to make for free: a GEMM whose
+  // operands disagree, or whose dtype the kernel cannot load, must be rejected
+  // rather than reinterpreted.
   inline GemmDtype gemm_dtype_of(const at::Tensor &a, const at::Tensor &b, const char *op_name)
   {
     TORCH_CHECK(a.scalar_type() == b.scalar_type(), op_name,

@@ -138,7 +138,13 @@ def get_extensions():
     sources = sorted(str(p.relative_to(root)) for p in csrc.glob("*.cpp"))
     sources += sorted(str(p.relative_to(root)) for p in (csrc / "cpu").glob("*.cpp"))
     if use_cuda:
+        # Both, and only under use_cuda: since H1 the CUDA GEMM's entry points
+        # and its launch-context draw are .cpp files sitting next to the .cu
+        # files they drive, because a .cu that never sees at::Tensor compiles
+        # its fixed ATen cost in ~3 s instead of ~25 s. A CPU-only build skips
+        # this directory whole, exactly as it always did.
         sources += sorted(str(p.relative_to(root)) for p in (csrc / "cuda").glob("*.cu"))
+        sources += sorted(str(p.relative_to(root)) for p in (csrc / "cuda").glob("*.cpp"))
 
     include_dirs = [str(csrc)]
 
