@@ -426,6 +426,13 @@ def binaryK_matmul_mixed(
     ``[M, 1]`` (per row), or ``[1, N]`` (per column); values must lie in
     ``[0, n)`` (checked host-side). ``a``/``b`` must be 2D, as for
     :func:`binaryK_matmul`.
+
+    Any integer dtype and layout is accepted, but a map that is already
+    ``int32``, contiguous and on ``a``'s device is passed through untouched,
+    where any other spelling is narrowed and packed on every call. Hold one
+    such map and reuse it across calls: the bounds check is memoized against
+    the tensor you pass, so a map built fresh each call is re-checked each
+    call.
     """
     mul_K = list(mul_K)
     mul_P = list(mul_P)

@@ -987,6 +987,50 @@ def test_binaryK_matmul_mixed_broadcast_row_and_col(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
+def test_binaryK_matmul_mixed_prec_idx_dtype_and_layout(device):
+    # The host narrows prec_idx to int32 on the operand's device and memoizes
+    # the bounds check against the caller's tensor (gemm_host.h, finding G5b).
+    # Every spelling of the same map -- int64, non-contiguous, host-resident
+    # while the operands are not -- must give the same answer as the plain one.
+    M, K, N = 7, 6, 5
+    a = torch.randn(M, K, device=device)
+    b = torch.randn(N, K, device=device)
+    kw: dict[str, Any] = dict(trans_b=True, mul_K=[8, 28], mul_P=[4, 20])
+
+    base = torch.randint(0, 2, (M, N), dtype=torch.int32, device=device)
+    ref = binaryK_matmul_mixed(a, b, base, **kw)
+
+    assert torch.equal(binaryK_matmul_mixed(a, b, base.to(torch.int64), **kw), ref)
+    assert torch.equal(binaryK_matmul_mixed(a, b, base.cpu(), **kw), ref)
+    strided = torch.empty(M, 2 * N, dtype=torch.int32, device=device)
+    strided[:, ::2] = base
+    assert torch.equal(binaryK_matmul_mixed(a, b, strided[:, ::2], **kw), ref)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_binaryK_matmul_mixed_prec_idx_memo_sees_mutation(device):
+    # The memo keys on the caller's tensor, so an in-place edit of a map that
+    # has already been validated has to invalidate it -- both when the edit
+    # keeps it in range (the result must follow the new indices) and when it
+    # puts it out of range (the call must still be rejected).
+    M, K, N = 7, 6, 5
+    a = torch.randn(M, K, device=device)
+    b = torch.randn(N, K, device=device)
+    kw: dict[str, Any] = dict(trans_b=True, mul_K=[8, 28], mul_P=[4, 20])
+
+    idx = torch.zeros(M, N, dtype=torch.int32, device=device)
+    all_zero = binaryK_matmul_mixed(a, b, idx, **kw)
+    idx.fill_(1)
+    all_one = binaryK_matmul_mixed(a, b, idx, **kw)
+    assert not torch.equal(all_zero, all_one)
+    assert torch.equal(all_one, binaryK_matmul_mixed(a, b, torch.ones_like(idx), **kw))
+
+    idx.fill_(2)
+    with pytest.raises(RuntimeError):
+        binaryK_matmul_mixed(a, b, idx, **kw)
+
+
+@pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_mixed_rejects_bad_prec_idx(device):
     M, K, N = 5, 4, 6
     a = torch.randn(M, K, device=device)

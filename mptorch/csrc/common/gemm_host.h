@@ -88,14 +88,27 @@ namespace mptorch::gemm
   // (not its storage -- the map itself is not pinned) alive, so no other
   // tensor can be constructed at that address while an entry still names it.
   // The version counter catches every in-place write that goes through ATen.
-  // Two cases are deliberately never memoized: a CPU tensor, which has no
-  // sync to save, and a tensor with no version counter (created under
-  // torch.inference_mode), which has nothing to invalidate against. Both take
-  // the full check on every call.
+  //
+  // The keyed tensor is the caller's map, not the int32 contiguous copy the
+  // kernel reads. Those two are the same object only when the caller already
+  // holds an int32 contiguous tensor on the operand's device; for anything
+  // else -- an int64 map, which is what torch.zeros/randint/arange hand back
+  // without an explicit dtype, or a strided view -- `to(...).contiguous()`
+  // allocates a fresh tensor on every call, so keying on it missed every
+  // time and paid back the very sync this memo exists to remove (finding
+  // G5b). Keying on the input is sound because the converted contents are a
+  // pure function of it, and a view shares its base's version counter.
+  //
+  // Two cases are deliberately never memoized: a check that will run on the
+  // host, which has no sync to save, and a tensor with no version counter
+  // (created under torch.inference_mode), which has nothing to invalidate
+  // against. Both take the full check on every call. A map that lives on the
+  // host while the operands are on the device is also skipped: the copy makes
+  // a new tensor each call, so there is no stable key to hold.
   //
   // FormatPalette::slot masks the index into range regardless, so nothing
   // here can turn a stale entry into an out-of-bounds read.
-  // See dev/gemm_perf_audit.md (finding G5).
+  // See dev/gemm_perf_audit.md (findings G5, G5b).
   struct ValidatedPrecIdx
   {
     c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl> impl;
@@ -109,11 +122,15 @@ namespace mptorch::gemm
   inline std::vector<ValidatedPrecIdx> g_prec_idx_memo;
 
   // (impl address, version) if this tensor is a candidate for the memo.
-  inline bool prec_idx_memo_key(const Tensor &pidx, const c10::TensorImpl *&raw, uint32_t &version)
+  // `on_device` says the check would run on CUDA, i.e. that there is a sync
+  // worth skipping; the tensor itself must be on the device too, or the copy
+  // that puts it there makes the key useless.
+  inline bool prec_idx_memo_key(const Tensor &prec_idx, bool on_device,
+                                const c10::TensorImpl *&raw, uint32_t &version)
   {
-    if (!pidx.is_cuda())
+    if (!on_device || !prec_idx.is_cuda())
       return false;
-    c10::TensorImpl *impl = pidx.unsafeGetTensorImpl();
+    c10::TensorImpl *impl = prec_idx.unsafeGetTensorImpl();
     if (!impl->version_counter().enabled())
       return false;
     raw = impl;
@@ -121,11 +138,11 @@ namespace mptorch::gemm
     return true;
   }
 
-  inline bool prec_idx_already_validated(const Tensor &pidx, int64_t n_formats)
+  inline bool prec_idx_already_validated(const Tensor &prec_idx, bool on_device, int64_t n_formats)
   {
     const c10::TensorImpl *raw = nullptr;
     uint32_t version = 0;
-    if (!prec_idx_memo_key(pidx, raw, version))
+    if (!prec_idx_memo_key(prec_idx, on_device, raw, version))
       return false;
     std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
     for (const ValidatedPrecIdx &e : g_prec_idx_memo)
@@ -134,11 +151,12 @@ namespace mptorch::gemm
     return false;
   }
 
-  inline void remember_validated_prec_idx(const Tensor &pidx, int64_t n_formats)
+  inline void remember_validated_prec_idx(const Tensor &prec_idx, bool on_device,
+                                          int64_t n_formats)
   {
     const c10::TensorImpl *raw = nullptr;
     uint32_t version = 0;
-    if (!prec_idx_memo_key(pidx, raw, version))
+    if (!prec_idx_memo_key(prec_idx, on_device, raw, version))
       return;
     std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
     // drop entries whose tensor is gone, and any stale record of this one
@@ -149,7 +167,8 @@ namespace mptorch::gemm
     if (g_prec_idx_memo.size() >= PREC_IDX_MEMO_SLOTS)
       g_prec_idx_memo.erase(g_prec_idx_memo.begin());
     g_prec_idx_memo.push_back(ValidatedPrecIdx{
-        c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl>(pidx.getIntrusivePtr()),
+        c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl>(
+            prec_idx.getIntrusivePtr()),
         raw, version, n_formats});
   }
 
@@ -187,15 +206,24 @@ namespace mptorch::gemm
       TORCH_CHECK(false, op_name, ": prec_idx shape must be [M, N], [M, 1] or [1, N] (M=", M,
                   ", N=", N, "), got [", r, ", ", c, "]");
     }
-    if (!prec_idx_already_validated(pidx, n_formats))
+    // Check whichever of the two copies is already on the host: for a host
+    // map feeding a device GEMM that is the caller's tensor, and reading its
+    // bounds there costs nothing, where reading them from the device copy is
+    // the same sync the memo exists to avoid -- and cannot be memoized, since
+    // the copy is a new tensor every call. `prec_idx` may still be int64 here,
+    // which only makes the check stricter: an index that would wrap on the
+    // narrowing to int32 is rejected rather than silently aliased.
+    const Tensor &to_check = prec_idx.is_cuda() ? pidx : prec_idx;
+    const bool memo = pidx.is_cuda();
+    if (!prec_idx_already_validated(prec_idx, memo, n_formats))
     {
       // aminmax is one reduction where min() and max() were two. Reading the
       // pair back differs by device on purpose: on CUDA the two scalars are
       // stacked so the sync is one 2-element copy rather than two; on CPU
       // there is no sync to amortize and .item() avoids the extra allocation.
-      auto mm = at::aminmax(pidx);
+      auto mm = at::aminmax(to_check);
       int64_t lo, hi;
-      if (pidx.is_cuda())
+      if (to_check.is_cuda())
       {
         auto bounds = at::stack({std::get<0>(mm), std::get<1>(mm)}).cpu();
         const int32_t *b = bounds.data_ptr<int32_t>();
@@ -209,7 +237,7 @@ namespace mptorch::gemm
       }
       TORCH_CHECK(lo >= 0 && hi < n_formats, op_name, ": prec_idx entries must be in [0, ",
                   n_formats, "), got range [", lo, ", ", hi, "]");
-      remember_validated_prec_idx(pidx, n_formats);
+      remember_validated_prec_idx(prec_idx, memo, n_formats);
     }
     pidx_out = pidx;
   }
