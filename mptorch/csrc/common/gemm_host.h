@@ -42,11 +42,18 @@ namespace mptorch::gemm
 {
   using at::Tensor;
 
+  // The one place a GEMM's round_mode is validated. Both drivers below call
+  // this before anything casts the integer, so dispatch_round_mode never sees
+  // a value it would have to guess at -- it used to map an unnamed one to RNE
+  // through its `default:`, which is invisible from Python. The enum members
+  // themselves are checked in gemm_dtype.h's is_round_mode.
   inline void check_matmul_inputs(const Tensor &a, const Tensor &b, const char *op_name,
                                   int64_t round_mode, int64_t accumulate_algorithm)
   {
     TORCH_CHECK(a.dim() == 2 && b.dim() == 2, op_name, " expects 2D tensors, got ",
                 a.dim(), "D and ", b.dim(), "D");
+    TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
+                " is not a RoundMode");
     TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) == AccumulateAlgorithm::NAIVE,
                 op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
   }

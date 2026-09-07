@@ -140,8 +140,10 @@ def get_extensions():
     else:
         print("Fast cast paths off: this compiler cannot promise unfused float32 arithmetic.")
 
-    if py_limited_api:
-        extra_compile_args["cxx"].append("-DPy_LIMITED_API=0x03090000")
+    # No -DPy_LIMITED_API here: BuildExtension adds
+    # -DPy_LIMITED_API=<its own min supported CPython> to every extension built
+    # with py_limited_api=True, and it does so *after* extra_compile_args. Ours
+    # only ever produced a "redefined" warning per host TU and then lost.
     if debug_mode:
         extra_compile_args["cxx"].append("-g")
         extra_compile_args["nvcc"].append("-g")

@@ -178,7 +178,6 @@ namespace mptorch::gemm
       {
         using Mac = SplitMac<BinaryKMultiplierT<RM>, BinaryKAdderT<RM>>;
         FormatPalette<Mac> pal;
-        pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
           pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), make_add<RM>(acc[i], acc_c)};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
@@ -187,7 +186,6 @@ namespace mptorch::gemm
       {
         using Mac = SplitMac<BinaryKMultiplierT<RM>, IdentityAdder>;
         FormatPalette<Mac> pal;
-        pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
           pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), IdentityAdder{}};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
@@ -240,7 +238,6 @@ namespace mptorch::gemm
     {
       using Mac = FusedMac<BinaryKAdderT<RM>>;
       FormatPalette<Mac> pal;
-      pal.n = n_fmt;
       for (int i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_add<RM>(fma[i], fma_c)};
       f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
@@ -303,7 +300,6 @@ namespace mptorch::gemm
       {
         using Mac = SplitMac<SuperfpMultiplier<RM>, SuperfpAdder<RM>>;
         FormatPalette<Mac> pal;
-        pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
           pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), make_add<RM>(acc[i], acc_c)};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
@@ -312,7 +308,6 @@ namespace mptorch::gemm
       {
         using Mac = SplitMac<SuperfpMultiplier<RM>, IdentityAdder>;
         FormatPalette<Mac> pal;
-        pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
           pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), IdentityAdder{}};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
@@ -362,7 +357,6 @@ namespace mptorch::gemm
     {
       using Mac = FusedMac<SuperfpAdder<RM>>;
       FormatPalette<Mac> pal;
-      pal.n = n_fmt;
       for (int i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_add<RM>(fma[i], fma_c)};
       f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);

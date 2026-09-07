@@ -130,15 +130,17 @@ namespace mptorch::gemm_cpu
   // FormatPalette prologue, exactly as it does on the GPU (finding G4) and
   // for the same reason: with the Mac no longer stored per output element
   // (finding C3), the single-format path wants one Mac held in registers for
-  // the whole call, which a runtime `pal.n > 0` test would turn back into a
-  // per-element pointer load in the innermost loop.
+  // the whole call, which the runtime "is there a palette?" test this
+  // replaced would turn back into a per-element pointer load in the innermost
+  // loop. Since K3 the single-format instantiations do not take a palette at
+  // all -- PaletteArg is NoPalette there (common/gemm_policy.h).
   template <bool MIXED = false, class Accumulator>
   void matmul_cpu_kernel_impl(const void *A, const void *B, void *C, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N,
                               bool trans_a, bool trans_b,
                               Accumulator acc_proto,
                               bool use_rng, uint64_t seed,
-                              FormatPalette<typename Accumulator::mac_type> pal = {},
+                              PaletteArg<MIXED, typename Accumulator::mac_type> pal = {},
                               const int32_t *__restrict__ prec_idx = nullptr,
                               int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
   {

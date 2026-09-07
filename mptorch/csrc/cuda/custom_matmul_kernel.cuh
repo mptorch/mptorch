@@ -123,7 +123,7 @@ namespace mptorch::gemm_cuda
         mptorch::GemmDtype dt,
         int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
         Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
-        FormatPalette<typename Accumulator::mac_type> pal,
+        PaletteArg<MIXED, typename Accumulator::mac_type> pal,
         const int32_t *__restrict__ prec_idx, int64_t idx_row_stride, int64_t idx_col_stride)
     {
         __shared__ float As[2][BLOCKSIZE * BLOCKSIZE];
@@ -158,10 +158,13 @@ namespace mptorch::gemm_cuda
 
         // Spatially-varying mixed format: bind this output element's Mac
         // policy from the palette before the K-loop (see gemm_policy.h's
-        // FormatPalette). Compiled out entirely on the single-format path.
+        // FormatPalette). Compiled out entirely on the single-format path,
+        // which does not even carry the palette argument. No emptiness test:
+        // the four mixed packers run check_palette_lengths, which requires at
+        // least one format, so MIXED implies a populated palette.
         if constexpr (MIXED)
         {
-            if (pal.n > 0 && rId < M && cId < N)
+            if (rId < M && cId < N)
                 acc.mac = pal.slot(prec_idx[rId * idx_row_stride + cId * idx_col_stride]);
         }
 
@@ -242,7 +245,7 @@ namespace mptorch::gemm_cuda
                               int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
                               Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
                               cudaStream_t stream,
-                              FormatPalette<typename Accumulator::mac_type> pal = {},
+                              PaletteArg<MIXED, typename Accumulator::mac_type> pal = {},
                               const int32_t *prec_idx = nullptr,
                               int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
     {

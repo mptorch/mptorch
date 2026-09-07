@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 import torch
 
+from mptorch.number import RoundMode
 from mptorch.quant import (
     binaryK_matmul,
     binaryK_matmul_fma,
@@ -188,3 +189,88 @@ def test_mixed_prec_idx_checked_under_inference_mode(device):
         bad = torch.full((5, 6), 3, dtype=torch.int32, device=device)
         with pytest.raises(RuntimeError):
             binaryK_matmul_mixed(a, b, bad, trans_b=True, mul_K=[8, 8], mul_P=[4, 3])
+
+
+# The raw ops, spelled out because the typed wrappers cannot reach this: they
+# take a RoundMode and pass its `.value`, so only a direct
+# torch.ops.mptorch.* call can hand the entry point an integer that names no
+# mode. One split op and one fma_mixed op are enough -- all sixteen entry
+# points share the single check in common/gemm_host.h's check_matmul_inputs.
+def _raw_gemm_calls(a, b, prec_idx):
+    """Two GEMM ops called through torch.ops, keyed by op name.
+
+    Every schema argument by name: these calls exist to vary one of them, so
+    spelling the rest positionally would hide which.
+    """
+    return {
+        "binaryK": lambda rm: torch.ops.mptorch.custom_matmul_binaryK.default(
+            a,
+            b,
+            trans_a=False,
+            trans_b=True,
+            mul_K=8,
+            mul_P=4,
+            mul_bias=127,
+            mul_is_signed=True,
+            accumulate_quant=True,
+            acc_K=10,
+            acc_P=5,
+            acc_bias=127,
+            acc_is_signed=True,
+            accumulate_algorithm=0,
+            round_mode=rm,
+            saturation_mode=0,
+            subnormals_mode=0,
+            mul_prng_bits=0,
+            acc_prng_bits=0,
+        ),
+        "superfp_fma_mixed": lambda rm: torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default(
+            a,
+            b,
+            prec_idx,
+            trans_a=False,
+            trans_b=True,
+            fma_quant=True,
+            fma_man_bits=[3, 2],
+            fma_exp_bits=[4, 4],
+            fma_normal_binades=[8, 8],
+            fma_bias=[7, 7],
+            fma_is_signed=True,
+            accumulate_algorithm=0,
+            round_mode=rm,
+            saturation_mode=0,
+            fma_prng_bits=0,
+        ),
+    }
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma_mixed"])
+@pytest.mark.parametrize("round_mode", [-1, len(RoundMode), 99, 2**40])
+def test_round_mode_outside_the_enum_is_rejected(device, op, round_mode):
+    """
+    K3: an integer that names no RoundMode used to fall through
+    dispatch_round_mode's ``default:`` and round to nearest-even in silence.
+    2**40 is in the set because the check has to reject it before anything
+    casts it to the enum's underlying int.
+    """
+    a = torch.randn(16, 12, device=device)
+    b = torch.randn(10, 12, device=device)
+    pidx = torch.randint(0, 2, (16, 10), dtype=torch.int32, device=device)
+    call = _raw_gemm_calls(a, b, pidx)[op]
+
+    with pytest.raises(RuntimeError, match="is not a RoundMode"):
+        call(round_mode)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma_mixed"])
+@pytest.mark.parametrize("round_mode", list(RoundMode))
+def test_every_round_mode_is_accepted(device, op, round_mode):
+    """The other half of the check above: no mode the enum names is refused."""
+    a = torch.randn(16, 12, device=device)
+    b = torch.randn(10, 12, device=device)
+    pidx = torch.randint(0, 2, (16, 10), dtype=torch.int32, device=device)
+
+    out = _raw_gemm_calls(a, b, pidx)[op](round_mode.value)
+    assert out.shape == (16, 10)

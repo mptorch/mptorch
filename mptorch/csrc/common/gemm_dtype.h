@@ -12,10 +12,43 @@
 // were. See dev/gemm_roadmap.md (finding H1).
 
 #include "modes.h"
+#include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace mptorch
 {
+
+  // Whether an integer arriving over the torch.ops boundary names a
+  // RoundMode. The Python wrappers only ever pass mptorch.number.RoundMode
+  // values, but torch.ops.mptorch.* is a public entry point and an unnamed
+  // integer used to fall through dispatch_round_mode's `default:` and round
+  // to nearest-even in silence.
+  //
+  // The switch carries no `default:` on purpose: -Wswitch then names this
+  // function when a mode is added to the enum, so the check cannot quietly
+  // fall behind it. The range test first is not redundant -- casting a value
+  // its underlying type cannot hold to a scoped enum is undefined, and `rm`
+  // is whatever the caller passed.
+  inline bool is_round_mode(int64_t rm)
+  {
+    using U = std::underlying_type_t<RoundMode>;
+    if (rm < static_cast<int64_t>(std::numeric_limits<U>::min()) ||
+        rm > static_cast<int64_t>(std::numeric_limits<U>::max()))
+      return false;
+    switch (static_cast<RoundMode>(rm))
+    {
+    case RoundMode::RNE:
+    case RoundMode::RNA:
+    case RoundMode::RU:
+    case RoundMode::RD:
+    case RoundMode::RZ:
+    case RoundMode::RO:
+    case RoundMode::SR:
+      return true;
+    }
+    return false;
+  }
 
   // Turns a runtime RoundMode into a compile-time one (finding K1): `f` is
   // called with an std::integral_constant naming the mode, so the policies it
@@ -51,7 +84,11 @@ namespace mptorch
     case RoundMode::SR:
       f(std::integral_constant<RoundMode, RoundMode::SR>{});
       break;
-    default: // RoundMode::RNE
+    case RoundMode::RNE:
+    default:
+      // The GEMM's callers reach this only through check_matmul_inputs,
+      // which rejects anything is_round_mode() does not name; the `default:`
+      // is here because `rm` is an enum holding whatever the caller cast.
       f(std::integral_constant<RoundMode, RoundMode::RNE>{});
       break;
     }

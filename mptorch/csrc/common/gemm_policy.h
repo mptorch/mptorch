@@ -377,17 +377,22 @@ struct NaiveAccumulator
 // prec_idx is read as prec_idx[row * idx_row_stride + col * idx_col_stride]
 // so one kernel path covers a dense [M, N] index (row_stride = N,
 // col_stride = 1), a per-row [M, 1] index (1, 0), and a per-column [1, N]
-// index (0, 1) with no branching. n == 0 selects the single-format path
-// and the hook is skipped entirely.
+// index (0, 1) with no branching. Which path runs is the kernel's MIXED
+// template parameter, not a property of the palette: the single-format
+// instantiations do not take one at all (see PaletteArg below).
 constexpr int MAX_GEMM_FORMATS = 8;
 static_assert((MAX_GEMM_FORMATS & (MAX_GEMM_FORMATS - 1)) == 0,
               "MAX_GEMM_FORMATS must be a power of two: slot() masks with it");
 
+// The slot count is deliberately not a member: nothing downstream reads it.
+// The host validates the palette length before packing
+// (gemm_host.h's check_palette_lengths, which is also what makes MIXED imply
+// a non-empty palette), and slot() masks rather than bounds-checks, so a
+// count riding into the kernel would be state no one can act on.
 template <class Mac>
 struct FormatPalette
 {
     Mac slots[MAX_GEMM_FORMATS] = {};
-    int n = 0;
 
     // Read a slot by precision index. The index is masked rather than
     // trusted: resolve_prec_idx bounds-checks the whole map host-side, but
@@ -400,3 +405,16 @@ struct FormatPalette
         return slots[idx & (MAX_GEMM_FORMATS - 1)];
     }
 };
+
+// What the kernels declare their palette parameter as. A FormatPalette is
+// 1.4-1.5 KB (the eight fully-built Macs), and a kernel argument rides in the
+// parameter bank whether or not the body reads it -- so before this, all 43
+// single-format instantiations, which compile the palette prologue out
+// entirely, still copied that much zeroed policy per launch. Empty on the
+// single-format path, the real thing on the mixed one.
+struct NoPalette
+{
+};
+
+template <bool MIXED, class Mac>
+using PaletteArg = std::conditional_t<MIXED, FormatPalette<Mac>, NoPalette>;
