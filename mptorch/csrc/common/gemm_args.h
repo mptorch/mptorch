@@ -103,18 +103,18 @@ namespace mptorch::gemm
     return BinaryKAdderT<RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
   }
 
-  template <RoundMode RM, bool LEAN>
-  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<RM, LEAN> make_mul(const SuperfpWidths &w, const SuperfpCommon &c)
+  template <RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<RM> make_mul(const SuperfpWidths &w, const SuperfpCommon &c)
   {
-    return SuperfpMultiplierT<RM, LEAN>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
-                                        c.prng_bits};
+    return SuperfpMultiplierT<RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
+                                  c.prng_bits};
   }
 
-  template <RoundMode RM, bool LEAN>
-  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<RM, LEAN> make_add(const SuperfpWidths &w, const SuperfpCommon &c)
+  template <RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<RM> make_add(const SuperfpWidths &w, const SuperfpCommon &c)
   {
-    return SuperfpAdderT<RM, LEAN>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
-                                   c.prng_bits};
+    return SuperfpAdderT<RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
+                             c.prng_bits};
   }
 
   // ----------------------------------------------------------------------
@@ -135,7 +135,7 @@ namespace mptorch::gemm
     BinaryKWidths acc{};
     BinaryKCommon acc_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
       auto m = make_mul<RM>(mul, mul_c);
@@ -164,12 +164,14 @@ namespace mptorch::gemm
     BinaryKWidths acc[MAX_GEMM_FORMATS]{};
     BinaryKCommon acc_c{};
 
-    // No lean-params branch here, unlike SuperfpSplitMixedArgs below: this
-    // Mac is the biggest of the eight at 112 registers, and deriving
-    // BinaryKParams' six fast-path floats only takes it to 99 -- 80 is what a
-    // third resident block needs, so it would pay the arithmetic for nothing.
-    // Measured, not assumed; see dev/gemm_perf_audit.md (G10).
-    template <RoundMode RM, bool LEAN, class F>
+    // This Mac was the biggest of the eight at 112 registers, and finding
+    // G10's derived-params treatment -- rebuilding BinaryKParams' six
+    // fast-path floats where they are read instead of carrying them -- only
+    // took it to 99, where a third resident block needed 80. It was built,
+    // measured at 0.86x, and never taken; K1 has since made the question moot
+    // by taking this kernel to 64-80 registers on its own. Measured, not
+    // assumed; see dev/gemm_perf_audit.md (G10) and the roadmap (H3).
+    template <RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       if (accumulate_quant)
@@ -205,7 +207,7 @@ namespace mptorch::gemm
     BinaryKWidths fma{};
     BinaryKCommon fma_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
       if (fma_quant)
@@ -233,7 +235,7 @@ namespace mptorch::gemm
     BinaryKWidths fma[MAX_GEMM_FORMATS]{};
     BinaryKCommon fma_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       using Mac = FusedMac<BinaryKAdderT<RM>>;
@@ -259,17 +261,14 @@ namespace mptorch::gemm
     SuperfpWidths acc{};
     SuperfpCommon acc_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
-      // The single-format policies are the full spelling on both backends:
-      // LEAN only ever buys a resident block back on the mixed path, where
-      // two policies per palette slot is what runs out of registers.
-      auto m = make_mul<RM, false>(mul, mul_c);
+      auto m = make_mul<RM>(mul, mul_c);
       if (accumulate_quant)
       {
         using Mac = SplitMac<SuperfpMultiplier<RM>, SuperfpAdder<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{m, make_add<RM, false>(acc, acc_c)}, 0.f});
+        f(NaiveAccumulator<Mac>{Mac{m, make_add<RM>(acc, acc_c)}, 0.f});
       }
       else
       {
@@ -291,26 +290,22 @@ namespace mptorch::gemm
     SuperfpWidths acc[MAX_GEMM_FORMATS]{};
     SuperfpCommon acc_c{};
 
-    // LEAN is the backend's call, and it is only consulted here. Two full
-    // superfp policies per palette slot is the one Mac of the eight that runs
-    // out of registers on the GPU: at 100 it gets 2 blocks resident per SM
-    // where its single-format twin gets 5. The Lean spelling rebuilds the
-    // seven fast-path floats where they are used instead of carrying them,
-    // which buys back a block for the same values. Only this branch: the
-    // IdentityAdder one below already fits, and paying the arithmetic there
-    // would be a straight loss. The CPU has no such cliff and passes
-    // LEAN=false, which is the spelling it always used. See
-    // dev/gemm_perf_audit.md (finding G10).
-    template <RoundMode RM, bool LEAN, class F>
+    // Two full superfp policies per palette slot was the one Mac of the eight
+    // that ran out of registers on the GPU -- 100 registers, 2 blocks resident
+    // per SM where its single-format twin got 5 -- which is what finding G10's
+    // second SuperfpParams spelling existed to buy back. K1 took this kernel
+    // to 60-64 registers on its own, so there is nothing left to buy and the
+    // spelling is gone; see dev/gemm_roadmap.md (finding H3).
+    template <RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       if (accumulate_quant)
       {
-        using Mac = SplitMac<SuperfpMultiplierT<RM, LEAN>, SuperfpAdderT<RM, LEAN>>;
+        using Mac = SplitMac<SuperfpMultiplier<RM>, SuperfpAdder<RM>>;
         FormatPalette<Mac> pal;
         pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM, LEAN>(mul[i], mul_c), make_add<RM, LEAN>(acc[i], acc_c)};
+          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), make_add<RM>(acc[i], acc_c)};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
       }
       else
@@ -319,7 +314,7 @@ namespace mptorch::gemm
         FormatPalette<Mac> pal;
         pal.n = n_fmt;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM, false>(mul[i], mul_c), IdentityAdder{}};
+          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), IdentityAdder{}};
         f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
       }
     }
@@ -337,13 +332,13 @@ namespace mptorch::gemm
     SuperfpWidths fma{};
     SuperfpCommon fma_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
       if (fma_quant)
       {
         using Mac = FusedMac<SuperfpAdder<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{make_add<RM, false>(fma, fma_c)}, 0.f});
+        f(NaiveAccumulator<Mac>{Mac{make_add<RM>(fma, fma_c)}, 0.f});
       }
       else
       {
@@ -362,14 +357,14 @@ namespace mptorch::gemm
     SuperfpWidths fma[MAX_GEMM_FORMATS]{};
     SuperfpCommon fma_c{};
 
-    template <RoundMode RM, bool LEAN, class F>
+    template <RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       using Mac = FusedMac<SuperfpAdder<RM>>;
       FormatPalette<Mac> pal;
       pal.n = n_fmt;
       for (int i = 0; i < n_fmt; ++i)
-        pal.slots[i] = Mac{make_add<RM, false>(fma[i], fma_c)};
+        pal.slots[i] = Mac{make_add<RM>(fma[i], fma_c)};
       f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
     }
   };

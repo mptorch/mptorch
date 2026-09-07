@@ -258,12 +258,6 @@ namespace mptorch::gemm_cuda
     // between them, and all it does is name which policy to build
     // (common/gemm_args.h); the eight entry points that used to spell this out
     // one at a time are now two calls in custom_matmul_entry.cpp.
-    //
-    // LEAN=true is this backend's answer to the one question gemm_args.h asks
-    // it: the superfp mixed palette holds two full policies per slot and runs
-    // out of registers at 100, where the Lean spelling rebuilds the fast-path
-    // floats instead of carrying them and buys a resident block back. The CPU
-    // has no such cliff and answers false. See dev/gemm_perf_audit.md (G10).
     template <class Args>
     void CudaBackend::launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
@@ -272,7 +266,7 @@ namespace mptorch::gemm_cuda
             constexpr RoundMode RM = decltype(rm_c)::value;
             if constexpr (Args::mixed)
             {
-                args.template with_palette<RM, true>([&](auto acc, const auto &pal)
+                args.template with_palette<RM>([&](auto acc, const auto &pal)
                 {
                     launch_custom_matmul<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a,
                                                s.trans_b, acc, s.use_rng, ctx.rng, ctx.stream,
@@ -281,7 +275,7 @@ namespace mptorch::gemm_cuda
             }
             else
             {
-                args.template with_accumulator<RM, true>([&](auto acc)
+                args.template with_accumulator<RM>([&](auto acc)
                 {
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
                                          acc, s.use_rng, ctx.rng, ctx.stream);

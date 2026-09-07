@@ -276,9 +276,6 @@ namespace mptorch::gemm_cpu
 
     // One body for all eight ops -- the Args names the policy, and that is the
     // only thing that differed between the eight entry points this replaced.
-    // LEAN=false: the Lean superfp spelling exists to buy back a resident
-    // block on the GPU, and there is no occupancy cliff to buy it back from
-    // here. See dev/gemm_perf_audit.md (finding G10).
     template <class Args>
     static void launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
@@ -287,7 +284,7 @@ namespace mptorch::gemm_cpu
         constexpr RoundMode RM = decltype(rm_c)::value;
         if constexpr (Args::mixed)
         {
-          args.template with_palette<RM, false>([&](auto acc, const auto &pal)
+          args.template with_palette<RM>([&](auto acc, const auto &pal)
           {
             matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
                                          acc, s.use_rng, ctx.seed, pal, s.prec_idx,
@@ -296,7 +293,7 @@ namespace mptorch::gemm_cpu
         }
         else
         {
-          args.template with_accumulator<RM, false>([&](auto acc)
+          args.template with_accumulator<RM>([&](auto acc)
           {
             matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
                                    acc, s.use_rng, ctx.seed);
