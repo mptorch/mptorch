@@ -143,3 +143,5 @@ examples/testing/
 .vscode/
 
 .csv
+# MNIST download made by docs/snippets/tutorial/*.py
+docs/snippets/data/

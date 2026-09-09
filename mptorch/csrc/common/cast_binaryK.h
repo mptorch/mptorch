@@ -180,9 +180,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const Bi
     float y = (ax < p.fast_min_normal) ? sub : nrm;
     if (fabsf(y) > p.fast_max_finite)
         y = copysignf(p.fast_ovf, origin_float);
-    // inf and NaN pass through unchanged (the integer path's target_exp == 128
-    // branch); a single ordered compare covers both.
-    return (ax < bits_to_float(0x7F800000u)) ? y : origin_float;
+    // NaN passes through unchanged; inf takes `y`, which is what the integer
+    // path's target_exp == 128 arm (saturate_nonfinite) gives it: the clamp
+    // put it at fast_clamp_hi, which the split keeps and the compare above
+    // turns into fast_ovf -- inf under OVF_INF, max_finite under SAT_FINITE.
+    // One ordered compare separates the two: `<= inf` is false only for NaN.
+    return (ax <= bits_to_float(0x7F800000u)) ? y : origin_float;
 }
 #endif
 
@@ -224,7 +227,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
     // handle NaN/inf inputs
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     // normal value range or overflow
     else
@@ -265,7 +269,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, bool
     }
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else
     {
@@ -309,7 +314,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_odd(float origin_float, bool is_signe
     }
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else
     {
@@ -358,7 +364,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, SubnormalsMod
     }
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else
     {
@@ -392,7 +399,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, SubnormalsM
     }
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else
     {
@@ -473,7 +481,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
     }
     else if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else
     {

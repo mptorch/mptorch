@@ -1,0 +1,13 @@
+x            tensor([ 1.54100, -0.29343, -2.17879,  0.56843, -1.08452, -1.39860])
+E4M3, RNE    tensor([ 1.50000, -0.28125, -2.25000,  0.56250, -1.12500, -1.37500])
+E4M3, RZ     tensor([ 1.50000, -0.28125, -2.00000,  0.56250, -1.00000, -1.37500])
+E5M2, RNE    tensor([ 1.50000, -0.31250, -2.00000,  0.62500, -1.00000, -1.50000])
+superfp      tensor([ 2.00000, -0.25000, -2.00000,  0.50000, -1.00000, -1.00000])
+torch.float64  torch.float64 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
+torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
+torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
+
+AssertionError: torch.bfloat16 carries 7 mantissa bits, too few for prng_bits=8 under a 3-bit mantissa: a format's mantissa and its stochastic-rounding bits have to fit in the storage dtype together
+CPU == CUDA under RNE: True
+CPU == CUDA under RZ: True
+CPU == CUDA under RO: True

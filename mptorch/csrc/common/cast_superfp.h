@@ -222,10 +222,12 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
 // underflow branch does: at the topmost underflow exponent any nonzero
 // significand rounds up, and exactly the midpoint ties to even, which is zero.
 //
-// inf and NaN pass through unchanged (the integer path's target_exp == 128
-// branch). Rather than a branch of their own they ride the arms' final
-// select: `inf >= fast_normal_min` is true so inf takes the normal arm, and
-// every compare against NaN is false so NaN takes the supernormal one.
+// NaN passes through unchanged and inf is handled as the integer path's
+// target_exp == 128 arm does (saturate_nonfinite: inf under OVF_INF, the
+// largest finite value under SAT_FINITE). Neither needs a branch of its own:
+// `inf >= fast_normal_min` is true so inf takes the normal arm, where the
+// clamp and the saturating compare produce exactly fast_ovf, and every
+// compare against NaN is false so NaN takes the supernormal one.
 //
 // Contraction-sensitive for the same reason as the binaryK twin: the Veltkamp
 // identity needs `t` separately rounded, hence the named operations and the
@@ -245,7 +247,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
         float nrm = rn_sub(t, rn_sub(t, xc));
         if (nrm > p.fast_max_finite)
             nrm = p.fast_ovf;
-        return copysignf((ax < inf) ? nrm : ax, origin_float);
+        // `<= inf` rather than `< inf`: inf itself is out of range and takes
+        // nrm, which the compare above already made fast_ovf -- inf under
+        // OVF_INF, the largest finite value under SAT_FINITE -- and only a
+        // NaN (which never reaches this arm) would fail the compare.
+        return copysignf((ax <= inf) ? nrm : ax, origin_float);
     }
 
     // supernormal region: round |x| to the nearest power of two, ties to the
@@ -290,8 +296,9 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool
     bool underflow = target_exp < p.supernormal_cutoff;
     if (target_exp == 128)
     {
-        // handle NaN/inf inputs
-        quantized = origin_float;
+        // NaN/inf inputs: NaN passes through, inf saturates under SAT_FINITE
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {
@@ -345,7 +352,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_away(float origin_float, bool
 
     if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {
@@ -393,7 +401,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float, bool is_signe
 
     if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {
@@ -457,7 +466,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_up(float origin_float, const
 
     if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {
@@ -501,7 +511,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_down(float origin_float, con
 
     if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {
@@ -538,7 +549,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_up(float origin_float, bool is_signed
     // so NaN/Inf must be passed through directly instead.
     uint32_t target = FLOAT_TO_BITS(&origin_float);
     if ((int)((target >> 23) & 0xFF) - 127 == 128)
-        return origin_float;
+        return bits_to_float(saturate_nonfinite(target, p.saturation_mode, p.max_num));
 
     if (origin_float >= 0)
         return cast_superfp_absolute_up(origin_float, p);
@@ -553,7 +564,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_sign
 
     uint32_t target = FLOAT_TO_BITS(&origin_float);
     if ((int)((target >> 23) & 0xFF) - 127 == 128)
-        return origin_float;
+        return bits_to_float(saturate_nonfinite(target, p.saturation_mode, p.max_num));
 
     if (origin_float >= 0)
         return cast_superfp_absolute_down(origin_float, p);
@@ -591,7 +602,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
 
     if (target_exp == 128)
     {
-        quantized = origin_float;
+        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        quantized = BITS_TO_FLOAT(&quantize_bits);
     }
     else if (supernormal)
     {

@@ -379,6 +379,14 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits,
     int finite = (saturation_mode == SaturationMode::SAT_FINITE);
     uint32_t max_man = ((0x007FFFFF >> (23 - man_bits)) - 1 + finite) << (23 - man_bits);
     p.max_num = ((uint32_t)p.max_exponent_store << 23) | max_man;
+    // A format whose top binade lies beyond binary32's has no finite input
+    // that overflows, so max_num is only ever read for a non-finite one --
+    // an infinity, or a rounding that carried into exponent 255 -- and there
+    // SAT_FINITE still owes a finite answer. Shifting max_exponent_store into
+    // the exponent field would not give one (it does not fit), so use the
+    // largest binary32 value on the format's grid instead.
+    if (p.max_exponent_store > 254)
+        p.max_num = (254u << 23) | max_man;
     return p;
 }
 
@@ -392,8 +400,14 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
 
     uint32_t sign = old_num & 0x80000000u;
     quantized_num &= 0x7FFFFFFFu;
-    if ((quantized_num == 0x7F800000 && saturation_mode != SaturationMode::SAT_FINITE) || (quantized_num > 0x7F800000))
-        return sign | quantized_num;
+    // A NaN passes through. So does an infinity, unless the mode is
+    // SAT_FINITE, under which it is the largest finite value -- whether it
+    // came in as one (saturate_nonfinite handles that arm before the cast
+    // rounds) or the rounding just carried a finite input into exponent 255,
+    // which for a format wider than binary32 is the only overflow there is.
+    if (quantized_num >= 0x7F800000u)
+        return sign | ((quantized_num == 0x7F800000u && saturation_mode == SaturationMode::SAT_FINITE) ? max_num
+                                                                                                        : quantized_num);
 
     int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
 
@@ -431,4 +445,22 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
     quantized_num |= sign;
 
     return quantized_num;
+}
+
+// What an input whose exponent field is all ones -- an infinity or a NaN --
+// becomes. A NaN passes through unchanged under every mode, payload included.
+// So does an infinity, except under SAT_FINITE, whose contract is that every
+// return value is finite: there it becomes the format's largest finite
+// magnitude with the input's sign -- max_num, the same value an overflowing
+// finite input saturates to under that mode. Every integer-path cast's
+// NaN/inf arm reads this; the float-arithmetic fast paths reproduce it with
+// their final select instead (see cast_binaryK_rne_fast). Uniform per format,
+// and on the arm only non-finite inputs take, so it costs the finite ones
+// nothing.
+CUDA_HOST_DEVICE_INLINE uint32_t saturate_nonfinite(uint32_t target, SaturationMode saturation_mode,
+                                                    uint32_t max_num)
+{
+    bool is_inf = (target & 0x007FFFFFu) == 0;
+    return (is_inf && saturation_mode == SaturationMode::SAT_FINITE) ? ((target & 0x80000000u) | max_num)
+                                                                      : target;
 }

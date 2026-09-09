@@ -1,0 +1,13 @@
+SuperFP(man_bits=3, exp_bits=4, normal_binades=2, bias=7, is_signed=True, prng_bits=0, saturation=<SaturationMode.OVF_INF: 2>)
+  normal region      [2^7, 2^9)  = [128, 512)
+  supernormal region [2^-104, 2^7)  = powers of two only
+  below 2^-105 = 2.46519e-32: flushed to zero
+
+normal region      [128.0, 144.0, 160.0, 176.0, 300.0, 448.0, 511.0]
+quantized          [128.0, 144.0, 160.0, 176.0, 288.0, 448.0, inf]
+
+supernormal region [1.0, 1.5, 3.0, 100.0, 9.5367431640625e-07, 2.6645352591003757e-15]
+quantized          [1.0, 1.0, 4.0, 128.0, 9.5367431640625e-07, 3.552713678800501e-15]
+
+underflow          [4.930380657631324e-32, 2.465190328815662e-32, 1.232595164407831e-32]
+quantized          [4.930380657631324e-32, 0.0, 0.0]

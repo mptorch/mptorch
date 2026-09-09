@@ -11,10 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../.."))
 
+import mptorch
+
 project = "mptorch"
-copyright = "2024-2025, The MPTorch developers"
+copyright = "2024-2026, The MPTorch developers"
 author = "The MPTorch developers"
-release = "0.3.0"
+release = mptorch.__version__
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -23,7 +25,7 @@ master_doc = "index"
 
 extensions = [
     "sphinx.ext.autodoc",
-    "sphinx.ext.autosectionlabel",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx_autodoc_typehints",
     "sphinx.ext.viewcode",
@@ -44,16 +46,23 @@ autodoc_default_options = {
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
-    "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
+    "torch": ("https://docs.pytorch.org/docs/stable/", None),
 }
 intersphinx_disabled_domains = ["std"]
+
+# Every code block in these pages is a file under docs/snippets, included
+# together with the output docs/run_snippets.py recorded for it.
+autodoc_preserve_defaults = True
+autodoc_typehints = "description"
+autodoc_typehints_format = "short"
+python_use_unqualified_type_names = True
 
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-html_static_path = ["_static"]
+html_static_path = []
 html_theme_options = {
     "icon_links": [
         {
@@ -64,7 +73,9 @@ html_theme_options = {
         }
     ],
     "show_nav_level": 2,
+    "navigation_with_keys": False,
 }
+html_title = "MPTorch"
 
 # -- Options for EPUB output
 epub_show_urls = "footnote"

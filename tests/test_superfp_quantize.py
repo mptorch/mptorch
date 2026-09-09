@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 
@@ -70,11 +72,19 @@ def test_nan_passthrough(device, mode):
     "saturation_mode",
     [SaturationMode.SAT_FINITE, SaturationMode.SAT_PROPAGATE, SaturationMode.OVF_INF],
 )
-def test_inf_passthrough(device, mode, saturation_mode):
+def test_inf_handling(device, mode, saturation_mode):
+    # SAT_FINITE promises a finite result for every input, so an infinity
+    # saturates to the same value an overflowing finite input does; the other
+    # two modes keep it infinite.
     for sign in (1.0, -1.0):
         inf = sign * float("inf")
         out = _quantize(inf, mode, device, saturation_mode=saturation_mode)
-        assert out == inf
+        if saturation_mode is SaturationMode.SAT_FINITE:
+            huge = _quantize(sign * 3.0e38, mode, device, saturation_mode=saturation_mode)
+            assert math.isfinite(out)
+            assert out == huge
+        else:
+            assert out == inf
 
 
 @pytest.mark.parametrize("device", available_devices)

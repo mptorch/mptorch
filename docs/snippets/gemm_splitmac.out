@@ -1,0 +1,5 @@
+float32 torch.matmul : -0.526053
+binaryK_matmul       : -0.562500
+by hand              : -0.562500   equal: True
+
+E4M3 products, fp32 sum : -0.554688   by hand equal: True

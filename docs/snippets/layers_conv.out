@@ -1,0 +1,16 @@
+output (2, 8, 16, 16) weight grad (8, 3, 3, 3)
+forward == conv2d(Q(x), Q(W)) + b: True
+cos(out, float32 conv): 0.99921
+
+ Sequential(
+  (0): QConv2d(
+    3, 8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+    (formats): QAffineFormats()
+  )
+  (1): ReLU()
+  (2): Quantizer()
+  (3): QConv2d(
+    8, 4, kernel_size=(3, 3), stride=(1, 1)
+    (formats): QAffineFormats()
+  )
+)

@@ -114,6 +114,15 @@ for epoch in range(num_epochs):
 
 `QAffineFormats` also accepts `fwd_math`, `bwd_igrad_math` and `bwd_wgrad_math` callables for cases where the forward/backward arithmetic itself (not just the tensors going into it) needs to be simulated with a custom, non-default routine; leaving them unset (as above) falls back to plain PyTorch's `F.linear`/`F.conv*d` and autograd.
 
+## Documentation
+
+The full documentation -- an explanation of the formats and rounding modes with the equations they follow, a guide per API tier, and a tutorial that trains a network in the 8-bit floating-point formats of current GPUs -- lives under `docs/` and builds with Sphinx:
+```
+pip3 install -r docs/requirements.txt
+sphinx-build -b html docs/source docs/_build/html
+```
+Every code block in it is a script under `docs/snippets/` whose recorded output is shown next to it; `python3 docs/run_snippets.py` regenerates them.
+
 ## Installation
 
 Requirements:

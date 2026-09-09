@@ -1,0 +1,10 @@
+x              tensor([ 1.54100, -0.29343, -2.17879,  0.56843, -1.08452])
+act(x)         tensor([ 1.50000, -0.28125, -2.25000,  0.56250, -1.12500])
+grad_output    tensor([-0.01399,  0.00403,  0.00838, -0.00719, -0.00403])
+x.grad (E5M2)  tensor([-0.01367,  0.00391,  0.00781, -0.00684, -0.00391])
+x.grad (pass)  tensor([-0.01399,  0.00403,  0.00838, -0.00719, -0.00403]) 
+  identical to grad_output: True
+
+RuntimeError: mptorch::binaryK_quant is not differentiable: rounding to a coarse format has a zero derivative almost everywhere, so a gradient through it is a modelling choice. Use mptorch.quant.Quantizer, which applies one format in the forward pass and one of your choosing in the backward.
+
+under no_grad: tensor([ 1.50000, -0.28125, -2.25000,  0.56250, -1.12500])

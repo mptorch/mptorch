@@ -1,0 +1,17 @@
+None (plain torch.matmul)   True
+BinaryK == SplitMac(f, f)   True
+QMatmulFormats() (nothing)  True
+2D @ 2D           (4, 8)         @ (8, 3)       -> (4, 3)   shape as torch: True
+batched           (5, 4, 8)      @ (5, 8, 3)    -> (5, 4, 3)   shape as torch: True
+broadcast b       (5, 4, 8)      @ (8, 3)       -> (5, 4, 3)   shape as torch: True
+broadcast leading (2, 1, 4, 8)   @ (3, 8, 3)    -> (2, 3, 4, 3)   shape as torch: True
+1D @ 2D           (8,)           @ (8, 3)       -> (3,)   shape as torch: True
+2D @ 1D           (4, 8)         @ (8,)         -> (4,)   shape as torch: True
+1D @ 1D           (8,)           @ (8,)         -> ()   shape as torch: True
+
+qmm   True
+qbmm  True
+qbmm on 2D: qbmm expects 3D tensors, got 2D and 2D
+
+no format: grads equal torch's: True True
+E4M3:      cos(grad_a, torch) = 0.9994

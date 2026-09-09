@@ -146,3 +146,39 @@ def test_binaryK_stochastic(device, K, dtype, signedness):
     assert abs(mean_val - test_val) < tolerance, (
         f"Stochastic rounding expectation biased! Expected {test_val}, got mean {mean_val}"
     )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("K, P", [(8, 4), (8, 3), (6, 3), (24, 8)])
+@pytest.mark.parametrize("rounding_mode", list(mptorch.number.RoundMode))
+@pytest.mark.parametrize("saturation_mode", list(mptorch.number.SaturationMode))
+@pytest.mark.parametrize("is_signed", [True, False])
+def test_binaryK_nonfinite_inputs(device, K, P, rounding_mode, saturation_mode, is_signed):
+    """NaN always passes through; an infinity does too, except under SAT_FINITE.
+
+    SAT_FINITE's contract is that every value it returns is finite, so there
+    an infinity saturates to exactly what an overflowing finite input does.
+    The formats straddle the float-arithmetic fast path's gate, so both the
+    float and the integer bodies are under test.
+    """
+    huge = torch.finfo(torch.float32).max
+    x = torch.tensor([float("inf"), -float("inf"), float("nan"), huge, -huge], device=device)
+    q = binaryK_quantize(
+        x,
+        K,
+        P,
+        prng_bits=8 if rounding_mode is mptorch.number.RoundMode.SR else 0,
+        rounding_mode=rounding_mode,
+        is_signed=is_signed,
+        saturation_mode=saturation_mode,
+    )
+    assert torch.isnan(q[2])
+    if not is_signed:
+        assert q[1] == 0.0 and q[4] == 0.0
+    if saturation_mode is mptorch.number.SaturationMode.SAT_FINITE:
+        assert torch.isfinite(q[[0, 1, 3, 4]]).all()
+        assert q[0] == q[3] and q[1] == q[4]
+        assert q[0] > 0
+    else:
+        assert q[0] == float("inf")
+        assert q[1] == (0.0 if not is_signed else -float("inf"))

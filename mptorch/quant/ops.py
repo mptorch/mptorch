@@ -413,6 +413,27 @@ def binaryK_quantize(
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
 ) -> torch.Tensor:
+    """
+    Round every element of ``x`` to a binaryK floating-point format.
+
+    The format has ``K`` bits in total, ``P`` of them precision (``P - 1``
+    stored mantissa bits plus the implicit one), and ``K - P`` exponent bits
+    (``K - P + 1`` when ``is_signed`` is false, since there is no sign bit).
+    ``bias`` defaults to the middle of the exponent range, ``2**(K - P - 1)``
+    signed and ``2**(K - P)`` unsigned; pass the IEEE bias explicitly to match
+    an IEEE format (E4M3 is ``K=8, P=4, bias=7``; E5M2 is ``K=8, P=3, bias=15``).
+
+    ``x`` may be float32, float64, float16 or bfloat16; the rounding is done
+    on the float32 value and the result is returned in ``x``'s dtype, as a new
+    tensor. Non-finite inputs pass through. ``prng_bits`` is the number of
+    random bits ``RoundMode.SR`` draws below the target mantissa (ignored by
+    every other mode); it must fit, together with ``P - 1``, inside the
+    storage dtype's mantissa.
+
+    Not differentiable: on a tensor that requires grad under grad mode this
+    raises and points at :class:`mptorch.quant.Quantizer`. See
+    :class:`mptorch.quant.Quant` for the format-object spelling.
+    """
     _assert_prng_fits(x.dtype, "prng_bits", prng_bits, P - 1)
 
     if not bias:
@@ -442,6 +463,19 @@ def superfp_quantize(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
 ) -> torch.Tensor:
+    """
+    Round every element of ``x`` to a superfp (supernormal) floating-point format.
+
+    The format has ``man_bits`` stored mantissa bits and ``exp_bits`` exponent
+    bits, but only the top ``normal_binades`` binades carry the mantissa: the
+    remaining binades' encodings become that many further powers of two below
+    the normal region, and values below those flush to zero (there are no
+    subnormals, hence no ``subnormals_mode``). ``bias`` is required -- the
+    format has no default rule for it. See :class:`mptorch.SuperFP`.
+
+    Dtypes, ``prng_bits`` and differentiability are as for
+    :func:`binaryK_quantize`.
+    """
     _assert_prng_fits(x.dtype, "prng_bits", prng_bits, man_bits)
 
     return torch.ops.mptorch.superfp_quant.default(

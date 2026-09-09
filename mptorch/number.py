@@ -12,11 +12,33 @@ __all__ = [
 from dataclasses import KW_ONLY, dataclass
 from enum import Enum
 
-SaturationMode = Enum("SaturationMode", [("SAT_FINITE", 0), ("SAT_PROPAGATE", 1), ("OVF_INF", 2)])
 
-SubnormalsMode = Enum(
-    "SubnormalsMode", [("SUBNORMALS", 0), ("NORMALS", 1), ("EXTENDED_NORMALS", 2)]
-)
+class SaturationMode(Enum):
+    """
+    Enum for what a format does with a value beyond its largest finite one.
+
+    Mirrors ``SaturationMode`` in ``csrc/common/modes.h``. NaN inputs pass
+    through every mode unchanged. ``SAT_FINITE`` also clamps an infinite
+    input, so everything it returns is finite; the other two keep infinities.
+    """
+
+    #: Clamp everything, infinities included, to the largest finite value (top
+    #: mantissa code included).
+    SAT_FINITE = 0
+    SAT_PROPAGATE = 1  #: Clamp to the largest finite value with the top mantissa code excluded.
+    OVF_INF = 2  #: Overflow becomes :math:`\pm\infty`, as in IEEE 754 (the default).
+
+
+class SubnormalsMode(Enum):
+    """
+    Enum for how a format handles the range below its smallest normal number.
+
+    Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``.
+    """
+
+    SUBNORMALS = 0  #: Gradual underflow: exponent code 0 encodes subnormal numbers (the default).
+    NORMALS = 1  #: No subnormals; values below the smallest normal flush to zero.
+    EXTENDED_NORMALS = 2  #: No subnormals; exponent code 0 is one more binade of normal numbers.
 
 
 class RoundMode(Enum):

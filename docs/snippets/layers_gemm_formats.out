@@ -1,0 +1,10 @@
+hooks set: ['fwd_math', 'bwd_igrad_math', 'bwd_wgrad_math']
+quantizers set: []
+
+forward == binaryK_matmul(Q(x), Q(W)^T) + b: True
+input grad == binaryK_matmul(dL/dy, Q(W)): True
+
+[2, 5, 256] -> (2, 5, 64)
+binaryK_gemm_formats_fma   -> (32, 64), cos to float32 layer: 0.9272
+superfp_gemm_formats       -> (32, 64), cos to float32 layer: 0.5299
+superfp_gemm_formats_fma   -> (32, 64), cos to float32 layer: 0.5124

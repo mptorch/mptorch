@@ -1,0 +1,9 @@
+                                E4M3  torch e4m3fn          E5M2    torch e5m2
+largest finite                   448           448         98304         57344
+smallest normal             0.015625      0.015625   6.10352e-05   6.10352e-05
+smallest subnormal        0.00195312    0.00195312   1.52588e-05   1.52588e-05
+spacing at 1                   0.125         0.125          0.25          0.25
+
+finite float32 inputs on which BinaryK and torch disagree (cuda):
+  E4M3: |x| <= 448: 0   beyond it: 1,999,634,430  (first at |x| = 464: BinaryK inf, torch 448)
+  E5M2: |x| <= 57344: 0   beyond it: 12,582,914  (first at |x| = 61440: BinaryK 65536, torch inf)
