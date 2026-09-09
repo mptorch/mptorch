@@ -30,13 +30,15 @@ Tensor superfp_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
                            int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
                            int64_t accumulate_algorithm, int64_t round_mode,
-                           int64_t saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits)
+                           int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                           int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
   return run_custom_matmul<Backend>(
       "custom_matmul_superfp",
       pack_superfp_split(mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed,
                          accumulate_quant, acc_man_bits, acc_exp_bits, acc_normal_binades,
-                         acc_bias, acc_is_signed, saturation_mode, mul_prng_bits, acc_prng_bits),
+                         acc_bias, acc_is_signed, mul_saturation_mode, acc_saturation_mode,
+                         mul_prng_bits, acc_prng_bits),
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
@@ -50,8 +52,9 @@ Tensor superfp_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                  c10::IntArrayRef acc_exp_bits,
                                  c10::IntArrayRef acc_normal_binades, c10::IntArrayRef acc_bias,
                                  bool acc_is_signed, int64_t accumulate_algorithm,
-                                 int64_t round_mode, int64_t saturation_mode,
-                                 int64_t mul_prng_bits, int64_t acc_prng_bits)
+                                 int64_t round_mode, int64_t mul_saturation_mode,
+                                 int64_t acc_saturation_mode, int64_t mul_prng_bits,
+                                 int64_t acc_prng_bits)
 {
   constexpr const char *op = "custom_matmul_superfp_mixed";
   return run_custom_matmul_mixed<Backend>(
@@ -60,7 +63,8 @@ Tensor superfp_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
         return pack_superfp_split_mixed(op, mul_man_bits, mul_exp_bits, mul_normal_binades,
                                         mul_bias, mul_is_signed, accumulate_quant, acc_man_bits,
                                         acc_exp_bits, acc_normal_binades, acc_bias, acc_is_signed,
-                                        saturation_mode, mul_prng_bits, acc_prng_bits);
+                                        mul_saturation_mode, acc_saturation_mode, mul_prng_bits,
+                                        acc_prng_bits);
       },
       a, b, prec_idx, trans_a, trans_b, accumulate_algorithm, round_mode);
 }

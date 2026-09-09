@@ -11,9 +11,13 @@ if torch.cuda.is_available():
 
 from .number import (
     AccumulateAlgorithm,
+    BinaryK,
+    FloatFormat,
+    Number,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
+    SuperFP,
 )
 
 __version__ = "0.4.0"
@@ -23,4 +27,8 @@ __all__ = [
     "SubnormalsMode",
     "RoundMode",
     "AccumulateAlgorithm",
+    "Number",
+    "FloatFormat",
+    "BinaryK",
+    "SuperFP",
 ]

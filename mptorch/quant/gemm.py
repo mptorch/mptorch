@@ -36,10 +36,13 @@ import torch
 
 from mptorch.number import AccumulateAlgorithm, RoundMode, SaturationMode, SubnormalsMode
 
-from .modules.format import QAffineFormats
+from .mac import Mac, spec_for_mac
+from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
     _binaryK_fma_spec,
     _binaryK_spec,
+    _gemm_mixed_nd,
+    _gemm_nd,
     _run_gemm,
     _superfp_fma_spec,
     _superfp_spec,
@@ -50,6 +53,7 @@ __all__ = [
     "superfp_gemm_formats",
     "binaryK_gemm_formats_fma",
     "superfp_gemm_formats_fma",
+    "matmul_formats",
 ]
 
 # ``op(a) @ op(b)`` for 2D operands, with ``op(x) = x.T`` where the flag is
@@ -117,6 +121,8 @@ def binaryK_gemm_formats(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode | None = None,
 ) -> QAffineFormats:
     """
     Build a ``QAffineFormats`` whose ``fwd_math``/``bwd_igrad_math``/
@@ -143,6 +149,8 @@ def binaryK_gemm_formats(
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
         subnormals_mode=subnormals_mode,
+        acc_saturation_mode=acc_saturation_mode,
+        acc_subnormals_mode=acc_subnormals_mode,
     )
     return _gemm_formats(partial(_run_gemm, spec))
 
@@ -203,6 +211,7 @@ def superfp_gemm_formats(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    acc_saturation_mode: SaturationMode | None = None,
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats` -- see its docstring.
 
@@ -225,6 +234,7 @@ def superfp_gemm_formats(
         accumulate_algorithm=accumulate_algorithm,
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
+        acc_saturation_mode=acc_saturation_mode,
     )
     return _gemm_formats(partial(_run_gemm, spec))
 
@@ -256,3 +266,102 @@ def superfp_gemm_formats_fma(
         saturation_mode=saturation_mode,
     )
     return _gemm_formats(partial(_run_gemm, spec))
+
+
+# ``op(a) @ op(b)`` under torch.matmul's operand rules: what a matmul's three
+# hooks call, where the Linear hooks above flatten to 2D themselves.
+_MatmulNd = Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor]
+
+
+def _matmul_formats(
+    fwd_matmul: _MatmulNd, agrad_matmul: _MatmulNd, bgrad_matmul: _MatmulNd
+) -> QMatmulFormats:
+    """The three matmul math hooks over one resolved GEMM per pass.
+
+    The transpose table is the whole difference from :func:`_gemm_formats`:
+    the forward is ``a @ b``, ``a``'s gradient is ``grad @ b^T`` and ``b``'s is
+    ``a^T @ grad``. Neither flattening nor a bias belongs here -- a matmul has
+    no leading dimension it is entitled to fold (broadcasting is a contract,
+    not a convenience) and no bias -- so this is shorter than the Linear
+    version rather than a variation on it. Three matmuls rather than one
+    because a palette's map is per pass; every other format passes the same
+    one three times.
+    """
+
+    def fwd(q_a: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
+        return fwd_matmul(q_a, q_b, False, False)
+
+    def bwd_agrad(q_grad: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
+        return agrad_matmul(q_grad, q_b, False, True)
+
+    def bwd_bgrad(q_grad: torch.Tensor, q_a: torch.Tensor) -> torch.Tensor:
+        return bgrad_matmul(q_a, q_grad, True, False)
+
+    return QMatmulFormats(fwd_math=fwd, bwd_agrad_math=bwd_agrad, bwd_bgrad_math=bwd_bgrad)
+
+
+def _mixed_matmul(spec, prec_idx: torch.Tensor | None, pass_name: str, argument: str):
+    """One pass's matmul over a palette op, or a hook that says what is missing.
+
+    A ``prec_idx`` is indexed by *output* element, and the three passes of a
+    matmul have three different output shapes -- ``[M, N]``, ``[M, K]`` and
+    ``[K, N]``. So one map cannot serve all three, and a pass whose map was
+    not given gets a hook that names the argument rather than a shape error
+    from the op, or (worse) a silent fallback to unquantized arithmetic.
+    """
+    if prec_idx is None:
+
+        def missing(*_args, **_kwargs) -> torch.Tensor:
+            raise ValueError(
+                f"this format is a palette, so its {pass_name} needs its own prec_idx map "
+                f"(shaped like that pass's output): pass {argument}= to matmul_formats"
+            )
+
+        return missing
+
+    def matmul(a: torch.Tensor, b: torch.Tensor, ta: bool, tb: bool) -> torch.Tensor:
+        return _gemm_mixed_nd(spec, a, b, prec_idx, ta, tb)
+
+    return matmul
+
+
+def matmul_formats(
+    mac: Mac,
+    *,
+    prec_idx: torch.Tensor | None = None,
+    agrad_prec_idx: torch.Tensor | None = None,
+    bgrad_prec_idx: torch.Tensor | None = None,
+) -> QMatmulFormats:
+    """Build a ``QMatmulFormats`` whose three passes run in ``mac``'s arithmetic.
+
+    ``mac`` is a :class:`~mptorch.quant.SplitMac` or
+    :class:`~mptorch.quant.FusedMac`; a palette in any of its slots selects
+    the spatially-varying op and needs a ``prec_idx`` per pass, bound into the
+    hooks here rather than threaded through every call. ``prec_idx`` is the
+    forward's (shaped like ``a @ b``); ``agrad_prec_idx`` and
+    ``bgrad_prec_idx`` are the gradients' (shaped like ``grad @ b^T`` and
+    ``a^T @ grad``), and a gradient pass whose map is missing raises when it
+    is reached rather than falling back to something unquantized.
+
+    Like the four ``*_gemm_formats`` factories, this sets only the math hooks:
+    layer on ``a_quant``/``b_quant``/``agrad_quant``/``bgrad_quant`` yourself
+    if elementwise operand quantization is also wanted. The two concerns stay
+    composable on purpose.
+    """
+    spec = spec_for_mac(mac)
+    maps = (prec_idx, agrad_prec_idx, bgrad_prec_idx)
+    if spec.mixed and prec_idx is None:
+        raise ValueError(
+            "a palette format selects its entry per output element, so it needs a "
+            "prec_idx map; pass one, or give a single format per slot"
+        )
+    if not spec.mixed and any(m is not None for m in maps):
+        raise ValueError("prec_idx has no meaning without a palette format to select from")
+    if spec.mixed:
+        return _matmul_formats(
+            _mixed_matmul(spec, prec_idx, "forward", "prec_idx"),
+            _mixed_matmul(spec, agrad_prec_idx, "gradient of a", "agrad_prec_idx"),
+            _mixed_matmul(spec, bgrad_prec_idx, "gradient of b", "bgrad_prec_idx"),
+        )
+    matmul = partial(_gemm_nd, spec)
+    return _matmul_formats(matmul, matmul, matmul)

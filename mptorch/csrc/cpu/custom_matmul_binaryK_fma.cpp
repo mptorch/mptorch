@@ -28,13 +28,13 @@ Tensor binaryK_matmul_fma_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                                bool fma_quant, int64_t fma_K, int64_t fma_P,
                                int64_t fma_bias, bool fma_is_signed,
                                int64_t accumulate_algorithm, int64_t round_mode,
-                               int64_t saturation_mode, int64_t subnormals_mode,
+                               int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
                                int64_t fma_prng_bits)
 {
   return run_custom_matmul<Backend>(
       "custom_matmul_binaryK_fma",
-      pack_binaryK_fused(fma_quant, fma_K, fma_P, fma_bias, fma_is_signed, saturation_mode,
-                         subnormals_mode, fma_prng_bits),
+      pack_binaryK_fused(fma_quant, fma_K, fma_P, fma_bias, fma_is_signed, fma_saturation_mode,
+                         fma_subnormals_mode, fma_prng_bits),
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
@@ -49,15 +49,15 @@ Tensor binaryK_matmul_fma_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                      c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
                                      c10::IntArrayRef fma_bias, bool fma_is_signed,
                                      int64_t accumulate_algorithm, int64_t round_mode,
-                                     int64_t saturation_mode, int64_t subnormals_mode,
+                                     int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
                                      int64_t fma_prng_bits)
 {
   constexpr const char *op = "custom_matmul_binaryK_fma_mixed";
   return run_custom_matmul_mixed<Backend>(
       op,
       [&] {
-        return pack_binaryK_fused_mixed(op, fma_K, fma_P, fma_bias, fma_is_signed, saturation_mode,
-                                        subnormals_mode, fma_prng_bits);
+        return pack_binaryK_fused_mixed(op, fma_K, fma_P, fma_bias, fma_is_signed,
+                                        fma_saturation_mode, fma_subnormals_mode, fma_prng_bits);
       },
       a, b, prec_idx, trans_a, trans_b, accumulate_algorithm, round_mode,
       [&] {

@@ -446,11 +446,17 @@ def test_superfp_matmul_stochastic_bounds_and_unbiased(device, dtype):
     assert abs(q_sr_const.float().mean().item() - test_val) < 0.01
 
 
-def test_binaryK_matmul_rejects_non_2d():
-    a = torch.randn(2, 3, 4)
-    b = torch.randn(4, 5)
-    with pytest.raises(RuntimeError):
-        binaryK_matmul(a, b, mul_K=8, mul_P=4)
+# The op boundary is rank 2 or 3, strictly: 1D promotion and rank>3
+# broadcasting are Python's job (ops.py's `_matmul_operands`), so a rank-4
+# operand reaching the op is a bug in that layer rather than a user error.
+# The wrapper above it takes all of them -- see test_qmatmul_batched.py.
+def test_raw_matmul_op_rejects_rank_4():
+    a = torch.randn(2, 3, 4, 5)
+    b = torch.randn(5, 6)
+    with pytest.raises(RuntimeError, match="expects 2D or 3D tensors"):
+        torch.ops.mptorch.custom_matmul_binaryK.default(
+            a, b, False, False, 8, 4, 8, True, True, 8, 4, 8, True, 0, 0, 2, 0, 2, 0, 0, 0
+        )
 
 
 # The GEMM kernels take their operands as `const void *` plus a runtime dtype
@@ -812,11 +818,13 @@ def test_binaryK_matmul_split_vs_fused_diverge(device, dtype):
     assert not torch.equal(out_split, out_fused)
 
 
-def test_binaryK_matmul_fma_rejects_non_2d():
-    a = torch.randn(2, 3, 4)
-    b = torch.randn(4, 5)
-    with pytest.raises(RuntimeError):
-        binaryK_matmul_fma(a, b, fma_K=8, fma_P=4)
+def test_raw_matmul_fma_op_rejects_rank_4():
+    a = torch.randn(2, 3, 4, 5)
+    b = torch.randn(5, 6)
+    with pytest.raises(RuntimeError, match="expects 2D or 3D tensors"):
+        torch.ops.mptorch.custom_matmul_binaryK_fma.default(
+            a, b, False, False, True, 8, 4, 8, True, 0, 0, 2, 0, 0
+        )
 
 
 # ------------------------------------------------------------------------------------

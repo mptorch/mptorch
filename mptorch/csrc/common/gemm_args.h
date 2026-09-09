@@ -28,8 +28,16 @@ namespace mptorch::gemm
 
   // Everything the kernel needs that is not a format: the operands as raw
   // pointers plus the shape, layout and dtype to read them with. The mixed
-  // ops fill the last three; the single-format ops leave them null, which is
+  // ops fill the last four; the single-format ops leave them null, which is
   // what selects the kernel's MIXED=false instantiation at the call site.
+  //
+  // One batch dimension (X1). `batch` is the broadcast batch size and the two
+  // operand strides are *element* offsets between consecutive batch elements,
+  // where **0 means broadcast** -- a `[K, N]` weight shared by every batch
+  // element rides at stride 0 rather than being materialized B times. C is
+  // always written densely as [batch, M, N], so its stride is M*N and is not
+  // carried. A 2D call is batch = 1 with both strides 0, which is the same
+  // arithmetic every element ran before: nothing downstream branches on it.
   struct GemmShape
   {
     const void *a = nullptr;
@@ -37,11 +45,13 @@ namespace mptorch::gemm
     void *c = nullptr;
     GemmDtype dt = GemmDtype::Float;
     int64_t M = 0, K = 0, N = 0;
+    int64_t batch = 1;
+    int64_t stride_a = 0, stride_b = 0;
     bool trans_a = false, trans_b = false;
     RoundMode rm = RoundMode::RNE;
     bool use_rng = false;
     const int32_t *prec_idx = nullptr;
-    int64_t idx_row_stride = 0, idx_col_stride = 0;
+    int64_t idx_row_stride = 0, idx_col_stride = 0, idx_batch_stride = 0;
   };
 
   // Shared across every palette entry of a mixed op: only the format *widths*

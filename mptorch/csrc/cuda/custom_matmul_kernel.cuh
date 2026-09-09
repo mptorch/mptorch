@@ -88,20 +88,22 @@ namespace mptorch::gemm_cuda
         }
     }
 
+    // `off` is this batch element's base offset into the operand, in elements
+    // (X1) -- 0 for a 2D call and for an operand broadcast across the batch.
     __device__ __forceinline__ float load_a(const void *A, mptorch::GemmDtype dt,
                                             int64_t M, int64_t K, bool trans_a,
-                                            int64_t row, int64_t col)
+                                            int64_t row, int64_t col, int64_t off)
     {
         // logical A is M x K; trans_a means A's storage is actually K x M.
-        return load_elem(A, trans_a ? col * M + row : row * K + col, dt);
+        return load_elem(A, off + (trans_a ? col * M + row : row * K + col), dt);
     }
 
     __device__ __forceinline__ float load_b(const void *B, mptorch::GemmDtype dt,
                                             int64_t K, int64_t N, bool trans_b,
-                                            int64_t row, int64_t col)
+                                            int64_t row, int64_t col, int64_t off)
     {
         // logical B is K x N; trans_b means B's storage is actually N x K.
-        return load_elem(B, trans_b ? col * K + row : row * N + col, dt);
+        return load_elem(B, off + (trans_b ? col * K + row : row * N + col), dt);
     }
 
     // MIXED selects whether this instantiation carries the spatially-varying
@@ -122,9 +124,11 @@ namespace mptorch::gemm_cuda
         const void *__restrict__ A, const void *__restrict__ B, void *__restrict__ C,
         mptorch::GemmDtype dt,
         int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
+        int64_t batch_base, int64_t stride_a, int64_t stride_b,
         Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
         PaletteArg<MIXED, typename Accumulator::mac_type> pal,
-        const int32_t *__restrict__ prec_idx, int64_t idx_row_stride, int64_t idx_col_stride)
+        const int32_t *__restrict__ prec_idx, int64_t idx_row_stride, int64_t idx_col_stride,
+        int64_t idx_batch_stride)
     {
         __shared__ float As[2][BLOCKSIZE * BLOCKSIZE];
         __shared__ float Bs[2][BLOCKSIZE * BLOCKSIZE];
@@ -142,18 +146,44 @@ namespace mptorch::gemm_cuda
 
         const int64_t numTiles = (K + BLOCKSIZE - 1) / BLOCKSIZE;
 
+        // The batch dimension is blockIdx.z (X1): two element offsets added to
+        // the operand index, computed once here. `stride_* == 0` is an operand
+        // broadcast across the batch, and a 2D call is base 0 with both
+        // strides 0 -- the same addresses, the same values, as the 952-output
+        // capture confirms. Chunked host-side against the 65,535 grid-z limit,
+        // hence the base.
+        //
+        // It is not free: the offsets are live across the K-loop, which costs
+        // +2 to +11 registers, and eight of the *mixed* instantiations lose a
+        // resident block for it (48 -> 54 regs, 5 -> 4 blocks at 256 threads on
+        // sm_89). No single-format kernel crosses an allocation boundary. Both
+        // spellings of the offset -- this one and a pointer offset by
+        // `bId * stride` in the prologue -- cost the same registers, and both
+        // were measured against a compile-time `BATCHED` parameter that
+        // restores the old code exactly: the worst case is +3.6% (binaryK mixed
+        // RZ), most rows sit inside a +-4% noise floor, and one mixed kernel
+        // measured faster. Keeping the unbatched instantiation to buy that back
+        // costs 86 extra kernels and +4.7 MB of .nv_fatbin (6.46 -> 11.17 MB),
+        // which is the wrong side of the trade -- see dev/gemm_roadmap.md (X1).
+        const int64_t bId = batch_base + static_cast<int64_t>(blockIdx.z);
+        const int64_t aOff = bId * stride_a;
+        const int64_t bOff = bId * stride_b;
+
         Accumulator acc = acc_proto;
 
         // RoundMode::SR: seed this thread's output element's Philox stream
         // once, before any accumulate() call -- keyed by its own global
-        // linear index, so the result is independent of BLOCKSIZE/grid
-        // geometry (see gemm_policy.h's NaiveAccumulator::seed_rng and
-        // dev/gemm_roadmap.md for why this granularity, not a shared
-        // per-block RNG state).
+        // linear index into the whole [batch, M, N] output, so the result is
+        // independent of BLOCKSIZE/grid geometry and every element of a
+        // batched call still draws its own stream (see gemm_policy.h's
+        // NaiveAccumulator::seed_rng and dev/gemm_roadmap.md for why this
+        // granularity, not a shared per-block RNG state). Batch element 0 of a
+        // batched call gets the subsequence the 2D call gave that element.
         if (use_rng && rId < M && cId < N)
         {
             auto seeds = at::cuda::philox::unpack(rng_args);
-            acc.seed_rng(std::get<0>(seeds), static_cast<uint64_t>(rId) * N + cId, std::get<1>(seeds));
+            acc.seed_rng(std::get<0>(seeds),
+                         (static_cast<uint64_t>(bId) * M + rId) * N + cId, std::get<1>(seeds));
         }
 
         // Spatially-varying mixed format: bind this output element's Mac
@@ -165,14 +195,15 @@ namespace mptorch::gemm_cuda
         if constexpr (MIXED)
         {
             if (rId < M && cId < N)
-                acc.mac = pal.slot(prec_idx[rId * idx_row_stride + cId * idx_col_stride]);
+                acc.mac = pal.slot(prec_idx[bId * idx_batch_stride + rId * idx_row_stride +
+                                            cId * idx_col_stride]);
         }
 
         // load first tile into buffer 0
         As[0][threadRow * BLOCKSIZE + threadCol] =
-            (rId < M && threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, threadCol) : 0.0f;
+            (rId < M && threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
         Bs[0][threadRow * BLOCKSIZE + threadCol] =
-            (threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, threadRow, cId) : 0.0f;
+            (threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
 
         for (int64_t t = 0; t < numTiles; ++t)
         {
@@ -225,36 +256,54 @@ namespace mptorch::gemm_cuda
             {
                 int64_t nextK = (t + 1) * BLOCKSIZE;
                 As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (rId < M && nextK + threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, nextK + threadCol) : 0.0f;
+                    (rId < M && nextK + threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
                 Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (nextK + threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, nextK + threadRow, cId) : 0.0f;
+                    (nextK + threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
             }
             __syncthreads();
         }
 
+        // C is dense [batch, M, N], so its own stride needs no argument.
         if (rId < M && cId < N)
-            store_elem(C, rId * N + cId, dt, acc.finalize());
+            store_elem(C, (bId * M + rId) * N + cId, dt, acc.finalize());
     }
 
     // The launcher the four .cu files instantiate. The stream arrives from
     // the driver rather than being fetched here: getCurrentCUDAStream() lives
     // behind <ATen/cuda/CUDAContext.h>, which is most of what this file no
     // longer includes.
+    // The batch rides on gridDim.z, whose extent is capped at 65,535 -- two
+    // orders of magnitude below gridDim.x/y's 2^31-1, and reachable: a
+    // per-head attention call is batch * heads. Chunking it here rather than
+    // folding the batch into gridDim.y keeps the block's (row, col) mapping
+    // and therefore its shared-memory tiling untouched, and a chunk boundary
+    // is not observable in the output -- each block writes its own [M, N] tile
+    // of its own batch element, and RoundMode::SR keys on the global element
+    // index, not on the launch.
     template <bool MIXED = false, class Accumulator>
     void launch_custom_matmul(const void *a, const void *b, void *c, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N, bool trans_a, bool trans_b,
+                              int64_t batch, int64_t stride_a, int64_t stride_b,
                               Accumulator acc_proto, bool use_rng, at::PhiloxCudaState rng_args,
                               cudaStream_t stream,
                               PaletteArg<MIXED, typename Accumulator::mac_type> pal = {},
                               const int32_t *prec_idx = nullptr,
-                              int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
+                              int64_t idx_row_stride = 0, int64_t idx_col_stride = 0,
+                              int64_t idx_batch_stride = 0)
     {
+        constexpr int64_t MAX_GRID_Z = 65535;
         dim3 block_dim(static_cast<unsigned>((N + BLOCKSIZE - 1) / BLOCKSIZE),
-                       static_cast<unsigned>((M + BLOCKSIZE - 1) / BLOCKSIZE));
+                       static_cast<unsigned>((M + BLOCKSIZE - 1) / BLOCKSIZE), 1u);
         dim3 thread_dim(BLOCKSIZE * BLOCKSIZE);
-        custom_matmul_kernel<MIXED, Accumulator><<<block_dim, thread_dim, 0, stream>>>(
-            a, b, c, dt, M, K, N, trans_a, trans_b, acc_proto, use_rng, rng_args,
-            pal, prec_idx, idx_row_stride, idx_col_stride);
+        for (int64_t base = 0; base < batch; base += MAX_GRID_Z)
+        {
+            const int64_t left = batch - base;
+            block_dim.z = static_cast<unsigned>(left < MAX_GRID_Z ? left : MAX_GRID_Z);
+            custom_matmul_kernel<MIXED, Accumulator><<<block_dim, thread_dim, 0, stream>>>(
+                a, b, c, dt, M, K, N, trans_a, trans_b, base, stride_a, stride_b,
+                acc_proto, use_rng, rng_args,
+                pal, prec_idx, idx_row_stride, idx_col_stride, idx_batch_stride);
+        }
     }
 
     // One body for all eight ops. The Args is the only thing that differs
@@ -272,8 +321,10 @@ namespace mptorch::gemm_cuda
                 args.template with_palette<RM>([&](auto acc, const auto &pal)
                 {
                     launch_custom_matmul<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a,
-                                               s.trans_b, acc, s.use_rng, ctx.rng, ctx.stream,
-                                               pal, s.prec_idx, s.idx_row_stride, s.idx_col_stride);
+                                               s.trans_b, s.batch, s.stride_a, s.stride_b,
+                                               acc, s.use_rng, ctx.rng, ctx.stream,
+                                               pal, s.prec_idx, s.idx_row_stride, s.idx_col_stride,
+                                               s.idx_batch_stride);
                 });
             }
             else
@@ -281,6 +332,7 @@ namespace mptorch::gemm_cuda
                 args.template with_accumulator<RM>([&](auto acc)
                 {
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                         s.batch, s.stride_a, s.stride_b,
                                          acc, s.use_rng, ctx.rng, ctx.stream);
                 });
             }

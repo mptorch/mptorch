@@ -175,9 +175,14 @@ def test_qconv_tier3_manual_baseline(device, dtype, bias):
     x_man = torch.randn(2, 4, 8, 8, device=device, dtype=dtype, requires_grad=True)
     x_q_layer = x_man.clone().detach().requires_grad_(True)
 
-    qw = quant_fn(w)
-    qx = quant_fn(x_man)
-    qb = quant_fn(b) if bias else None
+    # Under no_grad because these quantize tensors that require grad and then
+    # read the *values*: nothing backprops through the quantizer here, and the
+    # raw quantize ops raise rather than hand back a tensor whose gradient
+    # would silently vanish (see csrc/autograd_ops.cpp).
+    with torch.no_grad():
+        qw = quant_fn(w)
+        qx = quant_fn(x_man)
+        qb = quant_fn(b) if bias else None
     out_man = F.conv2d(
         qx,
         qw,

@@ -29,14 +29,15 @@ Tensor binaryK_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            bool accumulate_quant, int64_t acc_K, int64_t acc_P,
                            int64_t acc_bias, bool acc_is_signed,
                            int64_t accumulate_algorithm, int64_t round_mode,
-                           int64_t saturation_mode, int64_t subnormals_mode,
+                           int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                           int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
                            int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
   return run_custom_matmul<Backend>(
       "custom_matmul_binaryK",
       pack_binaryK_split(mul_K, mul_P, mul_bias, mul_is_signed, accumulate_quant, acc_K, acc_P,
-                         acc_bias, acc_is_signed, saturation_mode, subnormals_mode, mul_prng_bits,
-                         acc_prng_bits),
+                         acc_bias, acc_is_signed, mul_saturation_mode, mul_subnormals_mode,
+                         acc_saturation_mode, acc_subnormals_mode, mul_prng_bits, acc_prng_bits),
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
@@ -55,8 +56,9 @@ Tensor binaryK_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                  bool accumulate_quant, c10::IntArrayRef acc_K,
                                  c10::IntArrayRef acc_P, c10::IntArrayRef acc_bias,
                                  bool acc_is_signed, int64_t accumulate_algorithm,
-                                 int64_t round_mode, int64_t saturation_mode,
-                                 int64_t subnormals_mode, int64_t mul_prng_bits,
+                                 int64_t round_mode, int64_t mul_saturation_mode,
+                                 int64_t mul_subnormals_mode, int64_t acc_saturation_mode,
+                                 int64_t acc_subnormals_mode, int64_t mul_prng_bits,
                                  int64_t acc_prng_bits)
 {
   constexpr const char *op = "custom_matmul_binaryK_mixed";
@@ -65,7 +67,8 @@ Tensor binaryK_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
       [&] {
         return pack_binaryK_split_mixed(op, mul_K, mul_P, mul_bias, mul_is_signed,
                                         accumulate_quant, acc_K, acc_P, acc_bias, acc_is_signed,
-                                        saturation_mode, subnormals_mode, mul_prng_bits,
+                                        mul_saturation_mode, mul_subnormals_mode,
+                                        acc_saturation_mode, acc_subnormals_mode, mul_prng_bits,
                                         acc_prng_bits);
       },
       a, b, prec_idx, trans_a, trans_b, accumulate_algorithm, round_mode);

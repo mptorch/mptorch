@@ -38,11 +38,15 @@ namespace mptorch::gemm_cpu
   //
   // The accumulate order is untouched -- same floats, same sequence of
   // Accumulator::accumulate calls -- so the results are bit-identical.
+  //
+  // `off` is this batch element's base offset into the operand, in elements
+  // (X1) -- 0 for a 2D call and for an operand broadcast across the batch.
+  // Added to the base pointer once per tile, not per element.
   template <typename scalar_t>
   void pack_a_impl(const void *A, float *__restrict__ dst, int64_t M, int64_t K, bool trans_a,
-                   int64_t i0, int64_t k0, int64_t ti, int64_t tk)
+                   int64_t i0, int64_t k0, int64_t ti, int64_t tk, int64_t off)
   {
-    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(A);
+    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(A) + off;
     for (int64_t i = 0; i < ti; ++i)
       for (int64_t k = 0; k < tk; ++k)
         dst[i * tk + k] = trans_a ? static_cast<float>(src[(k0 + k) * M + (i0 + i)])
@@ -51,9 +55,9 @@ namespace mptorch::gemm_cpu
 
   template <typename scalar_t>
   void pack_b_impl(const void *B, float *__restrict__ dst, int64_t K, int64_t N, bool trans_b,
-                   int64_t k0, int64_t j0, int64_t tk, int64_t tj)
+                   int64_t k0, int64_t j0, int64_t tk, int64_t tj, int64_t off)
   {
-    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(B);
+    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(B) + off;
     for (int64_t k = 0; k < tk; ++k)
       for (int64_t j = 0; j < tj; ++j)
         dst[k * tj + j] = trans_b ? static_cast<float>(src[(j0 + j) * K + (k0 + k)])
@@ -62,9 +66,9 @@ namespace mptorch::gemm_cpu
 
   template <typename scalar_t>
   void store_tile_impl(void *C, const float *__restrict__ src, int64_t N,
-                       int64_t i0, int64_t j0, int64_t ti, int64_t tj)
+                       int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
   {
-    scalar_t *__restrict__ dst = static_cast<scalar_t *>(C);
+    scalar_t *__restrict__ dst = static_cast<scalar_t *>(C) + off;
     for (int64_t i = 0; i < ti; ++i)
       for (int64_t j = 0; j < tj; ++j)
         dst[(i0 + i) * N + (j0 + j)] = static_cast<scalar_t>(src[i * tj + j]);
@@ -87,25 +91,25 @@ namespace mptorch::gemm_cpu
   }
 
   inline void pack_a(const void *A, mptorch::GemmDtype dt, float *dst, int64_t M, int64_t K,
-                     bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk)
+                     bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk, int64_t off)
   {
-#define MPTORCH_PACK_A(T) pack_a_impl<T>(A, dst, M, K, trans_a, i0, k0, ti, tk)
+#define MPTORCH_PACK_A(T) pack_a_impl<T>(A, dst, M, K, trans_a, i0, k0, ti, tk, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_A)
 #undef MPTORCH_PACK_A
   }
 
   inline void pack_b(const void *B, mptorch::GemmDtype dt, float *dst, int64_t K, int64_t N,
-                     bool trans_b, int64_t k0, int64_t j0, int64_t tk, int64_t tj)
+                     bool trans_b, int64_t k0, int64_t j0, int64_t tk, int64_t tj, int64_t off)
   {
-#define MPTORCH_PACK_B(T) pack_b_impl<T>(B, dst, K, N, trans_b, k0, j0, tk, tj)
+#define MPTORCH_PACK_B(T) pack_b_impl<T>(B, dst, K, N, trans_b, k0, j0, tk, tj, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_B)
 #undef MPTORCH_PACK_B
   }
 
   inline void store_tile(void *C, mptorch::GemmDtype dt, const float *src, int64_t N,
-                         int64_t i0, int64_t j0, int64_t ti, int64_t tj)
+                         int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
   {
-#define MPTORCH_STORE_TILE(T) store_tile_impl<T>(C, src, N, i0, j0, ti, tj)
+#define MPTORCH_STORE_TILE(T) store_tile_impl<T>(C, src, N, i0, j0, ti, tj, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_STORE_TILE)
 #undef MPTORCH_STORE_TILE
   }
@@ -138,11 +142,13 @@ namespace mptorch::gemm_cpu
   void matmul_cpu_kernel_impl(const void *A, const void *B, void *C, mptorch::GemmDtype dt,
                               int64_t M, int64_t K, int64_t N,
                               bool trans_a, bool trans_b,
+                              int64_t batch, int64_t stride_a, int64_t stride_b,
                               Accumulator acc_proto,
                               bool use_rng, uint64_t seed,
                               PaletteArg<MIXED, typename Accumulator::mac_type> pal = {},
                               const int32_t *__restrict__ prec_idx = nullptr,
-                              int64_t idx_row_stride = 0, int64_t idx_col_stride = 0)
+                              int64_t idx_row_stride = 0, int64_t idx_col_stride = 0,
+                              int64_t idx_batch_stride = 0)
   {
     constexpr int64_t TI = 32, TJ = 32, TK = 32;
     using Mac = typename Accumulator::mac_type;
@@ -170,7 +176,13 @@ namespace mptorch::gemm_cpu
     const int64_t work_per_tile = TI * TJ * std::max<int64_t>(K, 1);
     const int64_t grain = std::max<int64_t>(1, at::internal::GRAIN_SIZE / work_per_tile);
 
-    at::parallel_for(0, n_tiles, grain, [&](int64_t tile_begin, int64_t tile_end)
+    // X1 puts the batch on the same axis rather than around it: the tasks are
+    // (batch element, output tile) pairs, so a batched call with a small M*N
+    // per element -- an attention head's 128x128 output is 16 tiles -- still
+    // has tasks to hand every thread, where a loop of 2D calls outside this
+    // one would leave most of them idle per call. batch = 1 leaves the
+    // decomposition exactly as it was.
+    at::parallel_for(0, batch * n_tiles, grain, [&](int64_t task_begin, int64_t task_end)
     {
       // One tile's worth of reduction state per worker task, reused across
       // every tile the task takes rather than rebuilt per tile: TI*TJ running
@@ -198,19 +210,29 @@ namespace mptorch::gemm_cpu
       alignas(64) float b_pack[TK * TJ];
       alignas(64) float c_pack[TI * TJ];
 
-      for (int64_t tile_id = tile_begin; tile_id < tile_end; ++tile_id)
+      for (int64_t task_id = task_begin; task_id < task_end; ++task_id)
       {
+        const int64_t bId = task_id / n_tiles;
+        const int64_t tile_id = task_id % n_tiles;
+        const int64_t a_off = bId * stride_a;
+        const int64_t b_off = bId * stride_b;
+        const int64_t c_off = bId * M * N;
         const int64_t i0 = (tile_id / n_tiles_j) * TI;
         const int64_t j0 = (tile_id % n_tiles_j) * TJ;
         const int64_t ti = std::min<int64_t>(TI, M - i0);
         const int64_t tj = std::min<int64_t>(TJ, N - j0);
         tile.begin(ti * tj);
 
+        // Each element's stream is keyed by its global linear index into the
+        // whole [batch, M, N] output, so batch element 0 of a batched call
+        // draws exactly what the 2D call drew, and no two elements share a
+        // subsequence.
         if (use_rng)
         {
           for (int64_t i = 0; i < ti; ++i)
             for (int64_t j = 0; j < tj; ++j)
-              tile.seed_rng(i * tj + j, seed, static_cast<uint64_t>((i0 + i) * N + (j0 + j)));
+              tile.seed_rng(i * tj + j, seed,
+                            static_cast<uint64_t>(c_off + (i0 + i) * N + (j0 + j)));
         }
 
         // Spatially-varying mixed format: resolve each output element's Mac
@@ -224,14 +246,15 @@ namespace mptorch::gemm_cpu
           for (int64_t i = 0; i < ti; ++i)
             for (int64_t j = 0; j < tj; ++j)
               slot_of[i * tj + j] =
-                  &pal.slot(prec_idx[(i0 + i) * idx_row_stride + (j0 + j) * idx_col_stride]);
+                  &pal.slot(prec_idx[bId * idx_batch_stride + (i0 + i) * idx_row_stride +
+                                     (j0 + j) * idx_col_stride]);
         }
 
         for (int64_t k0 = 0; k0 < K; k0 += TK)
         {
           int64_t tk = std::min<int64_t>(TK, K - k0);
-          pack_a(A, dt, a_pack, M, K, trans_a, i0, k0, ti, tk);
-          pack_b(B, dt, b_pack, K, N, trans_b, k0, j0, tk, tj);
+          pack_a(A, dt, a_pack, M, K, trans_a, i0, k0, ti, tk, a_off);
+          pack_b(B, dt, b_pack, K, N, trans_b, k0, j0, tk, tj, b_off);
           for (int64_t i = 0; i < ti; ++i)
           {
             for (int64_t k = 0; k < tk; ++k)
@@ -251,7 +274,7 @@ namespace mptorch::gemm_cpu
         for (int64_t i = 0; i < ti; ++i)
           for (int64_t j = 0; j < tj; ++j)
             c_pack[i * tj + j] = tile.finalize(i * tj + j);
-        store_tile(C, dt, c_pack, N, i0, j0, ti, tj);
+        store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
       }
     });
   }
@@ -289,8 +312,9 @@ namespace mptorch::gemm_cpu
           args.template with_palette<RM>([&](auto acc, const auto &pal)
           {
             matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                         s.batch, s.stride_a, s.stride_b,
                                          acc, s.use_rng, ctx.seed, pal, s.prec_idx,
-                                         s.idx_row_stride, s.idx_col_stride);
+                                         s.idx_row_stride, s.idx_col_stride, s.idx_batch_stride);
           });
         }
         else
@@ -298,7 +322,7 @@ namespace mptorch::gemm_cpu
           args.template with_accumulator<RM>([&](auto acc)
           {
             matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
-                                   acc, s.use_rng, ctx.seed);
+                                   s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
           });
         }
       });

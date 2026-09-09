@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any, NamedTuple
 
 import torch
@@ -147,14 +148,47 @@ class _GemmSpec(NamedTuple):
     args: tuple[Any, ...]
     needed: int
     terms: tuple[tuple[str, int, int], ...]
+    # Whether `op` is one of the four palette ops, i.e. takes a `prec_idx`
+    # between the operands and the transpose flags. The format vocabulary in
+    # `mptorch.quant.mac` reads this to decide whether a call needs a map,
+    # rather than re-deriving from the format what the builder already knew.
+    mixed: bool = False
+
+
+def _packed(x: torch.Tensor, trans: bool) -> tuple[torch.Tensor, bool]:
+    """An operand the op can read, and the transpose flag to read it with.
+
+    The kernel reads ``op(x)`` through ``x``'s own storage, so a tensor that is
+    the transpose of a contiguous one needs no copy -- only the other flag.
+    That is exactly ``q @ k.mT``, the shape batched GEMM exists for, which the
+    unconditional ``.contiguous()`` this replaces used to materialize in full.
+    Values are unchanged either way: the kernel indexes the same elements, and
+    RoundMode::SR keys on the output element, not on the operand's layout.
+
+    A contiguous operand takes the first branch, so the common path costs one
+    ``is_contiguous()`` where it used to cost a ``.contiguous()`` call.
+    """
+    if x.is_contiguous():
+        return x, trans
+    xt = x.transpose(-2, -1)
+    if xt.is_contiguous():
+        return xt, not trans
+    return x.contiguous(), trans
 
 
 def _run_gemm(
     spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool
 ) -> torch.Tensor:
-    """Call a resolved GEMM. All that is left per call is the operand dtype."""
+    """Call a resolved GEMM on rank-2 or rank-3 operands.
+
+    All that is left per call is the operand dtype and the layout fold. The
+    ``torch.matmul`` operand rules -- 1D promotion, leading-dim broadcasting,
+    rank > 3 -- are :func:`_matmul_operands`' job, above this.
+    """
     assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
-    return spec.op(a.contiguous(), b.contiguous(), trans_a, trans_b, *spec.args)
+    a, trans_a = _packed(a, trans_a)
+    b, trans_b = _packed(b, trans_b)
+    return spec.op(a, b, trans_a, trans_b, *spec.args)
 
 
 def _run_gemm_mixed(
@@ -172,7 +206,197 @@ def _run_gemm_mixed(
     handed (finding G5b), which a `.to()` here would defeat.
     """
     assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
-    return spec.op(a.contiguous(), b.contiguous(), prec_idx, trans_a, trans_b, *spec.args)
+    a, trans_a = _packed(a, trans_a)
+    b, trans_b = _packed(b, trans_b)
+    return spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
+
+
+# --- torch.matmul's operand rules, over a rank-2-or-3 op ----------------------
+#
+# The op boundary takes rank 2 or rank 3 and one batch dimension whose extent
+# each operand either carries or does not (common/gemm_host.h). Everything
+# torch.matmul accepts on top of that -- a 1D operand, leading dims of any
+# rank, broadcasting between them -- is expressed here, as views wherever
+# torch.matmul itself would use one, so the two agree on when a copy happens.
+
+
+class _MatmulLayout(NamedTuple):
+    """What the op is handed, and the shape its result has to come back as.
+
+    `out_shape` already has the promoted dimensions of a 1D operand removed,
+    so the caller reshapes the op's [B, M, N] (or [M, N]) result to it and is
+    done.
+    """
+
+    a: torch.Tensor
+    b: torch.Tensor
+    trans_a: bool
+    trans_b: bool
+    out_shape: tuple[int, ...]
+
+
+def _collapse(x: torch.Tensor) -> torch.Tensor:
+    """Fold every leading dim of a rank>2 operand into one, without a copy.
+
+    ``reshape`` alone would copy a transposed view, which is the layout
+    :func:`_packed` exists to keep -- so a transposed view is collapsed
+    through its own base and handed back transposed.
+    """
+    # The batch extent is spelled out rather than inferred: `reshape(-1, r, c)`
+    # is ambiguous when the tensor is empty, which a zero batch or a zero M is.
+    batch = 1
+    for d in x.shape[:-2]:
+        batch *= d
+    if x.is_contiguous() or not x.transpose(-2, -1).is_contiguous():
+        return x.reshape(batch, *x.shape[-2:])
+    xt = x.transpose(-2, -1)
+    return xt.reshape(batch, *xt.shape[-2:]).transpose(-2, -1)
+
+
+def _operand_3d(x: torch.Tensor, batch: tuple[int, ...]) -> torch.Tensor:
+    """One operand as the rank-2 or rank-3 tensor the op takes.
+
+    No leading dims, or all of them 1, means the op reads it at stride 0 --
+    shared across the batch, never expanded. Leading dims that are already the
+    broadcast batch collapse to one dim as a view. Anything else is a genuine
+    partial broadcast (``[4, 1, M, K] @ [1, 3, K, N]``), and expanding it
+    copies exactly where ``torch.matmul`` itself copies.
+    """
+    lead = x.shape[:-2]
+    if all(d == 1 for d in lead):
+        while x.dim() > 2:  # squeeze(0) is a view whatever the layout
+            x = x.squeeze(0)
+        return x
+    if tuple(lead) != tuple(batch):
+        x = x.expand(*batch, *x.shape[-2:])
+    return _collapse(x)
+
+
+def _broadcast_batch(a_lead: Sequence[int], b_lead: Sequence[int]) -> tuple[int, ...]:
+    """The leading dims two operands broadcast to.
+
+    ``torch.broadcast_shapes`` spelled out because it costs 8.7 us -- most of
+    an entire resolved GEMM call (finding P4) -- for a pair of tuples that are
+    usually equal and never long. Same rule, same errors, ~0.3 us.
+    """
+    if a_lead == b_lead:
+        return tuple(a_lead)
+    n = max(len(a_lead), len(b_lead))
+    out = []
+    for i in range(-n, 0):
+        x = a_lead[i] if -i <= len(a_lead) else 1
+        y = b_lead[i] if -i <= len(b_lead) else 1
+        if x != y and x != 1 and y != 1:
+            raise ValueError(
+                f"matmul operands' leading dimensions do not broadcast: {tuple(a_lead)} "
+                f"against {tuple(b_lead)}"
+            )
+        out.append(x if y == 1 else y)
+    return tuple(out)
+
+
+def _matmul_operands(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    trans_a: bool = False,
+    trans_b: bool = False,
+    fold: bool = True,
+) -> _MatmulLayout:
+    """``torch.matmul``'s operand contract, resolved onto the rank-2/3 op.
+
+    ``trans_a``/``trans_b`` apply to the last two dims, as they would on a
+    ``bmm`` of transposed views; they are ignored for a 1D operand, which
+    ``torch.matmul`` has no transpose flag for.
+
+    ``fold=False`` keeps the batch a batch. Only a palette op needs that: its
+    ``prec_idx`` is indexed by output element, so a map shaped for the
+    unfolded ``[M, N]`` output does not describe the folded ``[B*M, N]`` one.
+    """
+    a_1d, b_1d = a.dim() == 1, b.dim() == 1
+    if a_1d:
+        a, trans_a = a.unsqueeze(0), False
+    if b_1d:
+        b, trans_b = b.unsqueeze(-1), False
+    if a.dim() < 2 or b.dim() < 2:
+        raise ValueError("matmul operands must have at least one dimension")
+
+    batch = _broadcast_batch(a.shape[:-2], b.shape[:-2])
+    M = a.shape[-1] if trans_a else a.shape[-2]
+    N = b.shape[-2] if trans_b else b.shape[-1]
+    out_shape = (*batch, *((() if a_1d else (M,)) + (() if b_1d else (N,))))
+
+    a3 = _operand_3d(a, batch)
+    b3 = _operand_3d(b, batch)
+
+    # `[..., M, K] @ [K, N]` with a shared, untransposed `a`: folding the batch
+    # into M is a view and gives one large GEMM instead of B small ones. It is
+    # bit-identical rather than merely equivalent -- an element's SR
+    # subsequence is `(b*M + row)*N + col` batched and `row' * N + col` folded,
+    # with `row' = b*M + row`, i.e. the same index -- so it needs no gate of
+    # its own. This is the QLinear shape, which `gemm.py` folds the same way.
+    if fold and a3.dim() == 3 and b3.dim() == 2 and not trans_a and a3.is_contiguous():
+        a3 = a3.reshape(-1, a3.shape[-1])
+
+    return _MatmulLayout(a3, b3, trans_a, trans_b, out_shape)
+
+
+def _gemm_nd(
+    spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool
+) -> torch.Tensor:
+    """:func:`_run_gemm` under ``torch.matmul``'s operand rules -- what the
+    eight flat wrappers call, where the layer hooks in `mptorch.quant.gemm`
+    call `_run_gemm` directly on operands they have already flattened."""
+    return _matmul_nd(partial(_run_gemm, spec), a, b, trans_a, trans_b)
+
+
+def _gemm_mixed_nd(
+    spec: _GemmSpec,
+    a: torch.Tensor,
+    b: torch.Tensor,
+    prec_idx: torch.Tensor,
+    trans_a: bool,
+    trans_b: bool,
+) -> torch.Tensor:
+    """:func:`_gemm_nd` for the palette ops.
+
+    The map's own leading dims are collapsed the same way the operands' are,
+    so a per-batch-element map keeps up with a rank>3 call; and the batch is
+    never folded into ``M``, because the map is indexed by output element and
+    a folded output has a different one.
+    """
+    if prec_idx.dim() > 3:
+        prec_idx = prec_idx.reshape(-1, *prec_idx.shape[-2:])
+
+    def run(a3, b3, ta, tb):
+        return _run_gemm_mixed(spec, a3, b3, prec_idx, ta, tb)
+
+    return _matmul_nd(run, a, b, trans_a, trans_b, fold=False)
+
+
+def _matmul_nd(
+    run: Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor],
+    a: torch.Tensor,
+    b: torch.Tensor,
+    trans_a: bool = False,
+    trans_b: bool = False,
+    fold: bool = True,
+) -> torch.Tensor:
+    """`run` -- a resolved 2D/3D GEMM -- under ``torch.matmul``'s operand rules.
+
+    Two ranks reach the op untouched, and they are the ones every existing
+    caller uses: a pair of matrices, and a pair of equal batches. Both are
+    already exactly what the op takes, and taking them through the general
+    path costs ~12 us of Python (`_matmul_operands`, most of it in the shape
+    broadcast) for a result identical to the operands themselves -- against
+    the 2.3-6.4 us finding P4 removed from this same layer.
+    """
+    if a.dim() == 2 and b.dim() == 2:
+        return run(a, b, trans_a, trans_b)
+    if a.dim() == 3 and b.dim() == 3 and a.shape[0] == b.shape[0]:
+        return run(a, b, trans_a, trans_b)
+    layout = _matmul_operands(a, b, trans_a, trans_b, fold)
+    out = run(layout.a, layout.b, layout.trans_a, layout.trans_b)
+    return out if out.shape == layout.out_shape else out.reshape(layout.out_shape)
 
 
 # --- elementwise quantizers --------------------------------------------------
@@ -253,10 +477,16 @@ def _binaryK_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
+    if acc_saturation_mode is None:
+        acc_saturation_mode = saturation_mode
+    if acc_subnormals_mode is None:
+        acc_subnormals_mode = subnormals_mode
     if accumulate_quant:
         acc_K = mul_K if acc_K is None else acc_K
         acc_P = mul_P if acc_P is None else acc_P
@@ -292,6 +522,8 @@ def _binaryK_spec(
             rounding_mode.value,
             saturation_mode.value,
             subnormals_mode.value,
+            acc_saturation_mode.value,
+            acc_subnormals_mode.value,
             mul_prng_bits,
             acc_prng_bits,
         ),
@@ -321,6 +553,8 @@ def binaryK_matmul(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode | None = None,
 ) -> torch.Tensor:
     """
     Quantized GEMM core: computes ``op(a) @ op(b)``, where ``op(x) = x.T``
@@ -339,13 +573,19 @@ def binaryK_matmul(
     mantissa bits used by the multiply/accumulate rounding respectively,
     same convention as :func:`binaryK_quantize`'s ``prng_bits``.
 
-    ``a`` and ``b`` must be 2D; batched/rank>2 callers should flatten their
-    leading dimensions first (see ``mptorch.quant.gemm`` for an example that
-    does this for ``QAffineFormats``). Callers holding one format across many
-    calls should use those factories rather than this function: they resolve
+    ``a`` and ``b`` follow ``torch.matmul``'s operand rules: 1D operands are
+    promoted (and their dimension dropped from the result), leading dimensions
+    broadcast against each other, and ``trans_a``/``trans_b`` apply to the last
+    two dimensions. A shared operand rides at stride 0 rather than being
+    expanded, and ``[..., M, K] @ [K, N]`` folds its batch into ``M`` -- so the
+    two shapes a quantized attention block uses cost no copy. See
+    :func:`mptorch.quant.qmatmul` for the differentiable entry point.
+
+    Callers holding one format across many calls should use
+    ``mptorch.quant.gemm``'s factories rather than this function: they resolve
     the format once instead of on every call.
     """
-    return _run_gemm(
+    return _gemm_nd(
         _binaryK_spec(
             mul_K=mul_K,
             mul_P=mul_P,
@@ -362,6 +602,8 @@ def binaryK_matmul(
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
             subnormals_mode=subnormals_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            acc_subnormals_mode=acc_subnormals_mode,
         ),
         a,
         b,
@@ -388,10 +630,13 @@ def _superfp_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    acc_saturation_mode: SaturationMode | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
         acc_is_signed = mul_is_signed
+    if acc_saturation_mode is None:
+        acc_saturation_mode = saturation_mode
     if accumulate_quant:
         acc_man_bits = mul_man_bits if acc_man_bits is None else acc_man_bits
         acc_exp_bits = mul_exp_bits if acc_exp_bits is None else acc_exp_bits
@@ -427,6 +672,7 @@ def _superfp_spec(
             accumulate_algorithm.value,
             rounding_mode.value,
             saturation_mode.value,
+            acc_saturation_mode.value,
             mul_prng_bits,
             acc_prng_bits,
         ),
@@ -457,16 +703,17 @@ def superfp_matmul(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    acc_saturation_mode: SaturationMode | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul` -- see its docstring for the
-    general contract (2D-only, ``trans_a``/``trans_b``,
-    ``accumulate_quant``, ``mul_prng_bits``/``acc_prng_bits``).
+    general contract (``torch.matmul``'s operand rules, ``trans_a``/
+    ``trans_b``, ``accumulate_quant``, ``mul_prng_bits``/``acc_prng_bits``).
     ``acc_man_bits``/``acc_exp_bits``/``acc_normal_binades``/``acc_bias``
     default to the multiply format's values when omitted and
     ``accumulate_quant`` is true.
     """
-    return _run_gemm(
+    return _gemm_nd(
         _superfp_spec(
             mul_man_bits=mul_man_bits,
             mul_exp_bits=mul_exp_bits,
@@ -484,6 +731,7 @@ def superfp_matmul(
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
+            acc_saturation_mode=acc_saturation_mode,
         ),
         a,
         b,
@@ -563,11 +811,10 @@ def binaryK_matmul_fma(
     ``RoundMode.SR`` (stochastic) -- see :func:`binaryK_matmul`'s
     ``mul_prng_bits``/``acc_prng_bits`` for the convention.
 
-    ``a`` and ``b`` must be 2D; batched/rank>2 callers should flatten their
-    leading dimensions first (see ``mptorch.quant.gemm`` for an example that
-    does this for ``QAffineFormats``).
+    ``a`` and ``b`` follow ``torch.matmul``'s operand rules, as for
+    :func:`binaryK_matmul`.
     """
-    return _run_gemm(
+    return _gemm_nd(
         _binaryK_fma_spec(
             fma_K=fma_K,
             fma_P=fma_P,
@@ -640,7 +887,7 @@ def superfp_matmul_fma(
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
 ) -> torch.Tensor:
     """superfp analog of :func:`binaryK_matmul_fma` -- see its docstring."""
-    return _run_gemm(
+    return _gemm_nd(
         _superfp_fma_spec(
             fma_man_bits=fma_man_bits,
             fma_exp_bits=fma_exp_bits,
@@ -667,6 +914,77 @@ def superfp_matmul_fma(
 # across many calls, and no `QAffineFormats` factory takes a palette yet.
 
 
+def _binaryK_mixed_spec(
+    *,
+    mul_K: Sequence[int],
+    mul_P: Sequence[int],
+    mul_bias: int | Sequence[int] | None = None,
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    accumulate_quant: bool = True,
+    acc_K: int | Sequence[int] | None = None,
+    acc_P: int | Sequence[int] | None = None,
+    acc_bias: int | Sequence[int] | None = None,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode | None = None,
+) -> _GemmSpec:
+    """Resolve :func:`binaryK_matmul_mixed`'s palette -- see it for the contract."""
+    mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
+    if acc_is_signed is None:
+        acc_is_signed = mul_is_signed
+    if acc_saturation_mode is None:
+        acc_saturation_mode = saturation_mode
+    if acc_subnormals_mode is None:
+        acc_subnormals_mode = subnormals_mode
+
+    mul_bias_l = _binaryK_palette_bias(mul_bias, mul_K_l, mul_P_l, mul_is_signed, "mul_bias")
+    if accumulate_quant:
+        acc_K_l = _palette_list_or(acc_K, mul_K_l, n, "acc_K")
+        acc_P_l = _palette_list_or(acc_P, mul_P_l, n, "acc_P")
+        acc_bias_l = _binaryK_palette_bias(acc_bias, acc_K_l, acc_P_l, acc_is_signed, "acc_bias")
+    else:
+        acc_K_l = [0] * n
+        acc_P_l = [0] * n
+        acc_bias_l = [0] * n
+
+    prng = [("mul_prng_bits", mul_prng_bits, max(mul_P_l) - 1)]
+    if accumulate_quant:
+        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_P_l) - 1))
+    needed, terms = _prng_terms(*prng)
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_binaryK_mixed.default,
+        (
+            mul_K_l,
+            mul_P_l,
+            mul_bias_l,
+            mul_is_signed,
+            accumulate_quant,
+            acc_K_l,
+            acc_P_l,
+            acc_bias_l,
+            acc_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            subnormals_mode.value,
+            acc_saturation_mode.value,
+            acc_subnormals_mode.value,
+            mul_prng_bits,
+            acc_prng_bits,
+        ),
+        needed,
+        terms,
+        mixed=True,
+    )
+
+
 def binaryK_matmul_mixed(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -689,6 +1007,8 @@ def binaryK_matmul_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode | None = None,
 ) -> torch.Tensor:
     """
     Spatially-varying (per-output-element) mixed-format analog of
@@ -709,9 +1029,10 @@ def binaryK_matmul_mixed(
 
     ``prec_idx`` is an integer tensor selecting a palette entry per output
     element. Its shape must be the GEMM's output shape ``[M, N]`` (dense),
-    ``[M, 1]`` (per row), or ``[1, N]`` (per column); values must lie in
-    ``[0, n)`` (checked host-side). ``a``/``b`` must be 2D, as for
-    :func:`binaryK_matmul`.
+    ``[M, 1]`` (per row), or ``[1, N]`` (per column), optionally with a leading
+    batch dimension of ``B`` (one map per batch element) or 1; values must lie
+    in ``[0, n)`` (checked host-side). ``a``/``b`` follow ``torch.matmul``'s
+    operand rules, as for :func:`binaryK_matmul`.
 
     Any integer dtype and layout is accepted, but a map that is already
     ``int32``, contiguous and on ``a``'s device is passed through untouched,
@@ -720,53 +1041,106 @@ def binaryK_matmul_mixed(
     the tensor you pass, so a map built fresh each call is re-checked each
     call.
     """
-    mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
-    if acc_is_signed is None:
-        acc_is_signed = mul_is_signed
-
-    mul_bias_l = _binaryK_palette_bias(mul_bias, mul_K_l, mul_P_l, mul_is_signed, "mul_bias")
-    if accumulate_quant:
-        acc_K_l = _palette_list_or(acc_K, mul_K_l, n, "acc_K")
-        acc_P_l = _palette_list_or(acc_P, mul_P_l, n, "acc_P")
-        acc_bias_l = _binaryK_palette_bias(acc_bias, acc_K_l, acc_P_l, acc_is_signed, "acc_bias")
-    else:
-        acc_K_l = [0] * n
-        acc_P_l = [0] * n
-        acc_bias_l = [0] * n
-
-    prng = [("mul_prng_bits", mul_prng_bits, max(mul_P_l) - 1)]
-    if accumulate_quant:
-        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_P_l) - 1))
-    needed, terms = _prng_terms(*prng)
-
-    return _run_gemm_mixed(
-        _GemmSpec(
-            torch.ops.mptorch.custom_matmul_binaryK_mixed.default,
-            (
-                mul_K_l,
-                mul_P_l,
-                mul_bias_l,
-                mul_is_signed,
-                accumulate_quant,
-                acc_K_l,
-                acc_P_l,
-                acc_bias_l,
-                acc_is_signed,
-                accumulate_algorithm.value,
-                rounding_mode.value,
-                saturation_mode.value,
-                subnormals_mode.value,
-                mul_prng_bits,
-                acc_prng_bits,
-            ),
-            needed,
-            terms,
+    return _gemm_mixed_nd(
+        _binaryK_mixed_spec(
+            mul_K=mul_K,
+            mul_P=mul_P,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            accumulate_quant=accumulate_quant,
+            acc_K=acc_K,
+            acc_P=acc_P,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            acc_subnormals_mode=acc_subnormals_mode,
         ),
         a,
         b,
         prec_idx,
         trans_a,
         trans_b,
+    )
+
+
+def _superfp_mixed_spec(
+    *,
+    mul_man_bits: Sequence[int],
+    mul_exp_bits: Sequence[int],
+    mul_normal_binades: int | Sequence[int],
+    mul_bias: int | Sequence[int],
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    accumulate_quant: bool = True,
+    acc_man_bits: int | Sequence[int] | None = None,
+    acc_exp_bits: int | Sequence[int] | None = None,
+    acc_normal_binades: int | Sequence[int] | None = None,
+    acc_bias: int | Sequence[int] | None = None,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    acc_saturation_mode: SaturationMode | None = None,
+) -> _GemmSpec:
+    """Resolve :func:`superfp_matmul_mixed`'s palette -- see it for the contract."""
+    mul_mb_l, mul_eb_l, n = _palette_pair(
+        mul_man_bits, mul_exp_bits, "mul_exp_bits", "superfp_matmul_mixed"
+    )
+    if acc_is_signed is None:
+        acc_is_signed = mul_is_signed
+    if acc_saturation_mode is None:
+        acc_saturation_mode = saturation_mode
+
+    mul_nb_l = _palette_list(mul_normal_binades, n, "mul_normal_binades")
+    mul_bias_l = _palette_list(mul_bias, n, "mul_bias")
+
+    if accumulate_quant:
+        acc_mb_l = _palette_list_or(acc_man_bits, mul_mb_l, n, "acc_man_bits")
+        acc_eb_l = _palette_list_or(acc_exp_bits, mul_eb_l, n, "acc_exp_bits")
+        acc_nb_l = _palette_list_or(acc_normal_binades, mul_nb_l, n, "acc_normal_binades")
+        acc_bias_l = _palette_list_or(acc_bias, mul_bias_l, n, "acc_bias")
+    else:
+        acc_mb_l = [0] * n
+        acc_eb_l = [0] * n
+        acc_nb_l = [0] * n
+        acc_bias_l = [0] * n
+
+    prng = [("mul_prng_bits", mul_prng_bits, max(mul_mb_l))]
+    if accumulate_quant:
+        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_mb_l)))
+    needed, terms = _prng_terms(*prng)
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_superfp_mixed.default,
+        (
+            mul_mb_l,
+            mul_eb_l,
+            mul_nb_l,
+            mul_bias_l,
+            mul_is_signed,
+            accumulate_quant,
+            acc_mb_l,
+            acc_eb_l,
+            acc_nb_l,
+            acc_bias_l,
+            acc_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            acc_saturation_mode.value,
+            mul_prng_bits,
+            acc_prng_bits,
+        ),
+        needed,
+        terms,
+        mixed=True,
     )
 
 
@@ -793,6 +1167,7 @@ def superfp_matmul_mixed(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    acc_saturation_mode: SaturationMode | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul_mixed` -- see its docstring for
@@ -802,60 +1177,69 @@ def superfp_matmul_mixed(
     an ``n``-length sequence, or (for ``acc_*``) ``None`` to fall back to the
     corresponding ``mul_*`` entry.
     """
-    mul_mb_l, mul_eb_l, n = _palette_pair(
-        mul_man_bits, mul_exp_bits, "mul_exp_bits", "superfp_matmul_mixed"
-    )
-    if acc_is_signed is None:
-        acc_is_signed = mul_is_signed
-
-    mul_nb_l = _palette_list(mul_normal_binades, n, "mul_normal_binades")
-    mul_bias_l = _palette_list(mul_bias, n, "mul_bias")
-
-    if accumulate_quant:
-        acc_mb_l = _palette_list_or(acc_man_bits, mul_mb_l, n, "acc_man_bits")
-        acc_eb_l = _palette_list_or(acc_exp_bits, mul_eb_l, n, "acc_exp_bits")
-        acc_nb_l = _palette_list_or(acc_normal_binades, mul_nb_l, n, "acc_normal_binades")
-        acc_bias_l = _palette_list_or(acc_bias, mul_bias_l, n, "acc_bias")
-    else:
-        acc_mb_l = [0] * n
-        acc_eb_l = [0] * n
-        acc_nb_l = [0] * n
-        acc_bias_l = [0] * n
-
-    prng = [("mul_prng_bits", mul_prng_bits, max(mul_mb_l))]
-    if accumulate_quant:
-        prng.append(("acc_prng_bits", acc_prng_bits, max(acc_mb_l)))
-    needed, terms = _prng_terms(*prng)
-
-    return _run_gemm_mixed(
-        _GemmSpec(
-            torch.ops.mptorch.custom_matmul_superfp_mixed.default,
-            (
-                mul_mb_l,
-                mul_eb_l,
-                mul_nb_l,
-                mul_bias_l,
-                mul_is_signed,
-                accumulate_quant,
-                acc_mb_l,
-                acc_eb_l,
-                acc_nb_l,
-                acc_bias_l,
-                acc_is_signed,
-                accumulate_algorithm.value,
-                rounding_mode.value,
-                saturation_mode.value,
-                mul_prng_bits,
-                acc_prng_bits,
-            ),
-            needed,
-            terms,
+    return _gemm_mixed_nd(
+        _superfp_mixed_spec(
+            mul_man_bits=mul_man_bits,
+            mul_exp_bits=mul_exp_bits,
+            mul_normal_binades=mul_normal_binades,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            accumulate_quant=accumulate_quant,
+            acc_man_bits=acc_man_bits,
+            acc_exp_bits=acc_exp_bits,
+            acc_normal_binades=acc_normal_binades,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            acc_saturation_mode=acc_saturation_mode,
         ),
         a,
         b,
         prec_idx,
         trans_a,
         trans_b,
+    )
+
+
+def _binaryK_fma_mixed_spec(
+    *,
+    fma_K: Sequence[int],
+    fma_P: Sequence[int],
+    fma_bias: int | Sequence[int] | None = None,
+    fma_is_signed: bool = True,
+    fma_quant: bool = True,
+    fma_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+) -> _GemmSpec:
+    """Resolve :func:`binaryK_matmul_fma_mixed`'s palette -- see it for the contract."""
+    fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
+    fma_bias_l = _binaryK_palette_bias(fma_bias, fma_K_l, fma_P_l, fma_is_signed, "fma_bias")
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_P_l) - 1))
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_binaryK_fma_mixed.default,
+        (
+            fma_quant,
+            fma_K_l,
+            fma_P_l,
+            fma_bias_l,
+            fma_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            subnormals_mode.value,
+            fma_prng_bits,
+        ),
+        needed,
+        terms,
+        mixed=True,
     )
 
 
@@ -897,33 +1281,65 @@ def binaryK_matmul_fma_mixed(
     format, so a palette of it would make ``prec_idx`` a no-op; use
     :func:`binaryK_matmul_fma` for the unquantized fused step.
     """
-    fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
-    fma_bias_l = _binaryK_palette_bias(fma_bias, fma_K_l, fma_P_l, fma_is_signed, "fma_bias")
-    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_P_l) - 1))
-
-    return _run_gemm_mixed(
-        _GemmSpec(
-            torch.ops.mptorch.custom_matmul_binaryK_fma_mixed.default,
-            (
-                fma_quant,
-                fma_K_l,
-                fma_P_l,
-                fma_bias_l,
-                fma_is_signed,
-                accumulate_algorithm.value,
-                rounding_mode.value,
-                saturation_mode.value,
-                subnormals_mode.value,
-                fma_prng_bits,
-            ),
-            needed,
-            terms,
+    return _gemm_mixed_nd(
+        _binaryK_fma_mixed_spec(
+            fma_K=fma_K,
+            fma_P=fma_P,
+            fma_bias=fma_bias,
+            fma_is_signed=fma_is_signed,
+            fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
         ),
         a,
         b,
         prec_idx,
         trans_a,
         trans_b,
+    )
+
+
+def _superfp_fma_mixed_spec(
+    *,
+    fma_man_bits: Sequence[int],
+    fma_exp_bits: Sequence[int],
+    fma_normal_binades: int | Sequence[int],
+    fma_bias: int | Sequence[int],
+    fma_is_signed: bool = True,
+    fma_quant: bool = True,
+    fma_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+) -> _GemmSpec:
+    """Resolve :func:`superfp_matmul_fma_mixed`'s palette -- see it for the contract."""
+    fma_mb_l, fma_eb_l, n = _palette_pair(
+        fma_man_bits, fma_exp_bits, "fma_exp_bits", "superfp_matmul_fma_mixed"
+    )
+    fma_nb_l = _palette_list(fma_normal_binades, n, "fma_normal_binades")
+    fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
+    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_mb_l)))
+
+    return _GemmSpec(
+        torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default,
+        (
+            fma_quant,
+            fma_mb_l,
+            fma_eb_l,
+            fma_nb_l,
+            fma_bias_l,
+            fma_is_signed,
+            accumulate_algorithm.value,
+            rounding_mode.value,
+            saturation_mode.value,
+            fma_prng_bits,
+        ),
+        needed,
+        terms,
+        mixed=True,
     )
 
 
@@ -952,30 +1368,18 @@ def superfp_matmul_fma_mixed(
     sequences defining the palette size ``n``; ``fma_normal_binades``/
     ``fma_bias`` may each be a scalar or an ``n``-length sequence.
     """
-    fma_mb_l, fma_eb_l, n = _palette_pair(
-        fma_man_bits, fma_exp_bits, "fma_exp_bits", "superfp_matmul_fma_mixed"
-    )
-    fma_nb_l = _palette_list(fma_normal_binades, n, "fma_normal_binades")
-    fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
-    needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_mb_l)))
-
-    return _run_gemm_mixed(
-        _GemmSpec(
-            torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default,
-            (
-                fma_quant,
-                fma_mb_l,
-                fma_eb_l,
-                fma_nb_l,
-                fma_bias_l,
-                fma_is_signed,
-                accumulate_algorithm.value,
-                rounding_mode.value,
-                saturation_mode.value,
-                fma_prng_bits,
-            ),
-            needed,
-            terms,
+    return _gemm_mixed_nd(
+        _superfp_fma_mixed_spec(
+            fma_man_bits=fma_man_bits,
+            fma_exp_bits=fma_exp_bits,
+            fma_normal_binades=fma_normal_binades,
+            fma_bias=fma_bias,
+            fma_is_signed=fma_is_signed,
+            fma_quant=fma_quant,
+            fma_prng_bits=fma_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
         ),
         a,
         b,
