@@ -338,12 +338,17 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
 
 // The _up variant: clamps an underflowing nonzero value to the smallest
 // subnormal rather than to zero, for the directed and round-to-odd modes.
+// Whether the value is nonzero is a question about the input, not about the
+// rounded word: a -0.0 input truncates to 0x80000000, which is not 0 and was
+// pushed out to minus the smallest subnormal, and a float32 subnormal input
+// can truncate to exactly 0 and stayed there. P3109 rounds zero to zero and
+// never rounds a nonzero value away from zero into it.
 // Shares SubnormalRangeParams/make_subnormal_range_params with the plain
 // clip_subnormal_range_exponent above.
 CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
                                                                   int min_exponent_store)
 {
-    if (quantized_num == 0)
+    if ((old_num << 1) == 0)
         return quantized_num;
 
     int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
@@ -363,78 +368,78 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_n
 struct NormalRangeParams
 {
     SaturationMode saturation_mode; // still needed raw: selects the overflow branch's outcome
-    int max_exponent_store;
     int min_exponent_store;
-    uint32_t max_num;
+    uint32_t max_num; // the largest finite magnitude, as a binary32 word
 };
 
+// The top of the range is counted in code points, the way IEEE P3109 assigns
+// them (arXiv:2606.04028, SVII): of the top binade's 2^man_bits codes, the last
+// `reserved_codes` hold no finite value, and max_num is the largest code left.
+// binaryK reserves P3109's: +infinity outside SAT_FINITE (the extended domain)
+// and, in an unsigned format, NaN above it. superfp reserves the infinity only.
+//
+// With man_bits <= 1 the reserved codes can outnumber the top binade's, and the
+// largest finite code then sits one or two binades lower. A format whose
+// largest finite code would have exponent field 0 -- no finite normal value at
+// all, which P3109 rules out by requiring three bits -- gets max_num = 0, and
+// every nonzero result of the normal arm overflows. So does one whose largest
+// finite value is below binary32's normal range.
 CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits, int man_bits, int bias,
                                                                     SaturationMode saturation_mode,
+                                                                    int reserved_codes,
                                                                     bool extended_normals = false)
 {
     NormalRangeParams p;
     p.saturation_mode = saturation_mode;
-    p.max_exponent_store = ((1 << exp_bits) - 1 - bias) + 126 + (man_bits > 1);
     p.min_exponent_store = -(bias - 1) + 127 - extended_normals;
-    int finite = (saturation_mode == SaturationMode::SAT_FINITE);
-    uint32_t max_man = ((0x007FFFFF >> (23 - man_bits)) - 1 + finite) << (23 - man_bits);
-    p.max_num = ((uint32_t)p.max_exponent_store << 23) | max_man;
-    // A format whose top binade lies beyond binary32's has no finite input
-    // that overflows, so max_num is only ever read for a non-finite one --
-    // an infinity, or a rounding that carried into exponent 255 -- and there
-    // SAT_FINITE still owes a finite answer. Shifting max_exponent_store into
-    // the exponent field would not give one (it does not fit), so use the
-    // largest binary32 value on the format's grid instead.
-    if (p.max_exponent_store > 254)
-        p.max_num = (254u << 23) | max_man;
+
+    const int man = (man_bits < 23) ? man_bits : 23; // binary32 holds no finer grid
+    const int codes = 1 << man;
+    int top_code = codes - 1 - reserved_codes; // the largest finite code, within its binade
+    int top_field = (1 << exp_bits) - 1;       // and that binade's exponent field
+    while (top_code < 0)
+    {
+        top_code += codes;
+        --top_field;
+    }
+    const int top_exp = top_field - bias;
+    if (top_field < 1 || top_exp < -126)
+        p.max_num = 0u;
+    else if (top_exp > 127)
+        // A format whose largest finite value lies beyond binary32's has no
+        // finite input that overflows, so max_num is only ever read for a
+        // non-finite one -- an infinity, or a rounding that carried into
+        // exponent 255 -- and there SAT_FINITE and SAT_PROPAGATE still owe a
+        // finite answer: the largest binary32 value on the format's grid.
+        p.max_num = (254u << 23) | ((uint32_t)(codes - 1) << (23 - man));
+    else
+        p.max_num = ((uint32_t)(top_exp + 127) << 23) | ((uint32_t)top_code << (23 - man));
     return p;
 }
 
+// Saturates a value the normal arm has rounded. P3109 rounds first and
+// saturates second, which makes overflow a magnitude test: anything above
+// max_num -- a rounding that landed on a reserved code, carried into the next
+// binade, or carried a finite input all the way into exponent 255 -- is out of
+// range, and becomes infinity under OVF_INF (SatNone) and max_num under the
+// other two (SatFinite, SatPropagate: the value was finite, so SatPropagate
+// has nothing to propagate). Non-finite inputs never get here: every cast
+// sends them to saturate_nonfinite before it rounds.
 CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
                                                              SaturationMode saturation_mode,
-                                                             int max_exponent_store, int min_exponent_store,
-                                                             uint32_t max_num)
+                                                             int min_exponent_store, uint32_t max_num)
 {
     if (quantized_num == 0)
         return quantized_num;
 
     uint32_t sign = old_num & 0x80000000u;
     quantized_num &= 0x7FFFFFFFu;
-    // A NaN passes through. So does an infinity, unless the mode is
-    // SAT_FINITE, under which it is the largest finite value -- whether it
-    // came in as one (saturate_nonfinite handles that arm before the cast
-    // rounds) or the rounding just carried a finite input into exponent 255,
-    // which for a format wider than binary32 is the only overflow there is.
-    if (quantized_num >= 0x7F800000u)
-        return sign | ((quantized_num == 0x7F800000u && saturation_mode == SaturationMode::SAT_FINITE) ? max_num
-                                                                                                        : quantized_num);
 
     int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
 
     // handle overflow
-    if (quantized_exponent_store > max_exponent_store)
-    {
-        switch (saturation_mode)
-        {
-        case SaturationMode::SAT_FINITE:
-            quantized_num = max_num;
-            break;
-
-        case SaturationMode::SAT_PROPAGATE:
-            quantized_num = max_num;
-            break;
-
-        default:
-            quantized_num = 0x7F800000;
-            break;
-        }
-    }
-    else if (quantized_exponent_store == max_exponent_store)
-    {
-        // handle overflow
-        if (quantized_num > max_num && saturation_mode == SaturationMode::OVF_INF)
-            quantized_num = 0x7F800000;
-    }
+    if (quantized_num > max_num)
+        quantized_num = (saturation_mode == SaturationMode::OVF_INF) ? 0x7F800000u : max_num;
     // handle underflow
     else if (quantized_exponent_store < min_exponent_store)
     {

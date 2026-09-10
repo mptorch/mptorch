@@ -2,12 +2,13 @@
 
 /*
 SUBNORMALS:
-Subnormal values are supported.
+Subnormal values are supported. This is IEEE P3109's behaviour: every P3109
+format with more than one bit of precision has subnormals.
 NORMALS:
-Only normal values are supported.
+Only normal values are supported. Not a P3109 format.
 EXTENDED_NORMALS:
 The binade used to encode subnormals is used as an extra binade to encode normal
-values.
+values. Not a P3109 format.
 */
 
 enum class SubnormalsMode
@@ -18,18 +19,26 @@ enum class SubnormalsMode
 };
 
 /*
+The three are IEEE P3109's saturation modes, and they also select P3109's
+domain: SAT_FINITE is the finite domain, in which the code points the extended
+domain spends on the infinities hold finite values, and the other two are the
+extended domain. Which codes those are, and so what the largest finite value
+is, is make_normal_range_params' business (bit_helper.h). In an unsigned
+format every mode returns 0 for a negative value.
+
 SAT_FINITE:
-All return values are clamped to the representable finite range. NaN inputs
-pass unchanged.
+P3109 SatFinite. All return values are clamped to the representable finite
+range. NaN inputs pass unchanged.
 
 SAT_PROPAGATE:
-Finite return values are clamped to the representable range, whereas infinite
-values are preserved.
+P3109 SatPropagate. Finite return values are clamped to the representable
+range, whereas infinite values are preserved.
 
 OVF_INF:
-Just like with IEEE-754 2019, out-of-range values are replaced with: the
-extremal finite value, positive or negative infinity, as indicated by the
-rounding mode, and the signedness of the target format.
+P3109 SatNone. Out-of-range values become positive or negative infinity.
+Rounding comes before saturation, so this holds under every rounding mode --
+unlike IEEE 754, where rounding toward zero, for one, overflows to the largest
+finite value.
  */
 
 enum class SaturationMode
@@ -40,26 +49,29 @@ enum class SaturationMode
 };
 
 /*
+Each is one of IEEE P3109's rounding modes, named in parentheses.
+
 RNE:
-Round to nearest, ties to even
+Round to nearest, ties to even (NearestTiesToEven)
 
 RNA:
-Round to nearest, ties to away from zero
+Round to nearest, ties to away from zero (NearestTiesToAway)
 
 RU:
-Round up
+Round up (TowardPositive)
 
 RD:
-Round down
+Round down (TowardNegative)
 
 RZ:
-Round towards zero
+Round towards zero (TowardZero)
 
 RO:
-Round to odd
+Round to odd (ToOdd)
 
 SR:
-Stochastic rounding
+Stochastic rounding (StochasticA, with N = prng_bits random bits added below
+the retained significand before it is truncated)
 */
 enum class RoundMode
 {

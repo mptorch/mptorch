@@ -17,23 +17,33 @@ class SaturationMode(Enum):
     """
     Enum for what a format does with a value beyond its largest finite one.
 
-    Mirrors ``SaturationMode`` in ``csrc/common/modes.h``. NaN inputs pass
-    through every mode unchanged. ``SAT_FINITE`` also clamps an infinite
-    input, so everything it returns is finite; the other two keep infinities.
+    Mirrors ``SaturationMode`` in ``csrc/common/modes.h``. The three are IEEE
+    P3109's saturation modes, and they also carry P3109's *domain*, since a
+    finite-domain format admits only ``SatFinite``: ``SAT_FINITE`` is the
+    finite domain, in which the code points the extended domain spends on the
+    infinities hold finite values, and the other two are the extended domain.
+    NaN inputs pass through every mode unchanged.
     """
 
-    #: Clamp everything, infinities included, to the largest finite value (top
-    #: mantissa code included).
+    #: P3109 ``SatFinite``, finite domain: everything, infinities included,
+    #: clamps to the largest finite value.
     SAT_FINITE = 0
-    SAT_PROPAGATE = 1  #: Clamp to the largest finite value with the top mantissa code excluded.
-    OVF_INF = 2  #: Overflow becomes :math:`\pm\infty`, as in IEEE 754 (the default).
+    #: P3109 ``SatPropagate``, extended domain: a finite result beyond the largest
+    #: finite value clamps to it, and an infinite one stays infinite.
+    SAT_PROPAGATE = 1
+    #: P3109 ``SatNone``, extended domain (the default): a result beyond the
+    #: largest finite value becomes :math:`\pm\infty` under every rounding mode,
+    #: because the rounding comes first -- unlike IEEE 754's ``roundTowardZero``.
+    OVF_INF = 2
 
 
 class SubnormalsMode(Enum):
     """
     Enum for how a format handles the range below its smallest normal number.
 
-    Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``.
+    Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``. Only ``SUBNORMALS``
+    is IEEE P3109's -- every P3109 format with more than one bit of precision
+    has subnormals -- so the other two give formats outside the standard.
     """
 
     SUBNORMALS = 0  #: Gradual underflow: exponent code 0 encodes subnormal numbers (the default).
@@ -46,15 +56,16 @@ class RoundMode(Enum):
     Enum for floating-point rounding modes.
 
     Result :math:`y` is obtained from an input :math:`x` depending on the rounding mode.
+    Each is one of IEEE P3109's rounding modes, whose name is given in parentheses.
     """
 
-    RNE = 0  #: Round to nearest, ties to even
-    RNA = 1  #: Round to nearest, ties to away from zero
-    RU = 2  #: Return the smallest :math:`y` such that :math:`y \ge x`
-    RD = 3  #: Return the largest :math:`y` such that :math:`y \le x`
-    RZ = 4  #: Return the largest :math:`y` such that :math:`|y| \le |x|`
-    RO = 5  #: Round to odd
-    SR = 6  #: Stochastic Rounding
+    RNE = 0  #: Round to nearest, ties to even (``NearestTiesToEven``)
+    RNA = 1  #: Round to nearest, ties to away from zero (``NearestTiesToAway``)
+    RU = 2  #: Return the smallest :math:`y` such that :math:`y \ge x` (``TowardPositive``)
+    RD = 3  #: Return the largest :math:`y` such that :math:`y \le x` (``TowardNegative``)
+    RZ = 4  #: Return the largest :math:`y` such that :math:`|y| \le |x|` (``TowardZero``)
+    RO = 5  #: Round to odd (``ToOdd``)
+    SR = 6  #: Stochastic rounding with ``prng_bits`` random bits (``StochasticA``)
 
 
 class AccumulateAlgorithm(Enum):
@@ -110,15 +121,29 @@ class FloatFormat(Number):
 
 @dataclass(frozen=True)
 class BinaryK(FloatFormat):
-    """A binaryK float: ``K`` total bits of which ``P`` are precision.
+    """An IEEE P3109 binaryK float: ``K`` total bits of which ``P`` are precision.
 
-    ``bias`` defaults to the middle of the exponent range -- ``2**(K-P-1)``
-    signed, ``2**(K-P)`` unsigned -- and is resolved here rather than at each
-    call site. ``prng_bits`` is the width of the random mantissa used by
-    ``RoundMode.SR`` and is ignored under every other rounding mode; the
-    rounding mode itself is not a property of the format but of the operation
-    (see :class:`mptorch.quant.SplitMac`), because the kernels take it as a
-    template parameter shared by a multiply and its accumulate.
+    P3109, the draft Standard for Arithmetic Formats for Machine Learning
+    (Fitzgibbon, Wintersteiger and Sarnoff give an overview in
+    arXiv:2606.04028), parameterizes its binary formats by bitwidth, precision
+    -- the implicit leading bit included -- signedness and domain, and names
+    them ``Binary<K>p<P><s|u><e|f>``. ``K``, ``P`` and ``is_signed`` are the
+    first three, and ``saturation`` carries the domain (see
+    :class:`SaturationMode`), so ``BinaryK(8, 4)`` is ``Binary8p4se`` and
+    ``BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE)`` is ``Binary8p4sf``.
+    :doc:`/concepts` maps the rest of the standard onto this class and says
+    where MPTorch goes beyond it.
+
+    ``bias`` defaults to P3109's -- ``2**(K-P-1)`` signed, ``2**(K-P)``
+    unsigned, which encodes 1.0 at the middle code point -- and is resolved
+    here rather than at each call site. Any other bias, like any ``subnormals``
+    but ``SUBNORMALS``, gives a format outside the standard; that is how OCP's
+    E4M3, ``BinaryK(8, 4, bias=7)``, is spelled. ``prng_bits`` is the width of
+    the random mantissa used by ``RoundMode.SR`` and is ignored under every
+    other rounding mode; the rounding mode itself is not a property of the
+    format but of the operation (see :class:`mptorch.quant.SplitMac`), because
+    the kernels take it as a template parameter shared by a multiply and its
+    accumulate.
     """
 
     K: int

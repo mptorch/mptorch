@@ -3,8 +3,16 @@
 #include "bit_helper.h"
 #include "modes.h"
 
-// The binaryK format cast, one function per rounding mode. Each reads a
-// BinaryKParams built once -- at Multiplier/Adder construction
+// The binaryK format cast, one function per rounding mode.
+//
+// binaryK is IEEE P3109's family of binary floating-point formats: K bits, P
+// of them precision, a default bias of 2^(K-P-1) (2^(K-P) unsigned). Each cast
+// is P3109's projection -- round to the format's precision, then saturate --
+// computed on the binary32 bit pattern. modes.h names the P3109 mode behind
+// each RoundMode and SaturationMode, and bit_helper.h's
+// make_normal_range_params counts the top of the range in P3109's code points.
+//
+// Each cast reads a BinaryKParams built once -- at Multiplier/Adder construction
 // (gemm_policy.h) for the GEMM, once per tensor for the elementwise
 // quantizers -- rather than re-deriving its constants from
 // man_bits/exp_bits/bias on every call.
@@ -35,7 +43,6 @@ struct BinaryKParams
     int round_shift;
     // for clip_normal_range_exponent
     SaturationMode saturation_mode;
-    int max_exponent_store;
     int min_exponent_store;
     uint32_t max_num;
     // for clip_subnormal_range_exponent
@@ -61,7 +68,7 @@ CUDA_HOST_DEVICE_INLINE float binaryK_pow2f(int e)
     return BITS_TO_FLOAT(&bits);
 }
 
-CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_bits, int bias,
+CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_bits, int bias, bool is_signed,
                                                           SaturationMode saturation_mode,
                                                           bool extended_normals)
 {
@@ -75,9 +82,12 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
     p.round_tie = round_p.tie;
     p.round_shift = round_p.shift;
 
-    NormalRangeParams normal_p = make_normal_range_params(exp_bits, man_bits, bias, saturation_mode, extended_normals);
+    // P3109's reserved codes at the top: +infinity outside the finite domain
+    // (SAT_FINITE), and NaN above it in an unsigned format.
+    const int reserved_codes = (saturation_mode != SaturationMode::SAT_FINITE) + (is_signed ? 0 : 1);
+    NormalRangeParams normal_p =
+        make_normal_range_params(exp_bits, man_bits, bias, saturation_mode, reserved_codes, extended_normals);
     p.saturation_mode = normal_p.saturation_mode;
-    p.max_exponent_store = normal_p.max_exponent_store;
     p.min_exponent_store = normal_p.min_exponent_store;
     p.max_num = normal_p.max_num;
 
@@ -89,7 +99,7 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
     // inside binary32 and therefore exact. See cast_binaryK_rne_fast.
     int e_split = 23 - man_bits;                     // fast_split_c = 2^e_split + 1
     int e_magic = 23 + p.min_exp - man_bits;         // fast_magic  = 1.5 * 2^e_magic
-    int max_exp = p.max_exponent_store - 127;        // unbiased exponent of max_num
+    int max_exp = (int)(p.max_num >> 23) - 127;      // unbiased exponent of max_num
     p.fast_rne =
         // man_bits == 0 takes round_bitwise_nearest_even's structurally
         // different zero-argument overload (ties on the exponent's parity,
@@ -97,11 +107,13 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
         // man_bits > 22 leaves the magic add without the half-binade of
         // headroom it needs to stay inside its own binade.
         man_bits >= 1 && man_bits <= 22 &&
-        // SAT_PROPAGATE leaves a value whose exponent is exactly
-        // max_exponent_store unclamped even when its significand exceeds
-        // max_num, so max_num is not that mode's largest finite magnitude
-        // and the single fast_max_finite compare cannot express it.
+        // SAT_PROPAGATE clamps a finite value that overflows but keeps an
+        // infinite input infinite, and the clamp below turns both into the
+        // same magnitude before the single saturating compare sees them.
         saturation_mode != SaturationMode::SAT_PROPAGATE &&
+        // max_num == 0 is a format with no finite normal value at all (see
+        // make_normal_range_params): nothing for the compare to keep.
+        p.max_num != 0 &&
         // 2^min_exp, 1.5 * 2^e_magic and the subnormal grid step
         // 2^(min_exp - man_bits) must all be normal binary32 values.
         p.min_exp >= -126 && p.min_exp <= 126 &&
@@ -112,13 +124,13 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
         // fast_split_c < 2^(e_split + 1).
         max_exp <= 126 && max_exp + e_split + 3 <= 128 &&
         // The subnormal range has to sit below the format's largest finite
-        // value. It need not: exp_bits == 1 with man_bits == 1 puts
-        // max_exponent_store *below* min_exp, and the integer path's
-        // subnormal branch runs clip_subnormal_range_exponent, which only
-        // handles underflow -- so it returns values above max_num rather
-        // than saturating them, which the fast path's single saturating
-        // compare cannot reproduce. min_exp <= max_exp implies
-        // 2^min_exp <= max_finite, which is the condition that matters.
+        // value: the integer path's subnormal branch runs
+        // clip_subnormal_range_exponent, which only handles underflow, so it
+        // would return values above max_num rather than saturating them,
+        // which the fast path's single saturating compare cannot reproduce.
+        // min_exp <= max_exp implies 2^min_exp <= max_finite. A nonzero
+        // max_num has an exponent field of at least 1 and so implies it in
+        // turn; the test guards make_normal_range_params, not the format.
         p.min_exp <= max_exp;
 
     p.fast_split_c = binaryK_pow2f(e_split) + 1.0f;
@@ -236,8 +248,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
         quantize_bits = (p.man_bits > 0)
                             ? round_bitwise_nearest_even(target, p.round_bypass, p.round_mask, p.round_tie, p.round_shift)
                             : round_bitwise_nearest_even(target);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -275,8 +287,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, bool
     else
     {
         quantize_bits = round_bitwise_nearest_away(target, p.round_bypass, p.round_mask, p.round_tie);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -333,8 +345,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_odd(float origin_float, bool is_signe
             if (sticky && !already_odd)
                 quantize_bits += (1u << 23);
         }
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -370,8 +382,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, SubnormalsMod
     else
     {
         quantize_bits = round_bitwise_up(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -405,8 +417,8 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, SubnormalsM
     else
     {
         quantize_bits = round_bitwise_down(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -492,13 +504,14 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
         // analogue -- binary32 rounds to nearest, so nothing in the FPU
         // reproduces "add random bits below the retained significand, then
         // truncate", and the three lines above stay exactly as they are. What
-        // SR *does* share with RNE is everything after the rounding, and
-        // clip_normal_range_exponent is the expensive part: five branches to
-        // decide a value the same single compare G3 uses can decide.
+        // SR *does* share with RNE is everything after the rounding:
+        // clip_normal_range_exponent, whose overflow test is this same single
+        // compare, followed by an underflow test and a sign re-attach.
         //
         // Two facts make the compare sufficient here, and both are already in
-        // the gate. Saturation is a magnitude test on the rounded value --
-        // that is fast_rne's `saturation_mode != SAT_PROPAGATE`. And the clip's
+        // the gate. Saturation is a magnitude test on the rounded value, and
+        // fast_rne's `saturation_mode != SAT_PROPAGATE` leaves the two modes
+        // whose saturated magnitude fast_ovf holds. And the clip's
         // *underflow* arm is unreachable: `add_r & ~mask` clears low
         // significand bits but never lowers an exponent, so a value that
         // entered this branch at or above min_exp leaves it there too, which
@@ -516,8 +529,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
             return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
         }
 #endif
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 

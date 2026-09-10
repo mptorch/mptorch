@@ -56,10 +56,12 @@ float32.
    :language: text
    :caption: output
 
-``BinaryK(8, 4)`` is an 8-bit float with 4 bits of precision (one of them
-implicit), i.e. the E4M3 layout; ``1.541`` became ``1.5`` because the values
-representable between 1 and 2 are spaced ``1/8`` apart. :doc:`concepts`
-explains the formats and the rounding; the guides take it from there.
+``BinaryK(8, 4)`` is ``Binary8p4se`` from IEEE P3109, the upcoming standard
+for machine-learning number formats: an 8-bit float with 4 bits of precision
+(one of them implicit), in the E4M3 layout. ``1.541`` became ``1.5`` because
+the values representable between 1 and 2 are spaced ``1/8`` apart.
+:doc:`concepts` explains the formats and the rounding; the guides take it
+from there.
 
 Vocabulary
 ----------
@@ -68,7 +70,8 @@ A few words are used throughout, with a fixed meaning:
 
 format
    A description of which numbers can be represented: :class:`~mptorch.BinaryK`
-   or :class:`~mptorch.SuperFP`. Frozen, hashable, comparable by value.
+   (the IEEE P3109 binary formats) or :class:`~mptorch.SuperFP`. Frozen,
+   hashable, comparable by value.
 rounding mode
    How a number that is *not* representable is mapped to one that is:
    :class:`~mptorch.RoundMode`. A property of an operation, not of a format.

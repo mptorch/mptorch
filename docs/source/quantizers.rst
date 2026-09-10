@@ -30,9 +30,9 @@ parameters spelled out, and return a new tensor of the same shape and dtype.
 
 Some things to know about them:
 
-- ``bias`` is optional for ``binaryK_quantize`` (it defaults to
-  :math:`2^{E-1}`) and required for ``superfp_quantize``, for the reasons
-  given in :doc:`concepts`.
+- ``bias`` is optional for ``binaryK_quantize`` (it defaults to IEEE P3109's,
+  :math:`2^{K-P-1}`, or :math:`2^{K-P}` unsigned) and required for
+  ``superfp_quantize``, for the reasons given in :doc:`concepts`.
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
   float16 and bfloat16. The rounding is performed on the float32 value and
   the result is stored back in the input's dtype, which is only faithful

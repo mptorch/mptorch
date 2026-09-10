@@ -18,10 +18,13 @@ What you can do today
 ---------------------
 
 - **Describe a floating-point format as a value.** :class:`~mptorch.BinaryK`
-  is any *K*-bit float with *P* bits of precision -- E4M3, E5M2, bfloat16,
-  float16, or something nobody has built -- with its exponent bias, sign,
-  subnormal policy and overflow policy. :class:`~mptorch.SuperFP` is a
-  second family that trades mantissa for dynamic range.
+  is the binary format family of IEEE P3109, the upcoming standard for
+  machine-learning arithmetic: any *K*-bit float with *P* bits of precision,
+  signed or unsigned, with or without infinities. Setting its exponent bias
+  and subnormal policy yourself reaches beyond the standard -- E4M3, E5M2,
+  bfloat16, float16, or something nobody has built.
+  :class:`~mptorch.SuperFP` is a second family that trades mantissa for
+  dynamic range.
 - **Round a tensor to it** with seven rounding modes, including stochastic
   rounding with a configurable number of random bits
   (:doc:`quantizers`).

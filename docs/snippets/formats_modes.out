@@ -5,8 +5,9 @@ EXTENDED_NORMALS [0.03125, 0.015625, 0.0078125, 0.0, 0.0, 0.0]
 
 input            [448.0, 480.0, 500.0, 1000000.0, inf, -inf, nan]
 SAT_FINITE       [448.0, 480.0, 480.0, 480.0, 480.0, -480.0, nan]
-SAT_PROPAGATE    [448.0, 480.0, 448.0, 448.0, inf, -inf, nan]
+SAT_PROPAGATE    [448.0, 448.0, 448.0, 448.0, inf, -inf, nan]
 OVF_INF          [448.0, inf, inf, inf, inf, -inf, nan]
+OVF_INF, RZ      [448.0, inf, inf, inf, inf, -inf, nan]
 
 BinaryK(K=8, P=4, bias=16, is_signed=False, prng_bits=0, saturation=<SaturationMode.OVF_INF: 2>, subnormals=<SubnormalsMode.SUBNORMALS: 0>)
 unsigned         [0.0, 0.0, 0.0, 3.0, 3072.0]

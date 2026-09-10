@@ -2,7 +2,7 @@
 
 import torch
 
-from mptorch import BinaryK, SaturationMode, SubnormalsMode
+from mptorch import BinaryK, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import Quant
 
 torch.set_printoptions(precision=6, sci_mode=False)
@@ -20,6 +20,11 @@ print("\ninput           ", large.tolist())
 for mode in SaturationMode:
     q = Quant(BinaryK(8, 4, bias=7, saturation=mode))
     print(f"{mode.name:<16}", q(large).tolist())
+
+# As in P3109, rounding comes before saturation, so OVF_INF overflows to infinity
+# even when rounding toward zero, where IEEE 754 would stop at 448.
+q = Quant(BinaryK(8, 4, bias=7), RoundMode.RZ)
+print(f"{'OVF_INF, RZ':<16}", q(large).tolist())
 
 # An unsigned format has no sign bit, so negative inputs collapse to zero and
 # the freed bit goes to the exponent (bias 16 instead of 8).

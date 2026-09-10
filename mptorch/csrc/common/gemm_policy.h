@@ -53,7 +53,7 @@ struct BinaryKMultiplierT
                                                SaturationMode saturation_mode,
                                                SubnormalsMode subnormals_mode, int prng_bits = 0)
         : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
-          params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
+          params(make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
                                      subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
     }
@@ -135,7 +135,7 @@ struct BinaryKAdderT
                                           SaturationMode saturation_mode,
                                           SubnormalsMode subnormals_mode, int prng_bits = 0)
         : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
-          params(make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
+          params(make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
                                      subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
     }
@@ -271,14 +271,15 @@ struct FusedMac
 //
 // The Mac policy is uniform across a single-format call and comes from the
 // palette on the mixed one, so it has no business being copied per element:
-// a split-mac binaryK Accumulator is 224 B (BinaryKParams 72 -> multiplier 88
-// -> SplitMac 176, plus the 44 B engine), which made a 32x32 tile a 224 KB
-// heap allocation and as many bytes of copy-construction to carry one float
-// of running sum each. NaiveTile holds the state and nothing else, split so
-// that what the K-loop touches on every step is a dense float array: the SR
-// streams are 44 B apiece and exist only when RoundMode::SR does, and the six
-// deterministic modes -- which never draw -- share one idle engine at stride
-// zero rather than each owning one. See dev/gemm_perf_audit.md (finding C3).
+// a split-mac binaryK Accumulator is 208 B (BinaryKParams 68 -> multiplier 80
+// -> SplitMac 160, plus the 44 B engine and the 4 B sum; it was 224 B when C3
+// was measured), which would make a 32x32 tile a 208 KB heap allocation and
+// as many bytes of copy-construction to carry one float of running sum each.
+// NaiveTile holds the state and nothing else, split so that what the K-loop
+// touches on every step is a dense float array: the SR streams are 44 B apiece
+// and exist only when RoundMode::SR does, and the six deterministic modes --
+// which never draw -- share one idle engine at stride zero rather than each
+// owning one. See dev/gemm_perf_audit.md (finding C3).
 //
 // The kernel reads the tile through a NaiveTileView taken once per tile, not
 // through the vectors: the K-loop must be able to keep the base pointers in

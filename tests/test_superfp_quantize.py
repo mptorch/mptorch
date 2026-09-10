@@ -268,6 +268,39 @@ def test_saturation_mode_differentiation(device, mode):
     assert _quantize(-5.0, mode, device, saturation_mode=SaturationMode.OVF_INF) == float("-inf")
 
 
+# The same boundary where the reserved code is a large part of the top binade.
+# Outside SAT_FINITE the top binade's last code is +Inf, so with man_bits = 0
+# (one code per binade) the largest finite value is a binade down and with
+# man_bits = 1 it is the binade's first code; SAT_FINITE keeps the whole binade.
+# `above` is the first code past `largest`, which has to saturate like any other
+# overflow -- as does 3e38, which the rounding carries into float32's infinity
+# exponent. exp_bits 4 and bias 7 put the top binade at 2**8; normal_binades 8
+# keeps every value here in the normal region.
+TOP_CASES = [
+    # (man_bits, saturation_mode, largest, above)
+    (0, SaturationMode.OVF_INF, 2.0**7, 2.0**8),
+    (0, SaturationMode.SAT_PROPAGATE, 2.0**7, 2.0**8),
+    (0, SaturationMode.SAT_FINITE, 2.0**8, 2.0**9),
+    (1, SaturationMode.OVF_INF, 2.0**8, 1.5 * 2.0**8),
+    (1, SaturationMode.SAT_PROPAGATE, 2.0**8, 1.5 * 2.0**8),
+    (1, SaturationMode.SAT_FINITE, 1.5 * 2.0**8, 2.0**9),
+    (3, SaturationMode.SAT_PROPAGATE, 1.75 * 2.0**8, 1.875 * 2.0**8),
+]
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("mode", ALL_MODES)
+@pytest.mark.parametrize("man_bits,saturation_mode,largest,above", TOP_CASES)
+def test_top_of_range(device, mode, man_bits, saturation_mode, largest, above):
+    cfg = {"man_bits": man_bits, "exp_bits": 4, "normal_binades": 8, "bias": 7}
+    kw = dict(saturation_mode=saturation_mode, cfg=cfg)
+    saturated = math.inf if saturation_mode is SaturationMode.OVF_INF else largest
+    assert _quantize(largest, mode, device, **kw) == largest
+    for x in (above, 3.0e38):
+        assert _quantize(x, mode, device, **kw) == saturated, x
+        assert _quantize(-x, mode, device, **kw) == -saturated, -x
+
+
 # ---------------------------------------------------------------------------
 # Stochastic rounding: adapted from test_binaryK_stochastic's three
 # properties (grid-point identity, RD/RU bounding, statistical

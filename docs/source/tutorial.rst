@@ -31,7 +31,9 @@ E4M3 spends its bits on precision: eight values per binade, a largest finite
 value of 448 and a smallest subnormal of :math:`2^{-9}`. E5M2 spends them on
 range: four values per binade, up to 57344 and down to :math:`2^{-16}` --
 the same exponent range as float16. In MPTorch they are
-``BinaryK(8, 4, bias=7)`` and ``BinaryK(8, 3, bias=15)``, and PyTorch's own
+``BinaryK(8, 4, bias=7)`` and ``BinaryK(8, 3, bias=15)`` -- the bias has to
+be given, because a ``BinaryK`` otherwise takes IEEE P3109's, which is one
+larger (``BinaryK(8, 4)`` is P3109's ``Binary8p4``, not OCP's E4M3) -- and PyTorch's own
 ``torch.float8_e4m3fn`` and ``torch.float8_e5m2`` dtypes serve as the
 reference. The run tabulates the ranges from both sides, then rounds *every
 one of the* :math:`2^{32}` *float32 values* with both and counts where they
@@ -50,7 +52,7 @@ input. Beyond it they differ in convention only: E4M3 in PyTorch has no
 infinity and turns an overflow into NaN, where a BinaryK format under its
 default ``OVF_INF`` policy produces :math:`\pm\infty` (or clamps, under
 ``SAT_FINITE``); and PyTorch's E5M2 reserves its top exponent for infinities,
-where BinaryK keeps it for numbers, so 61440 rounds to 65536 rather than
+where BinaryK, like P3109, keeps it for numbers, so 61440 rounds to 65536 rather than
 overflowing. A model that keeps its values in range never sees either.
 
 2. What rounding to FP8 costs

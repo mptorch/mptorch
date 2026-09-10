@@ -59,7 +59,7 @@ namespace
     const int man_bits = P - 1;
     const int exp_bits = IsSigned ? K - P : K - P + 1;
     const BinaryKParams p = make_binaryK_params(
-        man_bits, exp_bits, bias, saturation_mode,
+        man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
 
     switch (round_mode)
@@ -117,7 +117,7 @@ namespace
     const int man_bits = P - 1;
     const int exp_bits = IsSigned ? K - P : K - P + 1;
     const BinaryKParams p = make_binaryK_params(
-        man_bits, exp_bits, bias, saturation_mode,
+        man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
 
     quant_kernel_sr(a, o, size, seed,

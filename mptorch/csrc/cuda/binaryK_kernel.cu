@@ -77,7 +77,7 @@ namespace
     {
         const int man_bits = P - 1;
         const int exp_bits = is_signed ? K - P : K - P + 1;
-        return make_binaryK_params(man_bits, exp_bits, bias, saturation_mode,
+        return make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
                                    subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
     }
 

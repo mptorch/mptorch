@@ -43,7 +43,7 @@ mantissa_size_mapping: dict[torch.dtype, int] = {
 
 
 def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
-    """binaryK's default exponent bias: the middle of the exponent range."""
+    """binaryK's default exponent bias, IEEE P3109's: 1.0 encodes to the middle code point."""
     return 2 ** (K - P - 1) if is_signed else 2 ** (K - P)
 
 
@@ -414,18 +414,22 @@ def binaryK_quantize(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
 ) -> torch.Tensor:
     """
-    Round every element of ``x`` to a binaryK floating-point format.
+    Round every element of ``x`` to a binaryK floating-point format: the
+    parameterized family of IEEE P3109, the draft Standard for Arithmetic
+    Formats for Machine Learning (see :class:`mptorch.BinaryK`).
 
     The format has ``K`` bits in total, ``P`` of them precision (``P - 1``
     stored mantissa bits plus the implicit one), and ``K - P`` exponent bits
     (``K - P + 1`` when ``is_signed`` is false, since there is no sign bit).
-    ``bias`` defaults to the middle of the exponent range, ``2**(K - P - 1)``
-    signed and ``2**(K - P)`` unsigned; pass the IEEE bias explicitly to match
-    an IEEE format (E4M3 is ``K=8, P=4, bias=7``; E5M2 is ``K=8, P=3, bias=15``).
+    ``bias`` defaults to P3109's, ``2**(K - P - 1)`` signed and ``2**(K - P)``
+    unsigned -- one more than IEEE 754 would give the same exponent width.
+    Pass it explicitly for a format outside P3109: the OCP 8-bit formats are
+    E4M3, ``K=8, P=4, bias=7``, and E5M2, ``K=8, P=3, bias=15``.
 
     ``x`` may be float32, float64, float16 or bfloat16; the rounding is done
     on the float32 value and the result is returned in ``x``'s dtype, as a new
-    tensor. Non-finite inputs pass through. ``prng_bits`` is the number of
+    tensor. NaN inputs pass through, and so do infinities except under
+    ``SaturationMode.SAT_FINITE``, which clamps them. ``prng_bits`` is the number of
     random bits ``RoundMode.SR`` draws below the target mantissa (ignored by
     every other mode); it must fit, together with ``P - 1``, inside the
     storage dtype's mantissa.

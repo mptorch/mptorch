@@ -6,6 +6,8 @@ MPTorch is a wrapper framework built atop PyTorch that is designed to simulate t
 
 It reimplements the underlying computations of commonly used layers (e.g. linear/matrix multiplication and 1D/2D/3D convolutions) so that the inputs, weights, biases and gradients of each operator can be quantized to a user-specified, per-tensor floating-point format. Quantization is opt-in per tensor: any format left unspecified simply falls back to plain PyTorch behavior.
 
+Its main format family, `BinaryK`, is the binaryK family of IEEE P3109, the upcoming Standard for Arithmetic Formats for Machine Learning ([Fitzgibbon, Wintersteiger and Sarnoff, arXiv:2606.04028](https://arxiv.org/abs/2606.04028)): a K-bit float with P bits of precision, signed or unsigned. An explicit exponent bias also reaches formats outside the standard, such as the OCP 8-bit E4M3 and E5M2.
+
 MPTorch is still in its early stages of development, but it is already capable of training neural networks using custom floating-point formats that are specified at the layer level (and for every operator's inputs, outputs and gradients) for both forward and backward pass computations.
 
 ## Basic usage example
@@ -54,8 +56,9 @@ test_loader = DataLoader(
 """
 Specify the quantization function shared by every signal
 (weights, activations, biases and gradients) in the layers below.
-`binaryK_quantize` simulates a K-bit floating-point format with
-P mantissa (precision) bits, e.g. K=8, P=4 is a narrow 8-bit float.
+`binaryK_quantize` simulates a binaryK format of the IEEE P3109 draft
+standard: K bits in total, P of them precision (the implicit leading bit
+included), e.g. K=8, P=4 is P3109's 8-bit Binary8p4, laid out like E4M3.
 """
 K, P = 8, 4
 quant_fp = lambda x: qpt.binaryK_quantize(x, K=K, P=P, rounding_mode=RoundMode.RNE)

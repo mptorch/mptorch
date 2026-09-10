@@ -64,7 +64,6 @@ struct SuperfpParams
     int round_shift;
     // for clip_normal_range_exponent
     SaturationMode saturation_mode;
-    int max_exponent_store;
     int min_exponent_store;
     uint32_t max_num;
     // Float-arithmetic RNE fast path -- see cast_superfp_rne_fast below.
@@ -97,9 +96,11 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
     p.round_tie = round_p.tie;
     p.round_shift = round_p.shift;
 
-    NormalRangeParams normal_p = make_normal_range_params(exp_bits, man_bits, bias, saturation_mode);
+    // The top binade's last code is +infinity outside SAT_FINITE, as in
+    // binaryK; superfp spends no code on NaN, signed or not.
+    const int reserved_codes = (saturation_mode != SaturationMode::SAT_FINITE);
+    NormalRangeParams normal_p = make_normal_range_params(exp_bits, man_bits, bias, saturation_mode, reserved_codes);
     p.saturation_mode = normal_p.saturation_mode;
-    p.max_exponent_store = normal_p.max_exponent_store;
     p.min_exponent_store = normal_p.min_exponent_store;
     p.max_num = normal_p.max_num;
 
@@ -108,9 +109,9 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
     // the first three conditions are G3's, unchanged. The rest replace
     // binaryK's subnormal-grid conditions with the ones the supernormal and
     // underflow regions need. See cast_superfp_rne_fast.
-    int e_split = 23 - man_bits;              // fast_split_c = 2^e_split + 1
-    int max_exp = p.max_exponent_store - 127; // unbiased exponent of max_num
-    int min_exp = -bias + 1;                  // clip_normal_range_exponent's underflow floor
+    int e_split = 23 - man_bits;                // fast_split_c = 2^e_split + 1
+    int max_exp = (int)(p.max_num >> 23) - 127; // unbiased exponent of max_num
+    int min_exp = -bias + 1;                    // clip_normal_range_exponent's underflow floor
     p.fast_rne =
         // man_bits == 0 takes round_bitwise_nearest_even's structurally
         // different zero-argument overload (ties on the exponent's parity,
@@ -122,10 +123,12 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
         // sweep in dev/benchmarks/gemm_cast_superfp_arith.cu shows 23 clean
         // and 24 mismatching on ~1.7e7 inputs per configuration).
         man_bits >= 1 && man_bits <= 23 &&
-        // SAT_PROPAGATE leaves a value whose exponent is exactly
-        // max_exponent_store unclamped even when its significand exceeds
-        // max_num, which a single saturating compare cannot express.
+        // SAT_PROPAGATE clamps a finite value that overflows but keeps an
+        // infinite input infinite, which one saturating compare cannot tell
+        // apart once the clamp has run.
         saturation_mode != SaturationMode::SAT_PROPAGATE &&
+        // no finite normal value at all (see make_normal_range_params)
+        p.max_num != 0 &&
         // 2 * max_finite (the clamp) and fast_split_c * that product must both
         // stay finite.
         max_exp <= 126 && max_exp + e_split + 3 <= 128 &&
@@ -326,8 +329,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool
         quantize_bits = (p.man_bits > 0)
                             ? round_bitwise_nearest_even(target, p.round_bypass, p.round_mask, p.round_tie, p.round_shift)
                             : round_bitwise_nearest_even(target);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -376,8 +379,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_away(float origin_float, bool
     else
     {
         quantize_bits = round_bitwise_nearest_away(target, p.round_bypass, p.round_mask, p.round_tie);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -443,8 +446,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float, bool is_signe
             if (sticky && !already_odd)
                 quantize_bits += (1u << 23);
         }
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -489,8 +492,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_up(float origin_float, const
     else
     {
         quantize_bits = round_bitwise_up(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -527,8 +530,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_absolute_down(float origin_float, con
     else
     {
         quantize_bits = round_bitwise_down(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -637,8 +640,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
             return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
         }
 #endif
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.max_exponent_store,
-                                                   p.min_exponent_store, p.max_num);
+        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
+                                                   p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 

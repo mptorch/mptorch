@@ -83,10 +83,10 @@ namespace mptorch::gemm
     int man_bits = 0, exp_bits = 0, normal_binades = 0, bias = 0;
   };
 
-  // The schemas spell a binaryK format as (K, P) -- total bits and precision
-  // -- where the policies want (man_bits, exp_bits). One conversion, here,
-  // rather than the same two lines in each of the four entry points that
-  // takes that spelling.
+  // The schemas spell a binaryK format as (K, P) -- total bits and precision,
+  // the two parameters IEEE P3109 names its binaryK formats by -- where the
+  // policies want (man_bits, exp_bits). One conversion, here, rather than the
+  // same two lines in each of the four entry points that takes that spelling.
   inline BinaryKWidths binaryK_widths(int64_t K, int64_t P, int64_t bias, bool is_signed)
   {
     return BinaryKWidths{static_cast<int>(P - 1),
