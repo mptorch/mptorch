@@ -342,7 +342,8 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
 // rounded word: a -0.0 input truncates to 0x80000000, which is not 0 and was
 // pushed out to minus the smallest subnormal, and a float32 subnormal input
 // can truncate to exactly 0 and stayed there. P3109 rounds zero to zero and
-// never rounds a nonzero value away from zero into it.
+// never rounds a nonzero value away from zero into it. A zero input comes back
+// with its rounded word's sign, which the cast drops on return (unsigned_zero).
 // Shares SubnormalRangeParams/make_subnormal_range_params with the plain
 // clip_subnormal_range_exponent above.
 CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
@@ -424,7 +425,8 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits,
 // range, and becomes infinity under OVF_INF (SatNone) and max_num under the
 // other two (SatFinite, SatPropagate: the value was finite, so SatPropagate
 // has nothing to propagate). Non-finite inputs never get here: every cast
-// sends them to saturate_nonfinite before it rounds.
+// sends them to saturate_nonfinite before it rounds. An underflow to zero keeps
+// the input's sign, which the cast drops on return (unsigned_zero).
 CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
                                                              SaturationMode saturation_mode,
                                                              int min_exponent_store, uint32_t max_num)
@@ -468,4 +470,29 @@ CUDA_HOST_DEVICE_INLINE uint32_t saturate_nonfinite(uint32_t target, SaturationM
     bool is_inf = (target & 0x007FFFFFu) == 0;
     return (is_inf && saturation_mode == SaturationMode::SAT_FINITE) ? ((target & 0x80000000u) | max_num)
                                                                       : target;
+}
+
+// What a cast returns instead of -0.0. IEEE P3109 has one zero, code point 0,
+// and it is unsigned; superfp spends no code on a negative zero either. So a
+// result that rounds to zero is +0.0 whatever the sign of the value that got
+// there, -0.0 itself included: the value simulated is the format's, not
+// binary32's (dev/gemm_roadmap.md, T2). The integer paths reach -0.0 in several
+// places -- a clip re-attaching the input's sign to an underflow, a directed
+// mode negating a magnitude that rounded away, superfp's sign-keeping underflow
+// arms -- so they return through this rather than being patched at each. The
+// fast paths that cannot reach -0.0 say so at the return they leave alone.
+//
+// A mask on the word, not a select. g++ compiles `((w << 1) == 0) ? 0.0f : x`
+// to a jne and this to a cmov, and vectorizes this form in a loop; at the join
+// of a cast it had otherwise if-converted, the branch cost superfp's
+// elementwise RNE 1.3-1.4x end to end, where the mask costs 1.1-1.2x (T2). The
+// value test `(x == 0.0f) ? 0.0f : x` is a ucomiss and two jumps, and
+// `x + 0.0f`, one instruction, quiets a signaling NaN the casts pass through. A
+// NaN's word is nonzero after the shift, so the mask keeps it whole. The device
+// measured all three spellings the same.
+CUDA_HOST_DEVICE_INLINE float unsigned_zero(float x)
+{
+    uint32_t w = FLOAT_TO_BITS(&x);
+    w &= -(uint32_t)((w << 1) != 0);
+    return BITS_TO_FLOAT(&w);
 }

@@ -243,9 +243,11 @@ do the widths it excludes (it requires :math:`K \ge 3`, and :math:`P < K` for
 a signed format). They are what reach E4M3, bfloat16 and the rest.
 
 **By simulating values rather than code points.** A result is a float32
-number, not an encoding: P3109's single NaN is whichever NaN came in, and its
-single, unsigned zero can come out as :math:`-0.0` under ``RU``, ``RZ`` and
-``RO`` (the two compare equal). And P3109's extended domain with
+number, not an encoding, so P3109's single NaN is whichever NaN came in. (Its
+single zero is unsigned and gets no such latitude: every zero the kernels
+return is :math:`+0.0`, whether it came from :math:`-0.0` or from a negative
+value that rounded to zero, and the same holds for SuperFP.) And P3109's
+extended domain with
 ``SatFinite`` -- a format that has infinities, clamping an infinite input to
 its largest finite value -- has no spelling, because ``SAT_FINITE`` also
 selects the finite domain.

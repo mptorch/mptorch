@@ -48,6 +48,17 @@ def _quantize(
     ).item()
 
 
+def _same(got: float, want: float) -> bool:
+    """Equal, and for a zero equally signed: `-0.0 == 0.0` is true, and superfp's
+    only zero is +0.0."""
+    return got == want and math.copysign(1.0, got) == math.copysign(1.0, want)
+
+
+def _negated(value: float) -> float:
+    """The rounding of -x, given that of x: the sign flips, except on zero."""
+    return -value if value != 0.0 else 0.0
+
+
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_nan_passthrough(device, mode):
@@ -90,15 +101,15 @@ def test_inf_handling(device, mode, saturation_mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_zero(device, mode):
-    assert _quantize(0.0, mode, device) == 0.0
-    assert _quantize(-0.0, mode, device) == 0.0
+    assert _same(_quantize(0.0, mode, device), 0.0)
+    assert _same(_quantize(-0.0, mode, device), 0.0)
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_unsigned_rejects_negative(device, mode):
-    assert _quantize(-3.5, mode, device, is_signed=False) == 0.0
-    assert _quantize(-1.0e-7, mode, device, is_signed=False) == 0.0
+    for x in (-3.5, -1.0e-7, -0.0):
+        assert _same(_quantize(x, mode, device, is_signed=False), 0.0), x
 
 
 # ---------------------------------------------------------------------------
@@ -213,17 +224,16 @@ UNDERFLOW_CASES = [
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("value,mode,expected", UNDERFLOW_CASES)
 def test_underflow_boundary(device, value, mode, expected):
-    assert _quantize(value, mode, device) == pytest.approx(expected, abs=1e-30)
+    # Exact, and signed: every value here is a power of two or zero.
+    assert _same(_quantize(value, mode, device), expected)
     if mode in (RoundMode.RNE, RoundMode.RNA, RoundMode.RZ, RoundMode.RO):
-        assert _quantize(-value, mode, device) == pytest.approx(-expected, abs=1e-30)
+        assert _same(_quantize(-value, mode, device), _negated(expected))
     elif mode is RoundMode.RU:
-        # RU(-x) == -RD(x); RD(x) for these cases is always 0.0.
-        assert _quantize(-value, mode, device) == pytest.approx(-0.0, abs=1e-30)
+        # RU(-x) == -RD(x); RD(x) for these cases is always zero, which is +0.0.
+        assert _same(_quantize(-value, mode, device), 0.0)
     elif mode is RoundMode.RD:
         # RD(-x) == -RU(x)
-        assert _quantize(-value, mode, device) == pytest.approx(
-            -_quantize(value, RoundMode.RU, device), abs=1e-30
-        )
+        assert _same(_quantize(-value, mode, device), -_quantize(value, RoundMode.RU, device))
 
 
 # ---------------------------------------------------------------------------

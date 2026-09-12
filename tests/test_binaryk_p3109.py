@@ -21,7 +21,10 @@ The reference is transcribed from the paper, not from an implementation:
   anything outside [M_lo, M_hi] to +-infinity. Rounding comes first, so SatNone
   overflows to infinity under every rounding mode -- which is where gfloat,
   following IEEE 754's directed-rounding overflow, parts from the draft, and
-  why it is not the oracle here.
+  why it is not the oracle here;
+* the zero, code point 0: the only one, and unsigned, so a result that rounds
+  to zero is +0.0 whatever the sign of the input -- -0.0 included. The
+  comparison counts the sign of a zero, since -0.0 == 0.0.
 
 SaturationMode carries the domain as well as the saturation: SAT_FINITE is the
 finite domain, the other two the extended one. An unsigned format turns every
@@ -120,7 +123,9 @@ def _saturate(z: torch.Tensor, mode: SaturationMode, hi: float, signed: bool) ->
 def _project(x: torch.Tensor, K: int, P: int, signed: bool, rounding, saturation) -> torch.Tensor:
     finite = saturation is SaturationMode.SAT_FINITE
     rounded = _round_to_precision(x, P, _bias(K, P, signed), rounding)
-    return _saturate(rounded, saturation, _max_finite(K, P, signed, finite), signed)
+    projected = _saturate(rounded, saturation, _max_finite(K, P, signed, finite), signed)
+    # Code point 0 decodes to a zero with no sign.
+    return torch.where(projected == 0, torch.zeros_like(projected), projected)
 
 
 # --- inputs -------------------------------------------------------------------
@@ -143,7 +148,8 @@ def _inputs(K: int, P: int, signed: bool) -> torch.Tensor:
 
 
 def _mismatches(got: torch.Tensor, want: torch.Tensor) -> torch.Tensor:
-    return ~((got == want) | (got.isnan() & want.isnan()))
+    same = (got == want) & (torch.signbit(got) == torch.signbit(want))
+    return ~(same | (got.isnan() & want.isnan()))
 
 
 # --- tests --------------------------------------------------------------------
@@ -217,8 +223,8 @@ def test_top_of_range_matches_p3109(device, signed, saturation_mode):
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 def test_zero_and_far_below_the_smallest_subnormal(device, signed):
     # The other end of the range, where the same RoundAway decides between zero
-    # and the smallest subnormal: +-0 stays zero under every mode, and a nonzero
-    # input far below the grid -- a float32 subnormal included -- becomes zero or
+    # and the smallest subnormal: +-0 becomes +0 under every mode, and a nonzero
+    # input far below the grid -- a float32 subnormal included -- becomes +0 or
     # the smallest subnormal, never anything else.
     tiny = [0.0, 1.4e-45, 1.0e-40, 2.0**-100, 2.0**-60]
     x = torch.tensor(tiny + [-v for v in tiny] if signed else tiny, dtype=torch.float32)

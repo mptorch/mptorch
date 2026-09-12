@@ -197,6 +197,11 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const Bi
     // put it at fast_clamp_hi, which the split keeps and the compare above
     // turns into fast_ovf -- inf under OVF_INF, max_finite under SAT_FINITE.
     // One ordered compare separates the two: `<= inf` is false only for NaN.
+    //
+    // No unsigned_zero here, because `y` is never -0.0: saturation gives
+    // +-fast_ovf, which the gate keeps nonzero; a split of |x| >= 2^min_exp
+    // keeps its exponent; and `sub` is a round-to-nearest difference of two
+    // positive values, +0.0 when they are equal -- for a -0.0 input too.
     return (ax <= bits_to_float(0x7F800000u)) ? y : origin_float;
 }
 #endif
@@ -253,7 +258,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Rounds to nearest, ties away from zero. Shares BinaryKParams with RNE, as
@@ -292,7 +297,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, bool
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Rounds to odd. The man_bits == 0 branch needs raw `bias`, recovered as
@@ -350,7 +355,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_odd(float origin_float, bool is_signe
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Unsigned helper for cast_binaryK_up/cast_binaryK_down: assumes
@@ -433,10 +438,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_up(float origin_float, bool is_signed
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
+    // Both arms can return -0.0: the first is where a -0.0 input goes, since
+    // it compares >= 0, and the second negates a magnitude that rounded to 0.
     if (origin_float >= 0)
-        return cast_absolute_up(origin_float, subnormals, p);
+        return unsigned_zero(cast_absolute_up(origin_float, subnormals, p));
     else
-        return -cast_absolute_down(-origin_float, subnormals, p);
+        return unsigned_zero(-cast_absolute_down(-origin_float, subnormals, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_down(float origin_float, bool is_signed,
@@ -445,10 +452,11 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_down(float origin_float, bool is_sign
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
+    // See cast_binaryK_up: the same two ways to -0.0.
     if (origin_float >= 0)
-        return cast_absolute_down(origin_float, subnormals, p);
+        return unsigned_zero(cast_absolute_down(origin_float, subnormals, p));
     else
-        return -cast_absolute_up(-origin_float, subnormals, p);
+        return unsigned_zero(-cast_absolute_up(-origin_float, subnormals, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_zero(float origin_float, bool is_signed,
@@ -523,6 +531,9 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
         // reusing it only ever gates SR off where it could have run
         // (man_bits == 0, and the split-product bound). One flag, one sweep.
         // Verified in dev/benchmarks/gemm_cast_sr_arith.cu.
+        //
+        // The exponent argument also makes `y` nonzero, which is why this
+        // return, unlike the function's last, skips unsigned_zero.
         if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
         {
             float y = BITS_TO_FLOAT(&quantize_bits);
@@ -534,5 +545,5 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }

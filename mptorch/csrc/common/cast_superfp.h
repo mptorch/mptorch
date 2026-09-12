@@ -166,7 +166,7 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
     // zeros when the underflow region is out of binary32's reach: the guard
     // `ax > 0` then admits every nonzero input to the supernormal result, and
     // fmaxf against 0 leaves it alone -- which is what "nothing underflows"
-    // means. Zero itself still takes the `else` arm and stays (signed) zero.
+    // means. Zero itself still takes the `else` arm and comes out +0.0.
     p.fast_super_min = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff);
     p.fast_super_half = no_underflow ? 0.0f : superfp_pow2f(p.supernormal_cutoff - 1);
     p.fast_max_finite = BITS_TO_FLOAT(&p.max_num);
@@ -218,7 +218,7 @@ CUDA_HOST_DEVICE_INLINE SuperfpParams make_superfp_params(int man_bits, int exp_
 //   ax >= 2^normal_cutoff             normal      -> Veltkamp split + saturate
 //   2^(supernormal_cutoff - 1) < ax   supernormal -> nearest power of two,
 //                                                    lifted to 2^supernormal_cutoff
-//   otherwise                         underflow   -> signed zero
+//   otherwise                         underflow   -> +0.0
 //
 // The second is stated as a strict compare against the *midpoint* rather than
 // against 2^supernormal_cutoff because that is what the integer path's
@@ -253,7 +253,9 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
         // `<= inf` rather than `< inf`: inf itself is out of range and takes
         // nrm, which the compare above already made fast_ovf -- inf under
         // OVF_INF, the largest finite value under SAT_FINITE -- and only a
-        // NaN (which never reaches this arm) would fail the compare.
+        // NaN (which never reaches this arm) would fail the compare. `nrm` is
+        // never zero (|x| >= 2^normal_cutoff, and the split keeps its
+        // exponent), so this return needs no unsigned_zero.
         return copysignf((ax <= inf) ? nrm : ax, origin_float);
     }
 
@@ -269,8 +271,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
     // is below the region but which rounds up into it.
     spn = (ax > p.fast_super_half) ? fmax_nonneg(spn, p.fast_super_min) : 0.0f;
     // copysignf carries the sign -- and a NaN's payload -- back onto the
-    // magnitude, so the NaN case returns the input's exact bit pattern.
-    return copysignf((ax < inf) ? spn : ax, origin_float);
+    // magnitude, so the NaN case returns the input's exact bit pattern. It
+    // carries it onto a zero as well, which unsigned_zero takes back off: an
+    // underflow, or a float32 subnormal that rounds down when the underflow
+    // region is out of binary32's reach.
+    return unsigned_zero(copysignf((ax < inf) ? spn : ax, origin_float));
 }
 #endif
 
@@ -313,7 +318,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool
         // ties-to-even between 0 and the smallest supernormal magnitude
         // (2^supernormal_cutoff): only the topmost underflow exponent
         // (supernormal_cutoff - 1) can be at or above the halfway point;
-        // anything strictly below always flushes to (signed) zero.
+        // anything strictly below always flushes to zero, whose sign the
+        // return drops.
         uint32_t sign_bit = target & 0x80000000u;
         quantize_bits = sign_bit;
         if (target_exp == p.supernormal_cutoff - 1 && (target & 0x007FFFFFu) != 0)
@@ -334,7 +340,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_even(float origin_float, bool
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Rounds to nearest, ties away from zero.
@@ -384,7 +390,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_nearest_away(float origin_float, bool
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Rounds to odd.
@@ -451,7 +457,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_odd(float origin_float, bool is_signe
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
 
 // Unsigned helper for cast_superfp_up/cast_superfp_down: assumes
@@ -554,10 +560,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_up(float origin_float, bool is_signed
     if ((int)((target >> 23) & 0xFF) - 127 == 128)
         return bits_to_float(saturate_nonfinite(target, p.saturation_mode, p.max_num));
 
+    // As in cast_binaryK_up, both arms can return -0.0.
     if (origin_float >= 0)
-        return cast_superfp_absolute_up(origin_float, p);
+        return unsigned_zero(cast_superfp_absolute_up(origin_float, p));
     else
-        return -cast_superfp_absolute_down(-origin_float, p);
+        return unsigned_zero(-cast_superfp_absolute_down(-origin_float, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_signed, const SuperfpParams &p)
@@ -569,10 +576,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_down(float origin_float, bool is_sign
     if ((int)((target >> 23) & 0xFF) - 127 == 128)
         return bits_to_float(saturate_nonfinite(target, p.saturation_mode, p.max_num));
 
+    // As in cast_binaryK_up, both arms can return -0.0.
     if (origin_float >= 0)
-        return cast_superfp_absolute_down(origin_float, p);
+        return unsigned_zero(cast_superfp_absolute_down(origin_float, p));
     else
-        return -cast_superfp_absolute_up(-origin_float, p);
+        return unsigned_zero(-cast_superfp_absolute_up(-origin_float, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_superfp_zero(float origin_float, bool is_signed, const SuperfpParams &p)
@@ -633,7 +641,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
         // clip_normal_range_exponent. The clip's underflow arm is unreachable
         // for the same reason in different words: this arm is entered only at
         // or above normal_cutoff, and the gate's `normal_cutoff >= min_exp`
-        // puts that at or above the arm's floor.
+        // puts that at or above the arm's floor. For the same reason `y` is
+        // nonzero, so this return skips unsigned_zero.
         if (p.fast_rne)
         {
             float y = BITS_TO_FLOAT(&quantize_bits);
@@ -645,5 +654,5 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_stochastic(float origin_float, uint32
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return quantized;
+    return unsigned_zero(quantized);
 }
