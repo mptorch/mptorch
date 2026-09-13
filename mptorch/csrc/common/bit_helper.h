@@ -100,6 +100,18 @@ static_assert(FLT_EVAL_METHOD == 0,
 //     moved the RZ quantizer by 24 instructions. A constant is copied into a
 //     variable first, since device code cannot take a reference to a static
 //     member.
+//
+//     The pun reads a word through a float glvalue, which the standard does
+//     not allow and -Wstrict-aliasing says so; it is what these casts have
+//     always done, and the exhaustive sweeps are what vouch for it. memcpy
+//     is the spelling the standard does allow, and it was measured too,
+//     written at the use site like the pun: it changes 45 of the 128 device
+//     kernels (four of them by a register) and 371 host functions, 84 of
+//     them CPU GEMM kernels, and it takes the host .text from 2,175,586 to
+//     2,112,562 B. Not a change of values, but not the same kernels either,
+//     so it fails the gate this template was held to; whether the smaller
+//     host code is also faster is a question for a benchmark, not for this
+//     note (dev/binary64_carrier_plan.md, phase 1b).
 //   * fabsf and copysignf are called by name, not through a trait. GCC folds
 //     the builtins before inlining and a wrapper only after, which reordered
 //     the host superfp SR quantizers. (min/max and the rn_ operations were
