@@ -3,6 +3,7 @@
 #include "modes.h"
 #include <cmath>
 #include <cstdint>
+#include <type_traits>
 
 #ifdef __CUDACC__
 #define CUDA_HOST_DEVICE_INLINE __host__ __device__ __forceinline__
@@ -64,34 +65,225 @@ static_assert(FLT_EVAL_METHOD == 0,
               "this target has excess precision (x87). Drop -DMPTORCH_FAST_CAST.");
 #endif
 
-#define FLOAT_TO_BITS(x) (*reinterpret_cast<uint32_t *>(x))
-#define BITS_TO_FLOAT(x) (*reinterpret_cast<float *>(x))
+// ---------------------------------------------------------------------------
+// The carrier.
+//
+// Every cast rounds on the bit pattern of the IEEE binary format the value is
+// computed in -- its *carrier*. What depends on which one -- the word, the
+// field widths and masks, the bias, and the spellings of the operations the
+// fast paths name -- is read from FloatTraits<T>, so each helper below, and
+// each params struct and cast in cast_binaryK.h and cast_superfp.h, is written
+// once, as a template on the carrier. `BinaryKParams` and `SuperfpParams` are
+// the binary32 instantiations, and every kernel in the extension still
+// computes in binary32; binary64 is the second carrier
+// (dev/binary64_carrier_plan.md). The one thing that differs about it beyond
+// the constants is HAS_FAST_CAST: the float-arithmetic fast paths are
+// binary32's only, so binary64 always takes the integer path.
+//
+// The helpers that see only a word -- the bitwise rounds and the clips --
+// deduce the carrier from it (WordTraits below), so a caller hands them the
+// word it has and cannot pair a binary64 word with binary32's masks. Those
+// that see a value deduce it from the value.
+//
+// The templates compile to the instructions the binary32-only code did, on
+// both compilers: .text and .nv_fatbin came out byte for byte the same, which
+// is how "no change" was checked. Four spellings are what that took. Each is
+// invisible in the arithmetic, and each moved codegen when it was done the
+// obvious way:
+//
+//   * The pun between a value and its word is `reinterpret_cast<const T &>`
+//     on the variable, written where it is used, never inside a to_bits()/
+//     from_bits() function. A call, however inlined, hides the variable's
+//     address from the passes that promote it before inlining: by reference
+//     it turned a select on the float into a select on the word in superfp's
+//     RNA underflow arm, which moved nine device kernels, and by value it
+//     moved the RZ quantizer by 24 instructions. A constant is copied into a
+//     variable first, since device code cannot take a reference to a static
+//     member.
+//   * fabsf and copysignf are called by name, not through a trait. GCC folds
+//     the builtins before inlining and a wrapper only after, which reordered
+//     the host superfp SR quantizers. (min/max and the rn_ operations were
+//     wrappers before this template and are unchanged by being members.)
+//   * A shift that was written on `int` is written on sword_t, the carrier's
+//     signed word, not on the unsigned one: `1 << s` is undefined past the
+//     sign bit, which GCC reads as `s < 31` and the unsigned spelling does
+//     not let it, and round_bitwise_stochastic's mask moved the host SR
+//     quantizers until it was signed again. For binary32 sword_t is the `int`
+//     it always was; for binary64 it is wide enough for a 52-bit shift.
+//   * A fast-path gate is a plain `if` on the params' fast_rne, which is a
+//     constant false for a carrier without one, and only the body it guards
+//     is behind `if constexpr` -- see cast_binaryK_nearest_even.
+// ---------------------------------------------------------------------------
+template <class T>
+struct FloatTraits; // defined for the two carriers below, and nothing else
 
-// The two spellings the fast paths need that differ between host and device.
-//
-// `bits_to_float` is BITS_TO_FLOAT for a value rather than an lvalue, standing
-// in for the device-only __int_as_float; on both sides it is a reinterpret and
-// compiles to nothing.
-//
-// rn_add/rn_sub/rn_mul are the binary32 operations the Veltkamp split needs
-// rounded on their own. On the device that is what __fadd_rn and friends mean.
-// On the host the plain operators already are IEEE binary32 operations -- the
-// only thing that can merge two of them is contraction into an FMA, which
-// MPTORCH_FAST_CAST's contract forbids -- so the shim is the operator itself,
-// named so the requirement stays legible at the call site. (fma_f32 in
-// gemm_policy.h is the reverse case: the one place an FMA is intended, spelled
-// explicitly so no flag can take it away.)
-CUDA_HOST_DEVICE_INLINE float bits_to_float(uint32_t bits)
+template <>
+struct FloatTraits<float>
 {
-    return BITS_TO_FLOAT(&bits);
+    using value_t = float;
+    using word_t = uint32_t;
+    using sword_t = int32_t;
+    static constexpr int MAN_BITS = 23;   // significand field
+    static constexpr int EXP_BITS = 8;    // exponent field
+    static constexpr int BIAS = 127;
+    static constexpr int WORD_BITS = 32;
+    static constexpr int MAX_EXP = 127;   // the largest finite value's exponent
+    static constexpr int INF_EXP = 128;   // an all-ones field, unbiased: infinity and NaN
+    static constexpr int TOP_FIELD = 254; // the largest finite value's field
+    static constexpr int MIN_NORMAL_EXP = -126;
+    // The lowest floor a format can put its smallest value at when its grid
+    // there is read off the input's exponent field, which every subnormal of
+    // the carrier shares (dev/gemm_roadmap.md, T4).
+    static constexpr int MIN_SIMULABLE_EXP = -125;
+    static constexpr word_t FIELD_MASK = 0xFFu;
+    static constexpr word_t SIGN_MASK = 0x80000000u;
+    static constexpr word_t ABS_MASK = 0x7FFFFFFFu;
+    static constexpr word_t MAN_MASK = 0x007FFFFFu;
+    static constexpr word_t INF_BITS = 0x7F800000u;
+    static constexpr word_t TIE = 0x00400000u;       // half the exponent field's low bit: the tie to a power of two
+    static constexpr word_t BELOW_TIE = 0x003FFFFFu; // the largest subnormal below 2^(MIN_NORMAL_EXP - 1)
+    static constexpr bool HAS_FAST_CAST = true;
+
+    // 2^e for e in [MIN_NORMAL_EXP, MAX_EXP], exact by construction, and
+    // without pulling ldexp into a header that CUDA device code includes.
+    CUDA_HOST_DEVICE_INLINE static value_t pow2(int e)
+    {
+        word_t bits = (word_t)(e + BIAS) << MAN_BITS;
+        return reinterpret_cast<const value_t &>(bits);
+    }
+
+    // 2^-MAN_BITS: what turns the MAN_BITS low bits of a random word into a
+    // uniform draw in [0, 1). Spelled as the quotient so it folds to the same
+    // constant it always has.
+    CUDA_HOST_DEVICE_INLINE static value_t ulp_scale() { return 1.0f / 8388608.0f; }
+
+    // rn_add/rn_sub/rn_mul are the operations the Veltkamp split needs rounded
+    // on their own. On the device that is what __fadd_rn and friends mean. On
+    // the host the plain operators already are IEEE binary32 operations -- the
+    // only thing that can merge two of them is contraction into an FMA, which
+    // MPTORCH_FAST_CAST's contract forbids -- so the shim is the operator
+    // itself, named so the requirement stays legible at the call site. (fma_f32
+    // in gemm_policy.h is the reverse case: the one place an FMA is intended,
+    // spelled explicitly so no flag can take it away.)
+    //
+    // min/max where the fast paths use them: on a magnitude clamped against a
+    // positive bound, never on a negative operand. Under that precondition
+    // the ternary and fminf/fmaxf agree everywhere, NaN included -- every
+    // compare against a NaN is false, so both spellings return the bound,
+    // which is the arm the fast paths' final select overrides anyway.
+    //
+    // Two spellings because each backend folds exactly one of them into its
+    // single instruction and neither folds the other: GCC will not turn fminf
+    // into minss (their NaN results differ in general) and emits a libm call
+    // in the middle of the GEMM's inner loop, worth 1.12x of the whole CPU
+    // GEMM; nvcc will not turn the ternary into min.f32 and emits setp + selp.
+#if defined(__CUDA_ARCH__)
+    CUDA_HOST_DEVICE_INLINE static value_t rn_add(value_t a, value_t b) { return __fadd_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_sub(value_t a, value_t b) { return __fsub_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_mul(value_t a, value_t b) { return __fmul_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t fmin_nonneg(value_t a, value_t b) { return fminf(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t fmax_nonneg(value_t a, value_t b) { return fmaxf(a, b); }
+#else
+    CUDA_HOST_DEVICE_INLINE static value_t rn_add(value_t a, value_t b) { return a + b; }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_sub(value_t a, value_t b) { return a - b; }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_mul(value_t a, value_t b) { return a * b; }
+    CUDA_HOST_DEVICE_INLINE static value_t fmin_nonneg(value_t a, value_t b) { return (a < b) ? a : b; }
+    CUDA_HOST_DEVICE_INLINE static value_t fmax_nonneg(value_t a, value_t b) { return (a > b) ? a : b; }
+#endif
+};
+
+template <>
+struct FloatTraits<double>
+{
+    using value_t = double;
+    using word_t = uint64_t;
+    using sword_t = int64_t;
+    static constexpr int MAN_BITS = 52;
+    static constexpr int EXP_BITS = 11;
+    static constexpr int BIAS = 1023;
+    static constexpr int WORD_BITS = 64;
+    static constexpr int MAX_EXP = 1023;
+    static constexpr int INF_EXP = 1024;
+    static constexpr int TOP_FIELD = 2046;
+    static constexpr int MIN_NORMAL_EXP = -1022;
+    static constexpr int MIN_SIMULABLE_EXP = -1021;
+    static constexpr word_t FIELD_MASK = 0x7FFu;
+    static constexpr word_t SIGN_MASK = 0x8000000000000000u;
+    static constexpr word_t ABS_MASK = 0x7FFFFFFFFFFFFFFFu;
+    static constexpr word_t MAN_MASK = 0x000FFFFFFFFFFFFFu;
+    static constexpr word_t INF_BITS = 0x7FF0000000000000u;
+    static constexpr word_t TIE = 0x0008000000000000u;
+    static constexpr word_t BELOW_TIE = 0x0007FFFFFFFFFFFFu;
+    // The integer path only, for now: a binary64 fast path is a measured item
+    // of its own, since FP64 is a fraction of the float rate on consumer GPUs.
+    static constexpr bool HAS_FAST_CAST = false;
+
+    CUDA_HOST_DEVICE_INLINE static value_t pow2(int e)
+    {
+        word_t bits = (word_t)(e + BIAS) << MAN_BITS;
+        return reinterpret_cast<const value_t &>(bits);
+    }
+    CUDA_HOST_DEVICE_INLINE static value_t ulp_scale() { return 1.0 / 4503599627370496.0; }
+
+    // see the binary32 specialization for what each of these promises
+#if defined(__CUDA_ARCH__)
+    CUDA_HOST_DEVICE_INLINE static value_t rn_add(value_t a, value_t b) { return __dadd_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_sub(value_t a, value_t b) { return __dsub_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_mul(value_t a, value_t b) { return __dmul_rn(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t fmin_nonneg(value_t a, value_t b) { return fmin(a, b); }
+    CUDA_HOST_DEVICE_INLINE static value_t fmax_nonneg(value_t a, value_t b) { return fmax(a, b); }
+#else
+    CUDA_HOST_DEVICE_INLINE static value_t rn_add(value_t a, value_t b) { return a + b; }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_sub(value_t a, value_t b) { return a - b; }
+    CUDA_HOST_DEVICE_INLINE static value_t rn_mul(value_t a, value_t b) { return a * b; }
+    CUDA_HOST_DEVICE_INLINE static value_t fmin_nonneg(value_t a, value_t b) { return (a < b) ? a : b; }
+    CUDA_HOST_DEVICE_INLINE static value_t fmax_nonneg(value_t a, value_t b) { return (a > b) ? a : b; }
+#endif
+};
+
+// The constants above are written out, as they appear in IEEE 754, rather than
+// derived from one another; this checks each against the ones it follows from.
+template <class T>
+constexpr bool float_traits_consistent()
+{
+    using F = FloatTraits<T>;
+    using W = typename F::word_t;
+    return sizeof(typename F::value_t) == sizeof(W) && F::WORD_BITS == 8 * (int)sizeof(W) &&
+           F::WORD_BITS == 1 + F::EXP_BITS + F::MAN_BITS && F::BIAS == (1 << (F::EXP_BITS - 1)) - 1 &&
+           F::MAX_EXP == F::BIAS && F::INF_EXP == F::BIAS + 1 && F::TOP_FIELD == 2 * F::BIAS &&
+           F::MIN_NORMAL_EXP == 1 - F::BIAS && F::MIN_SIMULABLE_EXP == F::MIN_NORMAL_EXP + 1 &&
+           F::FIELD_MASK == (W(1) << F::EXP_BITS) - 1 && F::SIGN_MASK == W(1) << (F::WORD_BITS - 1) &&
+           F::ABS_MASK == ~F::SIGN_MASK && F::MAN_MASK == (W(1) << F::MAN_BITS) - 1 &&
+           F::INF_BITS == F::FIELD_MASK << F::MAN_BITS && F::TIE == W(1) << (F::MAN_BITS - 1) &&
+           F::BELOW_TIE == F::TIE - 1 && std::is_same_v<typename F::sword_t, std::make_signed_t<W>>;
 }
+static_assert(float_traits_consistent<float>(), "FloatTraits<float> disagrees with itself");
+static_assert(float_traits_consistent<double>(), "FloatTraits<double> disagrees with itself");
+
+// The carrier whose word W is. Declared for the two carriers' words only, so a
+// word of any other type -- an `int`, a word of the wrong width -- fails to
+// compile instead of reaching binary32's masks.
+template <class W>
+struct CarrierOfWord;
+template <>
+struct CarrierOfWord<uint32_t>
+{
+    using type = float;
+};
+template <>
+struct CarrierOfWord<uint64_t>
+{
+    using type = double;
+};
+template <class W>
+using WordTraits = FloatTraits<typename CarrierOfWord<W>::type>;
 
 // What a cast returns instead of -0.0, on the word. IEEE P3109 has one zero,
 // code point 0, and it is unsigned -- in a signed binaryK the encoding that
 // would hold -0.0 is the format's NaN -- and superfp spends no code on a
 // negative zero either. So a result that rounds to zero is +0.0 whatever the
 // sign of the value that got there, -0.0 itself included: the value simulated
-// is the format's, not binary32's (dev/gemm_roadmap.md, T2).
+// is the format's, not the carrier's (dev/gemm_roadmap.md, T2).
 //
 // A mask on the word, not a select: g++ compiles `((w << 1) == 0) ? 0u : w`
 // to a branch and this to a cmov, and vectorizes this form in a loop. A NaN's
@@ -105,60 +297,36 @@ CUDA_HOST_DEVICE_INLINE float bits_to_float(uint32_t bits)
 // negate_magnitude at the end of this file. T2 had every integer path return
 // through the float spelling of this instead, which cost the elementwise
 // casts 1.05-1.23x; T3 is what moved it to the arms (dev/gemm_roadmap.md).
-CUDA_HOST_DEVICE_INLINE uint32_t unsigned_zero_bits(uint32_t w)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W unsigned_zero_bits(W w)
 {
-    return w & -(uint32_t)((w << 1) != 0);
+    return w & -(W)((w << 1) != 0);
 }
-
-#if defined(__CUDA_ARCH__)
-CUDA_HOST_DEVICE_INLINE float rn_add(float a, float b) { return __fadd_rn(a, b); }
-CUDA_HOST_DEVICE_INLINE float rn_sub(float a, float b) { return __fsub_rn(a, b); }
-CUDA_HOST_DEVICE_INLINE float rn_mul(float a, float b) { return __fmul_rn(a, b); }
-#else
-CUDA_HOST_DEVICE_INLINE float rn_add(float a, float b) { return a + b; }
-CUDA_HOST_DEVICE_INLINE float rn_sub(float a, float b) { return a - b; }
-CUDA_HOST_DEVICE_INLINE float rn_mul(float a, float b) { return a * b; }
-#endif
-
-// min/max where the fast paths use them: on a magnitude clamped against a
-// positive bound, never on a negative operand. Under that precondition the
-// ternary and fminf/fmaxf agree everywhere, NaN included -- every compare
-// against a NaN is false, so both spellings return the bound, which is the
-// arm the fast paths' final select overrides anyway.
-//
-// Two spellings because each backend folds exactly one of them into its
-// single instruction and neither folds the other: GCC will not turn fminf
-// into minss (their NaN results differ in general) and emits a libm call in
-// the middle of the GEMM's inner loop, worth 1.12x of the whole CPU GEMM;
-// nvcc will not turn the ternary into min.f32 and emits setp + selp.
-#if defined(__CUDA_ARCH__)
-CUDA_HOST_DEVICE_INLINE float fmin_nonneg(float a, float b) { return fminf(a, b); }
-CUDA_HOST_DEVICE_INLINE float fmax_nonneg(float a, float b) { return fmaxf(a, b); }
-#else
-CUDA_HOST_DEVICE_INLINE float fmin_nonneg(float a, float b) { return (a < b) ? a : b; }
-CUDA_HOST_DEVICE_INLINE float fmax_nonneg(float a, float b) { return (a > b) ? a : b; }
-#endif
 
 // rounds to nearest, ties to even
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_even(W target, int man_bits)
 {
-    if (man_bits >= 23)
+    using F = WordTraits<W>;
+    if (man_bits >= F::MAN_BITS)
         return target;
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t tie = 1 << (22 - man_bits);
-    uint32_t add_r = target + tie;
-    uint32_t quantized = add_r & ~mask;
-    uint32_t is_tie = (target & mask) == tie;
-    uint32_t odd = (man_bits == 0) ? 0 : 1; // if man_bits == 0, implicit bit is 1 (odd) so we always round up (carry to exponent)
-    return quantized & ~((is_tie & odd) << (23 - man_bits));
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
+    W tie = (W)((typename F::sword_t)1 << (F::MAN_BITS - 1 - man_bits));
+    W add_r = target + tie;
+    W quantized = add_r & ~mask;
+    W is_tie = (target & mask) == tie;
+    W odd = (man_bits == 0) ? 0 : 1; // if man_bits == 0, implicit bit is 1 (odd) so we always round up (carry to exponent)
+    return quantized & ~((is_tie & odd) << (F::MAN_BITS - man_bits));
 }
 
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_even(W target)
 {
-    uint32_t tie = 0x00400000;
-    uint32_t quantized = (target + tie) & ~0x007FFFFF;
-    uint32_t is_tie = (target & 0x007FFFFF) == tie;
-    return quantized - ((is_tie << 23) & ~quantized);
+    using F = WordTraits<W>;
+    W tie = F::TIE;
+    W quantized = (target + tie) & ~F::MAN_MASK;
+    W is_tie = (target & F::MAN_MASK) == tie;
+    return quantized - ((is_tie << F::MAN_BITS) & ~quantized);
 }
 
 // Precomputed-parameter forms below: same bit-twiddling as the
@@ -185,18 +353,23 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target)
 // nearest-away/up/down/odd's precomputed overloads below (they share the
 // same bypass/mask/tie formulas). Not valid for the man_bits == 0 case,
 // which uses the structurally different zero-arg overload above.
-struct RoundParams
+template <class T>
+struct RoundParamsT
 {
-    bool bypass; // man_bits >= 23: round_bitwise_nearest_even returns target unchanged
-    uint32_t mask;
-    uint32_t tie;
-    int shift; // 23 - man_bits
+    using word_t = typename FloatTraits<T>::word_t;
+    bool bypass; // man_bits >= MAN_BITS: round_bitwise_nearest_even returns target unchanged
+    word_t mask;
+    word_t tie;
+    int shift; // MAN_BITS - man_bits
 };
 
-CUDA_HOST_DEVICE_INLINE RoundParams make_round_params(int man_bits)
+template <class T>
+CUDA_HOST_DEVICE_INLINE RoundParamsT<T> make_round_params(int man_bits)
 {
-    RoundParams p;
-    p.bypass = man_bits >= 23;
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    RoundParamsT<T> p;
+    p.bypass = man_bits >= F::MAN_BITS;
     if (p.bypass)
     {
         p.mask = 0u;
@@ -204,84 +377,95 @@ CUDA_HOST_DEVICE_INLINE RoundParams make_round_params(int man_bits)
         p.shift = 0;
         return p;
     }
-    p.shift = 23 - man_bits;
-    p.mask = (1u << p.shift) - 1u;
-    p.tie = 1u << (p.shift - 1);
+    p.shift = F::MAN_BITS - man_bits;
+    p.mask = (word_t(1) << p.shift) - 1u;
+    p.tie = word_t(1) << (p.shift - 1);
     return p;
 }
 
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_even(uint32_t target, bool bypass, uint32_t mask,
-                                                            uint32_t tie, int shift)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_even(W target, bool bypass, W mask, W tie, int shift)
 {
     if (bypass)
         return target;
-    uint32_t add_r = target + tie;
-    uint32_t quantized = add_r & ~mask;
-    uint32_t is_tie = (target & mask) == tie;
+    W add_r = target + tie;
+    W quantized = add_r & ~mask;
+    W is_tie = (target & mask) == tie;
     return quantized & ~(is_tie << shift);
 }
 
 // rounds to nearest, ties to away
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_away(uint32_t target, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_away(W target, int man_bits)
 {
-    if (man_bits >= 23)
+    using F = WordTraits<W>;
+    if (man_bits >= F::MAN_BITS)
         return target;
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t tie = 1 << (22 - man_bits);
-    uint32_t add_r = target + tie;
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
+    W tie = (W)((typename F::sword_t)1 << (F::MAN_BITS - 1 - man_bits));
+    W add_r = target + tie;
     return add_r & ~mask;
 }
 
-// Precomputed sibling of round_bitwise_nearest_away above, via RoundParams
+// Precomputed sibling of round_bitwise_nearest_away above, via RoundParamsT
 // (never needs the `shift` field).
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_nearest_away(uint32_t target, bool bypass, uint32_t mask, uint32_t tie)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_away(W target, bool bypass, W mask, W tie)
 {
     if (bypass)
         return target;
-    uint32_t add_r = target + tie;
+    W add_r = target + tie;
     return add_r & ~mask;
 }
 
 // rounds up, towards positive infinity
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_up(uint32_t target, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_up(W target, int man_bits)
 {
-    if (man_bits >= 23)
+    using F = WordTraits<W>;
+    if (man_bits >= F::MAN_BITS)
         return target;
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t sign = target >> 31;
-    uint32_t add_r = target + (sign ? 0 : mask);
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
+    W sign = target >> (F::WORD_BITS - 1);
+    W add_r = target + (sign ? 0 : mask);
     return add_r & ~mask;
 }
 
 // Precomputed sibling of round_bitwise_up above: `sign` is per-value data,
 // not a format constant, so only bypass/mask (man_bits-derived) precompute.
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_up(uint32_t target, bool bypass, uint32_t mask)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_up(W target, bool bypass, W mask)
 {
+    using F = WordTraits<W>;
     if (bypass)
         return target;
-    uint32_t sign = target >> 31;
-    uint32_t add_r = target + (sign ? 0 : mask);
+    W sign = target >> (F::WORD_BITS - 1);
+    W add_r = target + (sign ? 0 : mask);
     return add_r & ~mask;
 }
 
 // rounds down, towards negative infinity
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_down(uint32_t target, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_down(W target, int man_bits)
 {
-    if (man_bits >= 23)
+    using F = WordTraits<W>;
+    if (man_bits >= F::MAN_BITS)
         return target;
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t sign = target >> 31;
-    uint32_t add_r = target + (sign ? mask : 0);
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
+    W sign = target >> (F::WORD_BITS - 1);
+    W add_r = target + (sign ? mask : 0);
     return add_r & ~mask;
 }
 
 // Precomputed sibling of round_bitwise_down above -- see round_bitwise_up's.
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_down(uint32_t target, bool bypass, uint32_t mask)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_down(W target, bool bypass, W mask)
 {
+    using F = WordTraits<W>;
     if (bypass)
         return target;
-    uint32_t sign = target >> 31;
-    uint32_t add_r = target + (sign ? mask : 0);
+    W sign = target >> (F::WORD_BITS - 1);
+    W add_r = target + (sign ? mask : 0);
     return add_r & ~mask;
 }
 
@@ -289,37 +473,42 @@ CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_down(uint32_t target, bool bypass
 // bit" of the discarded bits into the kept LSB. When man_bits == 0 the kept
 // "bit" is the exponent's LSB (no explicit significand), so a nonzero
 // sticky bit carries into the exponent.
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_odd(uint32_t target, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_odd(W target, int man_bits)
 {
-    if (man_bits >= 23)
+    using F = WordTraits<W>;
+    if (man_bits >= F::MAN_BITS)
         return target;
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
-    uint32_t lsb = 1 << (23 - man_bits);
-    uint32_t sticky = (target & mask) != 0;
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
+    W lsb = (W)((typename F::sword_t)1 << (F::MAN_BITS - man_bits));
+    W sticky = (target & mask) != 0;
     return (target & ~mask) | (sticky * lsb);
 }
 
 // Precomputed sibling of round_bitwise_odd above. lsb = mask + 1, so no
 // separate field is needed for it.
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_odd(uint32_t target, bool bypass, uint32_t mask)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_odd(W target, bool bypass, W mask)
 {
     if (bypass)
         return target;
-    uint32_t lsb = mask + 1u;
-    uint32_t sticky = (target & mask) != 0;
+    W lsb = mask + 1u;
+    W sticky = (target & mask) != 0;
     return (target & ~mask) | (sticky * lsb);
 }
 
 // stochastic rounding
-CUDA_HOST_DEVICE_INLINE uint32_t round_bitwise_stochastic(uint32_t target, uint32_t rand_prob, int man_bits)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W round_bitwise_stochastic(W target, W rand_prob, int man_bits)
 { // passing number of random bits as second parameter
     // (all the bits after the least significant bit which is based on prng);
     // target is the original number
-    uint32_t mask = (1 << (23 - man_bits)) - 1;
+    using F = WordTraits<W>;
+    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
     // adding random bits to target (which is not masked)
-    uint32_t add_r = target + (rand_prob & mask);
+    W add_r = target + (rand_prob & mask);
     // masking out bits on the right hand side of the significant bits (truncating)
-    uint32_t quantized = add_r & ~mask;
+    W quantized = add_r & ~mask;
     return quantized;
 }
 
@@ -332,27 +521,29 @@ struct SubnormalRangeParams
     int min_exponent_store;
 };
 
+template <class T>
 CUDA_HOST_DEVICE_INLINE SubnormalRangeParams make_subnormal_range_params(int man_bits, int bias)
 {
     SubnormalRangeParams p;
-    p.min_exponent_store = -(bias - 1) - man_bits + 127;
+    p.min_exponent_store = -(bias - 1) - man_bits + FloatTraits<T>::BIAS;
     return p;
 }
 
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num, uint32_t quantized_num,
-                                                                int min_exponent_store)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W clip_subnormal_range_exponent(W old_num, W quantized_num, int min_exponent_store)
 {
+    using F = WordTraits<W>;
     if (quantized_num == 0)
         return quantized_num;
 
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
+    int quantized_exponent_store = (int)((quantized_num >> F::MAN_BITS) & F::FIELD_MASK);
 
-    uint32_t old_sign = old_num & 0x80000000u;
+    W old_sign = old_num & F::SIGN_MASK;
     // underflow or round to smallest non zero subnormal value
     if (quantized_exponent_store < min_exponent_store)
     {
         int offset = (quantized_exponent_store == (min_exponent_store - 1));
-        quantized_num += offset * (1u << 23);
+        quantized_num += offset * (W(1) << F::MAN_BITS);
         quantized_num |= old_sign;
         quantized_num *= offset; // offset == 0 is the underflow, and it is +0.0
     }
@@ -369,25 +560,26 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
 // The _up variant: clamps an underflowing nonzero value to the smallest
 // subnormal rather than to zero, for the directed and round-to-odd modes.
 // Whether the value is nonzero is a question about the input, not about the
-// rounded word: a -0.0 input truncates to 0x80000000, which is not 0 and was
-// pushed out to minus the smallest subnormal, and a float32 subnormal input
-// can truncate to exactly 0 and stayed there. P3109 rounds zero to zero and
-// never rounds a nonzero value away from zero into it, so a zero input is
-// answered with an unsigned zero here rather than with its rounded word.
-// Shares SubnormalRangeParams/make_subnormal_range_params with the plain
+// rounded word: a -0.0 input truncates to a lone sign bit, which is not 0 and
+// was pushed out to minus the smallest subnormal, and a subnormal input of the
+// carrier can truncate to exactly 0 and stayed there. P3109 rounds zero to
+// zero and never rounds a nonzero value away from zero into it, so a zero
+// input is answered with an unsigned zero here rather than with its rounded
+// word. Shares SubnormalRangeParams/make_subnormal_range_params with the plain
 // clip_subnormal_range_exponent above.
-CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
-                                                                  int min_exponent_store)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W clip_subnormal_range_exponent_up(W old_num, W quantized_num, int min_exponent_store)
 {
+    using F = WordTraits<W>;
     if ((old_num << 1) == 0)
         return 0u; // a zero input rounds to zero, and that zero is unsigned
 
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
+    int quantized_exponent_store = (int)((quantized_num >> F::MAN_BITS) & F::FIELD_MASK);
 
-    uint32_t old_sign = old_num & 0x80000000u;
+    W old_sign = old_num & F::SIGN_MASK;
     if (quantized_exponent_store < min_exponent_store)
     {
-        quantized_num = min_exponent_store << 23;
+        quantized_num = (W)((typename F::sword_t)min_exponent_store << F::MAN_BITS);
         quantized_num |= old_sign;
     }
     else
@@ -400,12 +592,14 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_n
 
 // Precomputed for the normal-range clip below -- the form every cast in
 // cast_binaryK.h and cast_superfp.h calls.
-struct NormalRangeParams
+template <class T>
+struct NormalRangeParamsT
 {
+    using word_t = typename FloatTraits<T>::word_t;
     SaturationMode saturation_mode; // still needed raw: selects the overflow branch's outcome
-    uint32_t min_num;               // the smallest magnitude the format represents, as a word
-    uint32_t half_num;              // half of it: the round-to-nearest boundary below it
-    uint32_t max_num;               // the largest finite magnitude, as a word
+    word_t min_num;                 // the smallest magnitude the format represents, as a word
+    word_t half_num;                // half of it: the round-to-nearest boundary below it
+    word_t max_num;                 // the largest finite magnitude, as a word
 };
 
 // The top of the range is counted in code points, the way IEEE P3109 assigns
@@ -419,7 +613,7 @@ struct NormalRangeParams
 // largest finite code would have exponent field 0 -- no finite normal value at
 // all, which P3109 rules out by requiring three bits -- gets max_num = 0, and
 // every nonzero result of the normal arm overflows. So does one whose largest
-// finite value is below binary32's normal range.
+// finite value is below the carrier's normal range.
 //
 // The bottom is a code point too, and the subnormals mode is what says which
 // one. `SUBNORMALS` and `NORMALS` put the floor at the smallest normal, whose
@@ -430,64 +624,70 @@ struct NormalRangeParams
 // start one step above it. With man_bits == 0 that step carries into the next
 // binade, which is the right answer as well: a binade of a single code, spent
 // on the zero, holds no value, and the format is `NORMALS` with extra steps.
-CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits, int man_bits, int bias,
-                                                                    SaturationMode saturation_mode,
-                                                                    int reserved_codes,
-                                                                    bool extended_normals = false)
+template <class T>
+CUDA_HOST_DEVICE_INLINE NormalRangeParamsT<T> make_normal_range_params(int exp_bits, int man_bits, int bias,
+                                                                        SaturationMode saturation_mode,
+                                                                        int reserved_codes,
+                                                                        bool extended_normals = false)
 {
-    NormalRangeParams p;
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    NormalRangeParamsT<T> p;
     p.saturation_mode = saturation_mode;
 
-    const int man = (man_bits < 23) ? man_bits : 23; // binary32 holds no finer grid
+    const int man = (man_bits < F::MAN_BITS) ? man_bits : F::MAN_BITS; // the carrier holds no finer grid
 
-    const int min_exponent_store = -(bias - 1) + 127 - extended_normals;
-    if (min_exponent_store <= 0 || min_exponent_store > 254)
+    const int min_exponent_store = -(bias - 1) + F::BIAS - extended_normals;
+    if (min_exponent_store <= 0 || min_exponent_store > F::TOP_FIELD)
     {
-        // The floor lies outside binary32's normal range, so no rounded word
-        // can be below it: leave the underflow test dead rather than fabricate
-        // a word for a value binary32 does not have. (Such a format is one
-        // `mptorch.number`'s range check refuses or warns about.)
+        // The floor lies outside the carrier's normal range, so no rounded
+        // word can be below it: leave the underflow test dead rather than
+        // fabricate a word for a value the carrier does not have. (Such a
+        // format is one `mptorch.number`'s range check refuses or warns about.)
         p.min_num = 0u;
         p.half_num = 0u;
     }
     else
     {
-        // `+`, not `|`: with man_bits == 0 the step is 1 << 23, which is the
-        // exponent field's own low bit, and the sum is the carry into the next
-        // binade that the comment above describes. Above man_bits == 0 the
-        // mantissa field is zero and the two spellings agree.
-        p.min_num = ((uint32_t)min_exponent_store << 23) +
-                    (extended_normals ? (1u << (23 - man)) : 0u);
+        // `+`, not `|`: with man_bits == 0 the step is 1 << MAN_BITS, which
+        // is the exponent field's own low bit, and the sum is the carry into
+        // the next binade that the comment above describes. Above man_bits ==
+        // 0 the mantissa field is zero and the two spellings agree.
+        p.min_num = ((word_t)min_exponent_store << F::MAN_BITS) +
+                    (extended_normals ? (word_t(1) << (F::MAN_BITS - man)) : word_t(0));
         // halved as a value, not as a word: decrementing the exponent field
         // is the same thing only while the field stays at 1 or above, and a
-        // format whose floor is binary32's smallest normal -- which the range
-        // check warns about but does not refuse -- puts it one below, where
-        // the word means something else entirely.
-        float min_val = BITS_TO_FLOAT(&p.min_num);
-        float half = min_val * 0.5f;
-        p.half_num = FLOAT_TO_BITS(&half);
+        // format whose floor is the carrier's smallest normal -- which the
+        // range check warns about but does not refuse -- puts it one below,
+        // where the word means something else entirely.
+        T min_val = reinterpret_cast<const T &>(p.min_num);
+        T half = min_val * T(0.5);
+        p.half_num = reinterpret_cast<const word_t &>(half);
     }
 
-    const int codes = 1 << man;
-    int top_code = codes - 1 - reserved_codes; // the largest finite code, within its binade
-    int top_field = (1 << exp_bits) - 1;       // and that binade's exponent field
+    // On sword_t: a binade holds 2^52 codes in binary64, and `int` holds none
+    // of them; in binary32 it is the `int` this always was.
+    using sword_t = typename F::sword_t;
+    const sword_t codes = (sword_t)1 << man;
+    sword_t top_code = codes - 1 - reserved_codes; // the largest finite code, within its binade
+    int top_field = (1 << exp_bits) - 1;           // and that binade's exponent field
     while (top_code < 0)
     {
         top_code += codes;
         --top_field;
     }
     const int top_exp = top_field - bias;
-    if (top_field < 1 || top_exp < -126)
+    if (top_field < 1 || top_exp < F::MIN_NORMAL_EXP)
         p.max_num = 0u;
-    else if (top_exp > 127)
-        // A format whose largest finite value lies beyond binary32's has no
-        // finite input that overflows, so max_num is only ever read for a
-        // non-finite one -- an infinity, or a rounding that carried into
-        // exponent 255 -- and there SAT_FINITE and SAT_PROPAGATE still owe a
-        // finite answer: the largest binary32 value on the format's grid.
-        p.max_num = (254u << 23) | ((uint32_t)(codes - 1) << (23 - man));
+    else if (top_exp > F::MAX_EXP)
+        // A format whose largest finite value lies beyond the carrier's has
+        // no finite input that overflows, so max_num is only ever read for a
+        // non-finite one -- an infinity, or a rounding that carried into the
+        // all-ones field -- and there SAT_FINITE and SAT_PROPAGATE still owe a
+        // finite answer: the carrier's largest value on the format's grid.
+        p.max_num = ((word_t)F::TOP_FIELD << F::MAN_BITS) | ((word_t)(codes - 1) << (F::MAN_BITS - man));
     else
-        p.max_num = ((uint32_t)(top_exp + 127) << 23) | ((uint32_t)top_code << (23 - man));
+        p.max_num = ((word_t)(top_exp + F::BIAS) << F::MAN_BITS) | ((word_t)top_code << (F::MAN_BITS - man));
     return p;
 }
 
@@ -531,29 +731,28 @@ enum class UnderflowMode
 // Saturates a value the normal arm has rounded, and floors it. P3109 rounds
 // first and saturates second, which makes overflow a magnitude test: anything
 // above max_num -- a rounding that landed on a reserved code, carried into the
-// next binade, or carried a finite input all the way into exponent 255 -- is
-// out of range, and becomes infinity under OVF_INF (SatNone) and max_num under
-// the other two (SatFinite, SatPropagate: the value was finite, so
+// next binade, or carried a finite input all the way into the all-ones field
+// -- is out of range, and becomes infinity under OVF_INF (SatNone) and max_num
+// under the other two (SatFinite, SatPropagate: the value was finite, so
 // SatPropagate has nothing to propagate). Non-finite inputs never get here:
 // every cast sends them to saturate_nonfinite before it rounds.
 //
 // This form returns a magnitude; clip_normal_range_exponent below is this plus
 // the sign, and the note there says which callers want which.
-template <UnderflowMode U>
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_magnitude(uint32_t old_num, uint32_t quantized_num,
-                                                             SaturationMode saturation_mode,
-                                                             uint32_t min_num, uint32_t half_num,
-                                                             uint32_t max_num, uint32_t rand_prob = 0u)
+template <UnderflowMode U, class W>
+CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num, SaturationMode saturation_mode,
+                                                      W min_num, W half_num, W max_num, W rand_prob = 0)
 {
-    uint32_t ax = old_num & 0x7FFFFFFFu;
+    using F = WordTraits<W>;
+    W ax = old_num & F::ABS_MASK;
     if (ax == 0u)
         return 0u; // a zero input rounds to zero, and P3109's zero is unsigned
 
-    quantized_num &= 0x7FFFFFFFu;
+    quantized_num &= F::ABS_MASK;
 
     // handle overflow
     if (quantized_num > max_num)
-        quantized_num = (saturation_mode == SaturationMode::OVF_INF) ? 0x7F800000u : max_num;
+        quantized_num = (saturation_mode == SaturationMode::OVF_INF) ? W(F::INF_BITS) : max_num;
     // handle underflow
     else if constexpr (U == UnderflowMode::NONE)
     {
@@ -562,9 +761,9 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_magnitude(uint32_t old_num, u
     else if (quantized_num < min_num)
     {
         if constexpr (U == UnderflowMode::NEAREST_EVEN)
-            quantized_num = (ax > half_num) ? min_num : 0u;
+            quantized_num = (ax > half_num) ? min_num : W(0);
         else if constexpr (U == UnderflowMode::NEAREST_AWAY)
-            quantized_num = (ax >= half_num) ? min_num : 0u;
+            quantized_num = (ax >= half_num) ? min_num : W(0);
         else if constexpr (U == UnderflowMode::AWAY)
             quantized_num = min_num;
         else if constexpr (U == UnderflowMode::ZERO)
@@ -576,11 +775,12 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_magnitude(uint32_t old_num, u
             // multiply because the step down here is min_val rather than a
             // power of two (EXTENDED_NORMALS' floor is not one). The product
             // is one rounding wide, which is below the resolution `rand_bits`
-            // asks for whenever that is under 24.
-            float min_val = BITS_TO_FLOAT(&min_num);
-            float xf = BITS_TO_FLOAT(&ax);
-            float u = (float)(rand_prob & 0x007FFFFFu) * (1.0f / 8388608.0f);
-            quantized_num = (xf > u * min_val) ? min_num : 0u;
+            // asks for whenever that is under MAN_BITS + 1.
+            using T = typename F::value_t;
+            T min_val = reinterpret_cast<const T &>(min_num);
+            T xf = reinterpret_cast<const T &>(ax);
+            T u = (T)(rand_prob & F::MAN_MASK) * F::ulp_scale();
+            quantized_num = (xf > u * min_val) ? min_num : W(0);
         }
     }
 
@@ -602,16 +802,15 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_magnitude(uint32_t old_num, u
 // the binaryK `RZ` GEMM from 1.13x of pre-T2 to 0.92x on a GPU, and the fma
 // one to 0.87x: below where it started, because the sign work the directed
 // modes had been doing for nothing goes with it (T3).
-template <UnderflowMode U>
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
-                                                            SaturationMode saturation_mode,
-                                                            uint32_t min_num, uint32_t half_num,
-                                                            uint32_t max_num, uint32_t rand_prob = 0u)
+template <UnderflowMode U, class W>
+CUDA_HOST_DEVICE_INLINE W clip_normal_range_exponent(W old_num, W quantized_num, SaturationMode saturation_mode,
+                                                     W min_num, W half_num, W max_num, W rand_prob = 0)
 {
-    uint32_t magnitude = clip_normal_range_magnitude<U>(old_num, quantized_num, saturation_mode,
-                                                        min_num, half_num, max_num, rand_prob);
-    uint32_t sign = old_num & 0x80000000u;
-    return magnitude | (sign & -(uint32_t)(magnitude != 0));
+    using F = WordTraits<W>;
+    W magnitude = clip_normal_range_magnitude<U>(old_num, quantized_num, saturation_mode,
+                                                 min_num, half_num, max_num, rand_prob);
+    W sign = old_num & F::SIGN_MASK;
+    return magnitude | (sign & -(W)(magnitude != 0));
 }
 
 // What an input whose exponent field is all ones -- an infinity or a NaN --
@@ -624,11 +823,12 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, ui
 // their final select instead (see cast_binaryK_rne_fast). Uniform per format,
 // and on the arm only non-finite inputs take, so it costs the finite ones
 // nothing.
-CUDA_HOST_DEVICE_INLINE uint32_t saturate_nonfinite(uint32_t target, SaturationMode saturation_mode,
-                                                    uint32_t max_num)
+template <class W>
+CUDA_HOST_DEVICE_INLINE W saturate_nonfinite(W target, SaturationMode saturation_mode, W max_num)
 {
-    bool is_inf = (target & 0x007FFFFFu) == 0;
-    return (is_inf && saturation_mode == SaturationMode::SAT_FINITE) ? ((target & 0x80000000u) | max_num)
+    using F = WordTraits<W>;
+    bool is_inf = (target & F::MAN_MASK) == 0;
+    return (is_inf && saturation_mode == SaturationMode::SAT_FINITE) ? ((target & F::SIGN_MASK) | max_num)
                                                                       : target;
 }
 
@@ -643,20 +843,26 @@ CUDA_HOST_DEVICE_INLINE uint32_t saturate_nonfinite(uint32_t target, SaturationM
 // ("P3109's single NaN is whichever NaN came in", docs/source/concepts.rst).
 // cast_superfp_up carried an explicit NaN arm for exactly this; an XOR flips
 // the sign bit and touches nothing else, so neither twin needs one now.
+// (`neg.f64` makes the same non-promise, so binary64 negates on the word too.)
 //
 // The second is also where a -0.0 can still be made after the clips have run:
 // negating a magnitude that rounded to zero. Masking the flip with
 // unsigned_zero_bits' test leaves that zero alone -- and leaves a NaN whole,
 // since its word is nonzero after the shift.
-CUDA_HOST_DEVICE_INLINE float flip_sign(float x)
+template <class T>
+CUDA_HOST_DEVICE_INLINE T flip_sign(T x)
 {
-    uint32_t w = FLOAT_TO_BITS(&x) ^ 0x80000000u;
-    return BITS_TO_FLOAT(&w);
+    using word_t = typename FloatTraits<T>::word_t;
+    word_t w = reinterpret_cast<const word_t &>(x) ^ FloatTraits<T>::SIGN_MASK;
+    return reinterpret_cast<const T &>(w);
 }
 
-CUDA_HOST_DEVICE_INLINE float negate_magnitude(float m)
+template <class T>
+CUDA_HOST_DEVICE_INLINE T negate_magnitude(T m)
 {
-    uint32_t w = FLOAT_TO_BITS(&m);
-    w ^= 0x80000000u & -(uint32_t)((w << 1) != 0);
-    return BITS_TO_FLOAT(&w);
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    word_t w = reinterpret_cast<const word_t &>(m);
+    w ^= F::SIGN_MASK & -(word_t)((w << 1) != 0);
+    return reinterpret_cast<const T &>(w);
 }
