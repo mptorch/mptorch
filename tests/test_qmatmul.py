@@ -17,7 +17,6 @@ from mptorch.quant import (
     superfp_matmul_mixed,
     superfp_quantize,
 )
-from mptorch.quant.ops import mantissa_size_mapping
 from tests.markers import available_devices
 
 DETERMINISTIC_ROUND_MODES = [
@@ -37,6 +36,11 @@ DETERMINISTIC_ROUND_MODES = [
 # float32-only (it already covers many shape/transpose combinations and
 # exists to validate wiring, not per-dtype numerics).
 MATMUL_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+
+# Stochastic rounding draws its bits in the binary32 value the kernels round,
+# whatever the operand dtype, so the widest draw a format allows is binary32's
+# mantissa less its own.
+F32_MAN_BITS = 23
 
 # allclose tolerances scale with the storage dtype's own precision -- a
 # bfloat16/float16 tensor's *inputs* already carry far more rounding error
@@ -378,10 +382,11 @@ def test_superfp_matmul_tier3_manual_baseline_round_modes(device, dtype, round_m
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
     K_fmt, P_fmt = 8, 4
-    # prng_bits is capped at the storage dtype's own mantissa width minus the
-    # target format's mantissa bits (see binaryK_matmul's mantissa_size_mapping
-    # assertion) -- fp16/bf16 allow fewer random mantissa bits than fp32.
-    prng_bits = mantissa_size_mapping[dtype] - (P_fmt - 1)
+    # prng_bits is capped at binary32's 23 mantissa bits minus the target
+    # format's: the random bits are drawn in the binary32 value the kernel
+    # rounds, so a float16 or bfloat16 operand allows exactly as many as a
+    # float32 one (dev/gemm_roadmap.md, T6).
+    prng_bits = F32_MAN_BITS - (P_fmt - 1)
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)
@@ -421,7 +426,7 @@ def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_stochastic_bounds_and_unbiased(device, dtype):
     man_bits, exp_bits, normal_binades, bias = 3, 4, 8, 7
-    prng_bits = mantissa_size_mapping[dtype] - man_bits
+    prng_bits = F32_MAN_BITS - man_bits
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)
@@ -750,7 +755,7 @@ def test_binaryK_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
     # separate multiply format to leave unquantized here, unlike the Split
     # ops' accumulate_quant=False).
     K_fmt, P_fmt = 8, 4
-    prng_bits = mantissa_size_mapping[dtype] - (P_fmt - 1)
+    prng_bits = F32_MAN_BITS - (P_fmt - 1)
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)
@@ -774,7 +779,7 @@ def test_binaryK_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
     man_bits, exp_bits, normal_binades, bias = 3, 4, 8, 7
-    prng_bits = mantissa_size_mapping[dtype] - man_bits
+    prng_bits = F32_MAN_BITS - man_bits
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)
@@ -944,7 +949,7 @@ def test_binaryK_matmul_mixed_stochastic_bounds_and_unbiased(device, dtype):
     # per row exercise SR with the format actually varying across outputs.
     # Mirrors test_binaryK_matmul_stochastic_bounds_and_unbiased.
     formats = [(8, 4), (6, 3)]  # (K, P) per palette slot
-    prng_bits = mantissa_size_mapping[dtype] - (max(p for _, p in formats) - 1)
+    prng_bits = F32_MAN_BITS - (max(p for _, p in formats) - 1)
 
     a = torch.rand(400, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)
@@ -1245,7 +1250,7 @@ def test_binaryK_matmul_fma_mixed_stochastic_bounds_and_unbiased(device, dtype):
     # RD/RU-bounding and unbiasedness properties -- here with the format
     # varying row to row. Mirrors test_binaryK_matmul_fma_stochastic_*.
     formats = [(8, 4), (6, 3)]  # (K, P) per palette slot
-    prng_bits = mantissa_size_mapping[dtype] - (max(p for _, p in formats) - 1)
+    prng_bits = F32_MAN_BITS - (max(p for _, p in formats) - 1)
 
     a = torch.rand(400, 1, device=device, dtype=dtype) * 1.8 - 0.9
     b = torch.ones(1, 1, device=device, dtype=dtype)

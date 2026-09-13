@@ -35,15 +35,18 @@ Some things to know about them:
   ``superfp_quantize``, for the reasons given in :doc:`concepts`.
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
   float16 and bfloat16. The rounding is performed on the float32 value and
-  the result is stored back in the input's dtype, which is only faithful
-  when the target format is narrower than the storage -- an 8-bit format
-  inside bfloat16 is fine, a 16-bit one is not.
+  the result is stored back in the input's dtype, which rounds a float16 or
+  bfloat16 result once more. The input is already a value of that dtype, so
+  only an edge of the format's range can miss, and the call warns when one
+  can -- the run shows E5M2's top meeting float16's. :doc:`concepts` gives
+  the rule, and the stricter one a GEMM's result is held to.
 - The result is a fresh tensor; the input is never modified.
 - NaN passes through with its payload. An infinity passes through too,
   except under ``SaturationMode.SAT_FINITE``, which clamps it to the largest
   finite value like any other overflow.
-- ``prng_bits`` only matters under ``RoundMode.SR`` and must leave room in
-  the storage dtype's mantissa, as the assertion in the run shows.
+- ``prng_bits`` only matters under ``RoundMode.SR``. The random bits are
+  drawn in the float32 value, so they share float32's 23 mantissa bits with
+  the format's whatever the dtype, as the error in the run shows.
 - CPU and CUDA produce bit-identical results under every deterministic mode.
   Under ``SR`` each device draws from its own default generator, so
   ``torch.manual_seed`` reproduces a run *on the same device*.

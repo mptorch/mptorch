@@ -45,9 +45,8 @@ format's own terms:
 
 * **Precision.** :math:`P \le 24` for :class:`~mptorch.BinaryK`,
   ``man_bits <= 23`` for :class:`~mptorch.SuperFP` -- float32 has 24
-  significand bits and cannot hold a finer grid. Already enforced for a
-  float32 operand; a float64 one is checked against *its* 53 bits, although
-  the rounding still happens in float32.
+  significand bits and cannot hold a finer grid. That holds for a float64
+  operand too, since the rounding still happens in float32.
 * **The top.** The largest finite value must be at most float32's, which is
   ``bias >= 2**exp_bits - 128``. Above that the cast saturates at float32's
   largest value on the format's grid, and the codes over it are unreachable.
@@ -102,6 +101,72 @@ format still works:
 ``dev/benchmarks/format_limits.py`` reports all of this for a given format,
 and with ``--audit`` checks the kernels against the format's value set to say
 so.
+
+What float16 and bfloat16 can store
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A float16 or bfloat16 tensor is rounded in float32 as well, and the result is
+converted back when it is stored. That conversion is a second rounding, onto
+the dtype's grid, so a format whose results are not all values of the dtype is
+quantized partially in the same way -- with one difference worth knowing: a
+result above the dtype's largest finite value is stored as :math:`\pm\infty`
+*whatever the format's saturation mode*, so a ``SAT_FINITE`` format overflows
+too. The dtype belongs to the tensor, not the format, so this is checked on
+every call, against the format whose values the result holds, and by a rule
+that depends on what the call rounded.
+
+**A GEMM's result** is its last rounding -- the accumulate format of a
+:class:`~mptorch.quant.SplitMac`, the fused format of a
+:class:`~mptorch.quant.FusedMac` -- applied to products and sums that can land
+anywhere, so every value of that format is some result and all of them must
+be values of the dtype. For a BinaryK:
+
+=============  ========================================  =================  ========
+bound          float16                                   bfloat16           severity
+=============  ========================================  =================  ========
+precision      :math:`P \le 11`                          :math:`P \le 8`    raises
+top            largest value below :math:`2^{16}`        float32's          warns
+finest step    :math:`\text{bias} + P \le 26`             float32's          warns
+               (``EXTENDED_NORMALS``: :math:`\le 25`)
+=============  ========================================  =================  ========
+
+A SuperFP is held to the same three, in its own parameters. For bfloat16 only
+the precision is new: its range is float32's to within its precision, so a
+format that passes the float32 checks with at most eight bits of precision is
+inside it at both ends. A SplitMac's multiply format is never stored -- its
+products are float32 intermediates -- and a step left unrounded stores no
+format's values at all.
+
+**An elementwise quantizer's result** is the format's answer to a value that
+is already the dtype's. Wherever the format is at least as fine as the dtype
+that answer is the input itself, so neither precision nor a fine bottom costs
+anything, and what can land off the dtype's grid is at the edges of the
+format's range. Each of these warns:
+
+* the format reaches past the dtype's largest finite value, and that value is
+  not on the format's grid, so an input near it rounds up out of the dtype's
+  range;
+* the format's largest finite value is inside the dtype's range but not a
+  value of it, and the format saturates onto it;
+* an ``EXTENDED_NORMALS`` format's hole, :math:`2^{-\text{bias}}`, is a value of
+  the dtype, and the first value above it, where such an input rounds, is not.
+
+Either kind of call raises for a format whose largest finite value is below
+the dtype's smallest, which stores nothing of the format but zero.
+
+.. code-block:: python
+
+   x = torch.ones(4, 4, dtype=torch.float16)
+   binaryK_quantize(x, 8, 4)                # fine
+   binaryK_quantize(x, 8, 3, bias=15)       # FormatRangeWarning: rounds up past 65504
+   binaryK_quantize(x, 16, 12, bias=8)      # fine: float16's values come back as they are
+   binaryK_matmul_fma(x, x, fma_K=16, fma_P=12, fma_bias=8)  # ValueError: 12 bits
+   qmatmul(x, x, SplitMac(BinaryK(8, 4), BinaryK(16, 11)))    # FormatRangeWarning: 2**-25
+
+Both rules were measured against the kernels, not only derived:
+``format_limits.py --dtype float16 --audit`` runs a format through a fused GEMM
+over operands of the dtype and through the quantizer over every value of it,
+and ``sweep --dtype float16 --audit`` walks each boundary above.
 
 BinaryK: the IEEE P3109 formats
 -------------------------------
@@ -165,7 +230,9 @@ A few consequences worth having in mind:
   code for finite values where IEEE reserves the top one for infinities and
   NaNs, so with the IEEE bias it agrees with its namesake on every value up
   to the namesake's largest finite one (the :doc:`tutorial` checks this
-  exhaustively for E4M3 and E5M2).
+  exhaustively for E4M3 and E5M2) -- and, for a namesake laid out the IEEE
+  way, goes on past it. That is why no BinaryK format *is* float16, bfloat16
+  or float32; see `The IEEE 754 dtypes are not P3109 formats`_.
 
 Some formats you may want, as BinaryK values -- first from P3109, then from
 outside it:
@@ -179,10 +246,14 @@ format                 spelling                                      E       P-1
 ``Binary6p3se``        ``BinaryK(6, 3)``                             3       2       4
 E4M3 (OCP / NVIDIA)    ``BinaryK(8, 4, bias=7)``                     4       3       7
 E5M2 (OCP / NVIDIA)    ``BinaryK(8, 3, bias=15)``                    5       2       15
-float16                ``BinaryK(16, 11, bias=15)``                  5       10      15
-bfloat16               ``BinaryK(16, 8, bias=127)``                  8       7       127
-float32                ``BinaryK(32, 24, bias=127)``                 8       23      127
+float16's layout       ``BinaryK(16, 11, bias=15)``                  5       10      15
+bfloat16's layout      ``BinaryK(16, 8, bias=127)``                  8       7       127
+float32's layout       ``BinaryK(32, 24, bias=127)``                 8       23      127
 =====================  ============================================  ======  ======  ======
+
+The last three rows have each dtype's field widths and IEEE 754 bias, and are
+not the dtypes; `The IEEE 754 dtypes are not P3109 formats`_ says how far from
+them they are.
 
 The following run constructs P3109's two signed 8-bit formats with 4 and 3
 bits of precision, derives their ranges from the formulas above, and confirms
@@ -203,6 +274,81 @@ The last two lines show the grid: in :math:`[1, 2)` ``Binary8p4`` has the eight 
 :math:`1, 1.125, \dots, 1.875`, and each input lands on the nearest one, ties
 going to the even mantissa (:math:`1.0625 \to 1.0`, :math:`1.1875 \to 1.25`,
 :math:`1.9375 \to 2.0`).
+
+The IEEE 754 dtypes are not P3109 formats
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+float16, bfloat16 and float32 are not exactly representable as P3109 formats --
+nor as BinaryK formats with any other bias -- in either domain, because the two
+standards spend the code points of the same layout differently:
+
+- IEEE 754 reserves the whole top exponent field -- :math:`2^{P-1}` codes of
+  each sign -- for :math:`\pm\infty` and the NaNs, and gives zero two
+  encodings, :math:`+0.0` and :math:`-0.0`.
+- P3109 spends one code of each sign on :math:`\pm\infty`, and only in the
+  extended domain, and gives every other code of the top field a finite
+  value. A signed format has a single, unsigned zero, and the encoding IEEE
+  754 would read as :math:`-0.0` is its one NaN.
+- P3109's default bias, :math:`2^{E-1}`, is one more than IEEE 754's for the
+  same exponent width.
+
+So a bias can line up at most one end of the range with the dtype's, and
+neither special-value set ever matches. For float16, counting every code point
+of each format:
+
+.. list-table::
+   :header-rows: 1
+
+   * - format
+     - largest finite value
+     - smallest positive value
+     - against float16's finite values
+   * - float16
+     - 65504
+     - :math:`2^{-24}`
+     -
+   * - ``BinaryK(16, 11, bias=15)``
+     - 130944
+     - :math:`2^{-24}`
+     - all of them, and 1023 more in :math:`[2^{16}, 130944]`
+   * - ``Binary16p11se``, ``BinaryK(16, 11)``
+     - 65472
+     - :math:`2^{-25}`
+     - all but 65504, whose code is :math:`+\infty`, and 1024 more below
+       :math:`2^{-14}`
+   * - ``Binary16p11sf``
+     - 65504
+     - :math:`2^{-25}`
+     - all of them, and 1024 more below :math:`2^{-14}`; no :math:`\pm\infty`
+
+None of the three has float16's :math:`-0.0` or its 2046 NaN codes; each has
+one zero and one NaN. bfloat16 and float32 differ from their spellings in the
+same way. With the IEEE bias the BinaryK format reaches a binade past the
+dtype, to about :math:`6.8 \cdot 10^{38}` against :math:`3.4 \cdot 10^{38}`,
+with :math:`2^{P-1} - 1` extra values (127 for bfloat16, :math:`2^{23} - 1` for
+float32). With P3109's bias, ``Binary16p8`` and ``Binary32p24`` lose the
+dtype's largest value to :math:`+\infty` in the extended domain, match it in
+the finite one, and add :math:`2^{P-1}` values below the dtype's smallest
+normal, down to :math:`2^{-134}` and :math:`2^{-150}`. E5M2 is laid out the
+IEEE 754 way too, so its row above is in the same position:
+``BinaryK(8, 3, bias=15)`` reaches 98304 where E5M2 stops at 57344. E4M3 keeps
+its top field for finite values, and ``BinaryK(8, 4, bias=7)`` matches it on
+every finite value, spending on :math:`\pm\infty` the two codes E4M3 spends on
+NaN.
+
+In MPTorch this shows in two places:
+
+- Quantizing to one of the dtype-layout rows is not the dtype's own
+  conversion. A value between the dtype's largest finite value and the row's
+  stays finite where the dtype would store :math:`\pm\infty`, and :math:`-0.0`
+  comes back as :math:`+0.0`.
+- The range checks flag these formats. ``BinaryK(16, 8, bias=127)`` and
+  ``BinaryK(32, 24, bias=127)`` reach :math:`2^{128}` and warn, when built,
+  that they outrun float32. ``Binary16p8`` and ``Binary32p24`` warn about
+  their bottom, for the reason `What float32 can carry`_ gives. And
+  ``BinaryK(16, 11, bias=15)``, as the format a GEMM's result holds over
+  float16 operands, warns that it reaches past float16
+  (`What float16 and bfloat16 can store`_).
 
 Subnormals, saturation and sign
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -314,7 +460,9 @@ MPTorch departs from the standard in two ways.
 **By extension.** A ``bias`` other than the default, and the ``NORMALS`` and
 ``EXTENDED_NORMALS`` subnormal modes, give formats P3109 does not define; so
 do the widths it excludes (it requires :math:`K \ge 3`, and :math:`P < K` for
-a signed format). They are what reach E4M3, bfloat16 and the rest.
+a signed format). They are what reach E4M3, and the nearest spellings of E5M2
+and of the IEEE 754 dtypes, which `The IEEE 754 dtypes are not P3109 formats`_
+shows are not those formats.
 
 The two extra subnormal modes move the bottom of the range and nothing else.
 ``NORMALS`` leaves the exponent-zero codes unused, so the smallest value is the
@@ -444,8 +592,8 @@ ignored by every other rounding mode. Two practical constraints follow from
 where the bits are drawn: with ``prng_bits=0`` there is nothing random and
 ``SR`` degenerates into ``RZ`` (the ``SR`` row above, from a format with no
 random bits, is identical to the ``RZ`` row); and the format's mantissa plus
-its random bits must fit inside the mantissa of the tensor's dtype -- 23 for
-float32, 10 for float16, 7 for bfloat16 -- which the quantizer checks.
+its random bits must fit in float32's 23 mantissa bits, where the rounding
+happens, whatever the tensor's dtype -- which the quantizer checks.
 
 The random streams are seeded from PyTorch's default generator, so
 ``torch.manual_seed`` makes a stochastic run reproducible. In a GEMM each

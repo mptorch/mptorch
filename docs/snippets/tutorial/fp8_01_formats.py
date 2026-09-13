@@ -1,13 +1,16 @@
-"""E4M3 and E5M2 as BinaryK formats, checked against torch's native FP8 dtypes."""
+"""E4M3 and E5M2 spelled as BinaryK formats, checked against torch's native FP8 dtypes."""
 
 import torch
 
 from mptorch import BinaryK
 from mptorch.quant import Quant
 
-# The OCP / NVIDIA FP8 formats. torch's own dtypes are the reference.
+# The OCP / NVIDIA FP8 formats. torch's own dtypes are the reference. E4M3's
+# finite values are exactly its spelling's; E5M2 keeps its top exponent field
+# for infinities and NaNs, which no BinaryK format does, so its spelling is only
+# the nearest one and has three more values at the top.
 e4m3 = BinaryK(8, 4, bias=7)  # torch.float8_e4m3fn
-e5m2 = BinaryK(8, 3, bias=15)  # torch.float8_e5m2
+e5m2 = BinaryK(8, 3, bias=15)  # nearest to torch.float8_e5m2
 
 print(f"{'':<22}{'E4M3':>14}{'torch e4m3fn':>14}{'E5M2':>14}{'torch e5m2':>14}")
 rows = {

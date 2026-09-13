@@ -30,14 +30,19 @@ An FP8 number is a sign, an exponent and a mantissa, like any binary float
 E4M3 spends its bits on precision: eight values per binade, a largest finite
 value of 448 and a smallest subnormal of :math:`2^{-9}`. E5M2 spends them on
 range: four values per binade, up to 57344 and down to :math:`2^{-16}` --
-the same exponent range as float16. In MPTorch they are
+the same exponent range as float16. In MPTorch the nearest spellings are
 ``BinaryK(8, 4, bias=7)`` and ``BinaryK(8, 3, bias=15)`` -- the bias has to
 be given, because a ``BinaryK`` otherwise takes IEEE P3109's, which is one
-larger (``BinaryK(8, 4)`` is P3109's ``Binary8p4``, not OCP's E4M3) -- and PyTorch's own
-``torch.float8_e4m3fn`` and ``torch.float8_e5m2`` dtypes serve as the
-reference. The run tabulates the ranges from both sides, then rounds *every
-one of the* :math:`2^{32}` *float32 values* with both and counts where they
-disagree:
+larger (``BinaryK(8, 4)`` is P3109's ``Binary8p4``, not OCP's E4M3) -- and
+only the first is exact. E4M3 already spends its top exponent field on
+numbers, as P3109 does, so ``BinaryK(8, 4, bias=7)`` has exactly its finite
+values. E5M2 is laid out the IEEE 754 way, with that field kept for
+infinities and NaNs, and no P3109 format keeps it: no BinaryK format *is*
+E5M2, for the same reason none is float16, bfloat16 or float32
+(:doc:`concepts`). PyTorch's own ``torch.float8_e4m3fn`` and
+``torch.float8_e5m2`` dtypes serve as the reference. The run tabulates the
+ranges from both sides, then rounds *every one of the* :math:`2^{32}`
+*float32 values* with both and counts where they disagree:
 
 .. literalinclude:: ../snippets/tutorial/fp8_01_formats.py
    :language: python
@@ -47,13 +52,24 @@ disagree:
    :language: text
    :caption: output
 
-Up to each format's largest finite value the two agree on every single
-input. Beyond it they differ in convention only: E4M3 in PyTorch has no
-infinity and turns an overflow into NaN, where a BinaryK format under its
-default ``OVF_INF`` policy produces :math:`\pm\infty` (or clamps, under
-``SAT_FINITE``); and PyTorch's E5M2 reserves its top exponent for infinities,
-where BinaryK, like P3109, keeps it for numbers, so 61440 rounds to 65536 rather than
-overflowing. A model that keeps its values in range never sees either.
+Up to each dtype's largest finite value the two agree on every single input
+-- in value. The count compares with ``!=``, which cannot see the sign of a
+zero: PyTorch keeps it, and a BinaryK format, whose one zero is unsigned,
+returns :math:`+0.0` for :math:`-0.0` and for a negative input that rounds to
+zero. Beyond that value they differ, and not in the same way:
+
+- For E4M3 it is the overflow convention only. PyTorch saturates to
+  :math:`\pm 448`, an infinite input included, where a BinaryK format under
+  its default ``OVF_INF`` policy produces :math:`\pm\infty` (or clamps, under
+  ``SAT_FINITE``, to 480: the finite domain spends the top code on a number).
+- For E5M2 it is the value set. The first table's largest finite values,
+  98304 against 57344, are the difference: ``BinaryK(8, 3, bias=15)`` spends
+  the top exponent field E5M2 reserves on three more numbers -- 65536, 81920
+  and 98304 -- so 61440 rounds to 65536 where PyTorch overflows. It is the
+  nearest BinaryK to E5M2, not E5M2.
+
+A model that keeps its values in range sees neither difference, and the sign
+of a zero changes the value of no sum or product.
 
 2. What rounding to FP8 costs
 -----------------------------
@@ -114,10 +130,19 @@ measures each against a float64 reference:
    :language: text
    :caption: output
 
+The 16-bit formats are named for the dtypes whose field widths they have --
+``fp16`` is P3109's ``Binary16p11``, ``bf16`` its ``Binary16p8`` -- and are not
+those dtypes. P3109's bias puts each one code short of the dtype's largest
+value, which is its :math:`+\infty`, and a binade below its smallest
+(:doc:`concepts`, "The IEEE 754 dtypes are not P3109 formats"). Neither end
+comes into this product: the E4M3 operands are multiples of :math:`2^{-9}`, so
+every product and sum is a multiple of :math:`2^{-18}`, and the sums stay many
+binades below 65472. So the rows measure the widths and nothing else.
+
 Reading down the table: rounding the operands to E4M3 costs 3.9 % relative
-error, and *nothing the accumulator does above float16 changes that* -- the
-float32 and 14-bit sums land on the same number and float16 a hair behind.
-A bfloat16
+error, and *nothing the accumulator does above float16's width changes that*
+-- the float32 and 14-bit sums land on the same number and the float16-width
+one a hair behind. A bfloat16-width
 accumulator (7 mantissa bits, for a sum of 1024 terms) adds visibly to the
 error, stochastic rounding of that sum adds variance rather than removing a
 bias (the terms have random signs), rounding the *products* to E4M3 as well
@@ -175,8 +200,9 @@ plain SGD, five epochs each. Three things vary:
   forward, E5M2 backward) because there is no ``output_quant`` slot;
 - the **matmuls**: float32 (no math hooks), or a ``binaryK_gemm_formats``
   core with exact products (``mul_K=16, mul_P=8``, wide enough to hold any
-  FP8 product) and a running sum in a 14-bit accumulator, in bfloat16, in
-  bfloat16 with stochastic rounding, or in E4M3;
+  FP8 product) and a running sum in a 14-bit accumulator, in bfloat16's
+  widths (``Binary16p8``, which as section 3 says is not bfloat16 itself),
+  in the same with stochastic rounding, or in E4M3;
 - the **master weights**: float32, or rounded to E4M3 after every
   optimizer step, with round-to-nearest or stochastic rounding. The update
   :math:`w \leftarrow Q(w - \eta\, g)` is applied by hand after
@@ -204,7 +230,7 @@ does say:
   enough to underflow E5M2, as section 4 already suggested.
 - **The accumulator has a threshold, and it is low.** A 14-bit accumulator
   is indistinguishable from float32, and so -- for this network, whose
-  longest dot product has 784 terms -- is a bfloat16 one, even though
+  longest dot product has 784 terms -- is a bfloat16-width one, even though
   section 3 measured it at a visibly larger error on a single product;
   stochastic rounding of the sums neither helps nor hurts. An E4M3
   accumulator is another matter: it trains to about 92-95 % for four
