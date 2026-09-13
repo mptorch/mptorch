@@ -161,6 +161,41 @@ def test_stochastic_underflow_is_unbiased(device, subnormals):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("subnormals", [SubnormalsMode.NORMALS, SubnormalsMode.EXTENDED_NORMALS])
+@pytest.mark.parametrize(("P", "frac"), [(1, 0.625), (1, 0.75), (2, 0.8125), (4, 0.96875)])
+def test_stochastic_underflow_is_unbiased_off_the_grid(device, subnormals, P, frac):
+    """The same, for an input the format's grid does not hold.
+
+    ``frac * floor`` sits in the grid cell just under the floor, so SR's
+    rounding can carry it onto the floor -- and the arm below the floor used to
+    ask where the rounding landed, then draw again with the same random word,
+    so the floor came out with probability ``P(carry) + P(no carry) * frac``:
+    1.0 for 0.75 at ``P = 1``. It asks about the input now, and draws once.
+    ``test_stochastic_underflow_is_unbiased`` could not see it: its input is on
+    the grid, where the rounding is exact.
+    """
+    K, bias = P + 4, 8
+    min_exp = 1 - bias
+    if subnormals is SubnormalsMode.NORMALS or P == 1:
+        floor = math.ldexp(1.0, min_exp)
+    else:
+        floor = math.ldexp(1.0 + 2.0 ** -(P - 1), min_exp - 1)
+    x = torch.full((400_000,), frac * floor, dtype=torch.float32, device=device)
+    got = binaryK_quantize(
+        x,
+        K,
+        P,
+        bias=bias,
+        prng_bits=12,
+        rounding_mode=RoundMode.SR,
+        subnormals_mode=subnormals,
+    )
+    assert set(got.unique().tolist()) <= {0.0, floor}
+    # 5 sigma at p = 0.5 over 400k draws is 0.004; the bias was 0.03-0.25
+    assert got.double().mean().item() / floor == pytest.approx(frac, abs=0.004)
+
+
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", DETERMINISTIC)
 def test_extended_normals_is_normals_at_one_bit_of_precision(device, mode):
     """With ``P == 1`` the extra binade is a single code, and it is the zero.

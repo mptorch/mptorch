@@ -778,17 +778,18 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
     {
         // nothing to handle: see the enum
     }
-    else if (quantized_num < min_num)
+    else if constexpr (U == UnderflowMode::STOCHASTIC)
     {
-        if constexpr (U == UnderflowMode::NEAREST_EVEN)
-            quantized_num = (ax > half_num) ? min_num : W(0);
-        else if constexpr (U == UnderflowMode::NEAREST_AWAY)
-            quantized_num = (ax >= half_num) ? min_num : W(0);
-        else if constexpr (U == UnderflowMode::AWAY)
-            quantized_num = min_num;
-        else if constexpr (U == UnderflowMode::ZERO)
-            quantized_num = 0u;
-        else // STOCHASTIC
+        // SR asks whether the *input* is below the floor, where the other
+        // policies ask the rounded word. For them the two agree: a value that
+        // rounds up onto the floor lands on the answer the arm would give it.
+        // SR's rounding is a draw, though, and the one that carried a value
+        // onto the floor is the same word this arm would draw with, so asking
+        // the rounded word took the floor with probability P(carry) +
+        // P(no carry) * P(|x| > u * min) -- 1.0 for 0.75 of the floor at
+        // man_bits 0, where P3109 says 0.75. Asking the input discards the
+        // round below the floor and draws once.
+        if (ax < min_num)
         {
             // |x| > u * min_val with u uniform in [0, 1), which is the same
             // draw as round_bitwise_stochastic's one step higher, written as a
@@ -802,6 +803,17 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
             T u = (T)(rand_prob & F::MAN_MASK) * F::ulp_scale();
             quantized_num = (xf > u * min_val) ? min_num : W(0);
         }
+    }
+    else if (quantized_num < min_num)
+    {
+        if constexpr (U == UnderflowMode::NEAREST_EVEN)
+            quantized_num = (ax > half_num) ? min_num : W(0);
+        else if constexpr (U == UnderflowMode::NEAREST_AWAY)
+            quantized_num = (ax >= half_num) ? min_num : W(0);
+        else if constexpr (U == UnderflowMode::AWAY)
+            quantized_num = min_num;
+        else // ZERO
+            quantized_num = 0u;
     }
 
     return quantized_num;
