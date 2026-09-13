@@ -1,7 +1,7 @@
 arithmetic                    rel. error   max |err|
 torch.matmul (float32)          2.67e-07        0.00
 SplitMac(E4M3, acc=None)        2.65e-02        0.39
-SplitMac(E4M3, fp32)            2.65e-02        0.39
+SplitMac(E4M3, 24-bit acc)      2.65e-02        0.39
 SplitMac(E4M3, bf16)            7.64e-02        1.83
 SplitMac(E4M3, E5M2)            8.28e-01       13.02
 SplitMac(E4M3, E4M3)            6.56e-01       10.03

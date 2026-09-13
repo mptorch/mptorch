@@ -1,14 +1,21 @@
 """Palette: a different format per output element, selected by prec_idx."""
 
+import warnings
+
 import torch
 
-from mptorch import BinaryK
+from mptorch import BinaryK, FormatRangeWarning
 from mptorch.quant import Palette, QMatmul, SplitMac, matmul_formats, qmatmul
 
 torch.manual_seed(0)
 M, K, N = 6, 32, 4
 a = torch.randn(M, K)
 b = torch.randn(K, N)
+
+# An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
+# one input from another, so building one warns (concepts, "What float32 can
+# carry"). Nothing here goes anywhere near that small.
+warnings.simplefilter("ignore", FormatRangeWarning)
 
 e4m3, e5m2, bf16 = BinaryK(8, 4), BinaryK(8, 3), BinaryK(16, 8)
 palette = Palette([e4m3, e5m2, bf16])

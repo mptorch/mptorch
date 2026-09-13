@@ -1,8 +1,10 @@
 """One matmul, several arithmetics: what an FP8 tensor core does and does not round."""
 
+import warnings
+
 import torch
 
-from mptorch import BinaryK, RoundMode
+from mptorch import BinaryK, FormatRangeWarning, RoundMode
 from mptorch.quant import FusedMac, Quant, SplitMac, qmatmul
 
 torch.manual_seed(0)
@@ -14,6 +16,11 @@ exact = (x.double() @ w.double()).float()
 
 e4m3 = Quant(BinaryK(8, 4, bias=7))
 xq, wq = e4m3(x), e4m3(w)  # what an FP8 tensor core is fed
+
+# An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
+# one input from another, so building one warns (concepts, "What float32 can
+# carry"). Nothing here goes anywhere near that small.
+warnings.simplefilter("ignore", FormatRangeWarning)
 
 bf16 = BinaryK(16, 8)  # 8 exponent + 7 mantissa bits: holds an E4M3 x E4M3 product exactly
 fp22 = BinaryK(23, 15)  # 8 exponent + 14 mantissa bits: a reduced-precision accumulator

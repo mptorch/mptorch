@@ -15,6 +15,7 @@ Run:  python3 fp8_05_mlp_mnist.py [--epochs N] [--only name,name]
 
 import argparse
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -23,11 +24,16 @@ import torch.nn.functional as F
 from torch import nn
 from torchvision import datasets
 
-from mptorch import BinaryK, RoundMode
+from mptorch import BinaryK, FormatRangeWarning, RoundMode
 from mptorch.quant import QAffineFormats, QLinear, Quant, Quantizer, binaryK_gemm_formats
 
 E4M3 = BinaryK(8, 4, bias=7)
 E5M2 = BinaryK(8, 3, bias=15)
+# An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
+# one input from another, so building one warns (concepts, "What float32 can
+# carry"). Nothing here goes anywhere near that small.
+warnings.simplefilter("ignore", FormatRangeWarning)
+
 BF16 = BinaryK(16, 8)  # 8 exponent, 7 mantissa bits
 FP22 = BinaryK(23, 15)  # 8 exponent, 14 mantissa bits: a reduced-precision accumulator
 BF16_SR = BinaryK(16, 8, prng_bits=8)

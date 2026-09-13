@@ -277,3 +277,50 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
                 f"{{toward, away}}, e.g. {x[i].item()!r} -> {got[i].item()!r}"
             )
     assert not failures, "\n".join(failures)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
+def test_nan_passes_through_whole(device, signed, saturation_mode):
+    # "P3109's single NaN is whichever NaN came in" (docs/source/concepts.rst):
+    # the cast simulates a value, not an encoding, so a NaN input comes back
+    # bit for bit -- payload, signalling bit and sign -- under every rounding
+    # mode and on both backends.
+    #
+    # The directed modes are where that is not free. A NaN compares false
+    # against zero, so it takes the arm that builds a negative result as
+    # -cast_absolute_down(-x), and `-x` on a NaN is a float operation PTX does
+    # not require to preserve a payload: on CUDA -(-NaN) canonicalizes it, and
+    # the sign with it, so `nan` came back as `-nan` (or the reverse) depending
+    # on how nvcc had inlined the cast. bit_helper.h's flip_sign does that
+    # negation on the word instead (T3).
+    nans = torch.tensor(
+        [0x7F800001, 0xFF800001, 0x7FC00000, 0xFFC00000, 0x7FFFFFFF, 0xFF812345],
+        dtype=torch.int64,
+    ).to(torch.int32)
+    x = nans.view(torch.float32).to(device)
+    failures = []
+    for K, P in [(8, 4), (8, 3), (6, 3), (5, 1), (16, 11)]:
+        for mode in DETERMINISTIC + [RoundMode.SR]:
+            got = binaryK_quantize(
+                x,
+                K,
+                P,
+                prng_bits=8,
+                is_signed=signed,
+                rounding_mode=mode,
+                saturation_mode=saturation_mode,
+            )
+            bits = got.cpu().view(torch.int32)
+            # an unsigned format turns every negative input into +0.0, which a
+            # negative NaN is not -- it is not negative, it is unordered
+            bad = bits != nans
+            if bad.any():
+                i = int(bad.nonzero()[0])
+                failures.append(
+                    f"Binary{K}p{P}{'s' if signed else 'u'} {mode.name}: "
+                    f"{int(bad.sum())} of {len(nans)} NaNs changed, e.g. "
+                    f"{int(nans[i]) & 0xFFFFFFFF:#010x} -> {int(bits[i]) & 0xFFFFFFFF:#010x}"
+                )
+    assert not failures, "\n".join(failures)

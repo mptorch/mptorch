@@ -34,6 +34,75 @@ formats, computing in float32 and rounding once gives the correctly-rounded
 result of the simulated operation -- the same number a machine working
 natively in :math:`F` would produce.
 
+What float32 can carry
+~~~~~~~~~~~~~~~~~~~~~~
+
+"Far more" is true of every format in this guide, but it is a bound on the
+parameters rather than a fact about all of them. A format outside the bound is
+quantized *partially*: the result is still a tensor of plausible numbers, and
+some of the format's values are simply never among them. Three limits, in the
+format's own terms:
+
+* **Precision.** :math:`P \le 24` for :class:`~mptorch.BinaryK`,
+  ``man_bits <= 23`` for :class:`~mptorch.SuperFP` -- float32 has 24
+  significand bits and cannot hold a finer grid. Already enforced for a
+  float32 operand; a float64 one is checked against *its* 53 bits, although
+  the rounding still happens in float32.
+* **The top.** The largest finite value must be at most float32's, which is
+  ``bias >= 2**exp_bits - 128``. Above that the cast saturates at float32's
+  largest value on the format's grid, and the codes over it are unreachable.
+* **The bottom.** A float32 subnormal's exponent field is 0 whatever its
+  magnitude, so any part of a cast that reads that field is blind below
+  :math:`2^{-126}` -- and which parts do is what sets the limit. BinaryK's
+  subnormals and SuperFP's supernormals are both placed on their grid *by*
+  that field, so their smallest value must be at least :math:`2^{-125}`, a
+  binade clear of it: :math:`\text{bias} + P \le 127` for the first, and
+  :math:`\text{normal\_cutoff} - (2^{\text{exp\_bits}} - b)\,2^{\text{man\_bits}} + 1 \ge -125`
+  for the second. The two non-P3109 subnormal modes decide their bottom by
+  comparing magnitudes instead, which reads no field, so ``NORMALS`` and
+  ``EXTENDED_NORMALS`` are exact down to :math:`2^{-126}` -- and no further,
+  because below that the floor leaves float32's normals and nothing flushes at
+  all.
+
+Together the last two say a simulated format may span at most 253 binades, so
+**seven exponent bits is the most either family can carry** -- at P3109's
+default bias, :math:`K - P \le 7` for a signed BinaryK and :math:`K - P \le 6`
+for an unsigned one. Every format named in this guide is well inside all
+three; ``Binary16p8``, which P3109 does define, is not.
+
+:class:`~mptorch.BinaryK` and :class:`~mptorch.SuperFP` check all three when
+they are built, and so do the plain-integer wrappers of :doc:`quantizers` and
+:doc:`gemm`, which never see a format object -- one rule, so
+``binaryK_matmul(a, b, mul_K=16, mul_P=8)`` says what ``BinaryK(16, 8)`` says.
+What separates the two severities is not which limit is missed but whether the
+format still works:
+
+* a format whose **range** outruns binary32 -- above its largest finite value,
+  spaced finer than :math:`2^{-149}`, or with a smallest value below whichever
+  floor the bullet above gives it -- warns with :class:`~mptorch.FormatRangeWarning`. It quantizes correctly over
+  the part binary32 holds, and some of its values are simply never returned. A
+  wide BinaryK used as a precision-only target is exactly this, so the warning
+  can be silenced with :func:`warnings.simplefilter` when that is what is
+  meant.
+* a format that **cannot function** raises :exc:`ValueError`: more than 24 bits
+  of precision, stochastic-rounding bits with no significand left to draw from,
+  an exponent field wider than the kernels shift by, a SuperFP whose
+  ``normal_binades`` leaves no supernormal codes, or a format whose largest
+  finite value is below binary32's normals, where every nonzero result
+  overflows.
+
+.. code-block:: python
+
+   BinaryK(16, 11)          # fine
+   BinaryK(16, 8)           # FormatRangeWarning: smallest value is 2**-134
+   BinaryK(24, 8)           # FormatRangeWarning: reaches 2**32767 -- usable,
+                            #   but only as a precision-only target
+   BinaryK(29, 25, bias=8)  # ValueError: 25 bits of precision
+
+``dev/benchmarks/format_limits.py`` reports all of this for a given format,
+and with ``--audit`` checks the kernels against the format's value set to say
+so.
+
 BinaryK: the IEEE P3109 formats
 -------------------------------
 
@@ -228,6 +297,11 @@ left -- 224 for ``Binary8p4se``, 240 for ``Binary8p4sf``, 53248 for
 the top binade's, which moves it a binade or two lower. A finite result above
 it saturates whatever the rounding mode.
 
+``dev/benchmarks/binaryK_values.py`` prints the whole code-point table for a
+format -- every value, one per line, infinities and NaN included -- and with
+``--verify`` quantizes each one to check the kernel returns it unchanged;
+``dev/benchmarks/superfp_values.py`` is its SuperFP twin.
+
 Two test files hold this against the standard. ``tests/test_binaryk_quantize.py``
 checks the six deterministic modes against gfloat, a reference implementation
 of P3109, below the top of the range. ``tests/test_binaryk_p3109.py`` checks the
@@ -241,6 +315,19 @@ MPTorch departs from the standard in two ways.
 ``EXTENDED_NORMALS`` subnormal modes, give formats P3109 does not define; so
 do the widths it excludes (it requires :math:`K \ge 3`, and :math:`P < K` for
 a signed format). They are what reach E4M3, bfloat16 and the rest.
+
+The two extra subnormal modes move the bottom of the range and nothing else.
+``NORMALS`` leaves the exponent-zero codes unused, so the smallest value is the
+smallest normal :math:`2^{1-b}`. ``EXTENDED_NORMALS`` spends them on one more
+binade of normals at :math:`2^{-b}` -- all but the mantissa-zero code, which is
+the zero, and with the sign bit the NaN, exactly as in every other binaryK
+format; that binade's values therefore start one step above the power of two at
+its foot, and with :math:`P = 1` it holds nothing at all. Below whatever the
+smallest value is, all three modes round alike, because the region has the same
+shape in each: the two candidates are zero and that value, and the rounding
+mode picks between them -- nearest takes the nearer and a tie the zero, the
+directed modes take their own direction, ``RO`` takes the nonzero one, and
+``SR`` takes it with probability :math:`|x|` over it.
 
 **By simulating values rather than code points.** A result is a float32
 number, not an encoding, so P3109's single NaN is whichever NaN came in. (Its

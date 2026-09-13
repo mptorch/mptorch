@@ -86,6 +86,30 @@ CUDA_HOST_DEVICE_INLINE float bits_to_float(uint32_t bits)
     return BITS_TO_FLOAT(&bits);
 }
 
+// What a cast returns instead of -0.0, on the word. IEEE P3109 has one zero,
+// code point 0, and it is unsigned -- in a signed binaryK the encoding that
+// would hold -0.0 is the format's NaN -- and superfp spends no code on a
+// negative zero either. So a result that rounds to zero is +0.0 whatever the
+// sign of the value that got there, -0.0 itself included: the value simulated
+// is the format's, not binary32's (dev/gemm_roadmap.md, T2).
+//
+// A mask on the word, not a select: g++ compiles `((w << 1) == 0) ? 0u : w`
+// to a branch and this to a cmov, and vectorizes this form in a loop. A NaN's
+// word is nonzero after the shift, so the mask keeps it whole -- payload,
+// signalling bit and all.
+//
+// The casts apply this where a zero is *made*, not on the way out: the clip
+// functions below drop the sign with the magnitude, superfp's region arms
+// return a bare 0, and the one zero that can still be signed afterwards --
+// the directed modes negating a magnitude that rounded away -- is handled by
+// negate_magnitude at the end of this file. T2 had every integer path return
+// through the float spelling of this instead, which cost the elementwise
+// casts 1.05-1.23x; T3 is what moved it to the arms (dev/gemm_roadmap.md).
+CUDA_HOST_DEVICE_INLINE uint32_t unsigned_zero_bits(uint32_t w)
+{
+    return w & -(uint32_t)((w << 1) != 0);
+}
+
 #if defined(__CUDA_ARCH__)
 CUDA_HOST_DEVICE_INLINE float rn_add(float a, float b) { return __fadd_rn(a, b); }
 CUDA_HOST_DEVICE_INLINE float rn_sub(float a, float b) { return __fsub_rn(a, b); }
@@ -330,8 +354,14 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
         int offset = (quantized_exponent_store == (min_exponent_store - 1));
         quantized_num += offset * (1u << 23);
         quantized_num |= old_sign;
-        quantized_num *= offset;
+        quantized_num *= offset; // offset == 0 is the underflow, and it is +0.0
     }
+    else
+        // A word with no magnitude but a sign bit -- a negative value the
+        // rounding above took to zero -- reaches this arm only in a format
+        // whose min_exponent_store is at or below zero, where the underflow
+        // test is dead for it. P3109's zero is unsigned either way (T2/T3).
+        quantized_num = unsigned_zero_bits(quantized_num);
 
     return quantized_num;
 }
@@ -342,15 +372,15 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent(uint32_t old_num,
 // rounded word: a -0.0 input truncates to 0x80000000, which is not 0 and was
 // pushed out to minus the smallest subnormal, and a float32 subnormal input
 // can truncate to exactly 0 and stayed there. P3109 rounds zero to zero and
-// never rounds a nonzero value away from zero into it. A zero input comes back
-// with its rounded word's sign, which the cast drops on return (unsigned_zero).
+// never rounds a nonzero value away from zero into it, so a zero input is
+// answered with an unsigned zero here rather than with its rounded word.
 // Shares SubnormalRangeParams/make_subnormal_range_params with the plain
 // clip_subnormal_range_exponent above.
 CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_num, uint32_t quantized_num,
                                                                   int min_exponent_store)
 {
     if ((old_num << 1) == 0)
-        return quantized_num;
+        return 0u; // a zero input rounds to zero, and that zero is unsigned
 
     int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
 
@@ -360,17 +390,22 @@ CUDA_HOST_DEVICE_INLINE uint32_t clip_subnormal_range_exponent_up(uint32_t old_n
         quantized_num = min_exponent_store << 23;
         quantized_num |= old_sign;
     }
+    else
+        // as in clip_subnormal_range_exponent above: a signed word with no
+        // magnitude, in a format whose underflow test cannot reach it
+        quantized_num = unsigned_zero_bits(quantized_num);
 
     return quantized_num;
 }
 
-// Precomputed for clip_normal_range_exponent -- the form every cast in
+// Precomputed for the normal-range clip below -- the form every cast in
 // cast_binaryK.h and cast_superfp.h calls.
 struct NormalRangeParams
 {
     SaturationMode saturation_mode; // still needed raw: selects the overflow branch's outcome
-    int min_exponent_store;
-    uint32_t max_num; // the largest finite magnitude, as a binary32 word
+    uint32_t min_num;               // the smallest magnitude the format represents, as a word
+    uint32_t half_num;              // half of it: the round-to-nearest boundary below it
+    uint32_t max_num;               // the largest finite magnitude, as a word
 };
 
 // The top of the range is counted in code points, the way IEEE P3109 assigns
@@ -385,6 +420,16 @@ struct NormalRangeParams
 // all, which P3109 rules out by requiring three bits -- gets max_num = 0, and
 // every nonzero result of the normal arm overflows. So does one whose largest
 // finite value is below binary32's normal range.
+//
+// The bottom is a code point too, and the subnormals mode is what says which
+// one. `SUBNORMALS` and `NORMALS` put the floor at the smallest normal, whose
+// code is the first of exponent field 1. `EXTENDED_NORMALS` lowers that by a
+// binade -- exponent code 0 becomes one more binade of normals -- but *not*
+// its mantissa-zero code: that one is the format's zero, and with the sign bit
+// its NaN, as in every other binaryK format, so the extended binade's values
+// start one step above it. With man_bits == 0 that step carries into the next
+// binade, which is the right answer as well: a binade of a single code, spent
+// on the zero, holds no value, and the format is `NORMALS` with extra steps.
 CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits, int man_bits, int bias,
                                                                     SaturationMode saturation_mode,
                                                                     int reserved_codes,
@@ -392,9 +437,37 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits,
 {
     NormalRangeParams p;
     p.saturation_mode = saturation_mode;
-    p.min_exponent_store = -(bias - 1) + 127 - extended_normals;
 
     const int man = (man_bits < 23) ? man_bits : 23; // binary32 holds no finer grid
+
+    const int min_exponent_store = -(bias - 1) + 127 - extended_normals;
+    if (min_exponent_store <= 0 || min_exponent_store > 254)
+    {
+        // The floor lies outside binary32's normal range, so no rounded word
+        // can be below it: leave the underflow test dead rather than fabricate
+        // a word for a value binary32 does not have. (Such a format is one
+        // `mptorch.number`'s range check refuses or warns about.)
+        p.min_num = 0u;
+        p.half_num = 0u;
+    }
+    else
+    {
+        // `+`, not `|`: with man_bits == 0 the step is 1 << 23, which is the
+        // exponent field's own low bit, and the sum is the carry into the next
+        // binade that the comment above describes. Above man_bits == 0 the
+        // mantissa field is zero and the two spellings agree.
+        p.min_num = ((uint32_t)min_exponent_store << 23) +
+                    (extended_normals ? (1u << (23 - man)) : 0u);
+        // halved as a value, not as a word: decrementing the exponent field
+        // is the same thing only while the field stays at 1 or above, and a
+        // format whose floor is binary32's smallest normal -- which the range
+        // check warns about but does not refuse -- puts it one below, where
+        // the word means something else entirely.
+        float min_val = BITS_TO_FLOAT(&p.min_num);
+        float half = min_val * 0.5f;
+        p.half_num = FLOAT_TO_BITS(&half);
+    }
+
     const int codes = 1 << man;
     int top_code = codes - 1 - reserved_codes; // the largest finite code, within its binade
     int top_field = (1 << exp_bits) - 1;       // and that binade's exponent field
@@ -418,40 +491,127 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParams make_normal_range_params(int exp_bits,
     return p;
 }
 
-// Saturates a value the normal arm has rounded. P3109 rounds first and
-// saturates second, which makes overflow a magnitude test: anything above
-// max_num -- a rounding that landed on a reserved code, carried into the next
-// binade, or carried a finite input all the way into exponent 255 -- is out of
-// range, and becomes infinity under OVF_INF (SatNone) and max_num under the
-// other two (SatFinite, SatPropagate: the value was finite, so SatPropagate
-// has nothing to propagate). Non-finite inputs never get here: every cast
-// sends them to saturate_nonfinite before it rounds. An underflow to zero keeps
-// the input's sign, which the cast drops on return (unsigned_zero).
-CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
-                                                             SaturationMode saturation_mode,
-                                                             int min_exponent_store, uint32_t max_num)
+// What a magnitude below the format's smallest value becomes -- the only thing
+// the rounding modes differ about down there.
+//
+// The two candidates are always the same pair, zero and that smallest value,
+// so each mode picks between them exactly as it picks between zero and the
+// smallest subnormal one region lower: nearest with the tie going to the even
+// code (zero), nearest-away taking the value, the directed modes taking their
+// own direction, round-to-odd taking the nonzero one -- it is the odd code
+// where there is one, and never discarding the fact that the input was nonzero
+// where there is not -- and stochastic taking it with probability |x| / it.
+// The same four spellings as `clip_subnormal_range_exponent` and its `_up`
+// twin, which are that region's.
+//
+// Only `NORMALS` and `EXTENDED_NORMALS` reach this. Under `SUBNORMALS`
+// anything below the smallest normal took the subnormal branch, and rounding a
+// normal can only raise its exponent, so the arm is dead there -- which is why
+// the mode is a template parameter and each policy decides *inside* the
+// branch: the paths that never underflow pay for none of it.
+enum class UnderflowMode
 {
-    if (quantized_num == 0)
-        return quantized_num;
+    NEAREST_EVEN, // above half the smallest value, take it; at half, zero
+    NEAREST_AWAY, // at or above half, take it
+    AWAY,         // any nonzero magnitude takes it: toward-away, and to-odd
+    ZERO,         // toward zero
+    STOCHASTIC,   // take it with probability |x| / it
+    // Nothing below the floor can reach the clip, so it carries no arm at all.
+    // superfp is the case: its normal arm is entered only at or above
+    // `normal_cutoff`, which a well-formed format puts at or above `min_exp`
+    // (`normal_binades <= 2^exp_bits - 1`, which `mptorch.number` enforces),
+    // and rounding a normal only ever raises its exponent. Spelling that here
+    // rather than picking a policy that would never run is worth 1.12x of the
+    // superfp split-mac SR GEMM: the arm is cold, but its constants and the
+    // float compare it wants still cost that kernel registers (T5, and finding
+    // G10 for why that kernel in particular).
+    NONE,
+};
 
-    uint32_t sign = old_num & 0x80000000u;
+// Saturates a value the normal arm has rounded, and floors it. P3109 rounds
+// first and saturates second, which makes overflow a magnitude test: anything
+// above max_num -- a rounding that landed on a reserved code, carried into the
+// next binade, or carried a finite input all the way into exponent 255 -- is
+// out of range, and becomes infinity under OVF_INF (SatNone) and max_num under
+// the other two (SatFinite, SatPropagate: the value was finite, so
+// SatPropagate has nothing to propagate). Non-finite inputs never get here:
+// every cast sends them to saturate_nonfinite before it rounds.
+//
+// This form returns a magnitude; clip_normal_range_exponent below is this plus
+// the sign, and the note there says which callers want which.
+template <UnderflowMode U>
+CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_magnitude(uint32_t old_num, uint32_t quantized_num,
+                                                             SaturationMode saturation_mode,
+                                                             uint32_t min_num, uint32_t half_num,
+                                                             uint32_t max_num, uint32_t rand_prob = 0u)
+{
+    uint32_t ax = old_num & 0x7FFFFFFFu;
+    if (ax == 0u)
+        return 0u; // a zero input rounds to zero, and P3109's zero is unsigned
+
     quantized_num &= 0x7FFFFFFFu;
-
-    int quantized_exponent_store = (int)((quantized_num >> 23) & 0xFF);
 
     // handle overflow
     if (quantized_num > max_num)
         quantized_num = (saturation_mode == SaturationMode::OVF_INF) ? 0x7F800000u : max_num;
     // handle underflow
-    else if (quantized_exponent_store < min_exponent_store)
+    else if constexpr (U == UnderflowMode::NONE)
     {
-        uint32_t offset = (quantized_exponent_store == (min_exponent_store - 1)) && ((old_num << 9 >> 9) > (1 << 22));
-        quantized_num = offset * (min_exponent_store << 23);
+        // nothing to handle: see the enum
+    }
+    else if (quantized_num < min_num)
+    {
+        if constexpr (U == UnderflowMode::NEAREST_EVEN)
+            quantized_num = (ax > half_num) ? min_num : 0u;
+        else if constexpr (U == UnderflowMode::NEAREST_AWAY)
+            quantized_num = (ax >= half_num) ? min_num : 0u;
+        else if constexpr (U == UnderflowMode::AWAY)
+            quantized_num = min_num;
+        else if constexpr (U == UnderflowMode::ZERO)
+            quantized_num = 0u;
+        else // STOCHASTIC
+        {
+            // |x| > u * min_val with u uniform in [0, 1), which is the same
+            // draw as round_bitwise_stochastic's one step higher, written as a
+            // multiply because the step down here is min_val rather than a
+            // power of two (EXTENDED_NORMALS' floor is not one). The product
+            // is one rounding wide, which is below the resolution `rand_bits`
+            // asks for whenever that is under 24.
+            float min_val = BITS_TO_FLOAT(&min_num);
+            float xf = BITS_TO_FLOAT(&ax);
+            float u = (float)(rand_prob & 0x007FFFFFu) * (1.0f / 8388608.0f);
+            quantized_num = (xf > u * min_val) ? min_num : 0u;
+        }
     }
 
-    quantized_num |= sign;
-
     return quantized_num;
+}
+
+// The same, for a signed input: the magnitude above with the input's sign put
+// back on it -- unless there is no magnitude to sign. A value that flushed to
+// zero in the underflow arm, and a format whose max_num is zero, both arrive
+// here with nothing to sign, and P3109's zero is unsigned. This is where the
+// casts that round through the integer path get that; the mask costs a cmov
+// and an or, where dropping the sign at the cast's return instead cost
+// 1.05-1.23x (T2/T3).
+//
+// Splitting the two is worth more than it looks. cast_absolute_up and its
+// three siblings pass |x|, so their sign bit is always clear and everything
+// this function adds is dead -- but it is dead at runtime, not at compile
+// time, and the compiler cannot see it. Handing them the magnitude form took
+// the binaryK `RZ` GEMM from 1.13x of pre-T2 to 0.92x on a GPU, and the fma
+// one to 0.87x: below where it started, because the sign work the directed
+// modes had been doing for nothing goes with it (T3).
+template <UnderflowMode U>
+CUDA_HOST_DEVICE_INLINE uint32_t clip_normal_range_exponent(uint32_t old_num, uint32_t quantized_num,
+                                                            SaturationMode saturation_mode,
+                                                            uint32_t min_num, uint32_t half_num,
+                                                            uint32_t max_num, uint32_t rand_prob = 0u)
+{
+    uint32_t magnitude = clip_normal_range_magnitude<U>(old_num, quantized_num, saturation_mode,
+                                                        min_num, half_num, max_num, rand_prob);
+    uint32_t sign = old_num & 0x80000000u;
+    return magnitude | (sign & -(uint32_t)(magnitude != 0));
 }
 
 // What an input whose exponent field is all ones -- an infinity or a NaN --
@@ -472,27 +632,31 @@ CUDA_HOST_DEVICE_INLINE uint32_t saturate_nonfinite(uint32_t target, SaturationM
                                                                       : target;
 }
 
-// What a cast returns instead of -0.0. IEEE P3109 has one zero, code point 0,
-// and it is unsigned; superfp spends no code on a negative zero either. So a
-// result that rounds to zero is +0.0 whatever the sign of the value that got
-// there, -0.0 itself included: the value simulated is the format's, not
-// binary32's (dev/gemm_roadmap.md, T2). The integer paths reach -0.0 in several
-// places -- a clip re-attaching the input's sign to an underflow, a directed
-// mode negating a magnitude that rounded away, superfp's sign-keeping underflow
-// arms -- so they return through this rather than being patched at each. The
-// fast paths that cannot reach -0.0 say so at the return they leave alone.
+// The two negations the directed modes need, both on the word rather than as
+// `-x`, and neither of them for speed.
 //
-// A mask on the word, not a select. g++ compiles `((w << 1) == 0) ? 0.0f : x`
-// to a jne and this to a cmov, and vectorizes this form in a loop; at the join
-// of a cast it had otherwise if-converted, the branch cost superfp's
-// elementwise RNE 1.3-1.4x end to end, where the mask costs 1.1-1.2x (T2). The
-// value test `(x == 0.0f) ? 0.0f : x` is a ucomiss and two jumps, and
-// `x + 0.0f`, one instruction, quiets a signaling NaN the casts pass through. A
-// NaN's word is nonzero after the shift, so the mask keeps it whole. The device
-// measured all three spellings the same.
-CUDA_HOST_DEVICE_INLINE float unsigned_zero(float x)
+// `-x` is a float operation, and on the device that is `neg.f32`, which PTX
+// does not require to hand back a NaN's payload: -(-NaN) canonicalizes, and
+// the sign with it, so a negative NaN came out of cast_binaryK_up as a
+// positive one -- on some builds. Which ones is a matter of how nvcc inlined
+// the cast that day, which is the worst way for a documented contract to hold
+// ("P3109's single NaN is whichever NaN came in", docs/source/concepts.rst).
+// cast_superfp_up carried an explicit NaN arm for exactly this; an XOR flips
+// the sign bit and touches nothing else, so neither twin needs one now.
+//
+// The second is also where a -0.0 can still be made after the clips have run:
+// negating a magnitude that rounded to zero. Masking the flip with
+// unsigned_zero_bits' test leaves that zero alone -- and leaves a NaN whole,
+// since its word is nonzero after the shift.
+CUDA_HOST_DEVICE_INLINE float flip_sign(float x)
 {
-    uint32_t w = FLOAT_TO_BITS(&x);
-    w &= -(uint32_t)((w << 1) != 0);
+    uint32_t w = FLOAT_TO_BITS(&x) ^ 0x80000000u;
+    return BITS_TO_FLOAT(&w);
+}
+
+CUDA_HOST_DEVICE_INLINE float negate_magnitude(float m)
+{
+    uint32_t w = FLOAT_TO_BITS(&m);
+    w ^= 0x80000000u & -(uint32_t)((w << 1) != 0);
     return BITS_TO_FLOAT(&w);
 }

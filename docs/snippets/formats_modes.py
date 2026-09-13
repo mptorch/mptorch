@@ -7,7 +7,10 @@ from mptorch.quant import Quant
 
 torch.set_printoptions(precision=6, sci_mode=False)
 
-# Small values, E4M3 with bias 7: the smallest normal is 2**-6.
+# Small values, E4M3 with bias 7: the smallest normal is 2**-6. Under
+# EXTENDED_NORMALS the binade below it holds normals as well, but its
+# mantissa-zero code is still the zero -- so 2**-7 is not one of them, and
+# that binade starts at 1.125 * 2**-7.
 small = torch.tensor([2.0**-5, 2.0**-6, 2.0**-7, 2.0**-8, 2.0**-9, 2.0**-10])
 print("input           ", small.tolist())
 for mode in SubnormalsMode:

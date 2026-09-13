@@ -1,8 +1,10 @@
 """The schema tier: one function per op, every argument spelled out."""
 
+import warnings
+
 import torch
 
-from mptorch import RoundMode, SaturationMode
+from mptorch import FormatRangeWarning, RoundMode, SaturationMode
 from mptorch.quant import (
     binaryK_matmul,
     binaryK_matmul_fma,
@@ -10,6 +12,11 @@ from mptorch.quant import (
     superfp_matmul,
     superfp_matmul_fma,
 )
+
+# An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
+# one input from another, so naming one warns (concepts, "What float32 can
+# carry"). Nothing here goes anywhere near that small.
+warnings.simplefilter("ignore", FormatRangeWarning)
 
 torch.manual_seed(0)
 a = torch.randn(4, 16)

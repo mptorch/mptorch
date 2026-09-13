@@ -1,8 +1,10 @@
 """Stochastic rounding: unbiased in expectation, and why that matters."""
 
+import warnings
+
 import torch
 
-from mptorch import BinaryK, RoundMode
+from mptorch import BinaryK, FormatRangeWarning, RoundMode
 from mptorch.quant import Quant
 
 torch.manual_seed(0)
@@ -22,6 +24,11 @@ print(f"{'exact':>9}  {(0.3 - lo) / (hi - lo):>11.4f}  0.300000")
 #    7 mantissa bits) the spacing just above 1 is 2**-7 = 0.0078, so adding
 #    0.001 to 1.0 and rounding to nearest gives back 1.0 -- forever. Rounding
 #    stochastically moves up with probability 0.001 / 0.0078 each step.
+# An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell
+# one input from another, so building one warns (concepts, "What float32 can
+# carry"). Nothing here goes anywhere near that small.
+warnings.simplefilter("ignore", FormatRangeWarning)
+
 bf16 = BinaryK(16, 8)
 n_steps, batch = 2000, 1000
 for mode, bits in ((RoundMode.RNE, 0), (RoundMode.SR, 8)):

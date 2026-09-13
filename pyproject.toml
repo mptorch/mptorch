@@ -33,6 +33,15 @@ extra-index-url = ["https://download.pytorch.org/whl/cu132"]
 index-strategy = "unsafe-best-match"
 no-build-isolation = true
 
+[tool.pytest.ini_options]
+# Several test modules quantize to formats binary32 cannot carry whole -- a
+# 24-bit binaryK with a 16-bit exponent, a superfp whose underflow region is
+# out of reach -- because those are the inputs that reach the casts' edge
+# branches. `mptorch.number` warns about exactly that, so it would fire a few
+# hundred times a run here and say nothing new. `tests/test_format_limits.py`
+# is where the warning itself is under test, and `pytest.warns` overrides this.
+filterwarnings = ["ignore::mptorch.number.FormatRangeWarning"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

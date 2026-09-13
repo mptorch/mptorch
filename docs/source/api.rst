@@ -11,7 +11,7 @@ Number formats and modes
 ------------------------
 
 .. automodule:: mptorch.number
-   :members: RoundMode, SaturationMode, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP
+   :members: RoundMode, SaturationMode, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, FormatRangeWarning
    :undoc-members:
    :member-order: bysource
 

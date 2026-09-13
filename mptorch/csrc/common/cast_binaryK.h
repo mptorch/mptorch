@@ -43,7 +43,8 @@ struct BinaryKParams
     int round_shift;
     // for clip_normal_range_exponent
     SaturationMode saturation_mode;
-    int min_exponent_store;
+    uint32_t min_num;  // the smallest magnitude the format represents
+    uint32_t half_num; // half of it, the round-to-nearest boundary below it
     uint32_t max_num;
     // for clip_subnormal_range_exponent
     int subnormal_min_exponent_store;
@@ -88,7 +89,8 @@ CUDA_HOST_DEVICE_INLINE BinaryKParams make_binaryK_params(int man_bits, int exp_
     NormalRangeParams normal_p =
         make_normal_range_params(exp_bits, man_bits, bias, saturation_mode, reserved_codes, extended_normals);
     p.saturation_mode = normal_p.saturation_mode;
-    p.min_exponent_store = normal_p.min_exponent_store;
+    p.min_num = normal_p.min_num;
+    p.half_num = normal_p.half_num;
     p.max_num = normal_p.max_num;
 
     p.subnormal_min_exponent_store = make_subnormal_range_params(man_bits, bias).min_exponent_store;
@@ -198,7 +200,7 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const Bi
     // turns into fast_ovf -- inf under OVF_INF, max_finite under SAT_FINITE.
     // One ordered compare separates the two: `<= inf` is false only for NaN.
     //
-    // No unsigned_zero here, because `y` is never -0.0: saturation gives
+    // Nothing to unsign here, because `y` is never -0.0: saturation gives
     // +-fast_ovf, which the gate keeps nonzero; a split of |x| >= 2^min_exp
     // keeps its exponent; and `sub` is a round-to-nearest difference of two
     // positive values, +0.0 when they are equal -- for a -0.0 input too.
@@ -218,6 +220,14 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
     // costs a predicated compare; the integer body below is jumped over, not
     // fetched. On the host it is loop-invariant over a whole GEMM and the
     // branch predictor sees one outcome forever.
+    //
+    // T3 tried hoisting it out of the elementwise quantizer's loop -- one test
+    // per tensor, the loop instantiated on the cast it chose -- on the theory
+    // that the body it does not take is what perturbs g++'s layout. Over 16
+    // runs per build it came out 0.98x of this on eight threads and 1.11x on
+    // one, and cost the two RNE rows that take the integer path 1.05-1.19x in
+    // three of four cells. The test is not what those rows are paying for, and
+    // a second spelling of the cast is not worth a coin flip.
     if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
         return cast_binaryK_rne_fast(origin_float, p);
 #endif
@@ -253,12 +263,14 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_even(float origin_float, bool
         quantize_bits = (p.man_bits > 0)
                             ? round_bitwise_nearest_even(target, p.round_bypass, p.round_mask, p.round_tie, p.round_shift)
                             : round_bitwise_nearest_even(target);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        quantize_bits = clip_normal_range_exponent<UnderflowMode::NEAREST_EVEN>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return unsigned_zero(quantized);
+    // Nothing to unsign on the way out: every arm above returns a word the
+    // clips have already made P3109's unsigned zero, or a nonzero one (T3).
+    return quantized;
 }
 
 // Rounds to nearest, ties away from zero. Shares BinaryKParams with RNE, as
@@ -292,12 +304,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_nearest_away(float origin_float, bool
     else
     {
         quantize_bits = round_bitwise_nearest_away(target, p.round_bypass, p.round_mask, p.round_tie);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        quantize_bits = clip_normal_range_exponent<UnderflowMode::NEAREST_AWAY>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return unsigned_zero(quantized);
+    return quantized; // already unsigned where it is zero -- see the RNE cast
 }
 
 // Rounds to odd. The man_bits == 0 branch needs raw `bias`, recovered as
@@ -350,12 +362,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_odd(float origin_float, bool is_signe
             if (sticky && !already_odd)
                 quantize_bits += (1u << 23);
         }
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        quantize_bits = clip_normal_range_exponent<UnderflowMode::AWAY>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return unsigned_zero(quantized);
+    return quantized; // already unsigned where it is zero -- see the RNE cast
 }
 
 // Unsigned helper for cast_binaryK_up/cast_binaryK_down: assumes
@@ -387,8 +399,10 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_up(float origin_float, SubnormalsMod
     else
     {
         quantize_bits = round_bitwise_up(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        // the magnitude form: this helper is handed |x|, so the sign the
+        // signed form puts back is always the one it took off (bit_helper.h)
+        quantize_bits = clip_normal_range_magnitude<UnderflowMode::AWAY>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -422,8 +436,10 @@ CUDA_HOST_DEVICE_INLINE float cast_absolute_down(float origin_float, SubnormalsM
     else
     {
         quantize_bits = round_bitwise_down(target, p.round_bypass, p.round_mask);
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        // the magnitude form: this helper is handed |x|, so the sign the
+        // signed form puts back is always the one it took off (bit_helper.h)
+        quantize_bits = clip_normal_range_magnitude<UnderflowMode::ZERO>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
@@ -438,12 +454,16 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_up(float origin_float, bool is_signed
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
-    // Both arms can return -0.0: the first is where a -0.0 input goes, since
-    // it compares >= 0, and the second negates a magnitude that rounded to 0.
+    // The helper returns a magnitude -- a -0.0 input compares >= 0, and the
+    // clips give it back as +0.0 -- so only the negation can make a -0.0, by
+    // negating a magnitude that rounded to zero. Both negations are on the
+    // word: see bit_helper.h for the NaN half of why, and the zero half (T3).
+    // A NaN takes this second arm too, since every compare against it is
+    // false, and comes back out of it unchanged.
     if (origin_float >= 0)
-        return unsigned_zero(cast_absolute_up(origin_float, subnormals, p));
+        return cast_absolute_up(origin_float, subnormals, p);
     else
-        return unsigned_zero(-cast_absolute_down(-origin_float, subnormals, p));
+        return negate_magnitude(cast_absolute_down(flip_sign(origin_float), subnormals, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_down(float origin_float, bool is_signed,
@@ -452,11 +472,12 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_down(float origin_float, bool is_sign
     if (origin_float < 0.0f && !is_signed)
         return 0.0f;
 
-    // See cast_binaryK_up: the same two ways to -0.0.
+    // See cast_binaryK_up: the negation is the one way left to a -0.0, and
+    // the one place a NaN could lose its payload.
     if (origin_float >= 0)
-        return unsigned_zero(cast_absolute_down(origin_float, subnormals, p));
+        return cast_absolute_down(origin_float, subnormals, p);
     else
-        return unsigned_zero(-cast_absolute_up(-origin_float, subnormals, p));
+        return negate_magnitude(cast_absolute_up(flip_sign(origin_float), subnormals, p));
 }
 
 CUDA_HOST_DEVICE_INLINE float cast_binaryK_zero(float origin_float, bool is_signed,
@@ -531,19 +552,16 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_stochastic(float origin_float, uint32
         // reusing it only ever gates SR off where it could have run
         // (man_bits == 0, and the split-product bound). One flag, one sweep.
         // Verified in dev/benchmarks/gemm_cast_sr_arith.cu.
-        //
-        // The exponent argument also makes `y` nonzero, which is why this
-        // return, unlike the function's last, skips unsigned_zero.
         if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
         {
             float y = BITS_TO_FLOAT(&quantize_bits);
             return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
         }
 #endif
-        quantize_bits = clip_normal_range_exponent(target, quantize_bits, p.saturation_mode, p.min_exponent_store,
-                                                   p.max_num);
+        quantize_bits = clip_normal_range_exponent<UnderflowMode::STOCHASTIC>(
+            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num, rand_prob);
         quantized = BITS_TO_FLOAT(&quantize_bits);
     }
 
-    return unsigned_zero(quantized);
+    return quantized; // already unsigned where it is zero -- see the RNE cast
 }

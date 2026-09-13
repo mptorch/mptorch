@@ -13,6 +13,7 @@ from .number import (
     AccumulateAlgorithm,
     BinaryK,
     FloatFormat,
+    FormatRangeWarning,
     Number,
     RoundMode,
     SaturationMode,
@@ -31,4 +32,5 @@ __all__ = [
     "FloatFormat",
     "BinaryK",
     "SuperFP",
+    "FormatRangeWarning",
 ]

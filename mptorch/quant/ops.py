@@ -10,6 +10,7 @@ from mptorch import (
     SaturationMode,
     SubnormalsMode,
 )
+from mptorch.number import check_binaryK, check_superfp
 
 __all__ = [
     "binaryK_quantize",
@@ -32,6 +33,22 @@ mantissa_size_mapping: dict[torch.dtype, int] = {
 }
 
 
+def _rounding_man_bits(dtype: torch.dtype) -> int:
+    """Mantissa bits a format rounded into `dtype` actually has to share.
+
+    The storage dtype's, capped at binary32's. Every cast rounds on a binary32
+    word whatever the operand dtype -- `narrow_float64` converts a float64
+    tensor on the way in and widens it back on the way out -- so float64's 52
+    bits are storage, not precision, and a bound taken against them lets a
+    format through that binary32 cannot express. `binaryK_quantize(x_f64,
+    K=60, P=41)` used to be accepted and returned 1.0 for 1 + 2**-30, a value
+    that format holds exactly. See `mptorch.number`'s range checks, which hold
+    the same bound at the format rather than at the call, and
+    `dev/gemm_roadmap.md` (T4).
+    """
+    return min(mantissa_size_mapping[dtype], mantissa_size_mapping[torch.float32])
+
+
 # --- format defaulting, written once ----------------------------------------
 #
 # The wrappers below all resolve the same handful of things: the exponent bias
@@ -50,11 +67,12 @@ def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
 def _prng_terms(*terms: tuple[str, int, int]) -> tuple[int, tuple[tuple[str, int, int], ...]]:
     """Fold `(name, prng_bits, man_bits)` constraints into one storage-width bound.
 
-    Stochastic rounding draws its random bits from the storage mantissa *below*
-    the target format's, so a `man_bits`-wide format asking for `prng_bits` of
-    noise needs a storage dtype carrying at least their sum. The lower bound on
-    `prng_bits` is checked here, since it depends on nothing but the format;
-    the sum is what the call itself checks against its operand dtype.
+    Stochastic rounding draws its random bits from the significand *below* the
+    target format's, so a `man_bits`-wide format asking for `prng_bits` of
+    noise needs at least their sum available where the rounding happens --
+    binary32, or a narrower operand dtype (:func:`_rounding_man_bits`). The
+    lower bound on `prng_bits` is checked here, since it depends on nothing but
+    the format; the sum is what the call itself checks against that width.
     """
     for name, prng_bits, _ in terms:
         assert prng_bits >= 0, f"{name} must be non-negative, got {prng_bits}"
@@ -67,18 +85,72 @@ def _prng_overflow(terms: tuple[tuple[str, int, int], ...], dtype: torch.dtype) 
     Only ever called on the failing branch of an assert, so the formatting is
     free on the path that matters.
     """
-    have = mantissa_size_mapping[dtype]
+    have = _rounding_man_bits(dtype)
     asked = "; ".join(f"{name}={p} under a {m}-bit mantissa" for name, p, m in terms)
+    where = (
+        "the binary32 significand the rounding happens in"
+        if have < mantissa_size_mapping[dtype]
+        else f"{dtype}"
+    )
     return (
-        f"{dtype} carries {have} mantissa bits, too few for {asked}: a format's "
-        "mantissa and its stochastic-rounding bits have to fit in the storage dtype together"
+        f"{have} mantissa bits are available in {where}, too few for {asked}: a "
+        "format's mantissa and its stochastic-rounding bits have to fit there together"
     )
 
 
 def _assert_prng_fits(dtype: torch.dtype, name: str, prng_bits: int, man_bits: int) -> None:
     """`_prng_terms` and its storage-dtype check together, for a single format."""
     needed, terms = _prng_terms((name, prng_bits, man_bits))
-    assert needed <= mantissa_size_mapping[dtype], _prng_overflow(terms, dtype)
+    assert needed <= _rounding_man_bits(dtype), _prng_overflow(terms, dtype)
+
+
+# --- the format's range against binary32's ------------------------------------
+#
+# `mptorch.number`'s `check_binaryK`/`check_superfp` are the rule, and
+# `BinaryK`/`SuperFP` run it when they are built. The wrappers below never see
+# a format object -- they take the parameters as plain integers -- so they
+# reach the same function through these two, and
+# `binaryK_matmul(a, b, mul_K=16, mul_P=8)` says what `BinaryK(16, 8)` says.
+# The derivation is memoized inside `check_*`, which is what makes this
+# affordable on a path that resolves per call (finding P4): 0.40 us per format
+# slot, so +0.5 to +0.8 us on a spec builder that resolves two of them against
+# the 2.4-3.2 us it already spends, and +0.65 us per palette entry.
+
+
+def _check_binaryK_palette(
+    K: Sequence[int],
+    P: Sequence[int],
+    bias: Sequence[int],
+    is_signed: bool,
+    saturation: SaturationMode,
+    subnormals: SubnormalsMode,
+    prng_bits: int,
+) -> None:
+    """:func:`check_binaryK` per palette entry.
+
+    Every entry of a palette is a format in its own right, so every entry is
+    checked. The scalar builders call `check_binaryK` directly instead of
+    passing a one-element list through here -- this sits on a per-call path
+    (finding P4), and the lists and the `zip` cost more than the check.
+    `stacklevel` counts the frames a warning has to climb to reach the
+    caller's own code: this one, the spec builder's, the wrapper's, and the
+    caller's.
+    """
+    for k, p, b in zip(K, P, bias, strict=True):
+        check_binaryK(k, p, b, is_signed, saturation, subnormals, prng_bits, stacklevel=5)
+
+
+def _check_superfp_palette(
+    man_bits: Sequence[int],
+    exp_bits: Sequence[int],
+    normal_binades: Sequence[int],
+    bias: Sequence[int],
+    saturation: SaturationMode,
+    prng_bits: int,
+) -> None:
+    """:func:`_check_binaryK_palette` for a superfp palette."""
+    for mb, eb, nb, b in zip(man_bits, exp_bits, normal_binades, bias, strict=True):
+        check_superfp(mb, eb, nb, b, saturation, prng_bits, stacklevel=5)
 
 
 def _palette_list(val: int | Sequence[int], n: int, name: str) -> list[int]:
@@ -185,7 +257,7 @@ def _run_gemm(
     ``torch.matmul`` operand rules -- 1D promotion, leading-dim broadcasting,
     rank > 3 -- are :func:`_matmul_operands`' job, above this.
     """
-    assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
+    assert spec.needed <= _rounding_man_bits(a.dtype), _prng_overflow(spec.terms, a.dtype)
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
     return spec.op(a, b, trans_a, trans_b, *spec.args)
@@ -205,7 +277,7 @@ def _run_gemm_mixed(
     C++ side's job, and it memoizes the bounds check against the tensor it is
     handed (finding G5b), which a `.to()` here would defeat.
     """
-    assert spec.needed <= mantissa_size_mapping[a.dtype], _prng_overflow(spec.terms, a.dtype)
+    assert spec.needed <= _rounding_man_bits(a.dtype), _prng_overflow(spec.terms, a.dtype)
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
     return spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
@@ -442,6 +514,7 @@ def binaryK_quantize(
 
     if not bias:
         bias = _binaryK_bias(K, P, is_signed)
+    check_binaryK(K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits)
 
     return torch.ops.mptorch.binaryK_quant.default(
         x.contiguous(),
@@ -481,6 +554,7 @@ def superfp_quantize(
     :func:`binaryK_quantize`.
     """
     _assert_prng_fits(x.dtype, "prng_bits", prng_bits, man_bits)
+    check_superfp(man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits)
 
     return torch.ops.mptorch.superfp_quant.default(
         x.contiguous(),
@@ -517,6 +591,7 @@ def _binaryK_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -538,6 +613,29 @@ def _binaryK_spec(
         acc_bias = _binaryK_bias(acc_K, acc_P, acc_is_signed)
     elif acc_bias is None:
         acc_bias = 0
+
+    if check_formats:
+        check_binaryK(
+            mul_K,
+            mul_P,
+            mul_bias,
+            mul_is_signed,
+            saturation_mode,
+            subnormals_mode,
+            mul_prng_bits,
+            stacklevel=4,
+        )
+        if accumulate_quant:
+            check_binaryK(
+                acc_K,
+                acc_P,
+                acc_bias,
+                acc_is_signed,
+                acc_saturation_mode,
+                acc_subnormals_mode,
+                acc_prng_bits,
+                stacklevel=4,
+            )
 
     terms = [("mul_prng_bits", mul_prng_bits, mul_P - 1)]
     if accumulate_quant:
@@ -669,6 +767,7 @@ def _superfp_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -687,6 +786,27 @@ def _superfp_spec(
         acc_exp_bits = acc_exp_bits or 0
         acc_normal_binades = acc_normal_binades or 0
         acc_bias = acc_bias or 0
+
+    if check_formats:
+        check_superfp(
+            mul_man_bits,
+            mul_exp_bits,
+            mul_normal_binades,
+            mul_bias,
+            saturation_mode,
+            mul_prng_bits,
+            stacklevel=4,
+        )
+        if accumulate_quant:
+            check_superfp(
+                acc_man_bits,
+                acc_exp_bits,
+                acc_normal_binades,
+                acc_bias,
+                acc_saturation_mode,
+                acc_prng_bits,
+                stacklevel=4,
+            )
 
     terms = [("mul_prng_bits", mul_prng_bits, mul_man_bits)]
     if accumulate_quant:
@@ -790,10 +910,22 @@ def _binaryK_fma_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma`'s format -- see it for the contract."""
     if not fma_bias:
         fma_bias = _binaryK_bias(fma_K, fma_P, fma_is_signed)
+    if check_formats and fma_quant:
+        check_binaryK(
+            fma_K,
+            fma_P,
+            fma_bias,
+            fma_is_signed,
+            saturation_mode,
+            subnormals_mode,
+            fma_prng_bits,
+            stacklevel=4,
+        )
     needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, fma_P - 1))
 
     return _GemmSpec(
@@ -884,8 +1016,19 @@ def _superfp_fma_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma`'s format -- see it for the contract."""
+    if check_formats and fma_quant:
+        check_superfp(
+            fma_man_bits,
+            fma_exp_bits,
+            fma_normal_binades,
+            fma_bias,
+            saturation_mode,
+            fma_prng_bits,
+            stacklevel=4,
+        )
     needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, fma_man_bits))
 
     return _GemmSpec(
@@ -971,6 +1114,7 @@ def _binaryK_mixed_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_mixed`'s palette -- see it for the contract."""
     mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
@@ -990,6 +1134,27 @@ def _binaryK_mixed_spec(
         acc_K_l = [0] * n
         acc_P_l = [0] * n
         acc_bias_l = [0] * n
+
+    if check_formats:
+        _check_binaryK_palette(
+            mul_K_l,
+            mul_P_l,
+            mul_bias_l,
+            mul_is_signed,
+            saturation_mode,
+            subnormals_mode,
+            mul_prng_bits,
+        )
+        if accumulate_quant:
+            _check_binaryK_palette(
+                acc_K_l,
+                acc_P_l,
+                acc_bias_l,
+                acc_is_signed,
+                acc_saturation_mode,
+                acc_subnormals_mode,
+                acc_prng_bits,
+            )
 
     prng = [("mul_prng_bits", mul_prng_bits, max(mul_P_l) - 1)]
     if accumulate_quant:
@@ -1126,6 +1291,7 @@ def _superfp_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_mixed`'s palette -- see it for the contract."""
     mul_mb_l, mul_eb_l, n = _palette_pair(
@@ -1149,6 +1315,15 @@ def _superfp_mixed_spec(
         acc_eb_l = [0] * n
         acc_nb_l = [0] * n
         acc_bias_l = [0] * n
+
+    if check_formats:
+        _check_superfp_palette(
+            mul_mb_l, mul_eb_l, mul_nb_l, mul_bias_l, saturation_mode, mul_prng_bits
+        )
+        if accumulate_quant:
+            _check_superfp_palette(
+                acc_mb_l, acc_eb_l, acc_nb_l, acc_bias_l, acc_saturation_mode, acc_prng_bits
+            )
 
     prng = [("mul_prng_bits", mul_prng_bits, max(mul_mb_l))]
     if accumulate_quant:
@@ -1255,10 +1430,21 @@ def _binaryK_fma_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
     fma_bias_l = _binaryK_palette_bias(fma_bias, fma_K_l, fma_P_l, fma_is_signed, "fma_bias")
+    if check_formats and fma_quant:
+        _check_binaryK_palette(
+            fma_K_l,
+            fma_P_l,
+            fma_bias_l,
+            fma_is_signed,
+            saturation_mode,
+            subnormals_mode,
+            fma_prng_bits,
+        )
     needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_P_l) - 1))
 
     return _GemmSpec(
@@ -1352,6 +1538,7 @@ def _superfp_fma_mixed_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    check_formats: bool = True,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_mb_l, fma_eb_l, n = _palette_pair(
@@ -1359,6 +1546,10 @@ def _superfp_fma_mixed_spec(
     )
     fma_nb_l = _palette_list(fma_normal_binades, n, "fma_normal_binades")
     fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
+    if check_formats and fma_quant:
+        _check_superfp_palette(
+            fma_mb_l, fma_eb_l, fma_nb_l, fma_bias_l, saturation_mode, fma_prng_bits
+        )
     needed, terms = _prng_terms(("fma_prng_bits", fma_prng_bits, max(fma_mb_l)))
 
     return _GemmSpec(

@@ -346,6 +346,11 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
     fields: dict[str, Any] = {
         "accumulate_algorithm": mac.accumulate_algorithm,
         "rounding_mode": mac.rounding,
+        # every format in this mac is a `BinaryK`/`SuperFP` that checked its
+        # own range when it was built, so the builder would only repeat it --
+        # and from here a second warning would point inside mptorch rather
+        # than at the line that named the format
+        "check_formats": False,
     }
 
     if isinstance(mac, FusedMac):

@@ -1,6 +1,8 @@
 #pragma once
 
 /*
+What the exponent-zero codes hold, and so where the bottom of the range is.
+
 SUBNORMALS:
 Subnormal values are supported. This is IEEE P3109's behaviour: every P3109
 format with more than one bit of precision has subnormals.
@@ -8,7 +10,18 @@ NORMALS:
 Only normal values are supported. Not a P3109 format.
 EXTENDED_NORMALS:
 The binade used to encode subnormals is used as an extra binade to encode normal
-values. Not a P3109 format.
+values. Not a P3109 format. Its mantissa-zero code is *not* one of them: that
+code is the format's zero, and with the sign bit its NaN, as in every binaryK
+format, so the extra binade's values start one step above the power of two it
+would otherwise hold. With man_bits == 0 that step is the whole binade, and the
+mode is NORMALS with extra steps.
+
+All three modes round the same way below whatever their smallest value is,
+because the shape of that region is the same in each: two candidates, zero and
+that value, and the rounding mode picks between them. Nearest takes the nearer
+and a tie the zero, the directed modes take their own direction, round-to-odd
+takes the nonzero one, and stochastic takes it with probability |x| divided by
+it. See bit_helper.h's UnderflowMode, which is where that is written down.
 */
 
 enum class SubnormalsMode

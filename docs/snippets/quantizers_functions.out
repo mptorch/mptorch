@@ -7,7 +7,7 @@ torch.float64  torch.float64 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 
-AssertionError: torch.bfloat16 carries 7 mantissa bits, too few for prng_bits=8 under a 3-bit mantissa: a format's mantissa and its stochastic-rounding bits have to fit in the storage dtype together
+AssertionError: 7 mantissa bits are available in torch.bfloat16, too few for prng_bits=8 under a 3-bit mantissa: a format's mantissa and its stochastic-rounding bits have to fit there together
 CPU == CUDA under RNE: True
 CPU == CUDA under RZ: True
 CPU == CUDA under RO: True
