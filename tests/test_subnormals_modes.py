@@ -183,3 +183,32 @@ def test_extended_normals_is_normals_at_one_bit_of_precision(device, mode):
         return binaryK_quantize(x, 8, 1, bias=64, rounding_mode=mode, subnormals_mode=subnormals)
 
     assert torch.equal(q(SubnormalsMode.EXTENDED_NORMALS), q(SubnormalsMode.NORMALS))
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("mode", list(RoundMode))
+def test_extended_normals_floor_at_the_smallest_normal(device, mode):
+    """The same, where that floor is binary32's smallest normal, 2**-126.
+
+    ``EXTENDED_NORMALS`` lowers ``min_exponent_store`` by a binade, and at this
+    bias that takes it to 0 -- where the range test used to read it, leaving
+    the format with no floor at all, when the carry at ``P == 1`` puts the floor
+    right back on a normal. Only ``SR`` could tell: every other mode's rounding
+    lands on zero or the floor by itself down there, and ``SR``'s second draw,
+    against the floor, never ran. The image sweep found it (binary64 has the
+    floor either way). The format is a binade outside ``mptorch.number``'s
+    bound -- round-to-nearest-even of ``2**-127`` is binary32's -- but the
+    floor is a kernel fact, and the two modes must agree on it.
+    """
+    lo = math.ldexp(1.0, -126)
+    vals = [0.0, lo / 8, lo / 4, lo / 2, lo * 0.75, lo, lo * 1.5, 1.0, 3.0]
+    x = torch.tensor(vals * 512, dtype=torch.float32, device=device)
+
+    def q(subnormals):
+        torch.manual_seed(20260913)
+        torch.cuda.manual_seed_all(20260913)
+        return binaryK_quantize(
+            x, 8, 1, bias=127, prng_bits=8, rounding_mode=mode, subnormals_mode=subnormals
+        )
+
+    assert torch.equal(q(SubnormalsMode.EXTENDED_NORMALS), q(SubnormalsMode.NORMALS))

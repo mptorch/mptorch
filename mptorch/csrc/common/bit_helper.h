@@ -650,7 +650,15 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParamsT<T> make_normal_range_params(int exp_b
     const int man = (man_bits < F::MAN_BITS) ? man_bits : F::MAN_BITS; // the carrier holds no finer grid
 
     const int min_exponent_store = -(bias - 1) + F::BIAS - extended_normals;
-    if (min_exponent_store <= 0 || min_exponent_store > F::TOP_FIELD)
+    // The floor's own exponent field, which is the store's except where the
+    // man_bits == 0 carry below moves it up a binade. The range test reads
+    // this and not the store: at a store of 0 that carry lands on the
+    // carrier's smallest normal, a floor like any other -- NORMALS' own at
+    // the same bias -- where reading the store left the format with none; and
+    // at TOP_FIELD it lands past the carrier's largest value, where NORMALS'
+    // has none either and reading the store made the infinity a floor.
+    const int floor_field = min_exponent_store + (extended_normals && man == 0);
+    if (floor_field <= 0 || floor_field > F::TOP_FIELD)
     {
         // The floor lies outside the carrier's normal range, so no rounded
         // word can be below it: leave the underflow test dead rather than

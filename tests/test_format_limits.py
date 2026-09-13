@@ -77,6 +77,10 @@ def _construct(call):
         # exactly on the floor those two reach, 2**-126
         lambda: BinaryK(8, 4, bias=127, subnormals=SubnormalsMode.NORMALS),
         lambda: BinaryK(8, 4, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+        # and on the two exceptions, a binade higher at 2**-125
+        lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.NORMALS),
+        lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+        lambda: BinaryK(31, 24, bias=125, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         lambda: BinaryK(8, 4, prng_bits=20),  # 3 + 20 == binary32's 23
         lambda: SuperFP(3, 4, 1, 7),
         lambda: SuperFP(3, 4, 2, 7),
@@ -176,6 +180,27 @@ def test_formats_below_binary32_normals_warn(call, smallest):
             lambda: BinaryK(8, 4, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
             lambda: BinaryK(8, 4, bias=127, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         ),
+        # -- except where half that floor is out of binary32's reach, which
+        # stops two of their formats a binade short. At P = 1 the round reads
+        # 2**-127 as a tie between binades and carries it to the floor ...
+        (
+            lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.NORMALS),
+            lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.NORMALS),
+        ),
+        (
+            lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+            lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+        ),
+        # ... and at P = 24 EXTENDED_NORMALS' half-floor needs a 2**-150 step
+        (
+            lambda: BinaryK(31, 24, bias=125, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+            lambda: BinaryK(31, 24, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+        ),
+        # which NORMALS' power-of-two floor never does
+        (
+            lambda: BinaryK(31, 24, bias=127, subnormals=SubnormalsMode.NORMALS),
+            lambda: BinaryK(31, 24, bias=128, subnormals=SubnormalsMode.NORMALS),
+        ),
         # superfp's supernormal floor, likewise
         (lambda: SuperFP(3, 4, 1, 21), lambda: SuperFP(3, 4, 1, 22)),
     ],
@@ -184,6 +209,28 @@ def test_bottom_boundary_is_where_it_was_measured(ok, bad):
     _construct(ok)
     with pytest.warns(FormatRangeWarning):
         bad()
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.NORMALS), "tie between two"),
+        (
+            lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+            "tie between two",
+        ),
+        (
+            lambda: BinaryK(31, 24, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
+            "round-to-nearest-away",
+        ),
+        # below 2**-126 the floor itself is out of reach, and that is what is said
+        (lambda: BinaryK(8, 1, bias=128, subnormals=SubnormalsMode.NORMALS), "exponent field"),
+    ],
+)
+def test_bottom_warning_names_the_reason(call, match):
+    """The two half-floor limits are not the exponent-field one, and say so."""
+    with pytest.warns(FormatRangeWarning, match=match):
+        call()
 
 
 @pytest.mark.parametrize(

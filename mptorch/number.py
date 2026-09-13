@@ -240,6 +240,7 @@ class _Extent(NamedTuple):
     bottom_exp: int  # the exponent of the smallest positive value
     step_exp: int  # the exponent of the finest spacing anywhere in the format
     min_bottom: int  # how low `bottom_exp` may go before a binary32 cast loses it
+    bottom_why: str  # ... and what goes wrong below that, for the warning
     # What lies below the binades that carry a full mantissa, which start at
     # `normal_exp`: one of `SubnormalsMode`'s three, or superfp's supernormals.
     normal_exp: int
@@ -279,13 +280,30 @@ def _range_findings(ext: _Extent) -> tuple[str | None, str | None]:
         )
     if bottom_exp < ext.min_bottom:
         return None, (
-            f"{label}'s smallest value is 2^{bottom_exp}, below 2^{ext.min_bottom}: the "
-            f"casts place an input by its binary32 exponent field, which every binary32 "
-            f"subnormal shares, so this format's values below 2^{_F32_MIN_NORMAL_EXP} "
-            f"are rounded onto the wrong grid and some are never returned. See "
-            f'concepts.rst, "What float32 can carry".'
+            f"{label}'s smallest value is 2^{bottom_exp}, below 2^{ext.min_bottom}: "
+            f'{ext.bottom_why}. See concepts.rst, "What float32 can carry".'
         )
     return None, None
+
+
+# What goes wrong below `_Extent.min_bottom`, which is one of three things.
+_BOTTOM_BY_FIELD = (
+    "the casts place an input by its binary32 exponent field, which every binary32 "
+    f"subnormal shares, so this format's values below 2^{_F32_MIN_NORMAL_EXP} are "
+    "rounded onto the wrong grid and some are never returned"
+)
+_BOTTOM_TIE_BY_FIELD = (
+    "with one code per binade the cast rounds by exponent field alone, and half that "
+    f"value, 2^{_F32_MIN_NORMAL_EXP - 1}, is a binary32 subnormal, in the field every "
+    "one of them shares -- so round-to-nearest-even reads it as a tie between two "
+    "binades and returns the smallest value, where the format's answer is zero"
+)
+_BOTTOM_HALF_UNHELD = (
+    f"half that value, 2^{_F32_MIN_NORMAL_EXP - 1} x (1 + 2^-{_F32_MAN_BITS}), is the "
+    "round-to-nearest boundary below it and needs a step binary32 does not have, so "
+    f"the cast holds it as 2^{_F32_MIN_NORMAL_EXP - 1} -- and round-to-nearest-away "
+    "returns the smallest value for that input, where the format's answer is zero"
+)
 
 
 def _binaryK_label(K: int, P: int, bias: int, is_signed: bool, subnormals: SubnormalsMode) -> str:
@@ -332,11 +350,34 @@ def _binaryK_extent(
     # subnormal shares, so it is blind below 2**-126 and needs its floor a
     # binade above that. `NORMALS` and `EXTENDED_NORMALS` decide by comparing
     # magnitudes as words, which reads no field at all, so they are exact to
-    # 2**-126 -- and no further, because below it `min_exponent_store` reaches
-    # zero, the floor leaves binary32's normals and nothing flushes (T5).
-    min_bottom = (
-        _F32_MIN_SIMULABLE_EXP if subnormals is SubnormalsMode.SUBNORMALS else _F32_MIN_NORMAL_EXP
-    )
+    # 2**-126 -- and no further, because below it the floor leaves binary32's
+    # normals and nothing flushes (T5). Two of their formats stop a binade
+    # short of that, both at half the floor, the one point the compare needs
+    # besides the floor itself:
+    #
+    #   man_bits == 0   the round before the compare reads a field after all.
+    #                   With no mantissa it rounds between binades, and a floor
+    #                   at 2**-126 puts half of it, 2**-127, in field 0, where
+    #                   the round sees a tie between binades and carries it up
+    #                   to the floor before the compare can send it to zero.
+    #   EXTENDED, P=24  half the floor, 2**-127 * (1 + 2**-23), needs a 2**-150
+    #                   step; binary32 holds it as 2**-127, and round-to-
+    #                   nearest-away takes that input up to the floor.
+    #
+    # `dev/benchmarks/cast_all_modes_sweep.cu`'s image64 mode found both,
+    # binary64 being exact at both points.
+    if subnormals is SubnormalsMode.SUBNORMALS:
+        min_bottom, bottom_why = _F32_MIN_SIMULABLE_EXP, _BOTTOM_BY_FIELD
+    elif man_bits == 0:
+        min_bottom, bottom_why = _F32_MIN_SIMULABLE_EXP, _BOTTOM_TIE_BY_FIELD
+    elif subnormals is SubnormalsMode.EXTENDED_NORMALS:
+        # half the floor's last bit, 2**(bottom_exp - 1 - man_bits), must be one binary32 has
+        min_bottom = max(_F32_MIN_NORMAL_EXP, man_bits + 1 + _F32_MIN_SUBNORMAL_EXP)
+        bottom_why = _BOTTOM_HALF_UNHELD
+    else:
+        min_bottom, bottom_why = _F32_MIN_NORMAL_EXP, _BOTTOM_BY_FIELD
+    if bottom_exp < _F32_MIN_NORMAL_EXP:
+        bottom_why = _BOTTOM_BY_FIELD  # the floor itself is out of reach, which says more
     return _Extent(
         label,
         exp_bits,
@@ -347,6 +388,7 @@ def _binaryK_extent(
         bottom_exp,
         step_exp,
         min_bottom,
+        bottom_why,
         min_exp,
         subnormals.name,
     )
@@ -402,6 +444,7 @@ def _superfp_extent(
         bottom_exp,
         step_exp,
         _F32_MIN_SIMULABLE_EXP,  # the supernormal arm rounds the input's exponent field (T4)
+        _BOTTOM_BY_FIELD,
         normal_cutoff,
         "SUPERNORMALS",
     )

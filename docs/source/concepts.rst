@@ -61,7 +61,12 @@ format's own terms:
   comparing magnitudes instead, which reads no field, so ``NORMALS`` and
   ``EXTENDED_NORMALS`` are exact down to :math:`2^{-126}` -- and no further,
   because below that the floor leaves float32's normals and nothing flushes at
-  all.
+  all. Two of their formats stop a binade short, at :math:`2^{-125}`, because
+  the compare also needs half the floor and float32 cannot place it there: at
+  :math:`P = 1` the rounding ahead of the compare works on the exponent field
+  and reads :math:`2^{-127}` as a tie between binades, and an
+  ``EXTENDED_NORMALS`` format with :math:`P = 24` has a half-floor finer than
+  float32's spacing.
 
 Together the last two say a simulated format may span at most 253 binades, so
 **seven exponent bits is the most either family can carry** -- at P3109's
