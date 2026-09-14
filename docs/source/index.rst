@@ -3,11 +3,8 @@ MPTorch
 
 **MPTorch** is a PyTorch extension for *simulating* custom and mixed-precision
 arithmetic in deep-learning workloads, in particular for training. Modern
-accelerators compute in 8-bit floating point, in bfloat16, in formats that did
-not exist a few years ago; hardware that does not exist yet will compute in
-others. MPTorch lets you answer, on the CPU or GPU you already have, the
-question every such format raises: *what happens to my model if this tensor,
-or the arithmetic inside this matrix product, is rounded to that format?*
+accelerators increasingly use small wordlength formats (e.g. 8-bit floating-point,
+or 4-bit block-based formats) that were not available just a few years ago.
 
 The simulation is exact rather than approximate: every operation is carried
 out in IEEE binary32 -- or, for a float64 model, binary64 -- and its result is
