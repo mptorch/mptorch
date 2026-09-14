@@ -27,8 +27,8 @@ that may differ:
    s_k = Q_{\text{acc}}\Big(s_{k-1} + Q_{\text{mul}}(a_{ik}\, b_{kj})\Big), \qquad
    c_{ij} = s_K .
 
-With ``acc=None`` the accumulation is left in float32 and only the products
-are rounded: :math:`s_k = s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})`.
+With ``acc=None`` the accumulation is left unrounded and only the products
+are: :math:`s_k = s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})`.
 
 **FusedMac** -- one fused multiply-add per step, rounded once, the way a
 hardware FMA unit behaves:
@@ -37,9 +37,9 @@ hardware FMA unit behaves:
 
    s_k = Q_{\text{fma}}\big(a_{ik}\, b_{kj} + s_{k-1}\big).
 
-The product is exact inside the FMA (the float32 FMA the kernel uses keeps
-it so), and with ``fma=None`` nothing is rounded at all: the dot product is a
-sequence of float32 FMAs.
+The product is exact inside the FMA (the FMA the kernel uses keeps it so),
+and with ``fma=None`` nothing is rounded at all: the dot product is a
+sequence of FMAs.
 
 In both, the operands :math:`a_{ik}` and :math:`b_{kj}` are read as they
 are. Rounding *them* is a quantizer's job, and the layers apply one before
@@ -48,6 +48,15 @@ the GEMM; see :doc:`layers`. One rounding mode serves both roundings of a
 the product one way and the sum another would multiply the number of
 kernels -- while saturation, subnormal handling and the number of stochastic
 bits are properties of each format and can differ between the two.
+
+Everything the formats do not round -- the product before its rounding, the
+sum before its, the unrounded accumulator -- is computed in the operands'
+dtype's carrier: float32 for float32, float16 and bfloat16 operands, and
+float64 for float64 operands. So a float64 GEMM is not simply the float32 one
+widened. Its products keep 53 bits where float32 keeps 24, so it can round
+differently even when every operand is a float32 value, and under ``SR`` each
+rounding draws twice the random words. A float32 and a float64 operand cannot
+be mixed in one call.
 
 The following run reproduces a ``SplitMac`` dot product by hand, step by
 step, and gets the same bits.
@@ -251,7 +260,7 @@ flat call produce the same resolved kernel arguments.
 
 The conventions are uniform across the eight: ``mul_*`` and ``acc_*`` name
 the two formats of a split multiply-accumulate (``acc_*`` default to the
-``mul_*`` values, ``accumulate_quant=False`` leaves the sum in float32);
+``mul_*`` values, ``accumulate_quant=False`` leaves the sum unrounded);
 ``fma_*`` names the one format of a fused step (``fma_quant=False`` leaves it
 unrounded); ``trans_a``/``trans_b`` transpose the last two dimensions of an
 operand without copying it; ``*_prng_bits`` set the stochastic bits per

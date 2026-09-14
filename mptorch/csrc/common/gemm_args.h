@@ -17,6 +17,11 @@
 // binaryK's (K, P) -> (man_bits, exp_bits) convention is applied by the entry
 // point in the .cpp, where the schema is bound -- so this header never has to
 // know which spelling a schema used.
+//
+// with_accumulator<T, RM> and with_palette<T, RM> build the policies in
+// carrier T (common/gemm_policy.h): the widths are the format's and do not
+// depend on it, so one packed Args serves both carriers, and which one runs is
+// the backend's choice, made on GemmShape::dt.
 
 #include "gemm_dtype.h"
 #include "gemm_policy.h"
@@ -101,29 +106,29 @@ namespace mptorch::gemm
                          static_cast<int>(normal_binades), static_cast<int>(bias)};
   }
 
-  template <RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT<RM> make_mul(const BinaryKWidths &w, const BinaryKCommon &c)
+  template <class T, RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT<T, RM> make_mul(const BinaryKWidths &w, const BinaryKCommon &c)
   {
-    return BinaryKMultiplierT<RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
+    return BinaryKMultiplierT<T, RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
   }
 
-  template <RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE BinaryKAdderT<RM> make_add(const BinaryKWidths &w, const BinaryKCommon &c)
+  template <class T, RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE BinaryKAdderT<T, RM> make_add(const BinaryKWidths &w, const BinaryKCommon &c)
   {
-    return BinaryKAdderT<RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
+    return BinaryKAdderT<T, RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
   }
 
-  template <RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<RM> make_mul(const SuperfpWidths &w, const SuperfpCommon &c)
+  template <class T, RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<T, RM> make_mul(const SuperfpWidths &w, const SuperfpCommon &c)
   {
-    return SuperfpMultiplierT<RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
+    return SuperfpMultiplierT<T, RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
                                   c.prng_bits};
   }
 
-  template <RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<RM> make_add(const SuperfpWidths &w, const SuperfpCommon &c)
+  template <class T, RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<T, RM> make_add(const SuperfpWidths &w, const SuperfpCommon &c)
   {
-    return SuperfpAdderT<RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
+    return SuperfpAdderT<T, RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
                              c.prng_bits};
   }
 
@@ -136,7 +141,8 @@ namespace mptorch::gemm
     // SplitMac draws for the multiply and the accumulate independently, so a
     // thread's K-step reduction consumes two Philox values per step where a
     // FusedMac consumes one. Only RoundMode::SR draws at all; this is the
-    // upper bound matmul_rng_engine_inputs reserves against.
+    // upper bound matmul_rng_engine_inputs reserves against. A draw is one
+    // word in binary32 and two in binary64, which the driver multiplies in.
     static constexpr uint64_t draws_per_k_step = 2;
 
     BinaryKWidths mul{};
@@ -145,19 +151,19 @@ namespace mptorch::gemm
     BinaryKWidths acc{};
     BinaryKCommon acc_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
-      auto m = make_mul<RM>(mul, mul_c);
+      auto m = make_mul<T, RM>(mul, mul_c);
       if (accumulate_quant)
       {
-        using Mac = SplitMac<BinaryKMultiplierT<RM>, BinaryKAdderT<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{m, make_add<RM>(acc, acc_c)}, 0.f});
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, BinaryKAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{m, make_add<T, RM>(acc, acc_c)}, T(0)});
       }
       else
       {
-        using Mac = SplitMac<BinaryKMultiplierT<RM>, IdentityAdder>;
-        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder{}}, 0.f});
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder<T>{}}, T(0)});
       }
     }
   };
@@ -181,24 +187,24 @@ namespace mptorch::gemm
     // measured at 0.86x, and never taken; K1 has since made the question moot
     // by taking this kernel to 64-80 registers on its own. Measured, not
     // assumed; see dev/gemm_perf_audit.md (G10) and the roadmap (H3).
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       if (accumulate_quant)
       {
-        using Mac = SplitMac<BinaryKMultiplierT<RM>, BinaryKAdderT<RM>>;
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, BinaryKAdderT<T, RM>>;
         FormatPalette<Mac> pal;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), make_add<RM>(acc[i], acc_c)};
-        f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+          pal.slots[i] = Mac{make_mul<T, RM>(mul[i], mul_c), make_add<T, RM>(acc[i], acc_c)};
+        f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
       else
       {
-        using Mac = SplitMac<BinaryKMultiplierT<RM>, IdentityAdder>;
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, IdentityAdder<T>>;
         FormatPalette<Mac> pal;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), IdentityAdder{}};
-        f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+          pal.slots[i] = Mac{make_mul<T, RM>(mul[i], mul_c), IdentityAdder<T>{}};
+        f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
     }
   };
@@ -215,18 +221,18 @@ namespace mptorch::gemm
     BinaryKWidths fma{};
     BinaryKCommon fma_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
       if (fma_quant)
       {
-        using Mac = FusedMac<BinaryKAdderT<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{make_add<RM>(fma, fma_c)}, 0.f});
+        using Mac = FusedMac<BinaryKAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{make_add<T, RM>(fma, fma_c)}, T(0)});
       }
       else
       {
-        using Mac = FusedMac<IdentityAdder>;
-        f(NaiveAccumulator<Mac>{Mac{IdentityAdder{}}, 0.f});
+        using Mac = FusedMac<IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{IdentityAdder<T>{}}, T(0)});
       }
     }
   };
@@ -243,14 +249,14 @@ namespace mptorch::gemm
     BinaryKWidths fma[MAX_GEMM_FORMATS]{};
     BinaryKCommon fma_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
-      using Mac = FusedMac<BinaryKAdderT<RM>>;
+      using Mac = FusedMac<BinaryKAdderT<T, RM>>;
       FormatPalette<Mac> pal;
       for (int i = 0; i < n_fmt; ++i)
-        pal.slots[i] = Mac{make_add<RM>(fma[i], fma_c)};
-      f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+        pal.slots[i] = Mac{make_add<T, RM>(fma[i], fma_c)};
+      f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
     }
   };
 
@@ -268,19 +274,19 @@ namespace mptorch::gemm
     SuperfpWidths acc{};
     SuperfpCommon acc_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
-      auto m = make_mul<RM>(mul, mul_c);
+      auto m = make_mul<T, RM>(mul, mul_c);
       if (accumulate_quant)
       {
-        using Mac = SplitMac<SuperfpMultiplier<RM>, SuperfpAdder<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{m, make_add<RM>(acc, acc_c)}, 0.f});
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, SuperfpAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{m, make_add<T, RM>(acc, acc_c)}, T(0)});
       }
       else
       {
-        using Mac = SplitMac<SuperfpMultiplier<RM>, IdentityAdder>;
-        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder{}}, 0.f});
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder<T>{}}, T(0)});
       }
     }
   };
@@ -303,24 +309,24 @@ namespace mptorch::gemm
     // second SuperfpParams spelling existed to buy back. K1 took this kernel
     // to 60-64 registers on its own, so there is nothing left to buy and the
     // spelling is gone; see dev/gemm_roadmap.md (finding H3).
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
       if (accumulate_quant)
       {
-        using Mac = SplitMac<SuperfpMultiplier<RM>, SuperfpAdder<RM>>;
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, SuperfpAdderT<T, RM>>;
         FormatPalette<Mac> pal;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), make_add<RM>(acc[i], acc_c)};
-        f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+          pal.slots[i] = Mac{make_mul<T, RM>(mul[i], mul_c), make_add<T, RM>(acc[i], acc_c)};
+        f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
       else
       {
-        using Mac = SplitMac<SuperfpMultiplier<RM>, IdentityAdder>;
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, IdentityAdder<T>>;
         FormatPalette<Mac> pal;
         for (int i = 0; i < n_fmt; ++i)
-          pal.slots[i] = Mac{make_mul<RM>(mul[i], mul_c), IdentityAdder{}};
-        f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+          pal.slots[i] = Mac{make_mul<T, RM>(mul[i], mul_c), IdentityAdder<T>{}};
+        f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
     }
   };
@@ -337,18 +343,18 @@ namespace mptorch::gemm
     SuperfpWidths fma{};
     SuperfpCommon fma_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_accumulator(F &&f) const
     {
       if (fma_quant)
       {
-        using Mac = FusedMac<SuperfpAdder<RM>>;
-        f(NaiveAccumulator<Mac>{Mac{make_add<RM>(fma, fma_c)}, 0.f});
+        using Mac = FusedMac<SuperfpAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{make_add<T, RM>(fma, fma_c)}, T(0)});
       }
       else
       {
-        using Mac = FusedMac<IdentityAdder>;
-        f(NaiveAccumulator<Mac>{Mac{IdentityAdder{}}, 0.f});
+        using Mac = FusedMac<IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{IdentityAdder<T>{}}, T(0)});
       }
     }
   };
@@ -362,14 +368,14 @@ namespace mptorch::gemm
     SuperfpWidths fma[MAX_GEMM_FORMATS]{};
     SuperfpCommon fma_c{};
 
-    template <RoundMode RM, class F>
+    template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
-      using Mac = FusedMac<SuperfpAdder<RM>>;
+      using Mac = FusedMac<SuperfpAdderT<T, RM>>;
       FormatPalette<Mac> pal;
       for (int i = 0; i < n_fmt; ++i)
-        pal.slots[i] = Mac{make_add<RM>(fma[i], fma_c)};
-      f(NaiveAccumulator<Mac>{pal.slots[0], 0.f}, pal);
+        pal.slots[i] = Mac{make_add<T, RM>(fma[i], fma_c)};
+      f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
     }
   };
 

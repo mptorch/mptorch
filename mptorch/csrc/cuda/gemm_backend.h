@@ -36,11 +36,29 @@ namespace mptorch::gemm_cuda
     static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
 
     // custom_matmul_kernel.cuh defines this; each custom_matmul_*.cu
-    // instantiates it for the two ops it owns, which is what keeps every
-    // kernel specialization in exactly one object (finding B2).
+    // instantiates it for the two ops it owns in binary32, and its
+    // custom_matmul_*_f64.cu twin in binary64, which is what keeps every
+    // kernel specialization in exactly one object (finding B2) and every
+    // existing object the size it was (dev/binary64_carrier_plan.md, phase 4).
+    template <class T, class Args>
+    static void launch_as(const mptorch::gemm::GemmShape &s, const Args &args,
+                          const LaunchContext &ctx);
+
+    // The carrier is chosen here, on the host, once per call: a float64 GEMM
+    // runs the binary64 kernels and every other dtype the binary32 ones, whose
+    // loads convert on the device. A build with MPTORCH_NO_FP64 has no
+    // binary64 objects to call, and gemm_dtype_of has already refused the
+    // dtype by the time this runs.
     template <class Args>
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
-                       const LaunchContext &ctx);
+                       const LaunchContext &ctx)
+    {
+#if !defined(MPTORCH_NO_FP64)
+      if (s.dt == mptorch::GemmDtype::Double)
+        return launch_as<double>(s, args, ctx);
+#endif
+      launch_as<float>(s, args, ctx);
+    }
   };
 
 } // namespace mptorch::gemm_cuda

@@ -104,11 +104,18 @@ namespace mptorch
   // than at compile time, so the values are identical. The elementwise
   // quantizers keep MPTORCH_DISPATCH_QUANT_TYPES: they *are* the load/store,
   // and they vectorize per dtype (SIMDTraits).
+  //
+  // Double is the exception, because it is a different carrier rather than a
+  // different load: a float64 GEMM computes in binary64 (bit_helper.h's
+  // carrier_t), so the tag selects which kernel runs, on the host, before
+  // launch -- the backend's launch() -- and never reaches a float kernel's
+  // load switch (dev/binary64_carrier_plan.md, phase 4).
   enum class GemmDtype : int
   {
     Float = 0,
     Half = 1,
     BFloat16 = 2,
+    Double = 3,
   };
 
 } // namespace mptorch

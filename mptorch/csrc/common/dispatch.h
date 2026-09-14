@@ -7,21 +7,20 @@
 
 // Type dispatch for the GEMM and elementwise quantize entry points.
 //
-// The elementwise quantizers dispatch on the storage dtype and round in its
-// carrier (carrier_t, bit_helper.h): binary64 for a float64 tensor, binary32
-// for the other three, whose values binary32 holds. A float64 tensor used to
-// be narrowed to float32 up front instead (finding G6), because every kernel
+// Both ops dispatch on the storage dtype and compute in its carrier
+// (carrier_t, bit_helper.h): binary64 for a float64 tensor, binary32 for the
+// other three, whose values binary32 holds. A float64 tensor used to be
+// narrowed to float32 up front instead (finding G6), because every kernel
 // converted to float on load anyway, so a double instantiation computed
-// nothing a float one did not. Rounding in double is what changes that: the
+// nothing a float one did not. Computing in double is what changes that: an
 // input is rounded once, directly, and a format finer or wider than binary32
-// can be reached (dev/binary64_carrier_plan.md, phase 3).
+// can be reached (dev/binary64_carrier_plan.md, phases 3 and 4).
 //
-// The GEMM still narrows a float64 pair (narrow_float64 below, called from
-// common/gemm_host.h) until it has double kernels of its own (phase 4). Its
-// half of the dispatch -- mptorch::GemmDtype and dispatch_round_mode -- lives
-// in common/gemm_dtype.h, which carries no ATen, so the .cu files can name
-// them without paying for <ATen/core/Tensor.h> (finding H1). This header
-// includes it, so every existing spelling still resolves from here.
+// The GEMM's half of the dispatch -- mptorch::GemmDtype and
+// dispatch_round_mode -- lives in common/gemm_dtype.h, which carries no ATen,
+// so the .cu files can name them without paying for <ATen/core/Tensor.h>
+// (finding H1). This header includes it, so every existing spelling still
+// resolves from here.
 #define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)       \
   AT_DISPATCH_SWITCH(                                       \
       TYPE, NAME,                                           \
@@ -35,7 +34,13 @@ namespace mptorch
 
   // The check that `data_ptr<scalar_t>()` used to make for free: a GEMM whose
   // operands disagree, or whose dtype the kernel cannot load, must be rejected
-  // rather than reinterpreted.
+  // rather than reinterpreted. A (float64, float32) pair is one of those: the
+  // two carriers are different kernels, and picking one for the pair would
+  // round the other operand in a carrier it did not ask for.
+  //
+  // A build with MPTORCH_NO_FP64 has no binary64 GEMM kernels to launch, and
+  // says so here, before the RNG state is drawn, rather than narrowing in
+  // silence to a result the default build would not give.
   inline GemmDtype gemm_dtype_of(const at::Tensor &a, const at::Tensor &b, const char *op_name)
   {
     TORCH_CHECK(a.scalar_type() == b.scalar_type(), op_name,
@@ -49,30 +54,17 @@ namespace mptorch
       return GemmDtype::Half;
     case at::kBFloat16:
       return GemmDtype::BFloat16;
+    case at::kDouble:
+#if defined(MPTORCH_NO_FP64)
+      TORCH_CHECK(false, op_name, ": this build has no float64 GEMM kernels (it was built with "
+                                  "MPTORCH_NO_FP64=1); pass float32 operands, or rebuild without it");
+#else
+      return GemmDtype::Double;
+#endif
     default:
-      TORCH_CHECK(false, op_name, ": expected float32, float16 or bfloat16 operands, got ",
+      TORCH_CHECK(false, op_name, ": expected float32, float64, float16 or bfloat16 operands, got ",
                   a.scalar_type());
     }
-  }
-
-
-  // The GEMM's float64 path until phase 4: narrows a float64 operand pair to
-  // float32 in place and returns whether the result has to be widened back.
-  // Anything else is left untouched.
-  inline bool narrow_float64(at::Tensor &a, at::Tensor &b)
-  {
-    // Both, so a mismatched pair still reaches the dispatch and is rejected
-    // there rather than being quietly made to agree.
-    if (a.scalar_type() != at::kDouble || b.scalar_type() != at::kDouble)
-      return false;
-    a = a.to(at::kFloat);
-    b = b.to(at::kFloat);
-    return true;
-  }
-
-  inline at::Tensor widen_float64(at::Tensor t, bool widen)
-  {
-    return widen ? t.to(at::kDouble) : t;
   }
 
 } // namespace mptorch

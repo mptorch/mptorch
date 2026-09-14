@@ -88,6 +88,18 @@ struct PhiloxEngine
         return ret;
     }
 
+    // A binary64 GEMM's draw: the next two values of the stream, low word
+    // first -- two statements, since the order of two calls in one expression
+    // is unspecified. A draw may straddle two blocks, which the stream's own
+    // bookkeeping handles; the words are the stream's in the order a binary32
+    // GEMM would have read them.
+    CUDA_HOST_DEVICE_INLINE uint64_t next64()
+    {
+        const uint64_t lo = (*this)();
+        const uint64_t hi = (*this)();
+        return (hi << 32) | lo;
+    }
+
 private:
     CUDA_HOST_DEVICE_INLINE static uint32_t mulhilo32(uint32_t a, uint32_t b, uint32_t *result_high)
     {

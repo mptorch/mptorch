@@ -46,9 +46,8 @@ format's own terms:
 * **Precision.** :math:`P \le 24` for :class:`~mptorch.BinaryK`,
   ``man_bits <= 23`` for :class:`~mptorch.SuperFP` -- float32 has 24
   significand bits and cannot hold a finer grid. The bounds on this page are
-  checked for a float64 operand too: the GEMM still rounds it in float32, and
-  the elementwise quantizers, which round it in float64, hold it to float32's
-  bounds for now.
+  checked for a float64 operand too: the quantizers and the GEMM round it in
+  float64, but for now they hold it to float32's bounds.
 * **The top.** The largest finite value must be at most float32's, which is
   ``bias >= 2**exp_bits - 128``. Above that the cast saturates at float32's
   largest value on the format's grid, and the codes over it are unreachable.
@@ -600,9 +599,9 @@ where the bits are drawn: with ``prng_bits=0`` there is nothing random and
 ``SR`` degenerates into ``RZ`` (the ``SR`` row above, from a format with no
 random bits, is identical to the ``RZ`` row); and the format's mantissa plus
 its random bits must fit in float32's 23 mantissa bits, whatever the tensor's
-dtype -- which the quantizer checks. (A float64 operand of an elementwise
-quantizer is rounded, and its bits drawn, in float64; it is held to float32's
-23 bits for now all the same.)
+dtype -- which the quantizer checks. (A float64 operand is rounded, and its
+bits drawn, in float64; it is held to float32's 23 bits for now all the
+same.)
 
 The random streams are seeded from PyTorch's default generator, so
 ``torch.manual_seed`` makes a stochastic run reproducible. In a GEMM each

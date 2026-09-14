@@ -59,7 +59,15 @@ namespace mptorch::gemm_cuda
     // (finding K2). The switch is warp-uniform, it is reached twice per
     // BLOCKSIZE K-steps rather than once per accumulate, and it sits next to
     // the global load whose latency it hides behind.
-    __device__ __forceinline__ float load_elem(const void *p, int64_t i, mptorch::GemmDtype dt)
+    //
+    // T is the carrier. The primary template is binary32's, which loads all
+    // three of its dtypes through the switch; binary64 has one dtype, so its
+    // specialization is a plain load and a plain store. Specializations
+    // rather than an `if constexpr` around the switch, so the binary32 bodies
+    // are the text they were (bit_helper.h's carrier note says why that
+    // matters).
+    template <class T>
+    __device__ __forceinline__ T load_elem(const void *p, int64_t i, mptorch::GemmDtype dt)
     {
         switch (dt)
         {
@@ -72,7 +80,8 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    __device__ __forceinline__ void store_elem(void *p, int64_t i, mptorch::GemmDtype dt, float v)
+    template <class T>
+    __device__ __forceinline__ void store_elem(void *p, int64_t i, mptorch::GemmDtype dt, T v)
     {
         switch (dt)
         {
@@ -88,22 +97,36 @@ namespace mptorch::gemm_cuda
         }
     }
 
-    // `off` is this batch element's base offset into the operand, in elements
-    // (X1) -- 0 for a 2D call and for an operand broadcast across the batch.
-    __device__ __forceinline__ float load_a(const void *A, mptorch::GemmDtype dt,
-                                            int64_t M, int64_t K, bool trans_a,
-                                            int64_t row, int64_t col, int64_t off)
+    template <>
+    __device__ __forceinline__ double load_elem<double>(const void *p, int64_t i, mptorch::GemmDtype)
     {
-        // logical A is M x K; trans_a means A's storage is actually K x M.
-        return load_elem(A, off + (trans_a ? col * M + row : row * K + col), dt);
+        return static_cast<const double *>(p)[i];
     }
 
-    __device__ __forceinline__ float load_b(const void *B, mptorch::GemmDtype dt,
-                                            int64_t K, int64_t N, bool trans_b,
-                                            int64_t row, int64_t col, int64_t off)
+    template <>
+    __device__ __forceinline__ void store_elem<double>(void *p, int64_t i, mptorch::GemmDtype, double v)
+    {
+        static_cast<double *>(p)[i] = v;
+    }
+
+    // `off` is this batch element's base offset into the operand, in elements
+    // (X1) -- 0 for a 2D call and for an operand broadcast across the batch.
+    template <class T>
+    __device__ __forceinline__ T load_a(const void *A, mptorch::GemmDtype dt,
+                                        int64_t M, int64_t K, bool trans_a,
+                                        int64_t row, int64_t col, int64_t off)
+    {
+        // logical A is M x K; trans_a means A's storage is actually K x M.
+        return load_elem<T>(A, off + (trans_a ? col * M + row : row * K + col), dt);
+    }
+
+    template <class T>
+    __device__ __forceinline__ T load_b(const void *B, mptorch::GemmDtype dt,
+                                        int64_t K, int64_t N, bool trans_b,
+                                        int64_t row, int64_t col, int64_t off)
     {
         // logical B is K x N; trans_b means B's storage is actually N x K.
-        return load_elem(B, off + (trans_b ? col * K + row : row * N + col), dt);
+        return load_elem<T>(B, off + (trans_b ? col * K + row : row * N + col), dt);
     }
 
     // MIXED selects whether this instantiation carries the spatially-varying
@@ -130,8 +153,12 @@ namespace mptorch::gemm_cuda
         const int32_t *__restrict__ prec_idx, int64_t idx_row_stride, int64_t idx_col_stride,
         int64_t idx_batch_stride)
     {
-        __shared__ float As[2][BLOCKSIZE * BLOCKSIZE];
-        __shared__ float Bs[2][BLOCKSIZE * BLOCKSIZE];
+        // The carrier every operand is loaded into, every step computed in and
+        // the output stored from: binary64's 8 KB of shared memory against
+        // binary32's 4 KB, both of it the fastest memory on the device.
+        using T = typename Accumulator::value_t;
+        __shared__ T As[2][BLOCKSIZE * BLOCKSIZE];
+        __shared__ T Bs[2][BLOCKSIZE * BLOCKSIZE];
 
         const int64_t cRow = blockIdx.y;
         const int64_t cCol = blockIdx.x;
@@ -201,16 +228,16 @@ namespace mptorch::gemm_cuda
 
         // load first tile into buffer 0
         As[0][threadRow * BLOCKSIZE + threadCol] =
-            (rId < M && threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
+            (rId < M && threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
         Bs[0][threadRow * BLOCKSIZE + threadCol] =
-            (threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
+            (threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
 
         for (int64_t t = 0; t < numTiles; ++t)
         {
             __syncthreads();
 
-            float *curAs = As[t % 2];
-            float *curBs = Bs[t % 2];
+            T *curAs = As[t % 2];
+            T *curBs = Bs[t % 2];
 
             // UNROLL was 4 for both paths for as long as accumulate() inlined
             // a runtime RoundMode switch -- seven cast bodies, twice over for a
@@ -244,7 +271,24 @@ namespace mptorch::gemm_cuda
             // So the last 3-8% on the single-format kernels costs 2.8 MB. That
             // is the trade to revisit if binary size ever matters here: set
             // both paths to 4 and the extension is 2.8 MB smaller.
-            constexpr int UNROLL = MIXED ? 4 : 16;
+            //
+            // binary64 takes 2 on both paths. Its kernels are bound by the
+            // device's FP64 and 64-bit rates, not by instruction fetch, so the
+            // unroll is nearly flat. float64 at 1024^3, min ms, at unroll
+            // 2 / 4 / 8 / 16:
+            //
+            //   binaryK fma RNE        13.04 / 12.75 / 12.59 / 12.25
+            //   binaryK split SR      132.15 / 132.07 / 132.11 / 132.12
+            //   superfp split SR nb=8  47.44 / 47.90 / 47.84 / 47.65
+            //   binaryK mixed SR       64.23 / 65.08 / 65.06 / 68.67
+            //   superfp mixed SR nb=8  49.81 / 50.71 / 50.77 / 58.15
+            //
+            // with the other nine rows within 1% across 2 to 8. 2 is the
+            // geomean's tie with 4 (0.998x), and it has the fewest stack
+            // spills (2 kernels against 5) and the smallest binary: .nv_fatbin
+            // is 7.69 / 8.52 / 10.18 / 13.44 MB over the same four settings
+            // (dev/binary64_carrier_plan.md, phase 4).
+            constexpr int UNROLL = std::is_same_v<T, double> ? 2 : (MIXED ? 4 : 16);
 #pragma unroll UNROLL
             for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
             {
@@ -256,16 +300,16 @@ namespace mptorch::gemm_cuda
             {
                 int64_t nextK = (t + 1) * BLOCKSIZE;
                 As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (rId < M && nextK + threadCol < K) ? load_a(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
+                    (rId < M && nextK + threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
                 Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (nextK + threadRow < K && cId < N) ? load_b(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
+                    (nextK + threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
             }
             __syncthreads();
         }
 
         // C is dense [batch, M, N], so its own stride needs no argument.
         if (rId < M && cId < N)
-            store_elem(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+            store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
     }
 
     // The launcher the four .cu files instantiate. The stream arrives from
@@ -310,15 +354,15 @@ namespace mptorch::gemm_cuda
     // between them, and all it does is name which policy to build
     // (common/gemm_args.h); the eight entry points that used to spell this out
     // one at a time are now two calls in custom_matmul_entry.cpp.
-    template <class Args>
-    void CudaBackend::launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
+    template <class T, class Args>
+    void CudaBackend::launch_as(const GemmShape &s, const Args &args, const LaunchContext &ctx)
     {
         mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
         {
             constexpr RoundMode RM = decltype(rm_c)::value;
             if constexpr (Args::mixed)
             {
-                args.template with_palette<RM>([&](auto acc, const auto &pal)
+                args.template with_palette<T, RM>([&](auto acc, const auto &pal)
                 {
                     launch_custom_matmul<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a,
                                                s.trans_b, s.batch, s.stride_a, s.stride_b,
@@ -329,7 +373,7 @@ namespace mptorch::gemm_cuda
             }
             else
             {
-                args.template with_accumulator<RM>([&](auto acc)
+                args.template with_accumulator<T, RM>([&](auto acc)
                 {
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
                                          s.batch, s.stride_a, s.stride_b,

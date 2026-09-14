@@ -167,18 +167,40 @@ def get_extensions():
         # nvcc. See dev/gemm_roadmap.md (finding B1).
         extra_compile_args["cxx"].append("-g0")
 
+    # The GEMM's binary64 kernels are eight translation units of their own,
+    # custom_matmul_*_f64.{cu,cpp}, which is most of what computing a float64
+    # GEMM in float64 costs the build. MPTORCH_NO_FP64=1 leaves them out for a
+    # faster iteration build; the GEMM entry points then refuse float64
+    # operands with an error naming the flag (common/dispatch.h). The
+    # elementwise quantizers keep their float64 path either way -- it is
+    # instantiated in place and worth about a second. See
+    # dev/binary64_carrier_plan.md (phase 4).
+    no_fp64 = os.getenv("MPTORCH_NO_FP64", "0") == "1"
+    if no_fp64:
+        print("MPTORCH_NO_FP64=1: building without the float64 GEMM kernels.")
+        extra_compile_args["cxx"].append("-DMPTORCH_NO_FP64=1")
+        extra_compile_args["nvcc"].append("-DMPTORCH_NO_FP64=1")
+
     root = Path(__file__).resolve().parent
     csrc = root / library_name / "csrc"
-    sources = sorted(str(p.relative_to(root)) for p in csrc.glob("*.cpp"))
-    sources += sorted(str(p.relative_to(root)) for p in (csrc / "cpu").glob("*.cpp"))
+
+    def glob(directory: Path, pattern: str) -> list[str]:
+        return sorted(
+            str(p.relative_to(root))
+            for p in directory.glob(pattern)
+            if not (no_fp64 and p.stem.endswith("_f64"))
+        )
+
+    sources = glob(csrc, "*.cpp")
+    sources += glob(csrc / "cpu", "*.cpp")
     if use_cuda:
         # Both, and only under use_cuda: since H1 the CUDA GEMM's entry points
         # and its launch-context draw are .cpp files sitting next to the .cu
         # files they drive, because a .cu that never sees at::Tensor compiles
         # its fixed ATen cost in ~3 s instead of ~25 s. A CPU-only build skips
         # this directory whole, exactly as it always did.
-        sources += sorted(str(p.relative_to(root)) for p in (csrc / "cuda").glob("*.cu"))
-        sources += sorted(str(p.relative_to(root)) for p in (csrc / "cuda").glob("*.cpp"))
+        sources += glob(csrc / "cuda", "*.cu")
+        sources += glob(csrc / "cuda", "*.cpp")
 
     include_dirs = [str(csrc)]
 

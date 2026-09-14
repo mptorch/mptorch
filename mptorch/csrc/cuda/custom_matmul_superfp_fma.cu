@@ -14,15 +14,16 @@
 // custom_matmul_entry.cpp, and what crosses the boundary is a raw-pointer
 // GemmShape plus an Args (common/gemm_args.h), neither of which mentions
 // at::Tensor. These two lines are what put this file's kernels in this
-// object.
+// object -- in binary32; custom_matmul_superfp_fma_f64.cu holds the same two
+// ops' binary64 kernels (dev/binary64_carrier_plan.md, phase 4).
 
 namespace mptorch::gemm_cuda
 {
     using mptorch::gemm::SuperfpFusedArgs;
     using mptorch::gemm::SuperfpFusedMixedArgs;
 
-    template void CudaBackend::launch<SuperfpFusedArgs>(
+    template void CudaBackend::launch_as<float, SuperfpFusedArgs>(
         const GemmShape &, const SuperfpFusedArgs &, const CudaBackend::LaunchContext &);
-    template void CudaBackend::launch<SuperfpFusedMixedArgs>(
+    template void CudaBackend::launch_as<float, SuperfpFusedMixedArgs>(
         const GemmShape &, const SuperfpFusedMixedArgs &, const CudaBackend::LaunchContext &);
 } // namespace mptorch::gemm_cuda

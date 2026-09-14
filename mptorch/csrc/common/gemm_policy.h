@@ -39,28 +39,37 @@
 // Multiplier/Adder stay stateless; only prng_bits (the width of randomness
 // used) is stored here. See dev/gemm_roadmap.md's GEMM stochastic
 // rounding section for the full design.
+//
+// T is the carrier the products, the sums and the casts are computed in
+// (bit_helper.h's FloatTraits): float for a float32, float16 or bfloat16
+// GEMM, double for a float64 one (dev/binary64_carrier_plan.md, phase 4). A
+// binary64 draw is 64 bits, two of the stream's words taken low word first
+// (PhiloxEngine::next64), so an SR K-step consumes twice the words it does in
+// binary32. The binary32 arm is its own `if constexpr` branch, spelled as it
+// was, so the float instantiations are the ones they always were.
 
-template <RoundMode RM>
+template <class T, RoundMode RM>
 struct BinaryKMultiplierT
 {
+    using value_t = T;
     bool is_signed;
     SubnormalsMode subnormals_mode;
     int prng_bits;
-    BinaryKParams params;
+    BinaryKParamsT<T> params;
 
     BinaryKMultiplierT() = default;
     CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT(int man_bits, int exp_bits, int bias, bool is_signed,
                                                SaturationMode saturation_mode,
                                                SubnormalsMode subnormals_mode, int prng_bits = 0)
         : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
-          params(make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
-                                     subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
+          params(make_binaryK_params<T>(man_bits, exp_bits, bias, is_signed, saturation_mode,
+                                        subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, PhiloxEngine &rng) const
     {
-        float x = a * b;
+        T x = a * b;
         if constexpr (RM == RoundMode::RNA)
             return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
         else if constexpr (RM == RoundMode::RU)
@@ -71,32 +80,35 @@ struct BinaryKMultiplierT
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR)
+        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
             return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
+        else if constexpr (RM == RoundMode::SR)
+            return cast_binaryK_stochastic(x, rng.next64(), prng_bits, is_signed, subnormals_mode, params);
         else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
     }
 };
 
-template <RoundMode RM>
+template <class T, RoundMode RM>
 struct SuperfpMultiplierT
 {
+    using value_t = T;
     bool is_signed;
     int prng_bits;
-    SuperfpParams params;
+    SuperfpParamsT<T> params;
 
     SuperfpMultiplierT() = default;
     CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT(int man_bits, int exp_bits, int normal_binades, int bias,
                                                bool is_signed, SaturationMode saturation_mode,
                                                int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float a, float b, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, PhiloxEngine &rng) const
     {
-        float x = a * b;
+        T x = a * b;
         if constexpr (RM == RoundMode::RNA)
             return cast_superfp_nearest_away(x, is_signed, params);
         else if constexpr (RM == RoundMode::RU)
@@ -107,40 +119,40 @@ struct SuperfpMultiplierT
             return cast_superfp_zero(x, is_signed, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        else if constexpr (RM == RoundMode::SR)
+        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
             return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
+        else if constexpr (RM == RoundMode::SR)
+            return cast_superfp_stochastic(x, rng.next64(), prng_bits, is_signed, params);
         else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
     }
 };
-
-template <RoundMode RM>
-using SuperfpMultiplier = SuperfpMultiplierT<RM>;
 
 // ------------------------------------------------------------------------------------
 // Adder policies: quantize a single running-sum update. Used inside a Mac
 // policy (below), either as the "add" half of a split multiply-then-add, or
 // as the single quantizer applied to a fused multiply-add's result.
 
-template <RoundMode RM>
+template <class T, RoundMode RM>
 struct BinaryKAdderT
 {
+    using value_t = T;
     bool is_signed;
     SubnormalsMode subnormals_mode;
     int prng_bits;
-    BinaryKParams params;
+    BinaryKParamsT<T> params;
 
     BinaryKAdderT() = default;
     CUDA_HOST_DEVICE_INLINE BinaryKAdderT(int man_bits, int exp_bits, int bias, bool is_signed,
                                           SaturationMode saturation_mode,
                                           SubnormalsMode subnormals_mode, int prng_bits = 0)
         : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
-          params(make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
-                                     subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
+          params(make_binaryK_params<T>(man_bits, exp_bits, bias, is_signed, saturation_mode,
+                                        subnormals_mode == SubnormalsMode::EXTENDED_NORMALS))
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine &rng) const
     {
         if constexpr (RM == RoundMode::RNA)
             return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
@@ -152,30 +164,33 @@ struct BinaryKAdderT
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR)
+        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
             return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
+        else if constexpr (RM == RoundMode::SR)
+            return cast_binaryK_stochastic(x, rng.next64(), prng_bits, is_signed, subnormals_mode, params);
         else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
     }
 };
 
-template <RoundMode RM>
+template <class T, RoundMode RM>
 struct SuperfpAdderT
 {
+    using value_t = T;
     bool is_signed;
     int prng_bits;
-    SuperfpParams params;
+    SuperfpParamsT<T> params;
 
     SuperfpAdderT() = default;
     CUDA_HOST_DEVICE_INLINE SuperfpAdderT(int man_bits, int exp_bits, int normal_binades, int bias,
                                           bool is_signed, SaturationMode saturation_mode,
                                           int prng_bits = 0)
         : is_signed(is_signed), prng_bits(prng_bits),
-          params(make_superfp_params(man_bits, exp_bits, normal_binades, bias, saturation_mode))
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode))
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine &rng) const
     {
         if constexpr (RM == RoundMode::RNA)
             return cast_superfp_nearest_away(x, is_signed, params);
@@ -187,22 +202,23 @@ struct SuperfpAdderT
             return cast_superfp_zero(x, is_signed, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        else if constexpr (RM == RoundMode::SR)
+        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
             return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
+        else if constexpr (RM == RoundMode::SR)
+            return cast_superfp_stochastic(x, rng.next64(), prng_bits, is_signed, params);
         else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
     }
 };
 
-template <RoundMode RM>
-using SuperfpAdder = SuperfpAdderT<RM>;
-
 // No-op adder: used when only the multiply (Split) or the fused step
 // (Fused) should be quantized and the running sum is meant to otherwise
 // stay in full precision (accumulate_quant=false / fma_quant=false).
+template <class T>
 struct IdentityAdder
 {
-    CUDA_HOST_DEVICE_INLINE float operator()(float x, PhiloxEngine & /*rng*/) const { return x; }
+    using value_t = T;
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine & /*rng*/) const { return x; }
 };
 
 // ------------------------------------------------------------------------------------
@@ -226,13 +242,29 @@ CUDA_HOST_DEVICE_INLINE float fma_f32(float a, float b, float c)
 #endif
 }
 
+CUDA_HOST_DEVICE_INLINE double fma_f64(double a, double b, double c)
+{
+#if defined(__CUDA_ARCH__)
+    return fma(a, b, c);
+#else
+    return std::fma(a, b, c);
+#endif
+}
+
+// Both halves of a mac compute in one carrier, the Adder's. The product and
+// the sum are rounded to the carrier's precision before the format's cast
+// sees them -- 24 bits in binary32, 53 in binary64 -- which is why a float64
+// GEMM of float32 values is not the float32 GEMM's image, unlike the
+// elementwise quantizers: two 24-bit operands have a 48-bit product.
 template <class Multiplier, class Adder>
 struct SplitMac
 {
+    using value_t = typename Adder::value_t;
+
     Multiplier mul{};
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
     {
         return add(acc + mul(a, b, rng), rng);
     }
@@ -241,11 +273,16 @@ struct SplitMac
 template <class Adder>
 struct FusedMac
 {
+    using value_t = typename Adder::value_t;
+
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE float step(float a, float b, float acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
     {
-        return add(fma_f32(a, b, acc), rng);
+        if constexpr (std::is_same_v<value_t, float>)
+            return add(fma_f32(a, b, acc), rng);
+        else
+            return add(fma_f64(a, b, acc), rng);
     }
 };
 
@@ -285,15 +322,19 @@ struct FusedMac
 // through the vectors: the K-loop must be able to keep the base pointers in
 // registers, which it cannot do through a std::vector member the stores in
 // the loop body might alias.
+//
+// The sums are the carrier's (T): a binary64 tile is 8 B a sum.
+template <class T>
 struct NaiveTileView
 {
-    float *__restrict__ sums;
+    T *__restrict__ sums;
     PhiloxEngine *__restrict__ rng;
 };
 
+template <class T>
 struct NaiveTile
 {
-    std::vector<float> sums;
+    std::vector<T> sums;
     std::vector<PhiloxEngine> streams;
 
     // Called once per worker task rather than per tile: the buffers are
@@ -312,9 +353,9 @@ struct NaiveTile
         streams.resize(static_cast<size_t>(n));
     }
 
-    NaiveTileView view() { return {sums.data(), streams.data()}; }
+    NaiveTileView<T> view() { return {sums.data(), streams.data()}; }
 
-    void begin(int64_t n) { std::fill_n(sums.data(), static_cast<size_t>(n), 0.f); }
+    void begin(int64_t n) { std::fill_n(sums.data(), static_cast<size_t>(n), T(0)); }
 
     void seed_rng(int64_t idx, uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
     {
@@ -323,17 +364,18 @@ struct NaiveTile
         e.set_offset(offset);
     }
 
-    float finalize(int64_t idx) const { return sums[static_cast<size_t>(idx)]; }
+    T finalize(int64_t idx) const { return sums[static_cast<size_t>(idx)]; }
 };
 
 template <class Mac>
 struct NaiveAccumulator
 {
     using mac_type = Mac;
-    using tile_type = NaiveTile;
+    using value_t = typename Mac::value_t;
+    using tile_type = NaiveTile<value_t>;
 
     Mac mac{};
-    float sum = 0.f;
+    value_t sum = value_t(0);
     PhiloxEngine rng{};
 
     CUDA_HOST_DEVICE_INLINE void seed_rng(uint64_t seed, uint64_t subsequence, uint64_t offset = 0)
@@ -341,16 +383,16 @@ struct NaiveAccumulator
         rng.reset_state(seed, subsequence);
         rng.set_offset(offset);
     }
-    CUDA_HOST_DEVICE_INLINE void accumulate(float a, float b) { sum = mac.step(a, b, sum, rng); }
-    CUDA_HOST_DEVICE_INLINE float finalize() const { return sum; }
+    CUDA_HOST_DEVICE_INLINE void accumulate(value_t a, value_t b) { sum = mac.step(a, b, sum, rng); }
+    CUDA_HOST_DEVICE_INLINE value_t finalize() const { return sum; }
 
     // Tile form of accumulate(), host-only: the running sum and the SR stream
     // come from the tile, the format policy from `m` -- one shared Mac for
     // the whole call on the single-format path, this element's palette slot
     // on the mixed one. Same expression as the object form above, in the same
     // order, so the two produce identical values.
-    static inline void accumulate(const NaiveTileView &t, int64_t idx, const Mac &m,
-                                  float a, float b)
+    static inline void accumulate(const NaiveTileView<value_t> &t, int64_t idx, const Mac &m,
+                                  value_t a, value_t b)
     {
         t.sums[idx] = m.step(a, b, t.sums[idx], t.rng[idx]);
     }

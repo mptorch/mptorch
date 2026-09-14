@@ -106,7 +106,8 @@ def _check_superfp_palette(
 # has, and the elementwise quantizer's own, whose inputs are already the
 # dtype's values and so reach only the edges of its range -- which is why the
 # second passes `elementwise=True`. A GEMM's multiply format never reaches
-# storage, since its products are binary32 intermediates.
+# storage, since its products are intermediates in the carrier (binary32 for
+# both of these dtypes).
 #
 # This replaces a bound on `man_bits + prng_bits` taken against the storage
 # dtype's mantissa, which described a kernel that rounded in the storage

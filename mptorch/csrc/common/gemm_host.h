@@ -21,10 +21,16 @@
 //   using LaunchContext            -- whatever its kernel needs beyond the
 //                                     shape: an RNG state, a stream.
 //   make_context(use_rng, draws)   -- draws that state on the host.
-//   launch(shape, args, ctx)       -- one call per Args type. On CUDA this is
-//                                     declared here and defined in a .cu (so
-//                                     this ATen-carrying header never reaches
-//                                     nvcc); on CPU it is defined inline.
+//   launch(shape, args, ctx)       -- one call per Args type, which picks the
+//                                     carrier from shape.dt and calls a
+//                                     launch_as<T, Args> that is only declared
+//                                     where this header is included: the
+//                                     kernel headers define it and the
+//                                     custom_matmul_*.cu / .cpp files
+//                                     instantiate it, one carrier per file
+//                                     (so this ATen-carrying header never
+//                                     reaches nvcc, and no object holds both
+//                                     carriers' kernels).
 
 #include "dispatch.h"
 #include "gemm_args.h"
@@ -311,15 +317,27 @@ namespace mptorch::gemm
     void operator()() const {}
   };
 
+  // What one Args::draws_per_k_step draw is in Philox words: one in binary32,
+  // two in binary64 (philox.h's PhiloxEngine::next64).
+  inline uint64_t words_per_draw(mptorch::GemmDtype dt)
+  {
+    return dt == mptorch::GemmDtype::Double ? 2 : 1;
+  }
+
   // ----------------------------------------------------------------------
   // The driver
   // ----------------------------------------------------------------------
   //
   // The order below is the order the sixteen entry points ran in, and is kept
-  // deliberately: the float64 narrowing decides what dtype the output is
-  // allocated as, the empty early-return happens before prec_idx is validated
-  // and before the generator is advanced, and the dtype tag is derived after
-  // the RNG state is drawn. Each of those is observable.
+  // deliberately: the empty early-return happens before prec_idx is validated
+  // and before the generator is advanced. Each of those is observable.
+  //
+  // One step moved when the GEMM gained its binary64 kernels (and the float64
+  // narrowing that stood before the allocation went): the dtype tag is now
+  // derived before the RNG state is drawn rather than after, because a
+  // binary64 draw is two words and the reservation has to know which carrier
+  // it is for. A float call reserves what it always did; the only difference
+  // is that a rejected operand pair no longer advances the generator first.
   template <class Backend, class Args>
   Tensor run_custom_matmul(const char *op_name, const Args &args, Tensor a, Tensor b,
                            bool trans_a, bool trans_b, int64_t accumulate_algorithm,
@@ -333,15 +351,11 @@ namespace mptorch::gemm
     matmul_output_shape(a, b, trans_a, trans_b, op_name, M, K, N, batch, stride_a, stride_b,
                         batched);
 
-    // float64 in, float64 out, narrowed here instead of on every load so the
-    // kernel need not instantiate for double -- same values, see
-    // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
-    const bool widen_f64 = mptorch::narrow_float64(a, b);
     Tensor a_c = a.contiguous();
     Tensor b_c = b.contiguous();
     Tensor c = at::empty(matmul_output_sizes(batch, M, N, batched), a.options());
     if (batch == 0 || M == 0 || N == 0)
-      return mptorch::widen_float64(c, widen_f64);
+      return c;
 
     GemmShape s;
     s.M = M;
@@ -355,16 +369,16 @@ namespace mptorch::gemm
     s.rm = static_cast<RoundMode>(round_mode);
     s.use_rng = (s.rm == RoundMode::SR);
 
-    typename Backend::LaunchContext ctx =
-        Backend::make_context(s.use_rng, Args::draws_per_k_step * static_cast<uint64_t>(K));
-
     s.dt = mptorch::gemm_dtype_of(a_c, b_c, op_name);
+    typename Backend::LaunchContext ctx = Backend::make_context(
+        s.use_rng, Args::draws_per_k_step * words_per_draw(s.dt) * static_cast<uint64_t>(K));
+
     s.a = a_c.data_ptr();
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();
 
     Backend::launch(s, args, ctx);
-    return mptorch::widen_float64(c, widen_f64);
+    return c;
   }
 
   // `make_args` is a factory rather than a ready-made Args because the
@@ -389,12 +403,11 @@ namespace mptorch::gemm
 
     const Args args = make_args();
 
-    const bool widen_f64 = mptorch::narrow_float64(a, b);
     Tensor a_c = a.contiguous();
     Tensor b_c = b.contiguous();
     Tensor c = at::empty(matmul_output_sizes(batch, M, N, batched), a.options());
     if (batch == 0 || M == 0 || N == 0)
-      return mptorch::widen_float64(c, widen_f64);
+      return c;
 
     Tensor pidx;
     GemmShape s;
@@ -413,16 +426,16 @@ namespace mptorch::gemm
     s.rm = static_cast<RoundMode>(round_mode);
     s.use_rng = (s.rm == RoundMode::SR);
 
-    typename Backend::LaunchContext ctx =
-        Backend::make_context(s.use_rng, Args::draws_per_k_step * static_cast<uint64_t>(K));
-
     s.dt = mptorch::gemm_dtype_of(a_c, b_c, op_name);
+    typename Backend::LaunchContext ctx = Backend::make_context(
+        s.use_rng, Args::draws_per_k_step * words_per_draw(s.dt) * static_cast<uint64_t>(K));
+
     s.a = a_c.data_ptr();
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();
 
     Backend::launch(s, args, ctx);
-    return mptorch::widen_float64(c, widen_f64);
+    return c;
   }
 
 

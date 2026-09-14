@@ -467,10 +467,10 @@ def test_raw_matmul_op_rejects_rank_4():
 # The GEMM kernels take their operands as `const void *` plus a runtime dtype
 # tag (finding K2), so the storage dtype is checked once on the host instead of
 # by `data_ptr<scalar_t>()` inside a per-dtype dispatch. That check has to keep
-# rejecting a pair the kernel cannot load as one type. float64 counts as
-# mismatched here on purpose: it is narrowed to float32 only when *both*
-# operands are float64, so that a disagreeing pair is rejected rather than
-# quietly made to agree.
+# rejecting a pair the kernel cannot load as one type. A (float64, float32)
+# pair is one of those: float64 selects the binary64 kernels and the others the
+# binary32 ones, so a disagreeing pair is rejected rather than computed in a
+# carrier one of its operands did not ask for.
 @pytest.mark.parametrize(
     "dtype_a, dtype_b",
     [

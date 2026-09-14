@@ -1,17 +1,19 @@
 #pragma once
 
-// The CPU GEMM kernel and the host-side prologue every entry point repeats --
-// shared by the four custom_matmul_*.cpp translation units that hold the eight
-// entry points themselves. The CUDA twin (cuda/custom_matmul_kernel.cuh) is
-// split the same way and for the same reasons; see its comment and
-// dev/gemm_roadmap.md (finding B2). This file was the build's second-longest
-// TU, 92.7 s of a 111.2 s build (67.1 s compiled on its own, against 30.8 s
-// for the largest of the four that replaced it).
+// The CPU GEMM kernel and CpuBackend::launch_as, which the eight
+// custom_matmul_*.cpp translation units instantiate -- one per (format family
+// x mac mode), in binary32 and again in binary64 (the *_f64.cpp files). The
+// CUDA twin (cuda/custom_matmul_kernel.cuh) is split the same way and for the
+// same reasons; see its comment and dev/gemm_roadmap.md (finding B2). This
+// file was the build's second-longest TU, 92.7 s of a 111.2 s build (67.1 s
+// compiled on its own, against 30.8 s for the largest of the four that
+// replaced it). The entry points are cpu/custom_matmul_entry.cpp, which sees
+// only cpu/gemm_backend.h.
 
 #include "../common/gemm_args.h"
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
-#include "utils.h" // draw_cpu_seed
+#include "gemm_backend.h"
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h> // at::internal::GRAIN_SIZE lives here
 #include <algorithm>
@@ -42,30 +44,33 @@ namespace mptorch::gemm_cpu
   // `off` is this batch element's base offset into the operand, in elements
   // (X1) -- 0 for a 2D call and for an operand broadcast across the batch.
   // Added to the base pointer once per tile, not per element.
-  template <typename scalar_t>
-  void pack_a_impl(const void *A, float *__restrict__ dst, int64_t M, int64_t K, bool trans_a,
+  //
+  // T is the carrier the tile is packed in (common/gemm_policy.h): float for
+  // the three binary32 dtypes, double for float64, whose pack is a copy.
+  template <typename scalar_t, class T>
+  void pack_a_impl(const void *A, T *__restrict__ dst, int64_t M, int64_t K, bool trans_a,
                    int64_t i0, int64_t k0, int64_t ti, int64_t tk, int64_t off)
   {
     const scalar_t *__restrict__ src = static_cast<const scalar_t *>(A) + off;
     for (int64_t i = 0; i < ti; ++i)
       for (int64_t k = 0; k < tk; ++k)
-        dst[i * tk + k] = trans_a ? static_cast<float>(src[(k0 + k) * M + (i0 + i)])
-                                  : static_cast<float>(src[(i0 + i) * K + (k0 + k)]);
+        dst[i * tk + k] = trans_a ? static_cast<T>(src[(k0 + k) * M + (i0 + i)])
+                                  : static_cast<T>(src[(i0 + i) * K + (k0 + k)]);
   }
 
-  template <typename scalar_t>
-  void pack_b_impl(const void *B, float *__restrict__ dst, int64_t K, int64_t N, bool trans_b,
+  template <typename scalar_t, class T>
+  void pack_b_impl(const void *B, T *__restrict__ dst, int64_t K, int64_t N, bool trans_b,
                    int64_t k0, int64_t j0, int64_t tk, int64_t tj, int64_t off)
   {
     const scalar_t *__restrict__ src = static_cast<const scalar_t *>(B) + off;
     for (int64_t k = 0; k < tk; ++k)
       for (int64_t j = 0; j < tj; ++j)
-        dst[k * tj + j] = trans_b ? static_cast<float>(src[(j0 + j) * K + (k0 + k)])
-                                  : static_cast<float>(src[(k0 + k) * N + (j0 + j)]);
+        dst[k * tj + j] = trans_b ? static_cast<T>(src[(j0 + j) * K + (k0 + k)])
+                                  : static_cast<T>(src[(k0 + k) * N + (j0 + j)]);
   }
 
-  template <typename scalar_t>
-  void store_tile_impl(void *C, const float *__restrict__ src, int64_t N,
+  template <typename scalar_t, class T>
+  void store_tile_impl(void *C, const T *__restrict__ src, int64_t N,
                        int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
   {
     scalar_t *__restrict__ dst = static_cast<scalar_t *>(C) + off;
@@ -90,31 +95,61 @@ namespace mptorch::gemm_cpu
     break;                                   \
   }
 
-  inline void pack_a(const void *A, mptorch::GemmDtype dt, float *dst, int64_t M, int64_t K,
+  // The primary templates are binary32's, over its three dtypes; binary64 has
+  // one, so its specializations below are a direct copy. Specializations
+  // rather than an `if constexpr` around the switch, so the binary32 bodies
+  // stay the text they were.
+  template <class T>
+  inline void pack_a(const void *A, mptorch::GemmDtype dt, T *dst, int64_t M, int64_t K,
                      bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk, int64_t off)
   {
-#define MPTORCH_PACK_A(T) pack_a_impl<T>(A, dst, M, K, trans_a, i0, k0, ti, tk, off)
+#define MPTORCH_PACK_A(S) pack_a_impl<S, T>(A, dst, M, K, trans_a, i0, k0, ti, tk, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_A)
 #undef MPTORCH_PACK_A
   }
 
-  inline void pack_b(const void *B, mptorch::GemmDtype dt, float *dst, int64_t K, int64_t N,
+  template <class T>
+  inline void pack_b(const void *B, mptorch::GemmDtype dt, T *dst, int64_t K, int64_t N,
                      bool trans_b, int64_t k0, int64_t j0, int64_t tk, int64_t tj, int64_t off)
   {
-#define MPTORCH_PACK_B(T) pack_b_impl<T>(B, dst, K, N, trans_b, k0, j0, tk, tj, off)
+#define MPTORCH_PACK_B(S) pack_b_impl<S, T>(B, dst, K, N, trans_b, k0, j0, tk, tj, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_B)
 #undef MPTORCH_PACK_B
   }
 
-  inline void store_tile(void *C, mptorch::GemmDtype dt, const float *src, int64_t N,
+  template <class T>
+  inline void store_tile(void *C, mptorch::GemmDtype dt, const T *src, int64_t N,
                          int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
   {
-#define MPTORCH_STORE_TILE(T) store_tile_impl<T>(C, src, N, i0, j0, ti, tj, off)
+#define MPTORCH_STORE_TILE(S) store_tile_impl<S, T>(C, src, N, i0, j0, ti, tj, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_STORE_TILE)
 #undef MPTORCH_STORE_TILE
   }
 
 #undef MPTORCH_GEMM_BY_DTYPE
+
+  template <>
+  inline void pack_a<double>(const void *A, mptorch::GemmDtype, double *dst, int64_t M, int64_t K,
+                             bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk,
+                             int64_t off)
+  {
+    pack_a_impl<double, double>(A, dst, M, K, trans_a, i0, k0, ti, tk, off);
+  }
+
+  template <>
+  inline void pack_b<double>(const void *B, mptorch::GemmDtype, double *dst, int64_t K, int64_t N,
+                             bool trans_b, int64_t k0, int64_t j0, int64_t tk, int64_t tj,
+                             int64_t off)
+  {
+    pack_b_impl<double, double>(B, dst, K, N, trans_b, k0, j0, tk, tj, off);
+  }
+
+  template <>
+  inline void store_tile<double>(void *C, mptorch::GemmDtype, const double *src, int64_t N,
+                                 int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
+  {
+    store_tile_impl<double, double>(C, src, N, i0, j0, ti, tj, off);
+  }
 
   // Cache-tiled MxKxN GEMM: C = op(A) @ op(B), where op(X) = X.T if the
   // corresponding trans flag is set. A/B are always read through their own
@@ -152,6 +187,7 @@ namespace mptorch::gemm_cpu
   {
     constexpr int64_t TI = 32, TJ = 32, TK = 32;
     using Mac = typename Accumulator::mac_type;
+    using T = typename Accumulator::value_t; // the carrier (common/gemm_policy.h)
 
     const int64_t n_tiles_i = (M + TI - 1) / TI;
     const int64_t n_tiles_j = (N + TJ - 1) / TJ;
@@ -204,11 +240,11 @@ namespace mptorch::gemm_cpu
 
       // Packed tiles and the finalized output tile, one set per worker task
       // and reused across every tile it takes: 12 KB of frame against a
-      // conversion per K-step saved. 64-byte aligned so the innermost loop's
-      // reads of b_pack start on a cache line.
-      alignas(64) float a_pack[TI * TK];
-      alignas(64) float b_pack[TK * TJ];
-      alignas(64) float c_pack[TI * TJ];
+      // conversion per K-step saved (24 KB in binary64). 64-byte aligned so
+      // the innermost loop's reads of b_pack start on a cache line.
+      alignas(64) T a_pack[TI * TK];
+      alignas(64) T b_pack[TK * TJ];
+      alignas(64) T c_pack[TI * TJ];
 
       for (int64_t task_id = task_begin; task_id < task_end; ++task_id)
       {
@@ -259,8 +295,8 @@ namespace mptorch::gemm_cpu
           {
             for (int64_t k = 0; k < tk; ++k)
             {
-              const float aVal = a_pack[i * tk + k];
-              const float *__restrict__ b_row = b_pack + k * tj;
+              const T aVal = a_pack[i * tk + k];
+              const T *__restrict__ b_row = b_pack + k * tj;
               for (int64_t j = 0; j < tj; ++j)
               {
                 const int64_t idx = i * tj + j;
@@ -279,53 +315,33 @@ namespace mptorch::gemm_cpu
     });
   }
 
-  // The CPU half of what common/gemm_host.h's driver needs. Its CUDA twin is
-  // split across cuda/gemm_backend.h and the .cu files because a .cu must not
-  // see at::Tensor (finding H1); here there is no such boundary, so the whole
-  // backend is this one struct.
-  struct CpuBackend
+  // One body for all eight ops in either carrier -- the Args names the policy,
+  // and that is the only thing that differed between the eight entry points
+  // this replaced. Declared in cpu/gemm_backend.h.
+  template <class T, class Args>
+  void CpuBackend::launch_as(const GemmShape &s, const Args &args, const LaunchContext &ctx)
   {
-    struct LaunchContext
+    mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
     {
-      uint64_t seed = 0;
-    };
-
-    // No counter to reserve, unlike the CUDA generator: NaiveTile::seed_rng
-    // keys each output element's stream on this one seed plus the element's
-    // global linear index, so a call consumes exactly one draw however many
-    // values its K-reduction goes on to need.
-    static LaunchContext make_context(bool use_rng, uint64_t /*draws_per_thread*/)
-    {
-      return LaunchContext{use_rng ? draw_cpu_seed() : 0};
-    }
-
-    // One body for all eight ops -- the Args names the policy, and that is the
-    // only thing that differed between the eight entry points this replaced.
-    template <class Args>
-    static void launch(const GemmShape &s, const Args &args, const LaunchContext &ctx)
-    {
-      mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+      constexpr RoundMode RM = decltype(rm_c)::value;
+      if constexpr (Args::mixed)
       {
-        constexpr RoundMode RM = decltype(rm_c)::value;
-        if constexpr (Args::mixed)
+        args.template with_palette<T, RM>([&](auto acc, const auto &pal)
         {
-          args.template with_palette<RM>([&](auto acc, const auto &pal)
-          {
-            matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
-                                         s.batch, s.stride_a, s.stride_b,
-                                         acc, s.use_rng, ctx.seed, pal, s.prec_idx,
-                                         s.idx_row_stride, s.idx_col_stride, s.idx_batch_stride);
-          });
-        }
-        else
+          matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                       s.batch, s.stride_a, s.stride_b,
+                                       acc, s.use_rng, ctx.seed, pal, s.prec_idx,
+                                       s.idx_row_stride, s.idx_col_stride, s.idx_batch_stride);
+        });
+      }
+      else
+      {
+        args.template with_accumulator<T, RM>([&](auto acc)
         {
-          args.template with_accumulator<RM>([&](auto acc)
-          {
-            matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
-                                   s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
-          });
-        }
-      });
-    }
-  };
+          matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                 s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
+        });
+      }
+    });
+  }
 } // namespace mptorch::gemm_cpu
