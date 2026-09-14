@@ -9,6 +9,11 @@ itself going in -- so every zero a cast returns has to be made +0.0. The checks
 here are on the sign bit: `-0.0 == 0.0` is true, which is how the value
 comparisons in the rest of the suite let it through (dev/gemm_roadmap.md, T2).
 
+A float64 tensor is rounded in binary64, which has -0.0 just as readily, by
+separate instantiations of the same casts, so the elementwise and GEMM checks
+run again on float64 inputs down to binary64's own subnormals, over formats
+binary32 cannot carry.
+
 The GEMMs get their own tests because a -0.0 reaches their output by another
 route. The running sum starts at +0.0, which absorbs a -0.0 product, so what
 survives is an accumulate step rounding a negative partial sum to zero. On CUDA
@@ -75,6 +80,27 @@ def _probe() -> torch.Tensor:
     return torch.cat([zero, -zero, mags, -mags])
 
 
+def _probe64() -> torch.Tensor:
+    """`_probe` for binary64: +-0, and in every binade from its smallest
+    subnormal up to 2, significands float32 could hold and ones it could not."""
+    sigs = (1.0, 1.25, 1.5 + 2.0**-40, 2.0 - 2.0**-52)
+    mags = torch.tensor([m * 2.0**e for e in range(-1074, 2) for m in sigs], dtype=torch.float64)
+    mags = mags[mags > 0].unique()
+    zero = torch.zeros(1, dtype=torch.float64)
+    return torch.cat([zero, -zero, mags, -mags])
+
+
+BINARYK_FORMATS64 = [
+    (8, 4, None),
+    (6, 1, None),
+    (24, 8, None),
+    (40, 30, None),
+    (63, 53, None),
+    (14, 4, 1019),
+]
+SUPERFP_FORMATS64 = [(3, 4, 1, 7), (0, 4, 1, 7), (20, 10, 1020, 511), (3, 4, 1, 917)]
+
+
 def _negative_zeros(t: torch.Tensor) -> torch.Tensor:
     return (t == 0) & torch.signbit(t)
 
@@ -91,11 +117,13 @@ def _describe(x: torch.Tensor, out: torch.Tensor) -> str:
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
-def test_binaryK_quantize(device, signed, subnormals_mode):
-    x = _probe()
+@pytest.mark.parametrize("carrier", ["binary32", "binary64"])
+def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
+    wide = carrier == "binary64"
+    x = _probe64() if wide else _probe()
     failures = []
     for (K, P, bias), saturation_mode, mode in itertools.product(
-        BINARYK_FORMATS, SaturationMode, RoundMode
+        BINARYK_FORMATS64 if wide else BINARYK_FORMATS, SaturationMode, RoundMode
     ):
         xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
         out = binaryK_quantize(
@@ -103,7 +131,8 @@ def test_binaryK_quantize(device, signed, subnormals_mode):
             K,
             P,
             bias=bias,
-            prng_bits=8 if mode is RoundMode.SR else 0,
+            # binary64 draws from its 52 significand bits, which P = 53 fills
+            prng_bits=(min(8, 52 - (P - 1)) if wide else 8) if mode is RoundMode.SR else 0,
             is_signed=signed,
             rounding_mode=mode,
             saturation_mode=saturation_mode,
@@ -117,11 +146,13 @@ def test_binaryK_quantize(device, signed, subnormals_mode):
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
-def test_superfp_quantize(device, signed):
-    x = _probe()
+@pytest.mark.parametrize("carrier", ["binary32", "binary64"])
+def test_superfp_quantize(device, carrier, signed):
+    wide = carrier == "binary64"
+    x = _probe64() if wide else _probe()
     failures = []
     for (man_bits, exp_bits, normal_binades, bias), saturation_mode, mode in itertools.product(
-        SUPERFP_FORMATS, SaturationMode, RoundMode
+        SUPERFP_FORMATS64 if wide else SUPERFP_FORMATS, SaturationMode, RoundMode
     ):
         xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
         out = superfp_quantize(
@@ -146,8 +177,10 @@ def test_superfp_quantize(device, signed):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float64], ids=str)
 def test_storage_dtypes(device, dtype):
-    # These load into the same float32 cast and store its result back, and -0.0
-    # survives both conversions, so the sign has to come off inside the cast.
+    # float16 and bfloat16 load into the same float32 cast and store its result
+    # back, and -0.0 survives both conversions, so the sign has to come off
+    # inside the cast; float64 is rounded in binary64, whose casts have to take
+    # it off just the same.
     x = _probe().to(dtype)
     failures = []
     for mode in RoundMode:
@@ -190,7 +223,7 @@ GEMM_OPS = [
 ]
 
 
-def _operands(op: str, K: int, device) -> tuple[torch.Tensor, torch.Tensor]:
+def _operands(op: str, K: int, device, dtype=torch.float32) -> tuple[torch.Tensor, torch.Tensor]:
     """Operands whose every output element is s^2 (1 - 1 + 1 - ... + 1 - (1 + d)):
     exactly +0.0 before the last pair and -s^2 d after it, which is below the
     accumulator format's smallest magnitude. The multiply format holds 1 + d, so
@@ -201,7 +234,7 @@ def _operands(op: str, K: int, device) -> tuple[torch.Tensor, torch.Tensor]:
     col[K - 1] = -s * (1 + d)
     a = torch.full((M, K), s)
     b = col[:, None].expand(K, N).contiguous()
-    return a.to(device), b.to(device)
+    return a.to(device, dtype), b.to(device, dtype)
 
 
 def _gemm(op: str, a, b, mode: RoundMode, subnormals_mode: SubnormalsMode) -> torch.Tensor:
@@ -325,10 +358,12 @@ def _gemm_configs(op: str, modes):
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", GEMM_OPS)
-def test_gemm(device, op):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_gemm(device, op, dtype):
     failures = []
     for mode, subnormals_mode, K in _gemm_configs(op, RoundMode):
-        out = _gemm(op, *_operands(op, K, device), mode, subnormals_mode).cpu()
+        out = _gemm(op, *_operands(op, K, device, dtype), mode, subnormals_mode).cpu()
+        assert out.dtype is dtype
         if mode is RoundMode.RZ:
             # Toward zero, every element's sum is a zero -- the case under test.
             assert (out == 0).all(), (subnormals_mode.name, K)
@@ -342,14 +377,16 @@ def test_gemm(device, op):
 
 @requires_cuda
 @pytest.mark.parametrize("op", GEMM_OPS)
-def test_gemm_backends_agree_on_zero(op):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_gemm_backends_agree_on_zero(op, dtype):
     # These calls accumulate in the same order on both backends, so the only
     # thing that could tell them apart is what the CUDA kernel's tile padding
     # adds -- which is +0.0, and so a matter of the zero's sign alone.
     failures = []
+    words = torch.int64 if dtype is torch.float64 else torch.int32
     for mode, subnormals_mode, K in _gemm_configs(op, DETERMINISTIC):
-        cpu = _gemm(op, *_operands(op, K, "cpu"), mode, subnormals_mode)
-        gpu = _gemm(op, *_operands(op, K, "cuda"), mode, subnormals_mode).cpu()
-        if not torch.equal(cpu.view(torch.int32), gpu.view(torch.int32)):
+        cpu = _gemm(op, *_operands(op, K, "cpu", dtype), mode, subnormals_mode)
+        gpu = _gemm(op, *_operands(op, K, "cuda", dtype), mode, subnormals_mode).cpu()
+        if not torch.equal(cpu.view(words), gpu.view(words)):
             failures.append(f"{mode.name} {subnormals_mode.name} K={K}")
     assert not failures, "\n".join(failures)

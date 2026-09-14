@@ -44,7 +44,7 @@ import torch
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize, superfp_quantize
 from tests.markers import available_devices
-from tests.test_binaryk_p3109 import _bias, _max_finite, _round_to_precision, _saturate
+from tests.test_binaryk_p3109 import _project
 
 # 100_003 is prime: neither the float4 body nor any dtype's vector width
 # divides it, so the scalar tail runs on every backend and dtype.
@@ -204,25 +204,6 @@ def _wide_inputs(K, P, bias, signed, device, n=65_536):
     return (x * sign).to(device)
 
 
-def _project(x, K, P, bias, signed, rounding, saturation):
-    """tests/test_binaryk_p3109.py's projection, at a bias of the caller's
-    rather than P3109's default: the largest finite value moves by the
-    difference, a power of two.
-
-    And past float64's own top: the transcription rounds in float64, which has
-    no 2**1024, so an input near float64's largest value that rounds up comes
-    back infinite -- where P3109 has a finite result beyond the format's
-    range, which ``SAT_PROPAGATE`` clamps like any other. float64's largest
-    value stands in for it, beyond every format here."""
-    finite = saturation is SaturationMode.SAT_FINITE
-    hi = math.ldexp(_max_finite(K, P, signed, finite), _bias(K, P, signed) - bias)
-    rounded = _round_to_precision(x, P, bias, rounding)
-    beyond = torch.copysign(torch.full_like(rounded, torch.finfo(torch.float64).max), rounded)
-    rounded = torch.where(torch.isinf(rounded) & torch.isfinite(x), beyond, rounded)
-    projected = _saturate(rounded, saturation, hi, signed)
-    return torch.where(projected == 0, torch.zeros_like(projected), projected)
-
-
 def _raw_binaryK(x, K, P, bias, signed, round_mode, saturation, prng_bits=0):
     return torch.ops.mptorch.binaryK_quant.default(
         x,
@@ -244,7 +225,7 @@ def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, satur
     x = _wide_inputs(K, P, bias, signed, device)
     for round_mode in DETERMINISTIC:
         got = _raw_binaryK(x, K, P, bias, signed, round_mode, saturation)
-        want = _project(x.cpu(), K, P, bias, signed, round_mode, saturation).to(device)
+        want = _project(x.cpu(), K, P, signed, round_mode, saturation, bias).to(device)
         ctx = f"K={K} P={P} bias={bias} {round_mode.name} {saturation.name}"
         _assert_same_words(got, want, ctx)
 
@@ -346,8 +327,8 @@ def test_float64_sr_lands_on_a_neighbour(device, K, P, bias, signed):
     sat = SaturationMode.SAT_FINITE
     got = _raw_binaryK(x, K, P, bias, signed, RoundMode.SR, sat, prng_bits)
     xc = x.cpu()
-    lo = _project(xc, K, P, bias, signed, RoundMode.RD, sat).to(device)
-    hi = _project(xc, K, P, bias, signed, RoundMode.RU, sat).to(device)
+    lo = _project(xc, K, P, signed, RoundMode.RD, sat, bias).to(device)
+    hi = _project(xc, K, P, signed, RoundMode.RU, sat, bias).to(device)
     ok = (got == lo) | (got == hi) | (torch.isnan(got) & torch.isnan(x))
     assert bool(ok.all()), f"{int((~ok).sum())} results are neither neighbour"
     assert not bool(torch.signbit(got[got == 0]).any()), "P3109's zero is unsigned"

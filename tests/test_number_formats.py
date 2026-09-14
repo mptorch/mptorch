@@ -330,6 +330,21 @@ def test_quant_equals_the_flat_quantizer(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
+def test_a_bias_of_zero_is_a_bias(device):
+    """``bias=0`` is a format, not a request for the default: the wrappers used
+    to test ``not bias``, and quantized ``BinaryK(14, 4, bias=0)`` -- the top of
+    binary64's range -- at P3109's bias of 512."""
+    x = torch.tensor([0.0352, 0.3, 3.0], dtype=torch.float64, device=device)
+    raw = torch.ops.mptorch.binaryK_quant.default(x, 14, 4, 0, 0, True, 0, 2, 0)
+    assert torch.equal(binaryK_quantize(x, 14, 4, bias=0), raw)
+    assert torch.equal(Quant(BinaryK(14, 4, bias=0))(x), raw)
+    assert not torch.equal(binaryK_quantize(x, 14, 4), raw)
+    assert _binaryK_spec(mul_K=14, mul_P=4, mul_bias=0, acc_bias=0).args[2] == 0
+    assert _binaryK_spec(mul_K=14, mul_P=4, mul_bias=0, acc_bias=0).args[7] == 0
+    assert _binaryK_fma_spec(fma_K=14, fma_P=4, fma_bias=0).args[3] == 0
+
+
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("carrier", [None, "binary32", "binary64"])
 def test_quant_carrier_is_the_flat_quantizers(device, carrier):
     x = torch.randn(64, device=device, dtype=torch.float64) * 4

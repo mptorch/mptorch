@@ -13,6 +13,12 @@ in every mode -- so ``RU`` and ``RD`` agreed there and ``RD`` rounded away from
 zero. ``reference_casts.h`` carried the same arm, so the exhaustive cast sweeps
 agreed with it and always would; it was ``dev/benchmarks/format_limits.py``,
 which checks the casts against the format's own value set, that found it (T4).
+
+The table runs twice: in binary32, on a format whose floor is well inside it,
+and in binary64 on float64 inputs, at the lowest floor each mode may have
+there -- ``bias + P = 1023`` under ``SUBNORMALS``, ``bias = 1023`` and
+``1022`` for the other two -- where every input below the floor is a binary64
+subnormal.
 """
 
 import math
@@ -30,18 +36,35 @@ K, P, BIAS = 8, 4, 8
 MAN = P - 1
 MIN_EXP = 1 - BIAS
 
+# binary64's lowest floor per mode, for a 14-bit format with P = 4
+K64 = 14
+BIAS64 = {
+    SubnormalsMode.SUBNORMALS: 1023 - P,
+    SubnormalsMode.NORMALS: 1023,
+    SubnormalsMode.EXTENDED_NORMALS: 1022,
+}
 
-def floor_of(subnormals: SubnormalsMode) -> float:
+
+def floor_of(subnormals: SubnormalsMode, bias: int = BIAS, man: int = MAN) -> float:
     """The smallest magnitude the format represents, by mode.
 
     ``EXTENDED_NORMALS``' floor binade keeps its mantissa-zero code for the
     zero, as every binade-zero code is kept, so its values start one step up.
     """
+    min_exp = 1 - bias
     if subnormals is SubnormalsMode.SUBNORMALS:
-        return math.ldexp(1.0, MIN_EXP - MAN)
-    if subnormals is SubnormalsMode.NORMALS:
-        return math.ldexp(1.0, MIN_EXP)
-    return math.ldexp(1.0 + 2.0**-MAN, MIN_EXP - 1)
+        return math.ldexp(1.0, min_exp - man)
+    if subnormals is SubnormalsMode.NORMALS or man == 0:
+        return math.ldexp(1.0, min_exp)
+    return math.ldexp(1.0 + 2.0**-man, min_exp - 1)
+
+
+def _format(dtype, subnormals):
+    """(K, bias, floor) of the format a carrier's table runs on."""
+    if dtype is torch.float64:
+        bias = BIAS64[subnormals]
+        return K64, bias, floor_of(subnormals, bias)
+    return K, BIAS, floor_of(subnormals)
 
 
 # (multiple of the floor, what each mode returns as a multiple of the floor).
@@ -58,21 +81,23 @@ TABLE = [
 ]
 
 
+DTYPES = [torch.float32, torch.float64]
+
+
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("subnormals", list(SubnormalsMode))
 @pytest.mark.parametrize("mode", DETERMINISTIC)
-def test_underflow_is_the_same_rule_in_every_subnormals_mode(device, subnormals, mode):
+def test_underflow_is_the_same_rule_in_every_subnormals_mode(device, dtype, subnormals, mode):
     """Nearest with the tie to zero, the directed modes their direction, odd away."""
-    floor = floor_of(subnormals)
-    x = torch.tensor([f * floor for f in (f for f, _ in TABLE)], dtype=torch.float32, device=device)
-    want = torch.tensor(
-        [want[mode.name] * floor for _, want in TABLE], dtype=torch.float32, device=device
-    )
+    k, bias, floor = _format(dtype, subnormals)
+    x = torch.tensor([f * floor for f in (f for f, _ in TABLE)], dtype=dtype, device=device)
+    want = torch.tensor([want[mode.name] * floor for _, want in TABLE], dtype=dtype, device=device)
     got = binaryK_quantize(
         x,
-        K,
+        k,
         P,
-        bias=BIAS,
+        bias=bias,
         rounding_mode=mode,
         saturation_mode=SaturationMode.OVF_INF,
         subnormals_mode=subnormals,
@@ -81,23 +106,22 @@ def test_underflow_is_the_same_rule_in_every_subnormals_mode(device, subnormals,
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("subnormals", list(SubnormalsMode))
 @pytest.mark.parametrize("mode", DETERMINISTIC)
-def test_underflow_is_signed_the_same_way_below_zero(device, subnormals, mode):
+def test_underflow_is_signed_the_same_way_below_zero(device, dtype, subnormals, mode):
     """The directed modes swap, and the zero stays unsigned whichever side it came from."""
-    floor = floor_of(subnormals)
+    k, bias, floor = _format(dtype, subnormals)
     mirror = {"RNE": "RNE", "RNA": "RNA", "RU": "RD", "RD": "RU", "RZ": "RZ", "RO": "RO"}
-    x = torch.tensor(
-        [-f * floor for f in (f for f, _ in TABLE)], dtype=torch.float32, device=device
-    )
+    x = torch.tensor([-f * floor for f in (f for f, _ in TABLE)], dtype=dtype, device=device)
     want = torch.tensor(
-        [-want[mirror[mode.name]] * floor for _, want in TABLE], dtype=torch.float32, device=device
+        [-want[mirror[mode.name]] * floor for _, want in TABLE], dtype=dtype, device=device
     )
     got = binaryK_quantize(
         x,
-        K,
+        k,
         P,
-        bias=BIAS,
+        bias=bias,
         rounding_mode=mode,
         saturation_mode=SaturationMode.OVF_INF,
         subnormals_mode=subnormals,
@@ -141,18 +165,19 @@ def test_extended_normals_keeps_its_zero_code(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("subnormals", list(SubnormalsMode))
-def test_stochastic_underflow_is_unbiased(device, subnormals):
+def test_stochastic_underflow_is_unbiased(device, dtype, subnormals):
     """SR picks the floor with probability |x| / floor, so the mean is |x|."""
-    floor = floor_of(subnormals)
+    k, bias, floor = _format(dtype, subnormals)
     frac = 0.25
-    x = torch.full((200_000,), frac * floor, dtype=torch.float32, device=device)
+    x = torch.full((200_000,), frac * floor, dtype=dtype, device=device)
     got = binaryK_quantize(
         x,
-        K,
+        k,
         P,
-        bias=BIAS,
-        prng_bits=12,
+        bias=bias,
+        prng_bits=40 if dtype is torch.float64 else 12,
         rounding_mode=RoundMode.SR,
         subnormals_mode=subnormals,
     )
@@ -161,9 +186,10 @@ def test_stochastic_underflow_is_unbiased(device, subnormals):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("subnormals", [SubnormalsMode.NORMALS, SubnormalsMode.EXTENDED_NORMALS])
 @pytest.mark.parametrize(("P", "frac"), [(1, 0.625), (1, 0.75), (2, 0.8125), (4, 0.96875)])
-def test_stochastic_underflow_is_unbiased_off_the_grid(device, subnormals, P, frac):
+def test_stochastic_underflow_is_unbiased_off_the_grid(device, dtype, subnormals, P, frac):
     """The same, for an input the format's grid does not hold.
 
     ``frac * floor`` sits in the grid cell just under the floor, so SR's
@@ -172,21 +198,23 @@ def test_stochastic_underflow_is_unbiased_off_the_grid(device, subnormals, P, fr
     so the floor came out with probability ``P(carry) + P(no carry) * frac``:
     1.0 for 0.75 at ``P = 1``. It asks about the input now, and draws once.
     ``test_stochastic_underflow_is_unbiased`` could not see it: its input is on
-    the grid, where the rounding is exact.
+    the grid, where the rounding is exact. In binary64 the floor is the lowest
+    each mode may have there, a binade higher at ``P = 1`` and under
+    ``EXTENDED_NORMALS``.
     """
-    K, bias = P + 4, 8
-    min_exp = 1 - bias
-    if subnormals is SubnormalsMode.NORMALS or P == 1:
-        floor = math.ldexp(1.0, min_exp)
+    K = P + 4
+    if dtype is torch.float64:
+        bias = 1023 if subnormals is SubnormalsMode.NORMALS and P > 1 else 1022
     else:
-        floor = math.ldexp(1.0 + 2.0 ** -(P - 1), min_exp - 1)
-    x = torch.full((400_000,), frac * floor, dtype=torch.float32, device=device)
+        bias = 8
+    floor = floor_of(subnormals, bias, P - 1)
+    x = torch.full((400_000,), frac * floor, dtype=dtype, device=device)
     got = binaryK_quantize(
         x,
         K,
         P,
         bias=bias,
-        prng_bits=12,
+        prng_bits=40 if dtype is torch.float64 else 12,
         rounding_mode=RoundMode.SR,
         subnormals_mode=subnormals,
     )

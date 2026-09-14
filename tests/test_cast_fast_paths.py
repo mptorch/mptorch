@@ -22,12 +22,19 @@ compare every one of the 2^32 float inputs, and build for the host as well
 since C5 -- but that runs in minutes, not in a test suite, and it compares a
 path against its own build. This compares the two builds against each other.
 
+A float64 tensor is a third pair of builds: binary64 has no fast path on
+either backend, so both run the integer path, instantiated for ``double`` and
+compiled once by g++ and once by nvcc -- and these compare those too, over
+formats binary32 cannot carry.
+
 Elementwise quantization is the right shape for that: it applies the cast and
 nothing else, so a difference is the cast's. A GEMM is not -- its accumulation
 order is the backend's tiling, so its results are not expected to match across
 devices, and tests/test_qmatmul.py checks each backend against a reference
 instead.
 """
+
+import math
 
 import pytest
 import torch
@@ -51,6 +58,9 @@ SIZE = 100_003
 # which, which is make_binaryK_params' business and not this file's.
 BINARYK_FORMATS = [(8, 4), (11, 5), (6, 3), (24, 8)]
 SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7)]
+# binary64's own: precision and exponent fields past binary32's, one on its edge
+BINARYK_FORMATS64 = [(8, 4), (24, 8), (40, 30), (63, 53)]
+SUPERFP_FORMATS64 = [(3, 4, 1, 7), (5, 5, 1, 15), (20, 10, 1020, 511), (40, 8, 254, 127)]
 
 
 def _same_bits(a: torch.Tensor, b: torch.Tensor) -> bool:
@@ -68,7 +78,8 @@ def _same_bits(a: torch.Tensor, b: torch.Tensor) -> bool:
     nan = a.isnan()
     if not torch.equal(nan, b.isnan()):
         return False
-    return torch.equal(a.view(torch.int32)[~nan], b.view(torch.int32)[~nan])
+    words = torch.int64 if a.dtype is torch.float64 else torch.int32
+    return torch.equal(a.view(words)[~nan], b.view(words)[~nan])
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +89,60 @@ def x() -> torch.Tensor:
     body = torch.randn(SIZE - 8) * torch.exp2(torch.randint(-24, 24, (SIZE - 8,)).float())
     edges = torch.tensor([0.0, -0.0, float("inf"), float("-inf"), float("nan"), 1.0, -1.0, 65504.0])
     return torch.cat([body, edges])
+
+
+@pytest.fixture(scope="module")
+def x64() -> torch.Tensor:
+    """float64 inputs spanning binary64: its subnormals, normals from 2**-1022
+    to 2**1023 with 53-bit significands, and 0/inf/NaN and the extremes."""
+    g = torch.Generator().manual_seed(4321)
+    n = SIZE - 10
+    body = (torch.rand(n, dtype=torch.float64, generator=g) + 1.0) * torch.ldexp(
+        torch.ones(n, dtype=torch.float64), torch.randint(-1076, 1024, (n,), generator=g)
+    )
+    body *= torch.where(torch.rand(n, generator=g) < 0.5, -1.0, 1.0).double()
+    fi = torch.finfo(torch.float64)
+    edges = torch.tensor(
+        [0.0, -0.0, math.inf, -math.inf, math.nan, 1.0, -1.0, fi.max, fi.tiny, 5e-324],
+        dtype=torch.float64,
+    )
+    return torch.cat([body, edges])
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
+@pytest.mark.parametrize("K,P", BINARYK_FORMATS64)
+def test_binaryK_quantize_host_matches_device_in_binary64(
+    x64, K, P, rounding_mode, saturation_mode, subnormals_mode
+):
+    kw = dict(
+        K=K,
+        P=P,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+        subnormals_mode=subnormals_mode,
+    )
+    assert _same_bits(binaryK_quantize(x64, **kw), binaryK_quantize(x64.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("man_bits,exp_bits,normal_binades,bias", SUPERFP_FORMATS64)
+def test_superfp_quantize_host_matches_device_in_binary64(
+    x64, man_bits, exp_bits, normal_binades, bias, rounding_mode, saturation_mode
+):
+    kw = dict(
+        man_bits=man_bits,
+        exp_bits=exp_bits,
+        normal_binades=normal_binades,
+        bias=bias,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+    )
+    assert _same_bits(superfp_quantize(x64, **kw), superfp_quantize(x64.cuda(), **kw).cpu())
 
 
 @requires_cuda

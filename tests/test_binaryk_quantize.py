@@ -1,3 +1,6 @@
+import math
+import random
+
 import pytest
 import torch
 from gfloat import RoundMode, Signedness, round_float
@@ -54,6 +57,72 @@ def test_binaryK_vs_gfloat(device, K, dtype, rounding_mode, signedness):
         qx = binaryK_quantize(x, K, P, rounding_mode=rounding_mode[1], is_signed=signedness[1])
 
         assert torch.all(qx == gqx)
+
+
+GFLOAT_MODES = [
+    (RoundMode.TiesToEven, mptorch.number.RoundMode.RNE),
+    (RoundMode.TiesToAway, mptorch.number.RoundMode.RNA),
+    (RoundMode.TowardPositive, mptorch.number.RoundMode.RU),
+    (RoundMode.TowardNegative, mptorch.number.RoundMode.RD),
+    (RoundMode.TowardZero, mptorch.number.RoundMode.RZ),
+    (RoundMode.ToOdd, mptorch.number.RoundMode.RO),
+]
+
+
+def _wide_inputs(K: int, P: int, signed: bool) -> list[float]:
+    """float64 values across a format binary64 carries: random significands at
+    every exponent from three binades under its smallest value to one under
+    its largest finite one (above that gfloat overflows the IEEE 754 way,
+    which tests/test_binaryk_p3109.py covers), and the format's own grid
+    points, an ulp either side of them, and the midpoints between them, at the
+    bottom and the top of the normals and across the subnormal boundary."""
+    exp_bits = K - P if signed else K - P + 1
+    bias = 2 ** (exp_bits - 1)
+    bottom, top = 1 - bias - (P - 1), 2**exp_bits - 1 - bias
+    rng = random.Random(K * 100 + P)
+    out = [
+        math.ldexp(1 + rng.getrandbits(52) / 2**52, rng.randrange(bottom - 3, top))
+        for _ in range(2000)
+    ]
+    for e in (1 - bias, 2 - bias, top - 1):
+        step = e - (P - 1)
+        for code in list(range(2 ** (P - 1), 2 ** (P - 1) + 16)) + list(range(2**P - 16, 2**P)):
+            v = math.ldexp(code, step)
+            half = math.ldexp(2 * code + 1, step - 1)
+            out += [v, math.nextafter(v, math.inf), math.nextafter(v, 0.0), half]
+            out += [math.nextafter(half, math.inf), math.nextafter(half, 0.0)]
+    for code in range(1, 64):  # the subnormals and the boundary to the normals
+        out.append(math.ldexp(code, 1 - bias - (P - 1)))
+    return out + [-v for v in out] if signed else out
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "K, P, signed",
+    # every one inside binary64's bounds at P3109's bias, the last two of each
+    # signedness with ten exponent bits, its most
+    [(16, 8, True), (40, 30, True), (48, 40, True), (62, 52, True), (63, 53, True)]
+    + [(16, 8, False), (39, 30, False), (48, 40, False), (61, 52, False), (62, 53, False)],
+)
+def test_binaryK_vs_gfloat_in_binary64(device, K, P, signed):
+    """A float64 tensor is rounded in binary64, so gfloat -- which rounds a
+    Python float exactly for formats up to 53 bits of precision -- is fed the
+    float64 values themselves, over formats binary32 cannot carry."""
+    exp_bits = K - P if signed else K - P + 1
+    assert 2 ** (exp_bits - 1) + P <= 1023 and 2 ** (exp_bits - 1) - 1 <= 1023
+    fi = format_info_p3109(K, P, signedness=Signedness.Signed if signed else Signedness.Unsigned)
+    values = _wide_inputs(K, P, signed)
+    x = torch.tensor(values, dtype=torch.float64, device=device)
+    for gmode, mode in GFLOAT_MODES:
+        want = torch.tensor([round_float(fi, v, rnd=gmode) for v in values], dtype=torch.float64)
+        got = binaryK_quantize(x, K, P, rounding_mode=mode, is_signed=signed).cpu()
+        bad = got != want
+        if bad.any():
+            i = int(bad.nonzero()[0])
+            raise AssertionError(
+                f"{mode.name}: {int(bad.sum())} differ, e.g. {values[i]!r} -> "
+                f"{got[i].item()!r}, gfloat {want[i].item()!r}"
+            )
 
 
 @pytest.mark.parametrize("device", available_devices)

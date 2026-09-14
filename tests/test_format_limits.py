@@ -314,6 +314,106 @@ def test_top_boundary_is_where_it_was_measured(ok, bad):
         _in(F32, bad)()
 
 
+# --- binary64's edges, where `sweep --carrier binary64 --audit` measured them --
+#
+# The same derivation one carrier wider, rounded in by a float64 tensor. Every
+# `ok` below is a format whose float64 audit found no wrong answer and no lost
+# value, and every `bad` one whose audit found both, a parameter step away.
+
+EXT64 = SubnormalsMode.EXTENDED_NORMALS
+NRM64 = SubnormalsMode.NORMALS
+
+
+@pytest.mark.parametrize(
+    ("ok", "bad"),
+    [
+        # SUBNORMALS: bias + P <= 1023
+        (lambda: BinaryK(14, 4, bias=1019), lambda: BinaryK(14, 4, bias=1020)),
+        # the magnitude compares: bias <= 1023 under NORMALS, 1022 under EXTENDED_NORMALS
+        (
+            lambda: BinaryK(14, 4, bias=1023, subnormals=NRM64),
+            lambda: BinaryK(14, 4, bias=1024, subnormals=NRM64),
+        ),
+        (
+            lambda: BinaryK(14, 4, bias=1022, subnormals=EXT64),
+            lambda: BinaryK(14, 4, bias=1023, subnormals=EXT64),
+        ),
+        # the half-floor exceptions, a binade short: P = 1 in both modes ...
+        (
+            lambda: BinaryK(11, 1, bias=1022, subnormals=NRM64),
+            lambda: BinaryK(11, 1, bias=1023, subnormals=NRM64),
+        ),
+        (
+            lambda: BinaryK(11, 1, bias=1022, subnormals=EXT64),
+            lambda: BinaryK(11, 1, bias=1023, subnormals=EXT64),
+        ),
+        # ... and EXTENDED_NORMALS at binary64's full precision, whose half-floor
+        # needs a 2**-1075 step
+        (
+            lambda: BinaryK(63, 53, bias=1021, subnormals=EXT64),
+            lambda: BinaryK(63, 53, bias=1022, subnormals=EXT64),
+        ),
+        # which one bit less precision, and NORMALS' power-of-two floor, never need
+        (
+            lambda: BinaryK(62, 52, bias=1022, subnormals=EXT64),
+            lambda: BinaryK(62, 52, bias=1023, subnormals=EXT64),
+        ),
+        (
+            lambda: BinaryK(63, 53, bias=1023, subnormals=NRM64),
+            lambda: BinaryK(63, 53, bias=1024, subnormals=NRM64),
+        ),
+        # superfp's supernormal floor, 2**-1021
+        (lambda: SuperFP(3, 4, 1, 917), lambda: SuperFP(3, 4, 1, 918)),
+        # ten exponent bits at P3109's bias, not eleven
+        (lambda: BinaryK(14, 4), lambda: BinaryK(15, 4)),
+    ],
+)
+def test_binary64_bottom_boundary_is_where_it_was_measured(ok, bad):
+    _silent(_in(F64, ok))
+    with pytest.warns(FormatRangeWarning, match="binary64"):
+        _in(F64, bad)()
+
+
+@pytest.mark.parametrize(
+    ("ok", "bad"),
+    [
+        (lambda: BinaryK(14, 4, bias=0), lambda: BinaryK(14, 4, bias=-1)),
+        (lambda: SuperFP(2, 4, 1, -1008), lambda: SuperFP(2, 4, 1, -1009)),
+    ],
+)
+def test_binary64_top_boundary_is_where_it_was_measured(ok, bad):
+    _silent(_in(F64, ok))
+    with pytest.warns(FormatRangeWarning, match="above binary64"):
+        _in(F64, bad)()
+
+
+@pytest.mark.parametrize(
+    ("build", "match"),
+    [
+        (lambda: BinaryK(11, 1, bias=1023, subnormals=NRM64), "tie between two"),
+        (lambda: BinaryK(11, 1, bias=1023, subnormals=EXT64), "tie between two"),
+        (lambda: BinaryK(63, 53, bias=1022, subnormals=EXT64), "round-to-nearest-away"),
+        (lambda: BinaryK(11, 1, bias=1024, subnormals=NRM64), "binary64 exponent field"),
+        (lambda: BinaryK(14, 4, bias=1020), "binary64 exponent field"),
+    ],
+)
+def test_binary64_bottom_warning_names_the_reason(build, match):
+    with pytest.warns(FormatRangeWarning, match=match):
+        _in(F64, build)()
+
+
+def test_binary64_precision_and_stochastic_bits_are_where_they_were_measured():
+    """P = 53 and ``man_bits + prng_bits = 52`` are the last the kernel rounds
+    faithfully; one past either raises when the format is built."""
+    x = torch.ones(4, dtype=F64)
+    _silent(lambda: Quant(BinaryK(63, 53, bias=512))(x))
+    _silent(lambda: Quant(BinaryK(14, 4, bias=512, prng_bits=49), RoundMode.SR)(x))
+    with pytest.raises(ValueError, match="54 bits of precision"):
+        BinaryK(64, 54, bias=512)
+    with pytest.raises(ValueError, match="stochastic-rounding bits"):
+        BinaryK(14, 4, bias=512, prng_bits=50)
+
+
 def test_warning_can_be_filtered():
     """The warning names a category so a caller who means it can silence it."""
     fmt = BinaryK(16, 8)

@@ -618,7 +618,7 @@ def binaryK_quantize(
     raises and points at :class:`mptorch.quant.Quantizer`. See
     :class:`mptorch.quant.Quant` for the format-object spelling.
     """
-    if not bias:
+    if bias is None:
         bias = _binaryK_bias(K, P, is_signed)
     name, narrow = _call_carrier(carrier, x.dtype)
     check_binaryK_carrier(
@@ -753,9 +753,9 @@ def _binaryK_spec(
         acc_K = acc_K or 0
         acc_P = acc_P or 0
 
-    if not mul_bias:
+    if mul_bias is None:
         mul_bias = _binaryK_bias(mul_K, mul_P, mul_is_signed)
-    if accumulate_quant and not acc_bias:
+    if accumulate_quant and acc_bias is None:
         acc_bias = _binaryK_bias(acc_K, acc_P, acc_is_signed)
     elif acc_bias is None:
         acc_bias = 0
@@ -1036,7 +1036,7 @@ def _binaryK_fma_spec(
     carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma`'s format -- see it for the contract."""
-    if not fma_bias:
+    if fma_bias is None:
         fma_bias = _binaryK_bias(fma_K, fma_P, fma_is_signed)
     rounded: list[_Format] = []
     stored: tuple[_Stored, ...] = ()

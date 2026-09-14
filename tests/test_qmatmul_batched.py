@@ -31,7 +31,10 @@ DETERMINISTIC_ROUND_MODES = [
     RoundMode.RO,
 ]
 
-MATMUL_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+MATMUL_DTYPES = [torch.float32, torch.float16, torch.bfloat16, torch.float64]
+# float64 is computed in binary64, by separate kernels, which the batch identity
+# holds for just the same
+TIER3_DTYPES = [torch.float32, torch.float64]
 
 # A near-identity binaryK format: 24 bits of precision in 32, i.e. float32's
 # own, so the only difference from `a @ b` is the reduction order.
@@ -130,64 +133,70 @@ def _loop(fn, a, b, n):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
-def test_tier3_binaryK_batched_equals_loop(device, round_mode):
-    a = torch.randn(4, 33, 40, device=device)
-    b = torch.randn(4, 40, 17, device=device)
+def test_tier3_binaryK_batched_equals_loop(device, dtype, round_mode):
+    a = torch.randn(4, 33, 40, device=device, dtype=dtype)
+    b = torch.randn(4, 40, 17, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=round_mode, **BK)
     got = binaryK_matmul(a, b, **fmt)
     assert torch.equal(got, _loop(lambda x, y: binaryK_matmul(x, y, **fmt), a, b, 4))
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
-def test_tier3_superfp_batched_equals_loop(device, round_mode):
-    a = torch.randn(4, 33, 40, device=device)
-    b = torch.randn(4, 40, 17, device=device)
+def test_tier3_superfp_batched_equals_loop(device, dtype, round_mode):
+    a = torch.randn(4, 33, 40, device=device, dtype=dtype)
+    b = torch.randn(4, 40, 17, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=round_mode, **SFP)
     got = superfp_matmul(a, b, **fmt)
     assert torch.equal(got, _loop(lambda x, y: superfp_matmul(x, y, **fmt), a, b, 4))
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
-def test_tier3_fma_batched_equals_loop(device, round_mode):
-    a = torch.randn(4, 33, 40, device=device)
-    b = torch.randn(4, 40, 17, device=device)
+def test_tier3_fma_batched_equals_loop(device, dtype, round_mode):
+    a = torch.randn(4, 33, 40, device=device, dtype=dtype)
+    b = torch.randn(4, 40, 17, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=round_mode, fma_K=8, fma_P=4)
     got = binaryK_matmul_fma(a, b, **fmt)
     assert torch.equal(got, _loop(lambda x, y: binaryK_matmul_fma(x, y, **fmt), a, b, 4))
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_tier3_shared_operand_equals_loop(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_tier3_shared_operand_equals_loop(device, dtype):
     """A 2D operand rides at stride 0 -- the same values, never expanded."""
-    a = torch.randn(4, 33, 40, device=device)
-    w = torch.randn(40, 17, device=device)
+    a = torch.randn(4, 33, 40, device=device, dtype=dtype)
+    w = torch.randn(40, 17, device=device, dtype=dtype)
     got = binaryK_matmul(a, w, **BK)
     ref = torch.stack([binaryK_matmul(a[i], w, **BK) for i in range(4)])
     assert torch.equal(got, ref)
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_tier3_fold_into_m_equals_loop(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_tier3_fold_into_m_equals_loop(device, dtype):
     """`[..., M, K] @ [K, N]` folds its batch into M, and that is a view.
 
     Bit-identical rather than merely equivalent: an element's SR subsequence
     is `(b*M + row)*N + col` batched and `row' * N + col` folded, with
     `row' = b*M + row`, i.e. the same index.
     """
-    a = torch.randn(5, 12, 40, device=device)
-    w = torch.randn(40, 17, device=device)
+    a = torch.randn(5, 12, 40, device=device, dtype=dtype)
+    w = torch.randn(40, 17, device=device, dtype=dtype)
     got = binaryK_matmul(a, w, **BK)
     ref = torch.stack([binaryK_matmul(a[i], w, **BK) for i in range(5)])
     assert torch.equal(got, ref)
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_tier3_partial_broadcast_equals_loop(device):
-    a = torch.randn(3, 1, 8, 10, device=device)
-    b = torch.randn(2, 10, 6, device=device)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_tier3_partial_broadcast_equals_loop(device, dtype):
+    a = torch.randn(3, 1, 8, 10, device=device, dtype=dtype)
+    b = torch.randn(2, 10, 6, device=device, dtype=dtype)
     got = binaryK_matmul(a, b, **BK)
     assert got.shape == (3, 2, 8, 6)
     for i in range(3):
@@ -196,31 +205,71 @@ def test_tier3_partial_broadcast_equals_loop(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_tier3_1d_promotion_equals_2d_call(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_tier3_1d_promotion_equals_2d_call(device, dtype):
     """The promoted dimension is dropped from the result, not from the math."""
-    v = torch.randn(10, device=device)
-    m = torch.randn(10, 6, device=device)
+    v = torch.randn(10, device=device, dtype=dtype)
+    m = torch.randn(10, 6, device=device, dtype=dtype)
     assert torch.equal(
         binaryK_matmul(v, m, **BK), binaryK_matmul(v.unsqueeze(0), m, **BK).squeeze(0)
     )
-    m2 = torch.randn(6, 10, device=device)
+    m2 = torch.randn(6, 10, device=device, dtype=dtype)
     assert torch.equal(
         binaryK_matmul(m2, v, **BK), binaryK_matmul(m2, v.unsqueeze(-1), **BK).squeeze(-1)
     )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("round_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR])
+def test_tier3_binary64_formats_batched_equal_loop(device, round_mode):
+    """Formats only binary64 carries -- 30 and 40 bits of precision, ten
+    exponent bits -- batched, folded and in a palette, bit for bit."""
+    a = torch.randn(3, 21, 30, device=device, dtype=torch.float64)
+    b = torch.randn(3, 30, 13, device=device, dtype=torch.float64)
+    sr = round_mode is RoundMode.SR
+    fmt: dict[str, Any] = dict(
+        mul_K=40,
+        mul_P=30,
+        mul_bias=512,
+        acc_K=48,
+        acc_P=40,
+        acc_bias=128,
+        mul_prng_bits=20 if sr else 0,
+        acc_prng_bits=10 if sr else 0,
+        rounding_mode=round_mode,
+    )
+
+    def seeded(call):
+        torch.manual_seed(5)
+        return call()
+
+    got = seeded(lambda: binaryK_matmul(a, b, **fmt))
+    assert torch.equal(got[0], seeded(lambda: binaryK_matmul(a[0], b[0], **fmt)))
+    if not sr:
+        assert torch.equal(got, _loop(lambda x, y: binaryK_matmul(x, y, **fmt), a, b, 3))
+    idx = torch.randint(0, 2, (3, 21, 13), device=device)
+    pal: dict[str, Any] = dict(
+        fma_K=[40, 63], fma_P=[30, 53], fma_bias=[512, 512], rounding_mode=round_mode
+    )
+    if not sr:
+        got = binaryK_matmul_fma_mixed(a, b, idx, **pal)
+        ref = torch.stack([binaryK_matmul_fma_mixed(a[i], b[i], idx[i], **pal) for i in range(3)])
+        assert torch.equal(got, ref)
 
 
 # --- stochastic rounding -----------------------------------------------------
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_sr_batch_element_zero_matches_2d_call(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_sr_batch_element_zero_matches_2d_call(device, dtype):
     """Batch element 0 of a batched call is the 2D call, under one seed.
 
     The SR stream is keyed by the output element's global linear index into
     [batch, M, N], so element (0, i, j) draws what the 2D call's (i, j) drew.
     """
-    a = torch.randn(3, 17, 20, device=device)
-    b = torch.randn(3, 20, 11, device=device)
+    a = torch.randn(3, 17, 20, device=device, dtype=dtype)
+    b = torch.randn(3, 20, 11, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=RoundMode.SR, mul_prng_bits=5, acc_prng_bits=5, **BK)
     torch.manual_seed(1234)
     batched = binaryK_matmul(a, b, **fmt)
@@ -230,15 +279,16 @@ def test_sr_batch_element_zero_matches_2d_call(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_sr_every_batch_element_draws_its_own_stream(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_sr_every_batch_element_draws_its_own_stream(device, dtype):
     """No two batch elements share a subsequence.
 
     Two identical batch elements under one seed must not produce identical
     output: if they did, the stream would be keyed on (row, col) alone and the
     batch would be correlated noise.
     """
-    a = torch.randn(1, 24, 32, device=device).expand(2, 24, 32).contiguous()
-    b = torch.randn(1, 32, 24, device=device).expand(2, 32, 24).contiguous()
+    a = torch.randn(1, 24, 32, device=device, dtype=dtype).expand(2, 24, 32).contiguous()
+    b = torch.randn(1, 32, 24, device=device, dtype=dtype).expand(2, 32, 24).contiguous()
     torch.manual_seed(7)
     out = binaryK_matmul(a, b, rounding_mode=RoundMode.SR, mul_prng_bits=5, **BK)
     assert not torch.equal(out[0], out[1])
@@ -251,11 +301,12 @@ def test_sr_every_batch_element_draws_its_own_stream(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_mixed_shared_map_equals_loop(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_mixed_shared_map_equals_loop(device, dtype):
     """A 2D map is shared across the batch -- the palette is a property of the
     layer, not of the sample."""
-    a = torch.randn(3, 20, 24, device=device)
-    b = torch.randn(3, 24, 16, device=device)
+    a = torch.randn(3, 20, 24, device=device, dtype=dtype)
+    b = torch.randn(3, 24, 16, device=device, dtype=dtype)
     idx = torch.randint(0, 2, (20, 16), device=device)
     got = binaryK_matmul_mixed(a, b, idx, **PALETTE)
     ref = torch.stack([binaryK_matmul_mixed(a[i], b[i], idx, **PALETTE) for i in range(3)])
@@ -263,9 +314,10 @@ def test_mixed_shared_map_equals_loop(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_mixed_per_batch_map_equals_loop(device):
-    a = torch.randn(3, 20, 24, device=device)
-    b = torch.randn(3, 24, 16, device=device)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_mixed_per_batch_map_equals_loop(device, dtype):
+    a = torch.randn(3, 20, 24, device=device, dtype=dtype)
+    b = torch.randn(3, 24, 16, device=device, dtype=dtype)
     idx = torch.randint(0, 2, (3, 20, 16), device=device)
     got = binaryK_matmul_mixed(a, b, idx, **PALETTE)
     ref = torch.stack([binaryK_matmul_mixed(a[i], b[i], idx[i], **PALETTE) for i in range(3)])
@@ -336,9 +388,10 @@ def test_mixed_rejects_wrong_batch_map(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_mixed_fma_batched_equals_loop(device):
-    a = torch.randn(3, 20, 24, device=device)
-    b = torch.randn(3, 24, 16, device=device)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_mixed_fma_batched_equals_loop(device, dtype):
+    a = torch.randn(3, 20, 24, device=device, dtype=dtype)
+    b = torch.randn(3, 24, 16, device=device, dtype=dtype)
     idx = torch.randint(0, 2, (3, 20, 16), device=device)
     pal: dict[str, Any] = dict(fma_K=[8, 6], fma_P=[4, 3])
     got = binaryK_matmul_fma_mixed(a, b, idx, **pal)
@@ -347,9 +400,10 @@ def test_mixed_fma_batched_equals_loop(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_mixed_superfp_batched_equals_loop(device):
-    a = torch.randn(3, 20, 24, device=device)
-    b = torch.randn(3, 24, 16, device=device)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_mixed_superfp_batched_equals_loop(device, dtype):
+    a = torch.randn(3, 20, 24, device=device, dtype=dtype)
+    b = torch.randn(3, 24, 16, device=device, dtype=dtype)
     idx = torch.randint(0, 2, (3, 20, 16), device=device)
     pal: dict[str, Any] = dict(
         mul_man_bits=[3, 2], mul_exp_bits=[4, 4], mul_normal_binades=[8, 8], mul_bias=[7, 7]
@@ -363,15 +417,16 @@ def test_mixed_superfp_batched_equals_loop(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
 @pytest.mark.parametrize("shape", [(2, 12, 8), (12, 8)])
-def test_transposed_view_is_values_preserving(device, shape):
+def test_transposed_view_is_values_preserving(device, dtype, shape):
     """`q @ k.mT` sets the kernel's flag instead of materializing the operand.
 
     A values-preserving change or a bug: the kernel reads op(b) either way,
     and SR indexes by output element rather than by operand layout.
     """
-    q = torch.randn(*shape, device=device)
-    k = torch.randn(*shape, device=device)
+    q = torch.randn(*shape, device=device, dtype=dtype)
+    k = torch.randn(*shape, device=device, dtype=dtype)
     assert torch.equal(binaryK_matmul(q, k.mT, **BK), binaryK_matmul(q, k.mT.contiguous(), **BK))
 
 
@@ -387,10 +442,11 @@ def test_transposed_view_does_not_allocate(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_fold_into_m_survives_sr(device):
+@pytest.mark.parametrize("dtype", TIER3_DTYPES)
+def test_fold_into_m_survives_sr(device, dtype):
     """The fold needs no gate of its own: it is the same SR index."""
-    a = torch.randn(4, 9, 20, device=device)
-    w = torch.randn(20, 11, device=device)
+    a = torch.randn(4, 9, 20, device=device, dtype=dtype)
+    w = torch.randn(20, 11, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=RoundMode.SR, mul_prng_bits=5, **BK)
     torch.manual_seed(99)
     folded = binaryK_matmul(a, w, **fmt)

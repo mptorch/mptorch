@@ -30,6 +30,10 @@ SaturationMode carries the domain as well as the saturation: SAT_FINITE is the
 finite domain, the other two the extended one. An unsigned format turns every
 negative input into 0, -infinity included; the paper says so for SatNone, and
 MPTorch reads the other two modes the same way.
+
+Each test runs on float32 inputs, rounded in binary32, and again on float64
+inputs float32 cannot hold, rounded in binary64 -- over formats up to K = 64
+whose top binade binary64 holds.
 """
 
 import math
@@ -120,10 +124,26 @@ def _saturate(z: torch.Tensor, mode: SaturationMode, hi: float, signed: bool) ->
     return torch.where((z > hi) | (z < lo), torch.copysign(torch.full_like(z, math.inf), z), z)
 
 
-def _project(x: torch.Tensor, K: int, P: int, signed: bool, rounding, saturation) -> torch.Tensor:
+def _project(
+    x: torch.Tensor, K: int, P: int, signed: bool, rounding, saturation, bias: int | None = None
+) -> torch.Tensor:
+    """omega-Saturate(omega-RoundToPrecision(x)), at P3109's bias or ``bias``.
+
+    Another bias moves the largest finite value by the difference, a power of
+    two. And rounding is exact in the paper but done in float64 here, which
+    has no 2**1024: a finite input near float64's largest value that rounds up
+    comes back infinite from `_round_to_precision`, where the paper has a
+    finite result beyond the format's range -- which ``SatPropagate`` clamps
+    like any other. float64's largest value stands in for it; it is beyond
+    every format these tests round to.
+    """
     finite = saturation is SaturationMode.SAT_FINITE
-    rounded = _round_to_precision(x, P, _bias(K, P, signed), rounding)
-    projected = _saturate(rounded, saturation, _max_finite(K, P, signed, finite), signed)
+    B = _bias(K, P, signed) if bias is None else bias
+    hi = math.ldexp(_max_finite(K, P, signed, finite), _bias(K, P, signed) - B)
+    rounded = _round_to_precision(x, P, B, rounding)
+    beyond = torch.copysign(torch.full_like(rounded, torch.finfo(torch.float64).max), rounded)
+    rounded = torch.where(torch.isinf(rounded) & torch.isfinite(x), beyond, rounded)
+    projected = _saturate(rounded, saturation, hi, signed)
     # Code point 0 decodes to a zero with no sign.
     return torch.where(projected == 0, torch.zeros_like(projected), projected)
 
@@ -143,6 +163,53 @@ def _inputs(K: int, P: int, signed: bool) -> torch.Tensor:
     ]
     x = torch.tensor(words, dtype=torch.int32).view(torch.float32)
     extremes = torch.tensor([torch.finfo(torch.float32).max, math.inf, math.nan, 1.0, 0.0])
+    x = torch.cat([x, extremes])
+    return torch.cat([x, -x]) if signed else x
+
+
+def _formats64(signed: bool) -> list[tuple[int, int]]:
+    """Formats whose top binade binary64 holds, up to K = 64: every precision
+    of the 3- to 8-bit formats, and wider ones up to binary64's 53 bits."""
+    narrow = [(K, P) for K in range(3, 9) for P in range(1, K if signed else K + 1)]
+    wide = [(16, 8), (16, 11), (24, 13), (32, 24), (40, 30), (48, 40), (56, 45), (63, 53), (64, 53)]
+    return [(K, P) for K, P in narrow + wide if _top_exponent(K, P, signed) <= 1023]
+
+
+def _inputs64(K: int, P: int, signed: bool) -> torch.Tensor:
+    """float64 inputs around the top of the format, three binades either side.
+
+    Per binade, the lowest and highest 64 codes of the format, each at the
+    places rounding decides at -- on the grid, an ulp above, and an ulp below,
+    at and above the midpoint to the next code -- plus 256 random mantissas;
+    and binary64's extremes. Most of them have bits float32 does not.
+    """
+    e_top = _top_exponent(K, P, signed)
+    shift = 52 - (P - 1)  # the mantissa bits below the format's last place
+    full, half = 1 << shift, (1 << shift) >> 1
+    offsets = sorted({o for o in (0, 1, half - 1, half, half + 1, full - 1) if 0 <= o < full})
+    n_codes = 1 << (P - 1)
+    codes = sorted(set(range(min(64, n_codes))) | set(range(max(0, n_codes - 64), n_codes)))
+    mantissas = torch.tensor(
+        sorted({(c << shift) + o for c in codes for o in offsets}), dtype=torch.int64
+    )
+    g = torch.Generator().manual_seed(K * 100 + P)
+    words = []
+    for e in range(max(e_top - 3, -1022), min(e_top + 3, 1023) + 1):
+        man = torch.cat([mantissas, torch.randint(0, 1 << 52, (256,), generator=g)])
+        words.append(((e + 1023) << 52) | man)
+    x = torch.cat(words).view(torch.float64)
+    extremes = torch.tensor(
+        [
+            torch.finfo(torch.float64).max,
+            2.0**1023,
+            3.4028234663852886e38,
+            math.inf,
+            math.nan,
+            1.0,
+            0.0,
+        ],
+        dtype=torch.float64,
+    )
     x = torch.cat([x, extremes])
     return torch.cat([x, -x]) if signed else x
 
@@ -193,10 +260,12 @@ def test_largest_finite_value(device, K, P, signed, saturation_mode, largest):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("saturation_mode", list(SaturationMode))
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
-def test_top_of_range_matches_p3109(device, signed, saturation_mode):
+@pytest.mark.parametrize("carrier", ["binary32", "binary64"])
+def test_top_of_range_matches_p3109(device, carrier, signed, saturation_mode):
     failures = []
-    for K, P in _formats(signed):
-        x = _inputs(K, P, signed)
+    wide = carrier == "binary64"
+    for K, P in _formats64(signed) if wide else _formats(signed):
+        x = _inputs64(K, P, signed) if wide else _inputs(K, P, signed)
         for mode in DETERMINISTIC:
             want = _project(x.double(), K, P, signed, mode, saturation_mode)
             got = binaryK_quantize(
@@ -221,15 +290,25 @@ def test_top_of_range_matches_p3109(device, signed, saturation_mode):
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
-def test_zero_and_far_below_the_smallest_subnormal(device, signed):
+@pytest.mark.parametrize("carrier", ["binary32", "binary64"])
+def test_zero_and_far_below_the_smallest_subnormal(device, carrier, signed):
     # The other end of the range, where the same RoundAway decides between zero
     # and the smallest subnormal: +-0 becomes +0 under every mode, and a nonzero
-    # input far below the grid -- a float32 subnormal included -- becomes +0 or
-    # the smallest subnormal, never anything else.
-    tiny = [0.0, 1.4e-45, 1.0e-40, 2.0**-100, 2.0**-60]
-    x = torch.tensor(tiny + [-v for v in tiny] if signed else tiny, dtype=torch.float32)
+    # input far below the grid -- a subnormal of the carrier included -- becomes
+    # +0 or the smallest subnormal, never anything else.
+    if carrier == "binary64":
+        tiny = [0.0, 5e-324, 1.0e-310, 2.0**-1000, 2.0**-600, 2.0**-160 * (1 + 2.0**-40)]
+        formats = [(8, 4), (8, 3), (6, 1), (16, 8), (32, 24), (40, 30)]
+        dtype = torch.float64
+    else:
+        tiny = [0.0, 1.4e-45, 1.0e-40, 2.0**-100, 2.0**-60]
+        formats = [(8, 4), (8, 3), (6, 3), (5, 2), (6, 1)]
+        dtype = torch.float32
+    x = torch.tensor(tiny + [-v for v in tiny] if signed else tiny, dtype=dtype)
     failures = []
-    for K, P in [(8, 4), (8, 3), (6, 3), (5, 2), (6, 1)]:
+    # a smallest value binary64 places faithfully: bias + P <= 1023, which an
+    # unsigned 40-bit format, with eleven exponent bits, is not
+    for K, P in [(K, P) for K, P in formats if _bias(K, P, signed) + P <= 1023]:
         for mode in DETERMINISTIC:
             want = _project(x.double(), K, P, signed, mode, SaturationMode.OVF_INF)
             got = binaryK_quantize(x.to(device), K, P, is_signed=signed, rounding_mode=mode)
@@ -252,8 +331,19 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
     # result goes through the same omega-Saturate either way: an SR result is
     # the projection of rounding toward zero or of rounding away from it.
     failures = []
-    for K, P in [(8, 4), (8, 3), (6, 3), (5, 2), (5, 1)]:
-        x = _inputs(K, P, signed)
+    for K, P, carrier in [
+        (8, 4, "binary32"),
+        (8, 3, "binary32"),
+        (6, 3, "binary32"),
+        (5, 2, "binary32"),
+        (5, 1, "binary32"),
+        (8, 4, "binary64"),
+        (16, 11, "binary64"),
+        (40, 30, "binary64"),
+        (60, 50, "binary64"),
+    ]:
+        wide = carrier == "binary64"
+        x = _inputs64(K, P, signed) if wide else _inputs(K, P, signed)
         xd = x.double()
         toward = _project(xd, K, P, signed, RoundMode.RZ, saturation_mode)
         up = _project(xd, K, P, signed, RoundMode.RU, saturation_mode)
@@ -263,7 +353,8 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
             x.to(device),
             K,
             P,
-            prng_bits=8,
+            # binary64 draws from its 52 bits, so a P = 51 format still has two
+            prng_bits=min(8, 52 - (P - 1)) if wide else 8,
             is_signed=signed,
             rounding_mode=RoundMode.SR,
             saturation_mode=saturation_mode,
@@ -295,32 +386,56 @@ def test_nan_passes_through_whole(device, signed, saturation_mode):
     # the sign with it, so `nan` came back as `-nan` (or the reverse) depending
     # on how nvcc had inlined the cast. bit_helper.h's flip_sign does that
     # negation on the word instead (T3).
-    nans = torch.tensor(
+    nans32 = torch.tensor(
         [0x7F800001, 0xFF800001, 0x7FC00000, 0xFFC00000, 0x7FFFFFFF, 0xFF812345],
         dtype=torch.int64,
     ).to(torch.int32)
-    x = nans.view(torch.float32).to(device)
+    # the same in float64, and a payload in the low word, which a narrowing
+    # to float32 would have lost
+    nans64 = torch.tensor(
+        [
+            0x7FF0000000000001,
+            0x7FF8000000000000,
+            0x7FFFFFFFFFFFFFFF,
+            0x7FF0000100000000,
+            0x7FF4000000012345,
+            0x7FF8000000000001,
+        ],
+        dtype=torch.int64,
+    )
+    nans64 = torch.cat([nans64, nans64 | torch.tensor(-(2**63), dtype=torch.int64)])
     failures = []
-    for K, P in [(8, 4), (8, 3), (6, 3), (5, 1), (16, 11)]:
+    for (K, P), nans in [
+        ((8, 4), nans32),
+        ((8, 3), nans32),
+        ((6, 3), nans32),
+        ((5, 1), nans32),
+        ((16, 11), nans32),
+        ((8, 4), nans64),
+        ((40, 30), nans64),
+        ((63, 53), nans64),
+    ]:
+        x = nans.view(torch.float32 if nans.dtype is torch.int32 else torch.float64).to(device)
         for mode in DETERMINISTIC + [RoundMode.SR]:
             got = binaryK_quantize(
                 x,
                 K,
                 P,
-                prng_bits=8,
+                prng_bits=min(8, 52 - (P - 1)),
                 is_signed=signed,
                 rounding_mode=mode,
                 saturation_mode=saturation_mode,
             )
-            bits = got.cpu().view(torch.int32)
+            bits = got.cpu().view(nans.dtype)
             # an unsigned format turns every negative input into +0.0, which a
             # negative NaN is not -- it is not negative, it is unordered
             bad = bits != nans
             if bad.any():
                 i = int(bad.nonzero()[0])
+                mask = 0xFFFFFFFF if nans.dtype is torch.int32 else 0xFFFFFFFFFFFFFFFF
                 failures.append(
                     f"Binary{K}p{P}{'s' if signed else 'u'} {mode.name}: "
                     f"{int(bad.sum())} of {len(nans)} NaNs changed, e.g. "
-                    f"{int(nans[i]) & 0xFFFFFFFF:#010x} -> {int(bits[i]) & 0xFFFFFFFF:#010x}"
+                    f"{int(nans[i]) & mask:#x} -> {int(bits[i]) & mask:#x}"
                 )
     assert not failures, "\n".join(failures)
