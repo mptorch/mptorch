@@ -14,14 +14,14 @@ namespace
   // than a function pointer, `IsSigned` is a template parameter, and `p` is a
   // precomputed SuperfpParams. See that function for what each is worth.
   template <typename scalar_t, bool IsSigned, class Cast>
-  void superfp_run(const scalar_t *a, scalar_t *o, int64_t size, const SuperfpParams &p,
-                   Cast cast)
+  void superfp_run(const scalar_t *a, scalar_t *o, int64_t size,
+                   const SuperfpParamsT<carrier_t<scalar_t>> &p, Cast cast)
   {
     quant_kernel(a, o, size,
                  [=](scalar_t x) -> scalar_t
                  {
                    return static_cast<scalar_t>(
-                       cast(static_cast<float>(x), IsSigned, p));
+                       cast(static_cast<carrier_t<scalar_t>>(x), IsSigned, p));
                  });
   }
 
@@ -30,45 +30,45 @@ namespace
                            int exp_bits, int normal_binades, int bias,
                            RoundMode round_mode, SaturationMode saturation_mode)
   {
-    const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
-                                                bias, saturation_mode);
+    const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
+        man_bits, exp_bits, normal_binades, bias, saturation_mode);
 
     switch (round_mode)
     {
     case RoundMode::RNE:
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_nearest_even(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_nearest_even(v, sg, q); });
       break;
 
     case RoundMode::RNA:
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_nearest_away(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_nearest_away(v, sg, q); });
       break;
 
     case RoundMode::RU:
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_up(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_up(v, sg, q); });
       break;
 
     case RoundMode::RD:
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_down(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_down(v, sg, q); });
       break;
 
     case RoundMode::RZ:
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_zero(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_zero(v, sg, q); });
       break;
 
     default: // RO
       superfp_run<scalar_t, IsSigned>(
           a, o, size, p,
-          [](float v, bool sg, const SuperfpParams &q) { return cast_superfp_odd(v, sg, q); });
+          [](auto v, bool sg, const auto &q) { return cast_superfp_odd(v, sg, q); });
       break;
     }
   }
@@ -78,14 +78,14 @@ namespace
                               int man_bits, int exp_bits, int normal_binades, int bias,
                               int prng_bits, uint64_t seed, SaturationMode saturation_mode)
   {
-    const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
-                                                bias, saturation_mode);
+    const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
+        man_bits, exp_bits, normal_binades, bias, saturation_mode);
 
     quant_kernel_sr(a, o, size, seed,
-                    [=](scalar_t x, uint32_t rv) -> scalar_t
+                    [=](scalar_t x, typename FloatTraits<carrier_t<scalar_t>>::word_t rv) -> scalar_t
                     {
                       return static_cast<scalar_t>(cast_superfp_stochastic(
-                          static_cast<float>(x), rv, prng_bits, IsSigned, p));
+                          static_cast<carrier_t<scalar_t>>(x), rv, prng_bits, IsSigned, p));
                     });
   }
 
@@ -95,11 +95,6 @@ Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
                             int64_t bias, int64_t prng_bits, bool is_signed,
                             int64_t round_mode, int64_t saturation_mode)
 {
-  // float64 in, float64 out, narrowed here instead of on every load so the
-  // dispatch below need not instantiate for double -- same values, see
-  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
-  const bool widen_f64 = mptorch::narrow_float64(a);
-
   // see binaryK_quantize_cpu for why the input is made contiguous here
   auto a_c = a.contiguous();
   auto o = empty_like(a_c);
@@ -141,5 +136,5 @@ Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
                        normal_binades_, bias_, prng_bits_, seed, saturation_mode_); });
   }
 
-  return mptorch::widen_float64(o, widen_f64);
+  return o;
 }

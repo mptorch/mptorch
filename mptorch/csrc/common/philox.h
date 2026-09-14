@@ -163,6 +163,15 @@ private:
 // Named scalars and a switch rather than an array, for the reason at the top
 // of this file: an array member read at a runtime index cannot be promoted
 // to registers, and would put the caller's whole frame in local memory.
+//
+// A binary64 element draws a 64-bit word, two of the block's, so a block
+// covers two elements rather than four. The layout is the same rule at
+// either width -- element `j` of a carrier whose word is WPE 32-bit words
+// long takes block `j / (4 / WPE)`, words from `(j % (4 / WPE)) * WPE` on,
+// low word first -- which for binary32 is exactly the `j >> 2`, `j & 3` above,
+// so no float stream moves, and for binary64 is block `j >> 1`, words
+// `2 * (j & 1)` and the one after: one block per double2 vector, as one block
+// is one float4 vector's.
 struct PhiloxBlock
 {
     uint32_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
@@ -180,6 +189,12 @@ struct PhiloxBlock
         default:
             return w3;
         }
+    }
+
+    // Words `k` and `k + 1` as one 64-bit draw, low word first; `k` is 0 or 2.
+    CUDA_HOST_DEVICE_INLINE uint64_t word64(int k) const
+    {
+        return (k & 2) ? ((uint64_t)w3 << 32) | w2 : ((uint64_t)w1 << 32) | w0;
     }
 };
 

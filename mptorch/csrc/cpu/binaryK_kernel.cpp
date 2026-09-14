@@ -38,15 +38,18 @@ namespace
   // All three want the cast inlined into the loop, which the translation
   // unit is too big for at GCC's default --param inline-unit-growth. See
   // setup.py.
+  //
+  // A float64 tensor rounds in binary64: the carrier is carrier_t<scalar_t>,
+  // float for every other dtype, and the arms' closures take it generically.
   template <typename scalar_t, bool IsSigned, class Cast>
   void binaryK_run(const scalar_t *a, scalar_t *o, int64_t size,
-                   SubnormalsMode subnormals_mode, const BinaryKParams &p, Cast cast)
+                   SubnormalsMode subnormals_mode, const BinaryKParamsT<carrier_t<scalar_t>> &p, Cast cast)
   {
     quant_kernel(a, o, size,
                  [=](scalar_t x) -> scalar_t
                  {
                    return static_cast<scalar_t>(
-                       cast(static_cast<float>(x), IsSigned, subnormals_mode, p));
+                       cast(static_cast<carrier_t<scalar_t>>(x), IsSigned, subnormals_mode, p));
                  });
   }
 
@@ -58,7 +61,7 @@ namespace
   {
     const int man_bits = P - 1;
     const int exp_bits = IsSigned ? K - P : K - P + 1;
-    const BinaryKParams p = make_binaryK_params(
+    const BinaryKParamsT<carrier_t<scalar_t>> p = make_binaryK_params<carrier_t<scalar_t>>(
         man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
 
@@ -67,42 +70,42 @@ namespace
     case RoundMode::RNE:
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_nearest_even(v, sg, sm, q); });
       break;
 
     case RoundMode::RNA:
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_nearest_away(v, sg, sm, q); });
       break;
 
     case RoundMode::RU:
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_up(v, sg, sm, q); });
       break;
 
     case RoundMode::RD:
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_down(v, sg, sm, q); });
       break;
 
     case RoundMode::RZ:
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_zero(v, sg, sm, q); });
       break;
 
     default: // RO
       binaryK_run<scalar_t, IsSigned>(
           a, o, size, subnormals_mode, p,
-          [](float v, bool sg, SubnormalsMode sm, const BinaryKParams &q)
+          [](auto v, bool sg, SubnormalsMode sm, const auto &q)
           { return cast_binaryK_odd(v, sg, sm, q); });
       break;
     }
@@ -116,15 +119,15 @@ namespace
   {
     const int man_bits = P - 1;
     const int exp_bits = IsSigned ? K - P : K - P + 1;
-    const BinaryKParams p = make_binaryK_params(
+    const BinaryKParamsT<carrier_t<scalar_t>> p = make_binaryK_params<carrier_t<scalar_t>>(
         man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
 
     quant_kernel_sr(a, o, size, seed,
-                    [=](scalar_t x, uint32_t rv) -> scalar_t
+                    [=](scalar_t x, typename FloatTraits<carrier_t<scalar_t>>::word_t rv) -> scalar_t
                     {
                       return static_cast<scalar_t>(cast_binaryK_stochastic(
-                          static_cast<float>(x), rv, prng_bits, IsSigned,
+                          static_cast<carrier_t<scalar_t>>(x), rv, prng_bits, IsSigned,
                           subnormals_mode, p));
                     });
   }
@@ -136,11 +139,6 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                             int64_t round_mode, int64_t saturation_mode,
                             int64_t subnormals_mode)
 {
-  // float64 in, float64 out, narrowed here instead of on every load so the
-  // dispatch below need not instantiate for double -- same values, see
-  // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
-  const bool widen_f64 = mptorch::narrow_float64(a);
-
   // data_ptr() walks storage linearly, so a non-contiguous input would be
   // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
   // but a direct torch.ops.mptorch.binaryK_quant call need not.
@@ -186,5 +184,5 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                        saturation_mode_, subnormals_mode_); });
   }
 
-  return mptorch::widen_float64(o, widen_f64);
+  return o;
 }

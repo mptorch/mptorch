@@ -18,14 +18,18 @@ namespace
     // normal_binades, bias, ...) ones this used to call, which re-derived the
     // region cutoffs, the rounding masks and the clipping range on every
     // element. See that struct, and finding E3 in dev/gemm_perf_audit.md.
+    // T is the carrier, as there.
     template <typename scalar_t, RoundMode RM>
     struct SuperfpQuantizer
     {
-        SuperfpParams p;
+        using T = carrier_t<scalar_t>;
+        using word_t = typename FloatTraits<T>::word_t;
+
+        SuperfpParamsT<T> p;
         bool is_signed;
         int prng_bits;
 
-        __device__ __forceinline__ float eval(float x_f) const
+        __device__ __forceinline__ T eval(T x_f) const
         {
             if (RM == RoundMode::RNE)
                 return cast_superfp_nearest_even(x_f, is_signed, p);
@@ -42,24 +46,24 @@ namespace
             return x_f;
         }
 
-        __device__ __forceinline__ float eval_sr(float x_f, uint32_t rv) const
+        __device__ __forceinline__ T eval_sr(T x_f, word_t rv) const
         {
             return cast_superfp_stochastic(x_f, rv, prng_bits, is_signed, p);
         }
 
         __device__ __forceinline__ scalar_t scalar(scalar_t x) const
         {
-            return static_cast<scalar_t>(eval(static_cast<float>(x)));
+            return static_cast<scalar_t>(eval(static_cast<T>(x)));
         }
 
-        __device__ __forceinline__ scalar_t scalar_sr(scalar_t x, uint32_t rv) const
+        __device__ __forceinline__ scalar_t scalar_sr(scalar_t x, word_t rv) const
         {
-            return static_cast<scalar_t>(eval_sr(static_cast<float>(x), rv));
+            return static_cast<scalar_t>(eval_sr(static_cast<T>(x), rv));
         }
 
         __device__ __forceinline__ float4 vec(float4 x) const
         {
-            return SIMDTraits<scalar_t>::process(x, [&](float val, int /*idx*/)
+            return SIMDTraits<scalar_t>::process(x, [&](T val, int /*idx*/)
                                                  { return eval(val); });
         }
     };
@@ -84,8 +88,8 @@ namespace
             quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer);
         };
 
-        const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
-                                                    bias, saturation_mode);
+        const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
+            man_bits, exp_bits, normal_binades, bias, saturation_mode);
 
         switch (round_mode)
         {
@@ -123,8 +127,8 @@ namespace
 
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-        const SuperfpParams p = make_superfp_params(man_bits, exp_bits, normal_binades,
-                                                    bias, saturation_mode);
+        const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
+            man_bits, exp_bits, normal_binades, bias, saturation_mode);
         auto quantizer = SuperfpQuantizer<scalar_t, RoundMode::SR>{p, is_signed, prng_bits};
 
         int64_t max_threads = std::max(vec_size, rem_size);
@@ -139,17 +143,12 @@ Tensor superfp_quantize_cuda(
     Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
     int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
-    // float64 in, float64 out, narrowed here instead of on every load so the
-    // dispatch below need not instantiate for double -- same values, see
-    // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
-    const bool widen_f64 = mptorch::narrow_float64(a);
-
     // see binaryK_quantize_cuda for why the input is made contiguous here
     auto a_c = a.contiguous();
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
     if (size == 0)
-        return mptorch::widen_float64(o, widen_f64);
+        return o;
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
     SaturationMode saturation_mode_ = static_cast<SaturationMode>(saturation_mode);
 
@@ -177,5 +176,5 @@ Tensor superfp_quantize_cuda(
                 is_signed, saturation_mode_);
         } });
 
-    return mptorch::widen_float64(o, widen_f64);
+    return o;
 }

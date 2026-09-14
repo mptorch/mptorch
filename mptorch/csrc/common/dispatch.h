@@ -7,29 +7,27 @@
 
 // Type dispatch for the GEMM and elementwise quantize entry points.
 //
-// scalar_t is only ever these kernels' *load/store* type: every one of them
-// converts to float on load (custom_matmul_kernel's tile buffers, the
-// Accumulator and the whole Mac policy chain are float; the elementwise
-// quantizers' eval() takes a float) and converts back on store. So a
-// float64 operand was never computed in double -- it was narrowed on load
-// and widened on store, one element at a time, by a kernel compiled a
-// second time for no numerical gain.
+// The elementwise quantizers dispatch on the storage dtype and round in its
+// carrier (carrier_t, bit_helper.h): binary64 for a float64 tensor, binary32
+// for the other three, whose values binary32 holds. A float64 tensor used to
+// be narrowed to float32 up front instead (finding G6), because every kernel
+// converted to float on load anyway, so a double instantiation computed
+// nothing a float one did not. Rounding in double is what changes that: the
+// input is rounded once, directly, and a format finer or wider than binary32
+// can be reached (dev/binary64_carrier_plan.md, phase 3).
 //
-// Narrowing the tensors up front instead is value-identical (the same
-// double -> float RNE conversion, just done in a cast pass rather than in
-// the load) and lets the dispatch drop at::ScalarType::Double, which is a
-// quarter of the GEMM's 52 kernel instantiations and of the compile time
-// and .nv_fatbin that go with them. See dev/gemm_perf_audit.md (finding G6).
-//
-// The GEMM's half of this -- mptorch::GemmDtype and dispatch_round_mode --
-// moved to common/gemm_dtype.h, which carries no ATen, so the .cu files can
-// name them without paying for <ATen/core/Tensor.h> (finding H1). This header
+// The GEMM still narrows a float64 pair (narrow_float64 below, called from
+// common/gemm_host.h) until it has double kernels of its own (phase 4). Its
+// half of the dispatch -- mptorch::GemmDtype and dispatch_round_mode -- lives
+// in common/gemm_dtype.h, which carries no ATen, so the .cu files can name
+// them without paying for <ATen/core/Tensor.h> (finding H1). This header
 // includes it, so every existing spelling still resolves from here.
-#define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)      \
-  AT_DISPATCH_SWITCH(                                      \
-      TYPE, NAME,                                          \
-      AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
-      AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
+#define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)       \
+  AT_DISPATCH_SWITCH(                                       \
+      TYPE, NAME,                                           \
+      AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)  \
+      AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__) \
+      AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)   \
       AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__))
 
 namespace mptorch
@@ -58,17 +56,9 @@ namespace mptorch
   }
 
 
-  // Companion to MPTORCH_DISPATCH_QUANT_TYPES: narrows float64 operands to
+  // The GEMM's float64 path until phase 4: narrows a float64 operand pair to
   // float32 in place and returns whether the result has to be widened back.
   // Anything else is left untouched.
-  inline bool narrow_float64(at::Tensor &a)
-  {
-    if (a.scalar_type() != at::kDouble)
-      return false;
-    a = a.to(at::kFloat);
-    return true;
-  }
-
   inline bool narrow_float64(at::Tensor &a, at::Tensor &b)
   {
     // Both, so a mismatched pair still reaches the dispatch and is rejected

@@ -490,18 +490,19 @@ def binaryK_quantize(
     Pass it explicitly for a format outside P3109: the OCP 8-bit formats are
     E4M3, ``K=8, P=4, bias=7``, and E5M2, ``K=8, P=3, bias=15``.
 
-    ``x`` may be float32, float64, float16 or bfloat16; the rounding is done
-    on the float32 value and the result is returned in ``x``'s dtype, as a new
-    tensor. A float16 or bfloat16 result is rounded a second time when it is
-    stored, so the format is held against that dtype as well; the inputs are
-    already its values, so only a result at an edge of the format's range can
-    land off its grid, and that warns (see :doc:`/concepts`). NaN inputs pass
-    through, and so
-    do infinities except under ``SaturationMode.SAT_FINITE``, which clamps
-    them. ``prng_bits`` is the number of random bits ``RoundMode.SR`` draws
+    ``x`` may be float32, float64, float16 or bfloat16; a float64 ``x`` is
+    rounded in float64 and the others on their float32 value, and the result
+    is returned in ``x``'s dtype, as a new tensor. The format is held to what
+    float32 can carry whatever the dtype, for now. A float16 or bfloat16
+    result is rounded a second time when it is stored, so the format is held
+    against that dtype as well; the inputs are already its values, so only a
+    result at an edge of the format's range can land off its grid, and that
+    warns (see :doc:`/concepts`). NaN inputs pass through, and so do
+    infinities except under ``SaturationMode.SAT_FINITE``, which clamps them.
+    ``prng_bits`` is the number of random bits ``RoundMode.SR`` draws
     below the target mantissa (ignored by every other mode); the draw is made
-    in the float32 value, so ``P - 1 + prng_bits`` may be at most 23 whatever
-    the dtype.
+    in the value being rounded, and ``P - 1 + prng_bits`` is held to float32's
+    23 whatever the dtype, for now.
 
     Not differentiable: on a tensor that requires grad under grad mode this
     raises and points at :class:`mptorch.quant.Quantizer`. See

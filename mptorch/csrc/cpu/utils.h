@@ -6,6 +6,7 @@
 #include <ATen/Parallel.h>
 #include <cstdint>
 #include <mutex>
+#include <type_traits>
 
 // Elementwise quantization drivers.
 //
@@ -62,9 +63,29 @@ void quant_kernel(const scalar_t *a, scalar_t *o, int64_t size, Quant quant)
 // function of its own index -- which is what keeps the result independent of
 // the thread count and of where at::parallel_for happens to cut the chunks.
 // `seed` comes from draw_cpu_seed() below, once per call.
+//
+// A float64 element rounds in binary64 and draws a 64-bit word: words
+// `2 * (i & 1)` and the next of block `i >> 1`, the layout PhiloxBlock
+// documents and the CUDA kernel uses, so `quant` takes a uint64_t there.
 template <typename scalar_t, class Quant>
 void quant_kernel_sr(const scalar_t *a, scalar_t *o, int64_t size, uint64_t seed, Quant quant)
 {
+  if constexpr (std::is_same_v<scalar_t, double>)
+  {
+    at::parallel_for(0, size, mptorch_cpu::quant_grain_size,
+                     [=](int64_t begin, int64_t end)
+                     {
+                       PhiloxBlock blk;
+                       for (int64_t i = begin; i < end; ++i)
+                       {
+                         if (i == begin || (i & 1) == 0)
+                           blk = philox_block(seed, (uint64_t)(i >> 1), 0);
+                         o[i] = quant(a[i], blk.word64(2 * (int)(i & 1)));
+                       }
+                     });
+  }
+  else
+  {
   at::parallel_for(0, size, mptorch_cpu::quant_grain_size,
                    [=](int64_t begin, int64_t end)
                    {
@@ -76,6 +97,7 @@ void quant_kernel_sr(const scalar_t *a, scalar_t *o, int64_t size, uint64_t seed
                        o[i] = quant(a[i], blk.word((int)(i & 3)));
                      }
                    });
+  }
 }
 
 // One 64-bit seed from ATen's default CPU generator, so torch.manual_seed

@@ -23,15 +23,21 @@ namespace
     //
     // The struct is passed by value as a kernel argument, so it lands in
     // constant memory and every thread's read of it is broadcast and cached.
+    //
+    // A float64 tensor rounds in binary64: T is the carrier (carrier_t), and
+    // it is float for every other dtype, which is the struct this always was.
     template <typename scalar_t, RoundMode RM>
     struct BinaryKQuantizer
     {
-        BinaryKParams p;
+        using T = carrier_t<scalar_t>;
+        using word_t = typename FloatTraits<T>::word_t;
+
+        BinaryKParamsT<T> p;
         bool is_signed;
         SubnormalsMode sub_mode;
         int prng_bits;
 
-        __device__ __forceinline__ float eval(float x_f) const
+        __device__ __forceinline__ T eval(T x_f) const
         {
             if (RM == RoundMode::RNE)
                 return cast_binaryK_nearest_even(x_f, is_signed, sub_mode, p);
@@ -48,37 +54,38 @@ namespace
             return x_f;
         }
 
-        __device__ __forceinline__ float eval_sr(float x_f, uint32_t rv) const
+        __device__ __forceinline__ T eval_sr(T x_f, word_t rv) const
         {
             return cast_binaryK_stochastic(x_f, rv, prng_bits, is_signed, sub_mode, p);
         }
 
         __device__ __forceinline__ scalar_t scalar(scalar_t x) const
         {
-            return static_cast<scalar_t>(eval(static_cast<float>(x)));
+            return static_cast<scalar_t>(eval(static_cast<T>(x)));
         }
 
-        __device__ __forceinline__ scalar_t scalar_sr(scalar_t x, uint32_t rv) const
+        __device__ __forceinline__ scalar_t scalar_sr(scalar_t x, word_t rv) const
         {
-            return static_cast<scalar_t>(eval_sr(static_cast<float>(x), rv));
+            return static_cast<scalar_t>(eval_sr(static_cast<T>(x), rv));
         }
 
         __device__ __forceinline__ float4 vec(float4 x) const
         {
-            return SIMDTraits<scalar_t>::process(x, [&](float val, int /*idx*/)
+            return SIMDTraits<scalar_t>::process(x, [&](T val, int /*idx*/)
                                                  { return eval(val); });
         }
 
     };
 
-    BinaryKParams binaryK_params(int K, int P, int bias, bool is_signed,
-                                 SaturationMode saturation_mode,
-                                 SubnormalsMode subnormals_mode)
+    template <class T>
+    BinaryKParamsT<T> binaryK_params(int K, int P, int bias, bool is_signed,
+                                     SaturationMode saturation_mode,
+                                     SubnormalsMode subnormals_mode)
     {
         const int man_bits = P - 1;
         const int exp_bits = is_signed ? K - P : K - P + 1;
-        return make_binaryK_params(man_bits, exp_bits, bias, is_signed, saturation_mode,
-                                   subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
+        return make_binaryK_params<T>(man_bits, exp_bits, bias, is_signed, saturation_mode,
+                                      subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
     }
 
     template <typename scalar_t>
@@ -102,8 +109,8 @@ namespace
             quant_kernel_all<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer);
         };
 
-        const BinaryKParams p =
-            binaryK_params(K, P, bias, is_signed, saturation_mode, subnormals_mode);
+        const BinaryKParamsT<carrier_t<scalar_t>> p =
+            binaryK_params<carrier_t<scalar_t>>(K, P, bias, is_signed, saturation_mode, subnormals_mode);
 
         switch (round_mode)
         {
@@ -142,8 +149,8 @@ namespace
 
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-        const BinaryKParams p =
-            binaryK_params(K, P, bias, is_signed, saturation_mode, subnormals_mode);
+        const BinaryKParamsT<carrier_t<scalar_t>> p =
+            binaryK_params<carrier_t<scalar_t>>(K, P, bias, is_signed, saturation_mode, subnormals_mode);
         auto quantizer =
             BinaryKQuantizer<scalar_t, RoundMode::SR>{p, is_signed, subnormals_mode, prng_bits};
 
@@ -159,11 +166,6 @@ Tensor binaryK_quantize_cuda(
     Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
     int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
-    // float64 in, float64 out, narrowed here instead of on every load so the
-    // dispatch below need not instantiate for double -- same values, see
-    // common/dispatch.h and dev/gemm_perf_audit.md (finding G6).
-    const bool widen_f64 = mptorch::narrow_float64(a);
-
     // data_ptr() walks storage linearly, so a non-contiguous input would be
     // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
     // but a direct torch.ops.mptorch.binaryK_quant call need not.
@@ -171,7 +173,7 @@ Tensor binaryK_quantize_cuda(
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
     if (size == 0)
-        return mptorch::widen_float64(o, widen_f64);
+        return o;
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
     SubnormalsMode subnormals_mode_ = static_cast<SubnormalsMode>(subnormals_mode);
     SaturationMode saturation_mode_ = static_cast<SaturationMode>(saturation_mode);
@@ -199,5 +201,5 @@ Tensor binaryK_quantize_cuda(
                 saturation_mode_, subnormals_mode_);
         } });
 
-    return mptorch::widen_float64(o, widen_f64);
+    return o;
 }

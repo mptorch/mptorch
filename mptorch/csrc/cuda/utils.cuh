@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <mutex>
 #include <tuple>
+#include <type_traits>
 #include <cuda_runtime.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
@@ -84,10 +85,12 @@ void quant_kernel_all(const scalar_t *__restrict__ a,
 // bandwidth bound. The draws are generated here instead (finding E1 in
 // dev/gemm_perf_audit.md).
 //
-// Element `j` takes word `j & 3` of Philox block `j >> 2`, so its value is a
-// function of its own index and nothing else: independent of block size, of
-// the grid, and of how many elements the dtype packs into a vector, exactly
-// as the tensor of draws was. It is *not* the same value the tensor held --
+// Element `j` takes word `j & 3` of Philox block `j >> 2` -- a float64 element,
+// which rounds in binary64 and draws 64 bits, words `2 * (j & 1)` and the next
+// of block `j >> 1` (see PhiloxBlock) -- so its value is a function of its own
+// index and nothing else: independent of block size, of the grid, and of how
+// many elements the dtype packs into a vector, exactly as the tensor of draws
+// was. It is *not* the same value the tensor held --
 // this is the one change in that document that alters results rather than
 // only their cost.
 template <typename scalar_t, class Quant>
@@ -109,6 +112,27 @@ void quant_kernel_all_sr(const scalar_t *__restrict__ a,
     int64_t idx = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
     int64_t stride = (int64_t)gridDim.x * blockDim.x;
 
+    if constexpr (std::is_same_v<scalar_t, double>)
+    {
+        // binary64: a double2 vector is elements 2i and 2i + 1, which are
+        // block i's two 64-bit draws (PhiloxBlock's layout note), so the lane
+        // is the word and one generate covers the iteration.
+        for (int64_t i = idx; i < vec_size; i += stride)
+        {
+            const int4* a_vec = reinterpret_cast<const int4*>(a);
+            int4 in_i4 = a_vec[i];
+            float4 in = reinterpret_cast<const float4&>(in_i4);
+
+            PhiloxBlock b0 = philox_block(seed, (uint64_t)i, offset);
+            float4 out = SIMDTraits<scalar_t>::process(in, [&](double val, int lane)
+                                                       { return quant.eval_sr(val, b0.word64(2 * lane)); });
+
+            int4 out_i4 = reinterpret_cast<const int4&>(out);
+            reinterpret_cast<int4*>(o)[i] = out_i4;
+        }
+    }
+    else
+    {
     for (int64_t i = idx; i < vec_size; i += stride)
     {
         const int4* a_vec = reinterpret_cast<const int4*>(a);
@@ -116,12 +140,10 @@ void quant_kernel_all_sr(const scalar_t *__restrict__ a,
         float4 in = reinterpret_cast<const float4&>(in_i4);
 
         // The whole iteration's randomness up front: one 10-round generate
-        // for float and double, two for half/bfloat16, which is all the
-        // elements this iteration touches can span. SIMDTraits::process
-        // passes `lane` as a literal, so for the widths whose base index is a
-        // multiple of 4 the word selection folds to a constant; for double it
-        // stays a select over four named registers, which is what PhiloxBlock
-        // holds rather than an array.
+        // for float, two for half/bfloat16, which is all the elements this
+        // iteration touches can span. SIMDTraits::process passes `lane` as a
+        // literal and the base index is a multiple of 4, so the word
+        // selection folds to a constant.
         const int64_t base = (int64_t)i * vec_elems;
         const uint64_t blk = (uint64_t)(base >> 2);
         PhiloxBlock b0 = philox_block(seed, blk, offset);
@@ -142,11 +164,20 @@ void quant_kernel_all_sr(const scalar_t *__restrict__ a,
         int4 out_i4 = reinterpret_cast<const int4&>(out);
         reinterpret_cast<int4*>(o)[i] = out_i4;
     }
+    }
 
     if (idx < rem_size)
     {
         int64_t rem_idx = vec_size * vec_elems + idx;
-        PhiloxBlock b = philox_block(seed, (uint64_t)(rem_idx >> 2), offset);
-        o[rem_idx] = quant.scalar_sr(a[rem_idx], b.word((int)(rem_idx & 3)));
+        if constexpr (std::is_same_v<scalar_t, double>)
+        {
+            PhiloxBlock b = philox_block(seed, (uint64_t)(rem_idx >> 1), offset);
+            o[rem_idx] = quant.scalar_sr(a[rem_idx], b.word64(2 * (int)(rem_idx & 1)));
+        }
+        else
+        {
+            PhiloxBlock b = philox_block(seed, (uint64_t)(rem_idx >> 2), offset);
+            o[rem_idx] = quant.scalar_sr(a[rem_idx], b.word((int)(rem_idx & 3)));
+        }
     }
 }

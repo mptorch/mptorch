@@ -19,6 +19,8 @@ struct SIMDTraits<float>
     }
 };
 
+// The one width whose lanes are not handed to `f` as binary32 values: a double
+// rounds in binary64 (carrier_t, bit_helper.h), so `f` takes the double itself.
 template <>
 struct SIMDTraits<double>
 {
@@ -28,8 +30,8 @@ struct SIMDTraits<double>
     {
         const double2 *in = reinterpret_cast<const double2 *>(&v);
         double2 out;
-        out.x = f(static_cast<float>(in->x), 0);
-        out.y = f(static_cast<float>(in->y), 1);
+        out.x = f(in->x, 0);
+        out.y = f(in->y, 1);
         return *reinterpret_cast<float4 *>(&out);
     }
 };

@@ -272,6 +272,12 @@ constexpr bool float_traits_consistent()
 static_assert(float_traits_consistent<float>(), "FloatTraits<float> disagrees with itself");
 static_assert(float_traits_consistent<double>(), "FloatTraits<double> disagrees with itself");
 
+// The carrier a tensor of scalar type S rounds in: binary64 for a double, and
+// binary32 for everything else -- float, and the half-width types, whose
+// values binary32 holds and whose casts are binary32's.
+template <class S>
+using carrier_t = std::conditional_t<std::is_same_v<S, double>, double, float>;
+
 // The carrier whose word W is. Declared for the two carriers' words only, so a
 // word of any other type -- an `int`, a word of the wrong width -- fails to
 // compile instead of reaching binary32's masks.
