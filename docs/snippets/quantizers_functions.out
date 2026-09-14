@@ -7,10 +7,13 @@ torch.float64  torch.float64 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 
+1.0625 + 2**-30: 1.125 in binary64, 1.0 in binary32
+
 E5M2, RU, of 60000: 65536.0 in float32, inf in float16
 FormatRangeWarning: BinaryK(K=8, P=3, bias=15) reaches past float16's largest finite value, which is not on the format's grid: a float16 input near it rounds up out of float16's range and is stored as infinity, whatever the saturation mode
 
-ValueError: BinaryK(K=8, P=4, bias=8) asks for 21 stochastic-rounding bits below a 3-bit mantissa; they are drawn from the binary32 significand the rounding happens in, which has 23 bits to share
+float64, 3 + 21 bits: [1.5, -0.28125, -2.0, 0.5625, -1.125, -1.375]
+bfloat16: ValueError: BinaryK(K=8, P=4, bias=8) asks for 21 stochastic-rounding bits below a 3-bit mantissa; they are drawn from the binary32 significand the rounding happens in, which has 23 bits to share. A float64 tensor's carrier, binary64, holds all of it.
 CPU == CUDA under RNE: True
 CPU == CUDA under RZ: True
 CPU == CUDA under RO: True

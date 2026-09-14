@@ -34,85 +34,106 @@ formats, computing in float32 and rounding once gives the correctly-rounded
 result of the simulated operation -- the same number a machine working
 natively in :math:`F` would produce.
 
-What float32 can carry
-~~~~~~~~~~~~~~~~~~~~~~
+What the carrier can hold
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-"Far more" is true of every format in this guide, but it is a bound on the
-parameters rather than a fact about all of them. A format outside the bound is
-quantized *partially*: the result is still a tensor of plausible numbers, and
-some of the format's values are simply never among them. Three limits, in the
-format's own terms:
+The float arithmetic a tensor is computed and rounded in is its *carrier*:
+binary64 for a float64 tensor, and binary32 for float32, float16 and bfloat16.
+"Far more" precision and range is true of every format in this guide, but it
+is a bound on the parameters rather than a fact about all of them, and the
+bound is the carrier's. A format outside it is quantized *partially*: the
+result is still a tensor of plausible numbers, and some of the format's values
+are simply never among them. Three limits, in the format's own terms, with
+binary64's in parentheses:
 
-* **Precision.** :math:`P \le 24` for :class:`~mptorch.BinaryK`,
-  ``man_bits <= 23`` for :class:`~mptorch.SuperFP` -- float32 has 24
-  significand bits and cannot hold a finer grid. The bounds on this page are
-  checked for a float64 operand too: the quantizers and the GEMM round it in
-  float64, but for now they hold it to float32's bounds.
-* **The top.** The largest finite value must be at most float32's, which is
-  ``bias >= 2**exp_bits - 128``. Above that the cast saturates at float32's
-  largest value on the format's grid, and the codes over it are unreachable.
-* **The bottom.** A float32 subnormal's exponent field is 0 whatever its
-  magnitude, so any part of a cast that reads that field is blind below
-  :math:`2^{-126}` -- and which parts do is what sets the limit. BinaryK's
-  subnormals and SuperFP's supernormals are both placed on their grid *by*
-  that field, so their smallest value must be at least :math:`2^{-125}`, a
-  binade clear of it: :math:`\text{bias} + P \le 127` for the first, and
+* **Precision.** :math:`P \le 24` (53) for :class:`~mptorch.BinaryK`,
+  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP` -- the carrier's
+  significand bits, and it cannot hold a finer grid.
+* **The top.** The largest finite value must be at most the carrier's, which
+  is ``bias >= 2**exp_bits - 128`` (``- 1024``). Above that the cast saturates
+  at the carrier's largest value on the format's grid, and the codes over it
+  are unreachable.
+* **The bottom.** A subnormal's exponent field is 0 whatever its magnitude, so
+  any part of a cast that reads that field is blind below the carrier's
+  smallest normal, :math:`2^{-126}` (:math:`2^{-1022}`) -- and which parts do
+  is what sets the limit. BinaryK's subnormals and SuperFP's supernormals are
+  both placed on their grid *by* that field, so their smallest value must be
+  at least :math:`2^{-125}` (:math:`2^{-1021}`), a binade clear of it:
+  :math:`\text{bias} + P \le 127` (1023) for the first, and
   :math:`\text{normal\_cutoff} - (2^{\text{exp\_bits}} - b)\,2^{\text{man\_bits}} + 1 \ge -125`
-  for the second. The two non-P3109 subnormal modes decide their bottom by
-  comparing magnitudes instead, which reads no field, so ``NORMALS`` and
-  ``EXTENDED_NORMALS`` are exact down to :math:`2^{-126}` -- and no further,
-  because below that the floor leaves float32's normals and nothing flushes at
-  all. Two of their formats stop a binade short, at :math:`2^{-125}`, because
-  the compare also needs half the floor and float32 cannot place it there: at
-  :math:`P = 1` the rounding ahead of the compare works on the exponent field
-  and reads :math:`2^{-127}` as a tie between binades, and an
-  ``EXTENDED_NORMALS`` format with :math:`P = 24` has a half-floor finer than
-  float32's spacing.
+  (:math:`-1021`) for the second. The two non-P3109 subnormal modes decide
+  their bottom by comparing magnitudes instead, which reads no field, so
+  ``NORMALS`` and ``EXTENDED_NORMALS`` are exact down to the smallest normal
+  -- and no further, because below that the floor leaves the carrier's
+  normals and nothing flushes at all. Two of their formats stop a binade
+  short, because the compare also needs half the floor and the carrier cannot
+  place it there: at :math:`P = 1` the rounding ahead of the compare works on
+  the exponent field and reads :math:`2^{-127}` (:math:`2^{-1023}`) as a tie
+  between binades, and an ``EXTENDED_NORMALS`` format at the carrier's full
+  precision, :math:`P = 24` (53), has a half-floor finer than its spacing.
 
-Together the last two say a simulated format may span at most 253 binades, so
-**seven exponent bits is the most either family can carry** -- at P3109's
-default bias, :math:`K - P \le 7` for a signed BinaryK and :math:`K - P \le 6`
-for an unsigned one. Every format named in this guide is well inside all
-three; ``Binary16p8``, which P3109 does define, is not.
+Together the last two say a simulated format may span at most 253 binades
+(2045), so **seven exponent bits is the most either family can carry in
+binary32, and ten in binary64** -- at P3109's default bias, :math:`K - P \le 7`
+(10) for a signed BinaryK and :math:`K - P \le 6` (9) for an unsigned one.
+Every format named in this guide is well inside binary32's bounds;
+``Binary16p8``, which P3109 does define, is inside binary64's only.
 
-:class:`~mptorch.BinaryK` and :class:`~mptorch.SuperFP` check all three when
-they are built, and so do the plain-integer wrappers of :doc:`quantizers` and
-:doc:`gemm`, which never see a format object -- one rule, so
-``binaryK_matmul(a, b, mul_K=16, mul_P=8)`` says what ``BinaryK(16, 8)`` says.
-What separates the two severities is not which limit is missed but whether the
-format still works:
+Which carrier a format meets belongs to the tensor, not to the format, so the
+limits are checked on every call, against the carrier that call rounds in --
+by the quantizers of :doc:`quantizers`, the GEMMs of :doc:`gemm` and the
+layers built on them. :class:`~mptorch.BinaryK` and :class:`~mptorch.SuperFP`
+check only what neither carrier can do when they are built, and the
+plain-integer wrappers, which never see a format object, check the same when
+they resolve one -- one rule, so ``binaryK_matmul(a, b, mul_K=16, mul_P=8)``
+says what ``qmatmul(a, b, BinaryK(16, 8))`` says. What separates the two
+severities is not which limit is missed but whether the format still works:
 
-* a format whose **range** outruns binary32 -- above its largest finite value,
-  spaced finer than :math:`2^{-149}`, or with a smallest value below whichever
-  floor the bullet above gives it -- warns with :class:`~mptorch.FormatRangeWarning`. It quantizes correctly over
-  the part binary32 holds, and some of its values are simply never returned. A
-  wide BinaryK used as a precision-only target is exactly this, so the warning
-  can be silenced with :func:`warnings.simplefilter` when that is what is
-  meant.
-* a format that **cannot function** raises :exc:`ValueError`: more than 24 bits
-  of precision, stochastic-rounding bits with no significand left to draw from,
-  an exponent field wider than the kernels shift by, a SuperFP whose
-  ``normal_binades`` leaves no supernormal codes, or a format whose largest
-  finite value is below binary32's normals, where every nonzero result
-  overflows.
+* a format whose **range** outruns the carrier -- above its largest finite
+  value, spaced finer than its smallest subnormal (:math:`2^{-149}`,
+  :math:`2^{-1074}`), or with a smallest value below whichever floor the
+  bullet above gives it -- warns with :class:`~mptorch.FormatRangeWarning`,
+  naming the line that made the call. It quantizes correctly over the part
+  the carrier holds, and some of its values are simply never returned. A wide
+  BinaryK used as a precision-only target is exactly this, so the warning can
+  be silenced with :func:`warnings.simplefilter` when that is what is meant.
+* a format that **cannot function** raises :exc:`ValueError`: more precision
+  than the carrier's, stochastic-rounding bits with no significand left to
+  draw from, an exponent field wider than the kernels shift by, a SuperFP
+  whose ``normal_binades`` leaves no supernormal codes, or a format whose
+  largest finite value is below the carrier's normals, where every nonzero
+  result overflows.
 
 .. code-block:: python
 
-   BinaryK(16, 11)          # fine
-   BinaryK(16, 8)           # FormatRangeWarning: smallest value is 2**-134
-   BinaryK(24, 8)           # FormatRangeWarning: reaches 2**32767 -- usable,
-                            #   but only as a precision-only target
-   BinaryK(29, 25, bias=8)  # ValueError: 25 bits of precision
+   x = torch.randn(64)           # rounded in binary32
+   x64 = x.double()              # rounded in binary64
 
-``dev/benchmarks/format_limits.py`` reports all of this for a given format,
-and with ``--audit`` checks the kernels against the format's value set to say
-so.
+   Quant(BinaryK(16, 11))(x)            # fine
+   Quant(BinaryK(16, 8))(x)             # FormatRangeWarning: smallest value is 2**-134
+   Quant(BinaryK(16, 8))(x64)           # fine: binary64 holds all of it
+   Quant(BinaryK(24, 8))(x64)           # FormatRangeWarning: reaches 2**32767 -- usable,
+                                        #   but only as a precision-only target
+   Quant(BinaryK(29, 25, bias=8))(x)    # ValueError: 25 bits of precision
+   Quant(BinaryK(29, 25, bias=8))(x64)  # fine
+   BinaryK(60, 54)                      # ValueError: 54 bits, more than either carrier has
+
+A float64 tensor can still be computed in binary32, as it was before float64
+had a carrier of its own: pass ``carrier="binary32"`` to a quantizer, a GEMM,
+a :class:`~mptorch.quant.Quant` or a :class:`~mptorch.quant.SplitMac` /
+:class:`~mptorch.quant.FusedMac`, and the operands are narrowed to float32,
+rounded with float32's bounds and widened back. ``carrier="binary64"`` insists
+on float64 operands instead.
+
+``dev/benchmarks/format_limits.py`` reports all of this for a given format in
+binary32, and with ``--audit`` checks the kernels against the format's value
+set to say so.
 
 What float16 and bfloat16 can store
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A float16 or bfloat16 tensor is rounded in float32 as well, and the result is
-converted back when it is stored. That conversion is a second rounding, onto
+A float16 or bfloat16 tensor is rounded in binary32, its carrier, and the
+result is converted back when it is stored. That conversion is a second rounding, onto
 the dtype's grid, so a format whose results are not all values of the dtype is
 quantized partially in the same way -- with one difference worth knowing: a
 result above the dtype's largest finite value is stored as :math:`\pm\infty`
@@ -140,8 +161,8 @@ A SuperFP is held to the same three, in its own parameters. For bfloat16 only
 the precision is new: its range is float32's to within its precision, so a
 format that passes the float32 checks with at most eight bits of precision is
 inside it at both ends. A SplitMac's multiply format is never stored -- its
-products are float32 intermediates -- and a step left unrounded stores no
-format's values at all.
+products are intermediates in the carrier -- and a step left unrounded stores
+no format's values at all.
 
 **An elementwise quantizer's result** is the format's answer to a value that
 is already the dtype's. Wherever the format is at least as fine as the dtype
@@ -349,9 +370,10 @@ In MPTorch this shows in two places:
   stays finite where the dtype would store :math:`\pm\infty`, and :math:`-0.0`
   comes back as :math:`+0.0`.
 - The range checks flag these formats. ``BinaryK(16, 8, bias=127)`` and
-  ``BinaryK(32, 24, bias=127)`` reach :math:`2^{128}` and warn, when built,
-  that they outrun float32. ``Binary16p8`` and ``Binary32p24`` warn about
-  their bottom, for the reason `What float32 can carry`_ gives. And
+  ``BinaryK(32, 24, bias=127)`` reach :math:`2^{128}` and warn, on a float32
+  tensor, that they outrun binary32. ``Binary16p8`` and ``Binary32p24`` warn
+  about their bottom there, for the reason `What the carrier can hold`_ gives.
+  A float64 tensor holds all four. And
   ``BinaryK(16, 11, bias=15)``, as the format a GEMM's result holds over
   float16 operands, warns that it reaches past float16
   (`What float16 and bfloat16 can store`_).
@@ -598,10 +620,9 @@ ignored by every other rounding mode. Two practical constraints follow from
 where the bits are drawn: with ``prng_bits=0`` there is nothing random and
 ``SR`` degenerates into ``RZ`` (the ``SR`` row above, from a format with no
 random bits, is identical to the ``RZ`` row); and the format's mantissa plus
-its random bits must fit in float32's 23 mantissa bits, whatever the tensor's
-dtype -- which the quantizer checks. (A float64 operand is rounded, and its
-bits drawn, in float64; it is held to float32's 23 bits for now all the
-same.)
+its random bits must fit in the carrier's mantissa -- 23 bits in binary32, 52
+in binary64 -- which each call checks. A float64 operand is rounded, and its
+bits drawn, in binary64, two random words per draw.
 
 The random streams are seeded from PyTorch's default generator, so
 ``torch.manual_seed`` makes a stochastic run reproducible. In a GEMM each

@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 import pytest
 import torch
@@ -15,7 +16,7 @@ from tests.markers import available_devices
 # (2**-18 .. 2**-4), a 32-codepoint normal grid (0.125 .. 1.75 in steps of
 # 2**e / 4), and zero. That makes it a convenient, independently-understood
 # oracle for hand-derived expected values below.
-CFG = {"man_bits": 2, "exp_bits": 3, "normal_binades": 4, "bias": 7}
+CFG: dict[str, Any] = {"man_bits": 2, "exp_bits": 3, "normal_binades": 4, "bias": 7}
 SMALLEST_SUPERNORMAL = 2.0**-18  # 3.814697265625e-06
 HALF_SMALLEST = 2.0**-19  # 1.9073486328125e-06, the underflow/supernormal tie boundary
 
@@ -246,7 +247,7 @@ def test_underflow_boundary(device, value, mode, expected):
 # supernormal region since man_bits==0 makes this grid power-of-two spaced
 # too). 5.0 is not a tie, but RO still forces the bump to 8.0 because 4.0's
 # stored exponent parity (target_exp + bias = 2 + 10 = 12, even) isn't odd.
-RO_ZERO_MAN_BITS_CFG = {"man_bits": 0, "exp_bits": 4, "normal_binades": 6, "bias": 10}
+RO_ZERO_MAN_BITS_CFG: dict[str, Any] = dict(man_bits=0, exp_bits=4, normal_binades=6, bias=10)
 
 
 @pytest.mark.parametrize("device", available_devices)

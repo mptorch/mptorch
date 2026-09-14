@@ -13,7 +13,9 @@ taking a format object instead of twenty integers and carrying a gradient.
   ``SplitMac(mul=fmt, acc=fmt)``, the common case where one format is used
   for both halves of the dot product;
 * a ``SplitMac`` / ``FusedMac`` -- the dot-product arithmetic, with a palette
-  in any slot selecting the spatially-varying op and requiring ``prec_idx``;
+  in any slot selecting the spatially-varying op and requiring ``prec_idx``,
+  and a ``carrier`` choosing the float arithmetic it is computed in (binary64
+  for float64 operands unless it says ``"binary32"``);
 * a ``QMatmulFormats`` -- per-pass arithmetic *and* operand quantizers, i.e.
   everything the layer can vary.
 
@@ -88,7 +90,10 @@ def qmatmul(
     Accepts everything ``torch.matmul`` accepts -- 1D promotion on either
     operand, leading dimensions of any rank broadcast against each other --
     and is differentiable in both operands, with the gradient of each computed
-    in the arithmetic its own hook names.
+    in the arithmetic its own hook names. float64 operands are computed in
+    binary64, and the rest in binary32, unless a mac's ``carrier`` says
+    otherwise; either way each pass holds the formats to its carrier and warns
+    (:class:`mptorch.FormatRangeWarning`) about what it cannot hold.
 
     Two shapes cost no copy: an operand that is the transpose of a contiguous
     tensor (``q @ k.mT``) sets the kernel's flag instead of being

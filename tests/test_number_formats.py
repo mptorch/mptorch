@@ -180,6 +180,54 @@ def test_spec_resolution_is_memoized():
     )
 
 
+@pytest.mark.parametrize("carrier", [None, "binary32", "binary64"])
+def test_carrier_resolves_to_the_flat_spec(carrier):
+    """The carrier is part of the spec, and both tiers put it in the same place."""
+    fmt, wide = BinaryK(16, 8), BinaryK(40, 30, bias=512)
+    assert spec_for_mac(SplitMac(fmt, wide, carrier=carrier)) == _binaryK_spec(
+        mul_K=16, mul_P=8, acc_K=40, acc_P=30, acc_bias=512, carrier=carrier
+    )
+    assert spec_for_mac(FusedMac(wide, carrier=carrier)) == _binaryK_fma_spec(
+        fma_K=40, fma_P=30, fma_bias=512, carrier=carrier
+    )
+    assert spec_for_mac(FusedMac([fmt, wide], carrier=carrier)) == _binaryK_fma_mixed_spec(
+        fma_K=[16, 40], fma_P=[8, 30], fma_bias=[128, 512], carrier=carrier
+    )
+    sfp = SuperFP(3, 4, 1, 22)
+    assert spec_for_mac(SplitMac(sfp, sfp, carrier=carrier)) == _superfp_spec(
+        mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=22, carrier=carrier
+    )
+    assert spec_for_mac(SplitMac(fmt, wide, carrier=carrier)).carrier == carrier
+
+
+def test_a_spec_holds_what_each_carrier_says_about_its_formats():
+    """binary32's findings first, binary64's second, deduplicated, errors first."""
+    spec = spec_for_mac(SplitMac(BinaryK(16, 8), BinaryK(40, 30, bias=512)))
+    b32, b64 = spec.findings
+    assert [error is not None for error, _ in b32] == [True, False]
+    assert "30 bits of precision" in str(b32[0][0]) and "2^-134" in str(b32[1][1])
+    assert b64 == ()
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), BinaryK(8, 4))).findings == ((), ())
+
+
+def test_the_spec_memo_tells_carriers_apart():
+    fmt = BinaryK(8, 4)
+    assert spec_for_mac(SplitMac(fmt, fmt)) != spec_for_mac(SplitMac(fmt, fmt, carrier="binary32"))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: SplitMac(BinaryK(8, 4), carrier="float64"),
+        lambda: FusedMac(BinaryK(8, 4), carrier="binary16"),
+        lambda: Quant(BinaryK(8, 4), carrier="double"),
+    ],
+)
+def test_a_carrier_must_name_one(build):
+    with pytest.raises(ValueError, match="carrier must be 'binary32', 'binary64' or None"):
+        build()
+
+
 # ------------------------------------------------------------------------------------
 # The format objects themselves.
 
@@ -281,8 +329,13 @@ def test_quant_equals_the_flat_quantizer(device):
     )
 
 
-# ------------------------------------------------------------------------------------
-# The raw ops have no autograd kernel, and say so.
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("carrier", [None, "binary32", "binary64"])
+def test_quant_carrier_is_the_flat_quantizers(device, carrier):
+    x = torch.randn(64, device=device, dtype=torch.float64) * 4
+    assert torch.equal(
+        Quant(BinaryK(8, 4), carrier=carrier)(x), binaryK_quantize(x, 8, 4, carrier=carrier)
+    )
 
 
 @pytest.mark.parametrize("device", available_devices)

@@ -13,6 +13,7 @@ __all__ = [
 import os
 import sys
 import warnings
+from collections.abc import Callable
 from dataclasses import KW_ONLY, dataclass
 from enum import Enum
 from functools import lru_cache
@@ -103,91 +104,125 @@ class AccumulateAlgorithm(Enum):
     TREE = 3  #: Pairwise tree-reduction summation (not yet implemented).
 
 
-# --- what binary32 can carry -------------------------------------------------
+# --- what a carrier can hold -------------------------------------------------
 #
-# The casts do not build encodings. They round a binary32 value onto the
-# format's grid and hand back a binary32 value (see `docs/source/concepts.rst`,
-# "What float32 can carry"), so a format with more range or precision than
-# binary32 is quantized *partially*: the result is still a tensor of plausible
-# numbers, and some of the format's values are simply never among them. The
-# checks below are what stops that being invisible. `dev/gemm_roadmap.md` (T4)
-# derives the bounds and `dev/benchmarks/format_limits.py` measures them
-# against the kernels, over ~17 M inputs per format in every rounding mode.
+# The casts do not build encodings. They round a value of their *carrier* onto
+# the format's grid and hand back a value of the carrier (see
+# `docs/source/concepts.rst`, "What the carrier can hold"). The carrier is the
+# operand's: binary64 for a float64 tensor and binary32 for float32, float16
+# and bfloat16 -- and binary32 for float64 too where a call asks for it with
+# `carrier="binary32"`. A format with more range or precision than its carrier
+# is quantized *partially*: the result is still a tensor of plausible numbers,
+# and some of the format's values are simply never among them. The checks
+# below are what stops that being invisible. `dev/gemm_roadmap.md` (T4)
+# derives binary32's bounds and `dev/benchmarks/format_limits.py` measures
+# them against the kernels, over ~17 M inputs per format in every rounding
+# mode; binary64's are the same derivation, one carrier wider
+# (`dev/binary64_carrier_plan.md`).
 #
 # Two bounds, not one, and they differ by a binade:
 #
-#   representable  every value of the format is a binary32 value. Arithmetic
-#                  alone -- 24 significand bits, nothing above binary32's
-#                  largest finite value, nothing spaced finer than 2**-149.
-#   faithful       the cast reaches those values, for every binary32 input.
-#                  Stronger, because every cast places its input by the
-#                  *exponent field* of the word and all binary32 subnormals
-#                  share field 0, so nothing below 2**-126 can be told apart:
-#                  2**-125 is the lowest value a format may have.
+#   representable  every value of the format is a value of the carrier.
+#                  Arithmetic alone -- its significand bits (24, 53), nothing
+#                  above its largest finite value, nothing spaced finer than
+#                  its smallest subnormal (2**-149, 2**-1074).
+#   faithful       the cast reaches those values, for every input. Stronger,
+#                  because every cast places its input by the *exponent field*
+#                  of the word and all of a carrier's subnormals share field
+#                  0, so nothing below its smallest normal (2**-126, 2**-1022)
+#                  can be told apart: a binade above that (2**-125, 2**-1021)
+#                  is the lowest value a format may have.
 #
-# Together the top and bottom leave 253 binades to spend, which allows at most
-# seven exponent bits in either family.
+# Together the top and bottom leave 253 binades to spend in binary32 and 2045
+# in binary64, which allows at most seven and ten exponent bits.
 #
 # What separates a warning from an error here is not which of those two bounds
 # is missed but whether the format still *works*. A format whose range outruns
-# binary32 quantizes perfectly well over the part that fits -- a wide binaryK
-# used as a precision-only target is a real thing, and `tests/` uses several
-# on purpose -- it is simply partial, and being told so is the whole point.
-# That is a warning. An error is for a format that cannot function at all: a
-# grid finer than binary32's (nothing survives), an exponent field wider than
-# the kernels shift by, stochastic bits with no significand left to draw from,
-# a superfp whose regions come out misordered, or one whose largest finite
-# code is below binary32's normals, where `max_num` is zero and every nonzero
-# result overflows.
+# its carrier quantizes perfectly well over the part that fits -- a wide
+# binaryK used as a precision-only target is a real thing, and `tests/` uses
+# several on purpose -- it is simply partial, and being told so is the whole
+# point. That is a warning. An error is for a format that cannot function at
+# all: a grid finer than the carrier's (nothing survives), an exponent field
+# wider than the kernels shift by, stochastic bits with no significand left to
+# draw from, a superfp whose regions come out misordered, or one whose largest
+# finite code is below the carrier's normals, where `max_num` is zero and every
+# nonzero result overflows.
+#
+# Which carrier a format meets belongs to the call, not to the format, so a
+# carrier's findings are reported per call, from `mptorch.quant.ops`, as the
+# storage checks further down are. All `BinaryK`/`SuperFP` check when they are
+# built is what no carrier can do -- binary64's errors, binary64 being the
+# wider -- and they warn about nothing.
 
-_F32_PRECISION = 24  # binary32 significand bits, the implicit one included
-_F32_MAN_BITS = 23
-_F32_TOP_EXP = 127  # exponent of the largest finite binary32
-_F32_MIN_NORMAL_EXP = -126
-_F32_MIN_SUBNORMAL_EXP = -149  # exponent of the smallest positive binary32
-_F32_MIN_SIMULABLE_EXP = -125  # the lowest a format's own smallest value may be
+
+class _Carrier(NamedTuple):
+    """The binary float a cast rounds in, as the range checks read it."""
+
+    name: str
+    precision: int  # significand bits, the implicit one included
+    man_bits: int
+    top_exp: int  # exponent of the largest finite value
+    min_normal_exp: int
+    min_subnormal_exp: int  # exponent of the smallest positive value
+    min_simulable_exp: int  # the lowest a format's own smallest value may be
+
+
+_BINARY32 = _Carrier("binary32", 24, 23, 127, -126, -149, -125)
+_BINARY64 = _Carrier("binary64", 53, 52, 1023, -1022, -1074, -1021)
+_CARRIERS: dict[str, _Carrier] = {c.name: c for c in (_BINARY32, _BINARY64)}
 _MAX_EXP_BITS = 30  # `1 << exp_bits` is a C++ `int` in the kernels
 
 
 class FormatRangeWarning(UserWarning):
-    """A format whose range outruns binary32, or the float16 or bfloat16
-    tensor its results are stored in, so quantizing to it is partial.
+    """A format whose range outruns the carrier a call rounds in, or the
+    float16 or bfloat16 tensor its results are stored in, so quantizing to it
+    is partial.
 
-    Warned by :class:`BinaryK`, :class:`SuperFP` and the plain-integer
-    wrappers of :mod:`mptorch.quant.ops` when a format reaches above
-    binary32's largest finite value, spaces its values finer than
-    :math:`2^{-149}`, or has a smallest value below :math:`2^{-125}` -- the
-    last because every cast places an input by its binary32 exponent field,
-    which all binary32 subnormals share, so the bottom binade is rounded onto
-    the wrong grid. In each case the format quantizes correctly over the part
-    of it binary32 holds and some of its values are simply never returned.
+    The carrier is the operand's: binary64 for a float64 tensor and binary32
+    for float32, float16 and bfloat16, unless the call names one with
+    ``carrier=``. Warned per call, by the quantizers and GEMMs of
+    :mod:`mptorch.quant`, when a format reaches above the carrier's largest
+    finite value, spaces its values finer than its smallest subnormal
+    (:math:`2^{-149}`, :math:`2^{-1074}`), or has a smallest value below
+    :math:`2^{-125}` (:math:`2^{-1021}`) -- the last because every cast places
+    an input by its exponent field, which all of the carrier's subnormals
+    share, so the bottom binade is rounded onto the wrong grid. In each case
+    the format quantizes correctly over the part of it the carrier holds and
+    some of its values are simply never returned. :class:`BinaryK` and
+    :class:`SuperFP` do not warn when they are built, since a format does not
+    know which carrier it will meet; they raise only for what neither carrier
+    can do.
 
-    Warned again, per call, when the result is a float16 or bfloat16 tensor
-    and the format's range outruns *that* dtype: above its largest finite
-    value, or spaced finer than its smallest subnormal. The cast still rounds
-    in binary32, and storing the result rounds a second time, onto the
-    dtype's grid -- with a value above the dtype's range stored as an
-    infinity whatever the format's saturation mode.
+    Warned too when the result is a float16 or bfloat16 tensor and the
+    format's range outruns *that* dtype: above its largest finite value, or
+    spaced finer than its smallest subnormal. The cast rounds in binary32, and
+    storing the result rounds a second time, onto the dtype's grid -- with a
+    value above the dtype's range stored as an infinity whatever the format's
+    saturation mode.
 
     It is a warning rather than an error because such a format is still
     useful: a wide binaryK is a reasonable precision-only target, where the
     unreachable top of the range is exactly the point. Filter it with
-    :func:`warnings.simplefilter` when that is what is meant.
+    :func:`warnings.simplefilter` when that is what is meant. Each warning
+    names the line that made the call, so the default filter reports it once
+    per line rather than once per training step.
     """
 
 
-def _top_of_range(exp_bits: int, man_bits: int, bias: int, reserved: int) -> tuple[int, int, int]:
+def _top_of_range(
+    exp_bits: int, man_bits: int, bias: int, reserved: int, carrier: _Carrier
+) -> tuple[int, int, int]:
     """``make_normal_range_params``' top of the range, as (exponent field,
     exponent, mantissa code) of the largest finite value.
 
     Transcribed from ``bit_helper.h``: of the top binade's codes the last
     ``reserved`` hold no finite value, and with one or two mantissa bits those
     can outnumber the binade's, which moves the largest finite value a binade
-    or two down. Counted in ``min(man_bits, 23)`` codes, as the kernel counts
-    them -- a format asking for more than that has already been rejected for
-    precision by the time this is read.
+    or two down. Counted in ``min(man_bits, carrier.man_bits)`` codes, as the
+    kernel counts them -- a format asking for more than that has already been
+    rejected for precision by the time this is read.
     """
-    codes = 1 << min(man_bits, _F32_MAN_BITS)
+    codes = 1 << min(man_bits, carrier.man_bits)
     top_code = codes - 1 - reserved
     top_field = (1 << exp_bits) - 1
     while top_code < 0:
@@ -196,29 +231,32 @@ def _top_of_range(exp_bits: int, man_bits: int, bias: int, reserved: int) -> tup
     return top_field, top_field - bias, top_code
 
 
-def _width_error(label: str, exp_bits: int, man_bits: int, prng_bits: int) -> str | None:
+def _width_error(
+    label: str, exp_bits: int, man_bits: int, prng_bits: int, carrier: _Carrier
+) -> str | None:
     """The bounds that must hold before anything shifts by ``exp_bits``."""
     if prng_bits < 0:
         # `BinaryK`/`SuperFP` refuse this before they get here; the
         # plain-integer wrappers reach it with nothing in between
         return f"{label} asks for {prng_bits} stochastic-rounding bits, which cannot be negative"
     if exp_bits > _MAX_EXP_BITS:
+        binades = carrier.top_exp - carrier.min_simulable_exp + 1
         return (
             f"{label} has {exp_bits} exponent bits; the kernels derive the format's "
-            f"range with `1 << exp_bits` in a 32-bit int, and binary32 spans 253 "
-            f"binades in any case, so at most 7 are usable"
+            f"range with `1 << exp_bits` in a 32-bit int, and {carrier.name} spans "
+            f"{binades} binades in any case, so at most {binades.bit_length() - 1} are usable"
         )
-    if man_bits > _F32_MAN_BITS:
+    if man_bits > carrier.man_bits:
         return (
-            f"{label} asks for {man_bits + 1} bits of precision; the casts round in "
-            f"binary32, which has {_F32_PRECISION}, so the format's grid is finer than "
-            f"anything that can be returned"
+            f"{label} asks for {man_bits + 1} bits of precision, and it is rounded in "
+            f"{carrier.name}, which has {carrier.precision}: the format's grid is finer "
+            f"than anything that can be returned"
         )
-    if man_bits + prng_bits > _F32_MAN_BITS:
+    if man_bits + prng_bits > carrier.man_bits:
         return (
             f"{label} asks for {prng_bits} stochastic-rounding bits below a "
-            f"{man_bits}-bit mantissa; they are drawn from the binary32 significand "
-            f"the rounding happens in, which has {_F32_MAN_BITS} bits to share"
+            f"{man_bits}-bit mantissa; they are drawn from the {carrier.name} significand "
+            f"the rounding happens in, which has {carrier.man_bits} bits to share"
         )
     return None
 
@@ -226,8 +264,8 @@ def _width_error(label: str, exp_bits: int, man_bits: int, prng_bits: int) -> st
 class _Extent(NamedTuple):
     """A format's range, in the only terms the range checks read.
 
-    Derived once from the parameters and held against two carriers: binary32,
-    which every cast rounds in, and a float16 or bfloat16 result, which the
+    Derived once from the parameters and held against two things: the
+    carrier a cast rounds in, and a float16 or bfloat16 result, which the
     rounded value is stored in.
     """
 
@@ -239,7 +277,7 @@ class _Extent(NamedTuple):
     top_code: int  # ... and its mantissa code, of `man_bits`
     bottom_exp: int  # the exponent of the smallest positive value
     step_exp: int  # the exponent of the finest spacing anywhere in the format
-    min_bottom: int  # how low `bottom_exp` may go before a binary32 cast loses it
+    min_bottom: int  # how low `bottom_exp` may go before the carrier's cast loses it
     bottom_why: str  # ... and what goes wrong below that, for the warning
     # What lies below the binades that carry a full mantissa, which start at
     # `normal_exp`: one of `SubnormalsMode`'s three, or superfp's supernormals.
@@ -247,8 +285,8 @@ class _Extent(NamedTuple):
     below: str
 
 
-def _range_findings(ext: _Extent) -> tuple[str | None, str | None]:
-    """The top and bottom of the range against binary32's, after the widths.
+def _range_findings(ext: _Extent, carrier: _Carrier) -> tuple[str | None, str | None]:
+    """The top and bottom of the range against the carrier's, after the widths.
 
     ``bottom_exp`` is the exponent of the format's smallest positive value and
     ``step_exp`` that of its finest spacing; for a format whose lowest binade
@@ -256,54 +294,64 @@ def _range_findings(ext: _Extent) -> tuple[str | None, str | None]:
     low that smallest value may go, which is not the same for every format --
     see `_binaryK_extent`.
 
-    Only the first finding is returned, so a format that outruns binary32 at
-    both ends says so about the top first and about the bottom once that is
+    Only the first finding is returned, so a format that outruns its carrier
+    at both ends says so about the top first and about the bottom once that is
     fixed. The error is the one case that stops the format working at all.
     """
     label, top_exp, bottom_exp, step_exp = ext.label, ext.top_exp, ext.bottom_exp, ext.step_exp
-    if ext.top_field < 1 or top_exp < _F32_MIN_NORMAL_EXP:
+    name = carrier.name
+    if ext.top_field < 1 or top_exp < carrier.min_normal_exp:
         return (
-            f"{label} has no finite normal value binary32 can hold: the largest "
+            f"{label} has no finite normal value {name} can hold: the largest "
             f"finite code sits at 2^{top_exp}, so every nonzero result overflows"
         ), None
-    if top_exp > _F32_TOP_EXP:
+    if top_exp > carrier.top_exp:
         return None, (
-            f"{label} reaches 2^{top_exp}, above binary32's 2^{_F32_TOP_EXP}: the cast "
-            f"saturates at binary32's largest value on the format's grid instead, and "
-            f"the codes above it are unreachable (needs bias >= {(1 << ext.exp_bits) - 128})"
+            f"{label} reaches 2^{top_exp}, above {name}'s 2^{carrier.top_exp}: the cast "
+            f"saturates at {name}'s largest value on the format's grid instead, and "
+            f"the codes above it are unreachable (needs bias >= {ext.top_field - carrier.top_exp})"
         )
-    if step_exp < _F32_MIN_SUBNORMAL_EXP:
+    if step_exp < carrier.min_subnormal_exp:
         return None, (
             f"{label} spaces its values 2^{step_exp} apart at the bottom, below "
-            f"binary32's 2^{_F32_MIN_SUBNORMAL_EXP}: values that far down are not "
-            f"binary32 values at all, so the bottom of the range is unreachable"
+            f"{name}'s 2^{carrier.min_subnormal_exp}: values that far down are not "
+            f"{name} values at all, so the bottom of the range is unreachable"
         )
     if bottom_exp < ext.min_bottom:
         return None, (
             f"{label}'s smallest value is 2^{bottom_exp}, below 2^{ext.min_bottom}: "
-            f'{ext.bottom_why}. See concepts.rst, "What float32 can carry".'
+            f'{ext.bottom_why}. See concepts.rst, "What the carrier can hold".'
         )
     return None, None
 
 
 # What goes wrong below `_Extent.min_bottom`, which is one of three things.
-_BOTTOM_BY_FIELD = (
-    "the casts place an input by its binary32 exponent field, which every binary32 "
-    f"subnormal shares, so this format's values below 2^{_F32_MIN_NORMAL_EXP} are "
-    "rounded onto the wrong grid and some are never returned"
-)
-_BOTTOM_TIE_BY_FIELD = (
-    "with one code per binade the cast rounds by exponent field alone, and half that "
-    f"value, 2^{_F32_MIN_NORMAL_EXP - 1}, is a binary32 subnormal, in the field every "
-    "one of them shares -- so round-to-nearest-even reads it as a tie between two "
-    "binades and returns the smallest value, where the format's answer is zero"
-)
-_BOTTOM_HALF_UNHELD = (
-    f"half that value, 2^{_F32_MIN_NORMAL_EXP - 1} x (1 + 2^-{_F32_MAN_BITS}), is the "
-    "round-to-nearest boundary below it and needs a step binary32 does not have, so "
-    f"the cast holds it as 2^{_F32_MIN_NORMAL_EXP - 1} -- and round-to-nearest-away "
-    "returns the smallest value for that input, where the format's answer is zero"
-)
+
+
+def _bottom_by_field(c: _Carrier) -> str:
+    return (
+        f"the casts place an input by its {c.name} exponent field, which every {c.name} "
+        f"subnormal shares, so this format's values below 2^{c.min_normal_exp} are "
+        "rounded onto the wrong grid and some are never returned"
+    )
+
+
+def _bottom_tie_by_field(c: _Carrier) -> str:
+    return (
+        "with one code per binade the cast rounds by exponent field alone, and half that "
+        f"value, 2^{c.min_normal_exp - 1}, is a {c.name} subnormal, in the field every "
+        "one of them shares -- so round-to-nearest-even reads it as a tie between two "
+        "binades and returns the smallest value, where the format's answer is zero"
+    )
+
+
+def _bottom_half_unheld(c: _Carrier) -> str:
+    return (
+        f"half that value, 2^{c.min_normal_exp - 1} x (1 + 2^-{c.man_bits}), is the "
+        f"round-to-nearest boundary below it and needs a step {c.name} does not have, so "
+        f"the cast holds it as 2^{c.min_normal_exp - 1} -- and round-to-nearest-away "
+        "returns the smallest value for that input, where the format's answer is zero"
+    )
 
 
 def _binaryK_label(K: int, P: int, bias: int, is_signed: bool, subnormals: SubnormalsMode) -> str:
@@ -323,13 +371,14 @@ def _binaryK_extent(
     is_signed: bool,
     saturation: SaturationMode,
     subnormals: SubnormalsMode,
+    carrier: _Carrier,
 ) -> _Extent:
     """A binaryK format's range -- once `_width_error` has passed, since this
     shifts by ``exp_bits``."""
     # P3109's reserved codes: +infinity outside the finite domain, and NaN
     # above it in an unsigned format (`make_binaryK_params`)
     reserved = (saturation is not SaturationMode.SAT_FINITE) + (0 if is_signed else 1)
-    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved)
+    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
     min_exp = 1 - bias  # the smallest normal's exponent
     if subnormals is SubnormalsMode.SUBNORMALS:
         # the subnormals are one grid of fixed spacing, and its step is both
@@ -345,39 +394,42 @@ def _binaryK_extent(
         bottom_exp = min_exp - 1 if man_bits else min_exp
         step_exp = bottom_exp - man_bits
     # How low the floor may go is not the same for the three modes, and the
-    # difference is which of them reads an exponent field down there.
-    # `SUBNORMALS` derives its grid from the input's, which every binary32
-    # subnormal shares, so it is blind below 2**-126 and needs its floor a
-    # binade above that. `NORMALS` and `EXTENDED_NORMALS` decide by comparing
-    # magnitudes as words, which reads no field at all, so they are exact to
-    # 2**-126 -- and no further, because below it the floor leaves binary32's
-    # normals and nothing flushes (T5). Two of their formats stop a binade
-    # short of that, both at half the floor, the one point the compare needs
-    # besides the floor itself:
+    # difference is which of them reads an exponent field down there. In
+    # binary32's numbers, binary64's following in parentheses:
+    # `SUBNORMALS` derives its grid from the input's, which every subnormal of
+    # the carrier shares, so it is blind below 2**-126 (2**-1022) and needs its
+    # floor a binade above that. `NORMALS` and `EXTENDED_NORMALS` decide by
+    # comparing magnitudes as words, which reads no field at all, so they are
+    # exact to 2**-126 -- and no further, because below it the floor leaves the
+    # carrier's normals and nothing flushes (T5). Two of their formats stop a
+    # binade short of that, both at half the floor, the one point the compare
+    # needs besides the floor itself:
     #
     #   man_bits == 0   the round before the compare reads a field after all.
     #                   With no mantissa it rounds between binades, and a floor
     #                   at 2**-126 puts half of it, 2**-127, in field 0, where
     #                   the round sees a tie between binades and carries it up
     #                   to the floor before the compare can send it to zero.
-    #   EXTENDED, P=24  half the floor, 2**-127 * (1 + 2**-23), needs a 2**-150
-    #                   step; binary32 holds it as 2**-127, and round-to-
-    #                   nearest-away takes that input up to the floor.
+    #   EXTENDED, full  at the carrier's full precision (P = 24, 53) half the
+    #   precision       floor, 2**-127 * (1 + 2**-23), needs a 2**-150 step
+    #                   (2**-1075); the carrier holds it as 2**-127, and
+    #                   round-to-nearest-away takes that input up to the floor.
     #
-    # `dev/benchmarks/cast_all_modes_sweep.cu`'s image64 mode found both,
-    # binary64 being exact at both points.
+    # `dev/benchmarks/cast_all_modes_sweep.cu`'s image64 mode found both in
+    # binary32, binary64 being exact at both points (T7).
     if subnormals is SubnormalsMode.SUBNORMALS:
-        min_bottom, bottom_why = _F32_MIN_SIMULABLE_EXP, _BOTTOM_BY_FIELD
+        min_bottom, bottom_why = carrier.min_simulable_exp, _bottom_by_field(carrier)
     elif man_bits == 0:
-        min_bottom, bottom_why = _F32_MIN_SIMULABLE_EXP, _BOTTOM_TIE_BY_FIELD
+        min_bottom, bottom_why = carrier.min_simulable_exp, _bottom_tie_by_field(carrier)
     elif subnormals is SubnormalsMode.EXTENDED_NORMALS:
-        # half the floor's last bit, 2**(bottom_exp - 1 - man_bits), must be one binary32 has
-        min_bottom = max(_F32_MIN_NORMAL_EXP, man_bits + 1 + _F32_MIN_SUBNORMAL_EXP)
-        bottom_why = _BOTTOM_HALF_UNHELD
+        # half the floor's last bit, 2**(bottom_exp - 1 - man_bits), must be one the carrier has
+        min_bottom = max(carrier.min_normal_exp, man_bits + 1 + carrier.min_subnormal_exp)
+        bottom_why = _bottom_half_unheld(carrier)
     else:
-        min_bottom, bottom_why = _F32_MIN_NORMAL_EXP, _BOTTOM_BY_FIELD
-    if bottom_exp < _F32_MIN_NORMAL_EXP:
-        bottom_why = _BOTTOM_BY_FIELD  # the floor itself is out of reach, which says more
+        min_bottom, bottom_why = carrier.min_normal_exp, _bottom_by_field(carrier)
+    if bottom_exp < carrier.min_normal_exp:
+        # the floor itself is out of reach, which says more
+        bottom_why = _bottom_by_field(carrier)
     return _Extent(
         label,
         exp_bits,
@@ -423,13 +475,14 @@ def _superfp_extent(
     normal_binades: int,
     bias: int,
     saturation: SaturationMode,
+    carrier: _Carrier,
 ) -> _Extent:
     """A superfp format's range -- once `_width_error` and
     `_superfp_regions_error` have passed."""
     binades = 1 << exp_bits
     # superfp spends no code on a NaN, signed or not (`make_superfp_params`)
     reserved = saturation is not SaturationMode.SAT_FINITE
-    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved)
+    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
     normal_cutoff = binades - bias - normal_binades
     # the smallest supernormal, `superfp_region_cutoffs`
     bottom_exp = normal_cutoff - (binades - normal_binades) * (1 << man_bits) + 1
@@ -443,23 +496,40 @@ def _superfp_extent(
         top_code,
         bottom_exp,
         step_exp,
-        _F32_MIN_SIMULABLE_EXP,  # the supernormal arm rounds the input's exponent field (T4)
-        _BOTTOM_BY_FIELD,
+        carrier.min_simulable_exp,  # the supernormal arm rounds the input's exponent field (T4)
+        _bottom_by_field(carrier),
         normal_cutoff,
         "SUPERNORMALS",
     )
 
 
-# The derivations are memoized and the reporting is not, deliberately.
-# `binaryK_matmul` resolves its formats on every call (finding P4), so this
-# sits on a per-call path: a cache hit is 0.25 us against 1.04 to redo the
-# derivation, and `check_binaryK` around it is 0.40. Caching the *warning*
-# instead would make it fire once per process and then go quiet, which is a
-# worse contract than `warnings`' own once-per-location default and would make
-# the tests order-dependent.
+# The derivations are memoized and the reporting is not, deliberately. The
+# elementwise quantizers look their format up on every call, and a flat GEMM
+# wrapper resolves its formats on every call too (finding P4), so this sits on
+# a per-call path: a cache hit is 0.25 us against 1.04 to redo the derivation.
+# Caching the *warning* instead would make it fire once per process and then
+# go quiet, which is a worse contract than `warnings`' own once-per-location
+# default and would make the tests order-dependent.
+#
+# A binary32 finding that binary64 does not share says so, since the cure is
+# then a float64 tensor rather than a different format.
 
 
-@lru_cache(maxsize=256)
+def _pointing_wider(
+    find: Callable[[_Carrier], tuple[str | None, str | None]], carrier: str
+) -> tuple[str | None, str | None]:
+    error, warning = found = find(_CARRIERS[carrier])
+    if carrier == "binary32" and found != (None, None) and find(_BINARY64) == (None, None):
+
+        def wider(message: str) -> str:
+            end = "" if message.endswith(".") else "."
+            return f"{message}{end} A float64 tensor's carrier, binary64, holds all of it."
+
+        return error and wider(error), warning and wider(warning)
+    return found
+
+
+@lru_cache(maxsize=512)
 def _binaryK_findings(
     K: int,
     P: int,
@@ -468,19 +538,24 @@ def _binaryK_findings(
     saturation: SaturationMode,
     subnormals: SubnormalsMode,
     prng_bits: int,
+    carrier: str,
 ) -> tuple[str | None, str | None]:
+    """What ``carrier`` says about a binaryK format: (error, warning)."""
     man_bits = P - 1
     exp_bits = K - P if is_signed else K - P + 1
     label = _binaryK_label(K, P, bias, is_signed, subnormals)
-    error = _width_error(label, exp_bits, man_bits, prng_bits)
-    if error is not None:
-        return error, None
-    return _range_findings(
-        _binaryK_extent(label, man_bits, exp_bits, bias, is_signed, saturation, subnormals)
-    )
+
+    def find(c: _Carrier) -> tuple[str | None, str | None]:
+        error = _width_error(label, exp_bits, man_bits, prng_bits, c)
+        if error is not None:
+            return error, None
+        ext = _binaryK_extent(label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, c)
+        return _range_findings(ext, c)
+
+    return _pointing_wider(find, carrier)
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=512)
 def _superfp_findings(
     man_bits: int,
     exp_bits: int,
@@ -488,16 +563,21 @@ def _superfp_findings(
     bias: int,
     saturation: SaturationMode,
     prng_bits: int,
+    carrier: str,
 ) -> tuple[str | None, str | None]:
+    """What ``carrier`` says about a superfp format: (error, warning)."""
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
-    error = _width_error(label, exp_bits, man_bits, prng_bits) or _superfp_regions_error(
-        label, exp_bits, normal_binades
-    )
-    if error is not None:
-        return error, None
-    return _range_findings(
-        _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation)
-    )
+
+    def find(c: _Carrier) -> tuple[str | None, str | None]:
+        error = _width_error(label, exp_bits, man_bits, prng_bits, c) or _superfp_regions_error(
+            label, exp_bits, normal_binades
+        )
+        if error is not None:
+            return error, None
+        ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, c)
+        return _range_findings(ext, c)
+
+    return _pointing_wider(find, carrier)
 
 
 def check_binaryK(
@@ -509,26 +589,30 @@ def check_binaryK(
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     prng_bits: int = 0,
     *,
+    carrier: str = "binary32",
+    warn: bool = True,
     stacklevel: int = 3,
 ) -> None:
-    """Hold a binaryK format against what binary32 can carry.
+    """Hold a binaryK format against what ``carrier`` can hold.
 
     Raises :exc:`ValueError` for a format that cannot function -- see the note
-    above for the five ways -- and warns with :class:`FormatRangeWarning` for
-    one whose range outruns binary32, which quantizes partially rather than
-    wrongly. ``bias`` is the resolved one, not ``None``.
+    above for the five ways -- and, unless ``warn`` is false, warns with
+    :class:`FormatRangeWarning` for one whose range outruns the carrier, which
+    quantizes partially rather than wrongly. ``carrier`` is ``"binary32"`` or
+    ``"binary64"``, and ``bias`` is the resolved one, not ``None``.
 
-    :class:`BinaryK` calls this, and so do the plain-integer wrappers in
-    :mod:`mptorch.quant.ops`, which never see a format object -- one rule, so
-    ``binaryK_matmul(a, b, mul_K=16, mul_P=8)`` says what ``BinaryK(16, 8)``
-    says. ``stacklevel`` is how far above this the caller's own code is, so
-    the warning points there: 3 from a wrapper that calls this directly, 4
-    from one more frame up.
+    :class:`BinaryK` calls this with ``carrier="binary64", warn=False``, which
+    raises for what no carrier can do and says nothing else: which carrier the
+    format meets is the call's to know, and the call holds it to that one with
+    :func:`check_binaryK_carrier`. ``stacklevel`` is how far above this the
+    caller's own code is, so a warning points there.
     """
-    error, warning = _binaryK_findings(K, P, bias, is_signed, saturation, subnormals, prng_bits)
+    error, warning = _binaryK_findings(
+        K, P, bias, is_signed, saturation, subnormals, prng_bits, carrier
+    )
     if error is not None:
         raise ValueError(error)
-    if warning is not None:
+    if warn and warning is not None:
         warnings.warn(warning, FormatRangeWarning, stacklevel=stacklevel)
 
 
@@ -540,6 +624,8 @@ def check_superfp(
     saturation: SaturationMode = SaturationMode.OVF_INF,
     prng_bits: int = 0,
     *,
+    carrier: str = "binary32",
+    warn: bool = True,
     stacklevel: int = 3,
 ) -> None:
     """:func:`check_binaryK` for a superfp format -- see it for the contract.
@@ -548,18 +634,56 @@ def check_superfp(
     way, so signedness does not move the top of the range.
     """
     error, warning = _superfp_findings(
-        man_bits, exp_bits, normal_binades, bias, saturation, prng_bits
+        man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier
     )
     if error is not None:
         raise ValueError(error)
-    if warning is not None:
+    if warn and warning is not None:
         warnings.warn(warning, FormatRangeWarning, stacklevel=stacklevel)
+
+
+def check_binaryK_carrier(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool = True,
+    saturation: SaturationMode = SaturationMode.OVF_INF,
+    subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    prng_bits: int = 0,
+    *,
+    carrier: str,
+) -> None:
+    """:func:`check_binaryK`, reported the way a call reports it.
+
+    The same findings, with the warning naming the first frame outside
+    mptorch and torch -- the line that made the call -- however deep inside
+    them the call was reached from.
+    """
+    _report_per_call(
+        *_binaryK_findings(K, P, bias, is_signed, saturation, subnormals, prng_bits, carrier)
+    )
+
+
+def check_superfp_carrier(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode = SaturationMode.OVF_INF,
+    prng_bits: int = 0,
+    *,
+    carrier: str,
+) -> None:
+    """:func:`check_binaryK_carrier` for a superfp format."""
+    _report_per_call(
+        *_superfp_findings(man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier)
+    )
 
 
 # --- what float16 and bfloat16 can store --------------------------------------
 #
-# The casts round in binary32 whatever the operand dtype, and a float16 or
-# bfloat16 result is converted back when it is written -- `SIMDTraits`' store
+# A float16 or bfloat16 tensor is rounded in binary32, its carrier, and the
+# result is converted back when it is written -- `SIMDTraits`' store
 # in the elementwise quantizers, `store_elem` in the GEMM, a `static_cast` on
 # the host, round to nearest on both backends. That conversion is a second
 # rounding. A format whose results are not all values of the dtype is
@@ -606,8 +730,8 @@ def check_superfp(
 # what it will be stored in -- so these run per call, from `mptorch.quant.ops`,
 # on the format whose values the result holds: the elementwise quantizer's,
 # and a GEMM's accumulate or fused format. A GEMM's multiply format never
-# reaches storage (its products are binary32 intermediates), and with the
-# running sum left unquantized no format's values are stored at all.
+# reaches storage (its products are intermediates in the carrier), and with
+# the running sum left unquantized no format's values are stored at all.
 
 
 class _Storage(NamedTuple):
@@ -779,12 +903,15 @@ def _binaryK_storage_findings(
     man_bits = P - 1
     exp_bits = K - P if is_signed else K - P + 1
     label = _binaryK_label(K, P, bias, is_signed, subnormals)
-    if _width_error(label, exp_bits, man_bits, 0) is not None:
-        # binary32's to report, and `check_binaryK` runs before any call
-        # reaches this: no range can be read from such a format
+    if _width_error(label, exp_bits, man_bits, 0, _BINARY32) is not None:
+        # binary32's to report -- the carrier of both of these dtypes -- and
+        # the carrier check runs before any call reaches this: no range can be
+        # read from such a format
         return None, None
-    ext = _binaryK_extent(label, man_bits, exp_bits, bias, is_signed, saturation, subnormals)
-    if ext.top_field < 1 or ext.top_exp < _F32_MIN_NORMAL_EXP:
+    ext = _binaryK_extent(
+        label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, _BINARY32
+    )
+    if ext.top_field < 1 or ext.top_exp < _BINARY32.min_normal_exp:
         return None, None  # likewise: no finite value at all, binary32's error
     return _storage_findings(ext, storage, elementwise, saturation)
 
@@ -801,12 +928,12 @@ def _superfp_storage_findings(
 ) -> tuple[str | None, str | None]:
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
     if (
-        _width_error(label, exp_bits, man_bits, 0) is not None
+        _width_error(label, exp_bits, man_bits, 0, _BINARY32) is not None
         or _superfp_regions_error(label, exp_bits, normal_binades) is not None
     ):
-        return None, None  # as for binaryK: `check_superfp` has said so already
-    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation)
-    if ext.top_field < 1 or ext.top_exp < _F32_MIN_NORMAL_EXP:
+        return None, None  # as for binaryK: the carrier check has said so already
+    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY32)
+    if ext.top_field < 1 or ext.top_exp < _BINARY32.min_normal_exp:
         return None, None
     return _storage_findings(ext, storage, elementwise, saturation)
 
@@ -850,9 +977,10 @@ def check_binaryK_storage(
 ) -> None:
     """Hold a binaryK format against the ``storage`` dtype a result is written in.
 
-    ``storage`` is ``"float16"`` or ``"bfloat16"``. The cast still rounds in
-    binary32 -- which :func:`check_binaryK` holds the format against, and
-    this does not repeat -- and writing the result rounds it again. Which
+    ``storage`` is ``"float16"`` or ``"bfloat16"``. The cast rounds in
+    binary32, their carrier -- which :func:`check_binaryK_carrier` holds the
+    format against, and this does not repeat -- and writing the result rounds
+    it again. Which
     results can land off the dtype's grid depends on what was rounded:
     ``elementwise=True`` for a quantizer, whose inputs are already the dtype's
     values, and ``False`` for a GEMM, whose sums reach every value the format
@@ -947,6 +1075,13 @@ class BinaryK(FloatFormat):
     format but of the operation (see :class:`mptorch.quant.SplitMac`), because
     the kernels take it as a template parameter shared by a multiply and its
     accumulate.
+
+    Building one raises :exc:`ValueError` only for a format neither carrier
+    can simulate -- more than 53 bits of precision, ``P - 1 + prng_bits``
+    above 52, an exponent field past 30 bits, or no finite value binary64
+    holds -- and warns about nothing. Whether float32 or float64 arithmetic
+    carries the rest is the tensor's to decide, so each call checks the format
+    against its own (see :class:`FormatRangeWarning`).
     """
 
     K: int
@@ -967,8 +1102,8 @@ class BinaryK(FloatFormat):
             middle = 2 ** (self.K - self.P - 1) if self.is_signed else 2 ** (self.K - self.P)
             object.__setattr__(self, "bias", middle)
         assert self.bias is not None
-        # one rule, and `mptorch.quant.ops`' plain-integer wrappers call the
-        # same function -- see `check_binaryK`
+        # What no carrier can do, and nothing more: the carrier belongs to the
+        # call, which holds the format to it -- see `check_binaryK`
         check_binaryK(
             self.K,
             self.P,
@@ -977,7 +1112,8 @@ class BinaryK(FloatFormat):
             self.saturation,
             self.subnormals,
             self.prng_bits,
-            stacklevel=4,  # __init__ -> __post_init__ -> check -> warn
+            carrier="binary64",
+            warn=False,
         )
 
     @property
@@ -997,6 +1133,10 @@ class SuperFP(FloatFormat):
     supernormal region sits *below* the normals, repurposing that encoding
     space for implicit-mantissa powers of two, and everything below it flushes
     to zero.
+
+    Like :class:`BinaryK`, building one raises only for what neither carrier
+    can simulate -- here also a ``normal_binades`` that leaves no supernormal
+    codes -- and each call checks the format against its tensor's carrier.
     """
 
     man_bits: int
@@ -1026,5 +1166,6 @@ class SuperFP(FloatFormat):
             self.bias,
             self.saturation,
             self.prng_bits,
-            stacklevel=4,  # __init__ -> __post_init__ -> check -> warn
+            carrier="binary64",
+            warn=False,
         )

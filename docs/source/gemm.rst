@@ -56,7 +56,12 @@ float64 for float64 operands. So a float64 GEMM is not simply the float32 one
 widened. Its products keep 53 bits where float32 keeps 24, so it can round
 differently even when every operand is a float32 value, and under ``SR`` each
 rounding draws twice the random words. A float32 and a float64 operand cannot
-be mixed in one call.
+be mixed in one call. Each call holds the formats to its carrier's bounds, so
+a format float32 cannot carry -- 30 bits of precision, say -- is refused on
+float32 operands and computed exactly on float64 ones (:doc:`concepts`). A
+float64 GEMM can still be computed the float32 way, operands narrowed and
+result widened, with ``carrier="binary32"`` on the ``SplitMac`` /
+``FusedMac``, or on the flat function.
 
 The following run reproduces a ``SplitMac`` dot product by hand, step by
 step, and gets the same bits.

@@ -11,9 +11,12 @@ from mptorch import (
     SubnormalsMode,
 )
 from mptorch.number import (
-    check_binaryK,
+    _binaryK_findings,
+    _report_per_call,
+    _superfp_findings,
+    check_binaryK_carrier,
     check_binaryK_storage,
-    check_superfp,
+    check_superfp_carrier,
     check_superfp_storage,
 )
 
@@ -45,93 +48,147 @@ def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
     return 2 ** (K - P - 1) if is_signed else 2 ** (K - P)
 
 
-# --- the format's range against binary32's ------------------------------------
+# --- the format's range against its carrier's ----------------------------------
 #
-# `mptorch.number`'s `check_binaryK`/`check_superfp` are the rule, and
-# `BinaryK`/`SuperFP` run it when they are built. The wrappers below never see
-# a format object -- they take the parameters as plain integers -- so they
-# reach the same function through these two, and
-# `binaryK_matmul(a, b, mul_K=16, mul_P=8)` says what `BinaryK(16, 8)` says.
-# The derivation is memoized inside `check_*`, which is what makes this
-# affordable on a path that resolves per call (finding P4): 0.40 us per format
-# slot, so +0.5 to +0.8 us on a spec builder that resolves two of them against
-# the 2.4-3.2 us it already spends, and +0.65 us per palette entry.
+# A call rounds in its operands' carrier -- binary64 for float64, binary32 for
+# float32, float16 and bfloat16 -- or in the one its `carrier=` names, and
+# `mptorch.number`'s findings say what that carrier makes of a format. Only the
+# call knows the dtype, so the format is held to its carrier here, per call;
+# `BinaryK`/`SuperFP` raise only for what no carrier can do. The wrappers below
+# never see a format object -- they take the parameters as plain integers --
+# so they raise that themselves when they resolve a format, and
+# `binaryK_matmul(a, b, mul_K=60, mul_P=54)` says what `BinaryK(60, 54)` says.
+#
+# A GEMM's formats are fixed when its spec is built, so what both carriers say
+# about them is found then (memoized per format inside `mptorch.number`), and a
+# call pays for a tuple index. A quantizer resolves nothing ahead of the call
+# and looks its format up there, which is the same memo hit.
+#
+# `carrier="binary32"` on a float64 operand is the arithmetic every dtype had
+# before float64 had a carrier of its own: narrow the operands, run the op,
+# widen the result. That is done here, in Python, rather than by a schema
+# argument, and it is bit-identical to what the kernels used to do -- they ran
+# the same float32 instantiation on the same narrowed values, and drew the same
+# random words.
+
+_CARRIER_NAMES = ("binary32", "binary64")
+
+# (error, warning) pairs, a warning or an error in each, errors first: what one
+# carrier says about the formats of one GEMM. Empty when it holds them all.
+_Findings = tuple[tuple[str | None, str | None], ...]
+
+# `(function, format arguments)`: one format an op rounds with or stores,
+# called as `function(*arguments, ...)`. Plain values rather than a `partial`,
+# so two spellings of the same GEMM still compare equal
+# (`tests/test_number_formats.py`).
+_Format = tuple[Callable[..., Any], tuple[Any, ...]]
 
 
-def _check_binaryK_palette(
-    K: Sequence[int],
-    P: Sequence[int],
-    bias: Sequence[int],
-    is_signed: bool,
-    saturation: SaturationMode,
-    subnormals: SubnormalsMode,
-    prng_bits: int,
-) -> None:
-    """:func:`check_binaryK` per palette entry.
+def _checked_carrier(carrier: str | None) -> str | None:
+    """A ``carrier`` argument, refused if it names no carrier."""
+    if carrier is not None and carrier not in _CARRIER_NAMES:
+        raise ValueError(f"carrier must be 'binary32', 'binary64' or None, got {carrier!r}")
+    return carrier
 
-    Every entry of a palette is a format in its own right, so every entry is
-    checked. The scalar builders call `check_binaryK` directly instead of
-    passing a one-element list through here -- this sits on a per-call path
-    (finding P4), and the lists and the `zip` cost more than the check.
-    `stacklevel` counts the frames a warning has to climb to reach the
-    caller's own code: this one, the spec builder's, the wrapper's, and the
-    caller's.
+
+def _call_carrier(carrier: str | None, dtype: torch.dtype) -> tuple[str, bool]:
+    """The carrier a call on ``dtype`` operands rounds in, and whether reaching
+    it narrows a float64 operand to float32."""
+    wide = dtype is torch.float64
+    if carrier is None:
+        return ("binary64" if wide else "binary32"), False
+    if carrier == "binary32":
+        return carrier, wide
+    _checked_carrier(carrier)
+    if not wide:
+        raise ValueError(
+            f"carrier='binary64' rounds in binary64, which only a float64 operand is "
+            f"computed in; got {dtype} operands -- pass float64 ones, or leave carrier unset"
+        )
+    return carrier, False
+
+
+_NOTHING = (None, None)
+_NO_FINDINGS: tuple[_Findings, _Findings] = ((), ())
+
+
+def _format_findings(formats: Iterable[_Format]) -> tuple[_Findings, _Findings]:
+    """What binary32 and binary64 say about every format a GEMM rounds with.
+
+    Found once, when the spec is built, and reported by each call against the
+    carrier it rounds in. binary64's errors are what no carrier can do, so
+    they raise here -- the plain-integer spelling of what ``BinaryK`` raises
+    when built.
+
+    A flat wrapper builds its spec on every call (finding P4), so this is
+    spelled for the case that has nothing to say: binary64 is wider than
+    binary32 at every edge, so only a format binary32 finds something in is
+    looked up again, and deduplicating -- a palette repeats a scalar across its
+    entries, a ``SplitMac`` often rounds both halves in one format -- waits
+    until there is something to deduplicate.
     """
-    for k, p, b in zip(K, P, bias, strict=True):
-        check_binaryK(k, p, b, is_signed, saturation, subnormals, prng_bits, stacklevel=5)
+    b32: list[tuple[str | None, str | None]] = []
+    b64: list[tuple[str | None, str | None]] = []
+    for fn, args in formats:
+        found = fn(*args, "binary32")
+        if found != _NOTHING:
+            b32.append(found)
+            found = fn(*args, "binary64")
+            if found != _NOTHING:
+                b64.append(found)
+    if not b32:
+        return _NO_FINDINGS
+    ordered32, ordered64 = _errors_first(b32), _errors_first(b64)
+    if ordered64 and ordered64[0][0] is not None:
+        raise ValueError(ordered64[0][0])
+    return ordered32, ordered64
 
 
-def _check_superfp_palette(
-    man_bits: Sequence[int],
-    exp_bits: Sequence[int],
-    normal_binades: Sequence[int],
-    bias: Sequence[int],
-    saturation: SaturationMode,
-    prng_bits: int,
-) -> None:
-    """:func:`_check_binaryK_palette` for a superfp palette."""
-    for mb, eb, nb, b in zip(man_bits, exp_bits, normal_binades, bias, strict=True):
-        check_superfp(mb, eb, nb, b, saturation, prng_bits, stacklevel=5)
+def _errors_first(found: list[tuple[str | None, str | None]]) -> _Findings:
+    """Findings deduplicated, the errors ahead of the warnings."""
+    unique = dict.fromkeys(found)
+    return tuple([f for f in unique if f[0] is not None] + [f for f in unique if f[0] is None])
+
+
+def _report_findings(found: _Findings) -> None:
+    for error, warning in found:
+        _report_per_call(error, warning)
 
 
 # --- the format's values against a float16 or bfloat16 result -----------------
 #
-# The casts round in binary32 and a half-width result is converted back when
-# it is written, which rounds it a second time. `mptorch.number`'s
-# `check_*_storage` are that rule; only the call knows the dtype, so it runs
-# here, per call, and only for the two dtypes it can say anything about -- a
-# float32 or float64 result holds every value binary32 does. It is held
-# against the format whose values the result actually holds: a GEMM's last
-# rounding (the accumulate or fused format), whose sums reach every value it
-# has, and the elementwise quantizer's own, whose inputs are already the
-# dtype's values and so reach only the edges of its range -- which is why the
-# second passes `elementwise=True`. A GEMM's multiply format never reaches
-# storage, since its products are intermediates in the carrier (binary32 for
-# both of these dtypes).
+# A half-width tensor is rounded in binary32, its carrier, and the result is
+# converted back when it is written, which rounds it a second time.
+# `mptorch.number`'s `check_*_storage` are that rule; only the call knows the
+# dtype, so it runs here, per call, and only for the two dtypes it can say
+# anything about -- a float32 or float64 result holds every value of its
+# carrier. It is held against the format whose values the result actually
+# holds: a GEMM's last rounding (the accumulate or fused format), whose sums
+# reach every value it has, and the elementwise quantizer's own, whose inputs
+# are already the dtype's values and so reach only the edges of its range --
+# which is why the second passes `elementwise=True`. A GEMM's multiply format
+# never reaches storage, since its products are intermediates in the carrier.
 #
 # This replaces a bound on `man_bits + prng_bits` taken against the storage
 # dtype's mantissa, which described a kernel that rounded in the storage
-# dtype. The kernels round in binary32 -- stochastic rounding draws its bits
-# there, whatever the operand dtype -- so that sum is binary32's to bound, and
-# `check_binaryK` does; what the storage dtype bounds is the precision of the
-# values written into it, and only those (`dev/gemm_roadmap.md`, T6).
+# dtype. The kernels round in the carrier -- stochastic rounding draws its bits
+# there -- so that sum is the carrier's to bound, and the carrier check does;
+# what the storage dtype bounds is the precision of the values written into
+# it, and only those (`dev/gemm_roadmap.md`, T6).
 
 _NARROW_STORAGE: dict[torch.dtype, str] = {torch.float16: "float16", torch.bfloat16: "bfloat16"}
 
-# `(check, format arguments)`: the storage check for one format a result may
-# hold, called as `check(*arguments, storage=...)`. Plain values rather than a
-# `partial`, so two spellings of the same GEMM still compare equal
-# (`tests/test_number_formats.py`).
-_Stored = tuple[Callable[..., None], tuple[Any, ...]]
+# the storage check for one format a result may hold, `check(*arguments, storage=...)`
+_Stored = _Format
 
 
-def _stored_palette(
-    check: Callable[..., None], widths: Iterable[tuple[Any, ...]], shared: tuple[Any, ...]
-) -> tuple[_Stored, ...]:
-    """One `_Stored` per distinct palette entry: the per-entry widths, then the
+def _palette_formats(
+    fn: Callable[..., Any], widths: Iterable[tuple[Any, ...]], shared: tuple[Any, ...]
+) -> tuple[_Format, ...]:
+    """One `_Format` per distinct palette entry: the per-entry widths, then the
     fields the palette shares. A scalar broadcast across the palette is one
     format, and is checked once."""
-    return tuple(dict.fromkeys((check, (*w, *shared)) for w in widths))
+    return tuple(dict.fromkeys((fn, (*w, *shared)) for w in widths))
 
 
 def _check_stored(stored: tuple[_Stored, ...], storage: str) -> None:
@@ -195,8 +252,9 @@ class _GemmSpec(NamedTuple):
     `args` is every schema argument after the operands and the transpose
     flags, in order. `stored` is the formats whose values the result holds --
     the last rounding's, one per distinct palette entry, and none when the
-    last step is left unrounded -- which is all a call still has to check,
-    against the operand dtype it is the first to know.
+    last step is left unrounded -- and `findings` what each carrier says about
+    every format the op rounds with. Those two are all a call still has to
+    check, against the operand dtype it is the first to know.
 
     The split exists so a caller with a fixed format can resolve once and call
     many times: `mptorch.quant.gemm`'s factories build a spec per layer and
@@ -212,6 +270,10 @@ class _GemmSpec(NamedTuple):
     # `mptorch.quant.mac` reads this to decide whether a call needs a map,
     # rather than re-deriving from the format what the builder already knew.
     mixed: bool = False
+    # The carrier the caller named, or None for the operands' own.
+    carrier: str | None = None
+    # binary32's findings, then binary64's (`_format_findings`).
+    findings: tuple[_Findings, _Findings] = ((), ())
 
 
 def _packed(x: torch.Tensor, trans: bool) -> tuple[torch.Tensor, bool]:
@@ -235,6 +297,26 @@ def _packed(x: torch.Tensor, trans: bool) -> tuple[torch.Tensor, bool]:
     return x.contiguous(), trans
 
 
+def _named_carrier_operands(
+    spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    """The prologue of a call whose spec names its carrier: the checks that
+    carrier and the dtype decide, and the operands in that carrier, with
+    whether they were narrowed to reach it."""
+    dtype = a.dtype
+    carrier, narrow = _call_carrier(spec.carrier, dtype)
+    found = spec.findings[carrier == "binary64"]
+    if found:
+        _report_findings(found)
+    if spec.stored and dtype in _NARROW_STORAGE:
+        _check_stored(spec.stored, _NARROW_STORAGE[dtype])
+    # a float64 operand beside a float32 one is the op's to refuse, not this
+    # to paper over by narrowing one of them
+    if narrow and b.dtype is torch.float64:
+        return a.float(), b.float(), True
+    return a, b, False
+
+
 def _run_gemm(
     spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool
 ) -> torch.Tensor:
@@ -244,13 +326,25 @@ def _run_gemm(
     ``torch.matmul`` operand rules -- 1D promotion, leading-dim broadcasting,
     rank > 3 -- are :func:`_matmul_operands`' job, above this.
     """
-    # the membership test first: it is all a float32 call pays, and it is
-    # cheaper than the storage-width assert it replaces (0.20 us against 0.26)
-    if spec.stored and a.dtype in _NARROW_STORAGE:
-        _check_stored(spec.stored, _NARROW_STORAGE[a.dtype])
+    narrow = False
+    if spec.carrier is not None:
+        a, b, narrow = _named_carrier_operands(spec, a, b)
+    else:
+        # What every call without a `carrier=` pays, spelled out here and in
+        # `_run_gemm_mixed` rather than behind a call (0.25 us): the
+        # operands' carrier's findings, a bool indexing binary32's then
+        # binary64's, and the storage check, whose membership test is all a
+        # float32 call pays of it.
+        dtype = a.dtype
+        found = spec.findings[dtype is torch.float64]
+        if found:
+            _report_findings(found)
+        if spec.stored and dtype in _NARROW_STORAGE:
+            _check_stored(spec.stored, _NARROW_STORAGE[dtype])
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
-    return spec.op(a, b, trans_a, trans_b, *spec.args)
+    out = spec.op(a, b, trans_a, trans_b, *spec.args)
+    return out.double() if narrow else out
 
 
 def _run_gemm_mixed(
@@ -267,13 +361,20 @@ def _run_gemm_mixed(
     C++ side's job, and it memoizes the bounds check against the tensor it is
     handed (finding G5b), which a `.to()` here would defeat.
     """
-    # the membership test first: it is all a float32 call pays, and it is
-    # cheaper than the storage-width assert it replaces (0.20 us against 0.26)
-    if spec.stored and a.dtype in _NARROW_STORAGE:
-        _check_stored(spec.stored, _NARROW_STORAGE[a.dtype])
+    narrow = False
+    if spec.carrier is not None:
+        a, b, narrow = _named_carrier_operands(spec, a, b)
+    else:
+        dtype = a.dtype
+        found = spec.findings[dtype is torch.float64]
+        if found:
+            _report_findings(found)
+        if spec.stored and dtype in _NARROW_STORAGE:
+            _check_stored(spec.stored, _NARROW_STORAGE[dtype])
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
-    return spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
+    out = spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
+    return out.double() if narrow else out
 
 
 # --- torch.matmul's operand rules, over a rank-2-or-3 op ----------------------
@@ -477,6 +578,8 @@ def binaryK_quantize(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    *,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Round every element of ``x`` to a binaryK floating-point format: the
@@ -491,19 +594,25 @@ def binaryK_quantize(
     Pass it explicitly for a format outside P3109: the OCP 8-bit formats are
     E4M3, ``K=8, P=4, bias=7``, and E5M2, ``K=8, P=3, bias=15``.
 
-    ``x`` may be float32, float64, float16 or bfloat16; a float64 ``x`` is
-    rounded in float64 and the others on their float32 value, and the result
-    is returned in ``x``'s dtype, as a new tensor. The format is held to what
-    float32 can carry whatever the dtype, for now. A float16 or bfloat16
-    result is rounded a second time when it is stored, so the format is held
-    against that dtype as well; the inputs are already its values, so only a
-    result at an edge of the format's range can land off its grid, and that
-    warns (see :doc:`/concepts`). NaN inputs pass through, and so do
-    infinities except under ``SaturationMode.SAT_FINITE``, which clamps them.
-    ``prng_bits`` is the number of random bits ``RoundMode.SR`` draws
-    below the target mantissa (ignored by every other mode); the draw is made
-    in the value being rounded, and ``P - 1 + prng_bits`` is held to float32's
-    23 whatever the dtype, for now.
+    ``x`` may be float32, float64, float16 or bfloat16, and the result is
+    returned in ``x``'s dtype, as a new tensor. The rounding happens in a
+    *carrier*: binary64 for a float64 ``x``, directly, and binary32 for the
+    others, on their float32 value. The format is held to what that carrier
+    can hold, on every call -- at most 24 bits of precision and seven exponent
+    bits in binary32, 53 and ten in binary64 (see :doc:`/concepts`) -- and
+    ``prng_bits``, the number of random bits ``RoundMode.SR`` draws below the
+    target mantissa (ignored by every other mode), is drawn in the carrier
+    too, so ``P - 1 + prng_bits`` is held to its 23 or 52 mantissa bits.
+    ``carrier="binary32"`` rounds a float64 ``x`` in binary32 all the same,
+    narrowing it first and widening the result, which is what a float64 tensor
+    got before it had a carrier of its own; ``"binary64"`` insists on a float64
+    ``x``; ``None`` takes ``x``'s own.
+
+    A float16 or bfloat16 result is rounded a second time when it is stored,
+    so the format is held against that dtype as well; the inputs are already
+    its values, so only a result at an edge of the format's range can land off
+    its grid, and that warns. NaN inputs pass through, and so do infinities
+    except under ``SaturationMode.SAT_FINITE``, which clamps them.
 
     Not differentiable: on a tensor that requires grad under grad mode this
     raises and points at :class:`mptorch.quant.Quantizer`. See
@@ -511,7 +620,10 @@ def binaryK_quantize(
     """
     if not bias:
         bias = _binaryK_bias(K, P, is_signed)
-    check_binaryK(K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits)
+    name, narrow = _call_carrier(carrier, x.dtype)
+    check_binaryK_carrier(
+        K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits, carrier=name
+    )
     storage = _NARROW_STORAGE.get(x.dtype)
     if storage is not None:
         check_binaryK_storage(
@@ -525,8 +637,8 @@ def binaryK_quantize(
             elementwise=True,
         )
 
-    return torch.ops.mptorch.binaryK_quant.default(
-        x.contiguous(),
+    out = torch.ops.mptorch.binaryK_quant.default(
+        _quantizer_operand(x, narrow),
         K,
         P,
         bias,
@@ -536,6 +648,15 @@ def binaryK_quantize(
         saturation_mode.value,
         subnormals_mode.value,
     )
+    return out.double() if narrow else out
+
+
+def _quantizer_operand(x: torch.Tensor, narrow: bool) -> torch.Tensor:
+    """``x`` as the elementwise op reads it: contiguous, and narrowed to
+    float32 when the call's carrier asks for that, in one copy."""
+    if narrow:
+        return x.to(torch.float32, memory_format=torch.contiguous_format)
+    return x.contiguous()
 
 
 def superfp_quantize(
@@ -548,6 +669,8 @@ def superfp_quantize(
     is_signed: bool = True,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    *,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Round every element of ``x`` to a superfp (supernormal) floating-point format.
@@ -559,10 +682,13 @@ def superfp_quantize(
     subnormals, hence no ``subnormals_mode``). ``bias`` is required -- the
     format has no default rule for it. See :class:`mptorch.SuperFP`.
 
-    Dtypes, ``prng_bits`` and differentiability are as for
+    Dtypes, carriers, ``prng_bits`` and differentiability are as for
     :func:`binaryK_quantize`.
     """
-    check_superfp(man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits)
+    name, narrow = _call_carrier(carrier, x.dtype)
+    check_superfp_carrier(
+        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=name
+    )
     storage = _NARROW_STORAGE.get(x.dtype)
     if storage is not None:
         check_superfp_storage(
@@ -575,8 +701,8 @@ def superfp_quantize(
             elementwise=True,
         )
 
-    return torch.ops.mptorch.superfp_quant.default(
-        x.contiguous(),
+    out = torch.ops.mptorch.superfp_quant.default(
+        _quantizer_operand(x, narrow),
         man_bits,
         exp_bits,
         normal_binades,
@@ -586,6 +712,7 @@ def superfp_quantize(
         rounding_mode.value,
         saturation_mode.value,
     )
+    return out.double() if narrow else out
 
 
 # --- single-format GEMMs -----------------------------------------------------
@@ -610,7 +737,7 @@ def _binaryK_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -633,40 +760,14 @@ def _binaryK_spec(
     elif acc_bias is None:
         acc_bias = 0
 
-    if check_formats:
-        check_binaryK(
-            mul_K,
-            mul_P,
-            mul_bias,
-            mul_is_signed,
-            saturation_mode,
-            subnormals_mode,
-            mul_prng_bits,
-            stacklevel=4,
-        )
-        if accumulate_quant:
-            check_binaryK(
-                acc_K,
-                acc_P,
-                acc_bias,
-                acc_is_signed,
-                acc_saturation_mode,
-                acc_subnormals_mode,
-                acc_prng_bits,
-                stacklevel=4,
-            )
-
+    mul = (mul_K, mul_P, mul_bias, mul_is_signed, saturation_mode, subnormals_mode)
+    rounded: list[_Format] = [(_binaryK_findings, (*mul, mul_prng_bits))]
     # the running sum is what the result holds; the products never reach it
-    stored: tuple[_Stored, ...] = (
-        (
-            (
-                check_binaryK_storage,
-                (acc_K, acc_P, acc_bias, acc_is_signed, acc_saturation_mode, acc_subnormals_mode),
-            ),
-        )
-        if accumulate_quant
-        else ()
-    )
+    stored: tuple[_Stored, ...] = ()
+    if accumulate_quant:
+        acc = (acc_K, acc_P, acc_bias, acc_is_signed, acc_saturation_mode, acc_subnormals_mode)
+        rounded.append((_binaryK_findings, (*acc, acc_prng_bits)))
+        stored = ((check_binaryK_storage, acc),)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_binaryK.default,
@@ -690,6 +791,8 @@ def _binaryK_spec(
             acc_prng_bits,
         ),
         stored,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -716,6 +819,7 @@ def binaryK_matmul(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Quantized GEMM core: computes ``op(a) @ op(b)``, where ``op(x) = x.T``
@@ -733,6 +837,14 @@ def binaryK_matmul(
     is ``RoundMode.SR`` (stochastic): they set the number of random
     mantissa bits used by the multiply/accumulate rounding respectively,
     same convention as :func:`binaryK_quantize`'s ``prng_bits``.
+
+    Everything the formats do not round -- a product before its rounding, a
+    sum before its -- is computed in a carrier, and so are the roundings:
+    binary64 for float64 operands and binary32 for the rest, and the formats
+    are held to that carrier on every call. ``carrier`` is as for
+    :func:`binaryK_quantize`: ``"binary32"`` narrows float64 operands to it and
+    widens the result, ``"binary64"`` insists on float64 operands, and
+    ``None`` takes theirs.
 
     ``a`` and ``b`` follow ``torch.matmul``'s operand rules: 1D operands are
     promoted (and their dimension dropped from the result), leading dimensions
@@ -765,6 +877,7 @@ def binaryK_matmul(
             subnormals_mode=subnormals_mode,
             acc_saturation_mode=acc_saturation_mode,
             acc_subnormals_mode=acc_subnormals_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -792,7 +905,7 @@ def _superfp_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -812,37 +925,13 @@ def _superfp_spec(
         acc_normal_binades = acc_normal_binades or 0
         acc_bias = acc_bias or 0
 
-    if check_formats:
-        check_superfp(
-            mul_man_bits,
-            mul_exp_bits,
-            mul_normal_binades,
-            mul_bias,
-            saturation_mode,
-            mul_prng_bits,
-            stacklevel=4,
-        )
-        if accumulate_quant:
-            check_superfp(
-                acc_man_bits,
-                acc_exp_bits,
-                acc_normal_binades,
-                acc_bias,
-                acc_saturation_mode,
-                acc_prng_bits,
-                stacklevel=4,
-            )
-
-    stored: tuple[_Stored, ...] = (
-        (
-            (
-                check_superfp_storage,
-                (acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_saturation_mode),
-            ),
-        )
-        if accumulate_quant
-        else ()
-    )
+    mul = (mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, saturation_mode)
+    rounded: list[_Format] = [(_superfp_findings, (*mul, mul_prng_bits))]
+    stored: tuple[_Stored, ...] = ()
+    if accumulate_quant:
+        acc = (acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_saturation_mode)
+        rounded.append((_superfp_findings, (*acc, acc_prng_bits)))
+        stored = ((check_superfp_storage, acc),)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp.default,
@@ -866,6 +955,8 @@ def _superfp_spec(
             acc_prng_bits,
         ),
         stored,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -892,13 +983,14 @@ def superfp_matmul(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul` -- see its docstring for the
     general contract (``torch.matmul``'s operand rules, ``trans_a``/
-    ``trans_b``, ``accumulate_quant``, ``mul_prng_bits``/``acc_prng_bits``).
-    ``acc_man_bits``/``acc_exp_bits``/``acc_normal_binades``/``acc_bias``
-    default to the multiply format's values when omitted and
+    ``trans_b``, ``accumulate_quant``, ``mul_prng_bits``/``acc_prng_bits``,
+    ``carrier``). ``acc_man_bits``/``acc_exp_bits``/``acc_normal_binades``/
+    ``acc_bias`` default to the multiply format's values when omitted and
     ``accumulate_quant`` is true.
     """
     return _gemm_nd(
@@ -920,6 +1012,7 @@ def superfp_matmul(
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
             acc_saturation_mode=acc_saturation_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -940,32 +1033,17 @@ def _binaryK_fma_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma`'s format -- see it for the contract."""
     if not fma_bias:
         fma_bias = _binaryK_bias(fma_K, fma_P, fma_is_signed)
-    if check_formats and fma_quant:
-        check_binaryK(
-            fma_K,
-            fma_P,
-            fma_bias,
-            fma_is_signed,
-            saturation_mode,
-            subnormals_mode,
-            fma_prng_bits,
-            stacklevel=4,
-        )
-    stored: tuple[_Stored, ...] = (
-        (
-            (
-                check_binaryK_storage,
-                (fma_K, fma_P, fma_bias, fma_is_signed, saturation_mode, subnormals_mode),
-            ),
-        )
-        if fma_quant
-        else ()
-    )
+    rounded: list[_Format] = []
+    stored: tuple[_Stored, ...] = ()
+    if fma_quant:
+        fma = (fma_K, fma_P, fma_bias, fma_is_signed, saturation_mode, subnormals_mode)
+        rounded.append((_binaryK_findings, (*fma, fma_prng_bits)))
+        stored = ((check_binaryK_storage, fma),)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_binaryK_fma.default,
@@ -982,6 +1060,8 @@ def _binaryK_fma_spec(
             fma_prng_bits,
         ),
         stored,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1001,6 +1081,7 @@ def binaryK_matmul_fma(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Fused-multiply-add analog of :func:`binaryK_matmul`: every dot-product
@@ -1011,16 +1092,16 @@ def binaryK_matmul_fma(
     :func:`binaryK_matmul` there is a single ``fma_K``/``fma_P`` format,
     not a ``mul_*``/``acc_*`` pair.
 
-    With ``fma_quant=False`` the fused step runs in full fp32 precision (no
-    rounding beyond fp32 itself) -- the FMA analog of
+    With ``fma_quant=False`` the fused step runs at the carrier's own
+    precision (no rounding beyond the carrier's) -- the FMA analog of
     :func:`binaryK_matmul`'s ``accumulate_quant=False``.
 
     ``fma_prng_bits`` only matters when ``rounding_mode`` is
     ``RoundMode.SR`` (stochastic) -- see :func:`binaryK_matmul`'s
     ``mul_prng_bits``/``acc_prng_bits`` for the convention.
 
-    ``a`` and ``b`` follow ``torch.matmul``'s operand rules, as for
-    :func:`binaryK_matmul`.
+    ``a`` and ``b`` follow ``torch.matmul``'s operand rules, and ``carrier``
+    chooses the arithmetic, as for :func:`binaryK_matmul`.
     """
     return _gemm_nd(
         _binaryK_fma_spec(
@@ -1034,6 +1115,7 @@ def binaryK_matmul_fma(
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
             subnormals_mode=subnormals_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -1054,29 +1136,15 @@ def _superfp_fma_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma`'s format -- see it for the contract."""
-    if check_formats and fma_quant:
-        check_superfp(
-            fma_man_bits,
-            fma_exp_bits,
-            fma_normal_binades,
-            fma_bias,
-            saturation_mode,
-            fma_prng_bits,
-            stacklevel=4,
-        )
-    stored: tuple[_Stored, ...] = (
-        (
-            (
-                check_superfp_storage,
-                (fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias, saturation_mode),
-            ),
-        )
-        if fma_quant
-        else ()
-    )
+    rounded: list[_Format] = []
+    stored: tuple[_Stored, ...] = ()
+    if fma_quant:
+        fma = (fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias, saturation_mode)
+        rounded.append((_superfp_findings, (*fma, fma_prng_bits)))
+        stored = ((check_superfp_storage, fma),)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp_fma.default,
@@ -1093,6 +1161,8 @@ def _superfp_fma_spec(
             fma_prng_bits,
         ),
         stored,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1112,6 +1182,7 @@ def superfp_matmul_fma(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """superfp analog of :func:`binaryK_matmul_fma` -- see its docstring."""
     return _gemm_nd(
@@ -1126,6 +1197,7 @@ def superfp_matmul_fma(
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -1160,7 +1232,7 @@ def _binaryK_mixed_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_mixed`'s palette -- see it for the contract."""
     mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
@@ -1181,36 +1253,17 @@ def _binaryK_mixed_spec(
         acc_P_l = [0] * n
         acc_bias_l = [0] * n
 
-    if check_formats:
-        _check_binaryK_palette(
-            mul_K_l,
-            mul_P_l,
-            mul_bias_l,
-            mul_is_signed,
-            saturation_mode,
-            subnormals_mode,
-            mul_prng_bits,
-        )
-        if accumulate_quant:
-            _check_binaryK_palette(
-                acc_K_l,
-                acc_P_l,
-                acc_bias_l,
-                acc_is_signed,
-                acc_saturation_mode,
-                acc_subnormals_mode,
-                acc_prng_bits,
-            )
-
-    stored = (
-        _stored_palette(
-            check_binaryK_storage,
-            zip(acc_K_l, acc_P_l, acc_bias_l, strict=True),
-            (acc_is_signed, acc_saturation_mode, acc_subnormals_mode),
-        )
-        if accumulate_quant
-        else ()
+    rounded = _palette_formats(
+        _binaryK_findings,
+        zip(mul_K_l, mul_P_l, mul_bias_l, strict=True),
+        (mul_is_signed, saturation_mode, subnormals_mode, mul_prng_bits),
     )
+    stored: tuple[_Stored, ...] = ()
+    if accumulate_quant:
+        acc_widths = tuple(zip(acc_K_l, acc_P_l, acc_bias_l, strict=True))
+        acc_shared = (acc_is_signed, acc_saturation_mode, acc_subnormals_mode)
+        rounded += _palette_formats(_binaryK_findings, acc_widths, (*acc_shared, acc_prng_bits))
+        stored = _palette_formats(check_binaryK_storage, acc_widths, acc_shared)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_binaryK_mixed.default,
@@ -1235,6 +1288,8 @@ def _binaryK_mixed_spec(
         ),
         stored,
         mixed=True,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1262,6 +1317,7 @@ def binaryK_matmul_mixed(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Spatially-varying (per-output-element) mixed-format analog of
@@ -1278,7 +1334,8 @@ def binaryK_matmul_mixed(
     ``*_bias`` to ``2**(K - P - 1)`` / ``2**(K - P)``). ``mul_is_signed``/
     ``acc_is_signed``/``rounding_mode``/``saturation_mode``/
     ``subnormals_mode``/``mul_prng_bits``/``acc_prng_bits`` are shared across
-    the whole palette.
+    the whole palette, and so is ``carrier`` (as for :func:`binaryK_matmul`):
+    every entry is held to the call's carrier.
 
     ``prec_idx`` is an integer tensor selecting a palette entry per output
     element. Its shape must be the GEMM's output shape ``[M, N]`` (dense),
@@ -1313,6 +1370,7 @@ def binaryK_matmul_mixed(
             subnormals_mode=subnormals_mode,
             acc_saturation_mode=acc_saturation_mode,
             acc_subnormals_mode=acc_subnormals_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -1341,7 +1399,7 @@ def _superfp_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_mixed`'s palette -- see it for the contract."""
     mul_mb_l, mul_eb_l, n = _palette_pair(
@@ -1366,24 +1424,18 @@ def _superfp_mixed_spec(
         acc_nb_l = [0] * n
         acc_bias_l = [0] * n
 
-    if check_formats:
-        _check_superfp_palette(
-            mul_mb_l, mul_eb_l, mul_nb_l, mul_bias_l, saturation_mode, mul_prng_bits
-        )
-        if accumulate_quant:
-            _check_superfp_palette(
-                acc_mb_l, acc_eb_l, acc_nb_l, acc_bias_l, acc_saturation_mode, acc_prng_bits
-            )
-
-    stored = (
-        _stored_palette(
-            check_superfp_storage,
-            zip(acc_mb_l, acc_eb_l, acc_nb_l, acc_bias_l, strict=True),
-            (acc_saturation_mode,),
-        )
-        if accumulate_quant
-        else ()
+    rounded = _palette_formats(
+        _superfp_findings,
+        zip(mul_mb_l, mul_eb_l, mul_nb_l, mul_bias_l, strict=True),
+        (saturation_mode, mul_prng_bits),
     )
+    stored: tuple[_Stored, ...] = ()
+    if accumulate_quant:
+        acc_widths = tuple(zip(acc_mb_l, acc_eb_l, acc_nb_l, acc_bias_l, strict=True))
+        rounded += _palette_formats(
+            _superfp_findings, acc_widths, (acc_saturation_mode, acc_prng_bits)
+        )
+        stored = _palette_formats(check_superfp_storage, acc_widths, (acc_saturation_mode,))
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp_mixed.default,
@@ -1408,6 +1460,8 @@ def _superfp_mixed_spec(
         ),
         stored,
         mixed=True,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1435,10 +1489,11 @@ def superfp_matmul_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul_mixed` -- see its docstring for
-    the palette / ``prec_idx`` contract. ``mul_man_bits``/``mul_exp_bits``
+    the palette / ``prec_idx`` / ``carrier`` contract. ``mul_man_bits``/``mul_exp_bits``
     are per-palette-entry sequences defining the palette size ``n``;
     ``mul_normal_binades``/``mul_bias`` and every ``acc_*`` may be a scalar,
     an ``n``-length sequence, or (for ``acc_*``) ``None`` to fall back to the
@@ -1463,6 +1518,7 @@ def superfp_matmul_mixed(
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
             acc_saturation_mode=acc_saturation_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -1484,30 +1540,18 @@ def _binaryK_fma_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
     fma_bias_l = _binaryK_palette_bias(fma_bias, fma_K_l, fma_P_l, fma_is_signed, "fma_bias")
-    if check_formats and fma_quant:
-        _check_binaryK_palette(
-            fma_K_l,
-            fma_P_l,
-            fma_bias_l,
-            fma_is_signed,
-            saturation_mode,
-            subnormals_mode,
-            fma_prng_bits,
-        )
-    stored = (
-        _stored_palette(
-            check_binaryK_storage,
-            zip(fma_K_l, fma_P_l, fma_bias_l, strict=True),
-            (fma_is_signed, saturation_mode, subnormals_mode),
-        )
-        if fma_quant
-        else ()
-    )
+    rounded: tuple[_Format, ...] = ()
+    stored: tuple[_Stored, ...] = ()
+    if fma_quant:
+        widths = tuple(zip(fma_K_l, fma_P_l, fma_bias_l, strict=True))
+        shared = (fma_is_signed, saturation_mode, subnormals_mode)
+        rounded = _palette_formats(_binaryK_findings, widths, (*shared, fma_prng_bits))
+        stored = _palette_formats(check_binaryK_storage, widths, shared)
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_binaryK_fma_mixed.default,
@@ -1525,6 +1569,8 @@ def _binaryK_fma_mixed_spec(
         ),
         stored,
         mixed=True,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1545,6 +1591,7 @@ def binaryK_matmul_fma_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     Spatially-varying (per-output-element) mixed-format analog of
@@ -1558,7 +1605,7 @@ def binaryK_matmul_fma_mixed(
     (broadcast), an ``n``-length sequence, or ``None`` (per-entry default
     ``2**(K - P - 1)`` / ``2**(K - P)``). ``fma_is_signed``/
     ``rounding_mode``/``saturation_mode``/``subnormals_mode``/
-    ``fma_prng_bits`` are shared across the palette.
+    ``fma_prng_bits``/``carrier`` are shared across the palette.
 
     ``prec_idx`` follows the same contract as :func:`binaryK_matmul_mixed`
     (shape ``[M, N]`` / ``[M, 1]`` / ``[1, N]``, values in ``[0, n)``).
@@ -1578,6 +1625,7 @@ def binaryK_matmul_fma_mixed(
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
             subnormals_mode=subnormals_mode,
+            carrier=carrier,
         ),
         a,
         b,
@@ -1599,7 +1647,7 @@ def _superfp_fma_mixed_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    check_formats: bool = True,
+    carrier: str | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_mb_l, fma_eb_l, n = _palette_pair(
@@ -1607,19 +1655,12 @@ def _superfp_fma_mixed_spec(
     )
     fma_nb_l = _palette_list(fma_normal_binades, n, "fma_normal_binades")
     fma_bias_l = _palette_list(fma_bias, n, "fma_bias")
-    if check_formats and fma_quant:
-        _check_superfp_palette(
-            fma_mb_l, fma_eb_l, fma_nb_l, fma_bias_l, saturation_mode, fma_prng_bits
-        )
-    stored = (
-        _stored_palette(
-            check_superfp_storage,
-            zip(fma_mb_l, fma_eb_l, fma_nb_l, fma_bias_l, strict=True),
-            (saturation_mode,),
-        )
-        if fma_quant
-        else ()
-    )
+    rounded: tuple[_Format, ...] = ()
+    stored: tuple[_Stored, ...] = ()
+    if fma_quant:
+        widths = tuple(zip(fma_mb_l, fma_eb_l, fma_nb_l, fma_bias_l, strict=True))
+        rounded = _palette_formats(_superfp_findings, widths, (saturation_mode, fma_prng_bits))
+        stored = _palette_formats(check_superfp_storage, widths, (saturation_mode,))
 
     return _GemmSpec(
         torch.ops.mptorch.custom_matmul_superfp_fma_mixed.default,
@@ -1637,6 +1678,8 @@ def _superfp_fma_mixed_spec(
         ),
         stored,
         mixed=True,
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -1657,13 +1700,15 @@ def superfp_matmul_fma_mixed(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    carrier: str | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul_fma_mixed` -- see its docstring
-    for the palette / ``prec_idx`` contract and the ``fma_quant=False``
-    rejection. ``fma_man_bits``/``fma_exp_bits`` are per-palette-entry
-    sequences defining the palette size ``n``; ``fma_normal_binades``/
-    ``fma_bias`` may each be a scalar or an ``n``-length sequence.
+    for the palette / ``prec_idx`` / ``carrier`` contract and the
+    ``fma_quant=False`` rejection. ``fma_man_bits``/``fma_exp_bits`` are
+    per-palette-entry sequences defining the palette size ``n``;
+    ``fma_normal_binades``/``fma_bias`` may each be a scalar or an
+    ``n``-length sequence.
     """
     return _gemm_mixed_nd(
         _superfp_fma_mixed_spec(
@@ -1677,6 +1722,7 @@ def superfp_matmul_fma_mixed(
             accumulate_algorithm=accumulate_algorithm,
             rounding_mode=rounding_mode,
             saturation_mode=saturation_mode,
+            carrier=carrier,
         ),
         a,
         b,

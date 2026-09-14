@@ -18,11 +18,20 @@ print("E5M2, RNE   ", binaryK_quantize(x, K=8, P=3))
 print("superfp     ", superfp_quantize(x, man_bits=3, exp_bits=4, normal_binades=2, bias=7))
 
 # Every floating-point dtype torch trains in is accepted. A float64 tensor is
-# rounded in float64, the others in float32, and the result comes back in the
+# rounded in binary64, the others in binary32, and the result comes back in the
 # input's dtype.
 for dtype in (torch.float64, torch.float16, torch.bfloat16):
     y = binaryK_quantize(x.to(dtype), K=8, P=4)
     print(f"{str(dtype):<14}", y.dtype, y.tolist())
+
+# The two carriers disagree where float32 cannot hold the input: 1.0625 is the
+# tie between 1.0 and 1.125, and the 2**-30 above it is lost when a float64
+# tensor is narrowed to float32 -- which is what carrier="binary32" asks for.
+t = torch.tensor([1.0625 + 2**-30], dtype=torch.float64)
+print(
+    f"\n1.0625 + 2**-30: {binaryK_quantize(t, K=8, P=4).item()} in binary64,",
+    f"{binaryK_quantize(t, K=8, P=4, carrier='binary32').item()} in binary32",
+)
 
 # Storing the result in float16 or bfloat16 rounds it once more, so the format
 # has to fit that dtype too. The inputs are already float16 values, so only an
@@ -38,12 +47,15 @@ print(f"\nE5M2, RU, of 60000: {y32.item()} in float32, {y16.item()} in float16")
 print(f"{caught[0].category.__name__}: {caught[0].message}")
 
 # Stochastic rounding takes its random bits from below the target mantissa, in
-# the value the rounding happens in -- and for now the format's mantissa and
-# its random bits share float32's 23 bits, whatever the tensor's dtype.
+# the carrier the rounding happens in, so the format's mantissa and its random
+# bits share the carrier's: binary64's 52 bits for float64, binary32's 23 for
+# the rest.
+y = binaryK_quantize(x.double(), K=8, P=4, prng_bits=21, rounding_mode=RoundMode.SR)
+print("\nfloat64, 3 + 21 bits:", y.tolist())
 try:
     binaryK_quantize(x.to(torch.bfloat16), K=8, P=4, prng_bits=21, rounding_mode=RoundMode.SR)
 except ValueError as e:
-    print("\nValueError:", e)
+    print("bfloat16: ValueError:", e)
 
 # CPU and CUDA give the same result under every deterministic rounding mode.
 if torch.cuda.is_available():

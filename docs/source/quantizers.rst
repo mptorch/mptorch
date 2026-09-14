@@ -34,21 +34,24 @@ Some things to know about them:
   :math:`2^{K-P-1}`, or :math:`2^{K-P}` unsigned) and required for
   ``superfp_quantize``, for the reasons given in :doc:`concepts`.
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
-  float16 and bfloat16. A float64 input is rounded in float64, directly; the
-  others are rounded on their float32 value, and the result is stored back
-  in the input's dtype, which rounds a float16 or bfloat16 result once more.
-  The input is already a value of that dtype, so only an edge of the format's
-  range can miss, and the call warns when one can -- the run shows E5M2's top
-  meeting float16's. :doc:`concepts` gives the rule, and the stricter one a
-  GEMM's result is held to.
+  float16 and bfloat16. A float64 input is rounded in binary64, directly, and
+  the format is held to binary64's bounds -- up to 53 bits of precision and
+  ten exponent bits; the others are rounded on their float32 value, in
+  binary32, and held to its bounds (:doc:`concepts`, "What the carrier can
+  hold"). ``carrier="binary32"`` rounds a float64 input the float32 way, and
+  the run shows the two disagreeing on a value float32 cannot hold.
+- The result is stored back in the input's dtype, which rounds a float16 or
+  bfloat16 result once more. The input is already a value of that dtype, so
+  only an edge of the format's range can miss, and the call warns when one
+  can -- the run shows E5M2's top meeting float16's. :doc:`concepts` gives
+  the rule, and the stricter one a GEMM's result is held to.
 - The result is a fresh tensor; the input is never modified.
 - NaN passes through with its payload. An infinity passes through too,
   except under ``SaturationMode.SAT_FINITE``, which clamps it to the largest
   finite value like any other overflow.
 - ``prng_bits`` only matters under ``RoundMode.SR``. The random bits are
-  drawn in the value being rounded, but for now they share float32's 23
-  mantissa bits with the format's whatever the dtype, as the error in the run
-  shows.
+  drawn in the carrier, below the format's mantissa, so the two share its
+  mantissa bits: 23 in binary32 and 52 in binary64, as the run shows.
 - CPU and CUDA produce bit-identical results under every deterministic mode.
   Under ``SR`` each device draws from its own default generator, so
   ``torch.manual_seed`` reproduces a run *on the same device*.

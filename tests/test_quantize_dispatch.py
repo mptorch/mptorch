@@ -9,7 +9,7 @@ a float64 input is rounded once, directly, and a format that needs more than
 binary32 -- 24 bits of precision, seven exponent bits, a floor at 2**-125 --
 can be reached.
 
-Three things follow, and each has its tests below.
+Four things follow, and each has its tests below.
 
 * **The binary32 image.** A float64 tensor holding float32 values, quantized
   to a format binary32 simulates faithfully, gives exactly the float32
@@ -19,11 +19,14 @@ Three things follow, and each has its tests below.
   scalar tail to it.
 * **Rounding once.** Where the float64 value is not a float32 value the two
   paths legitimately differ, because narrowing was a rounding of its own.
-* **Formats past binary32.** Reached through ``torch.ops`` directly, since
-  ``mptorch.number`` still holds every format to binary32's bounds whatever
-  the dtype until the carrier reaches the Python side (phase 5), and checked
-  against ``tests/test_binaryk_p3109.py``'s transcription of P3109, which
-  rounds float64 values exactly.
+* **Formats past binary32.** Checked through ``torch.ops`` against
+  ``tests/test_binaryk_p3109.py``'s transcription of P3109, which rounds
+  float64 values exactly, and through the Python wrapper, which holds a
+  float64 tensor's format to binary64's bounds (phase 5) and so must let
+  every one of them through without a word.
+* **The old arithmetic, on request.** ``carrier="binary32"`` narrows a float64
+  tensor, rounds it in binary32 and widens the result, which is exactly what
+  every float64 call did before phase 3 -- random draws included.
 
 Stochastic rounding draws a 64-bit word per float64 element -- words
 ``2 * (j & 1)`` and the next of Philox block ``j >> 1`` (``common/philox.h``)
@@ -32,11 +35,13 @@ neighbours, and each element's draw is a function of its own index.
 """
 
 import math
+import warnings
+from typing import Any
 
 import pytest
 import torch
 
-from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
+from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize, superfp_quantize
 from tests.markers import available_devices
 from tests.test_binaryk_p3109 import _bias, _max_finite, _round_to_precision, _saturate
@@ -191,7 +196,9 @@ def _wide_inputs(K, P, bias, signed, device, n=65_536):
     on_grid = torch.ldexp(codes, step)
     midpoint = torch.ldexp(2 * codes + 1, step - 1)
     largest = torch.finfo(torch.float64).max
-    specials = torch.tensor([0.0, -0.0, math.inf, -math.inf, math.nan, 5e-324, largest])
+    specials = torch.tensor(
+        [0.0, -0.0, math.inf, -math.inf, math.nan, 5e-324, largest], dtype=torch.float64
+    )
     x = torch.cat([random, on_grid, midpoint, specials])
     sign = torch.where(torch.rand(x.shape, generator=g) < 0.5, -1.0, 1.0).double()
     return (x * sign).to(device)
@@ -200,10 +207,19 @@ def _wide_inputs(K, P, bias, signed, device, n=65_536):
 def _project(x, K, P, bias, signed, rounding, saturation):
     """tests/test_binaryk_p3109.py's projection, at a bias of the caller's
     rather than P3109's default: the largest finite value moves by the
-    difference, a power of two."""
+    difference, a power of two.
+
+    And past float64's own top: the transcription rounds in float64, which has
+    no 2**1024, so an input near float64's largest value that rounds up comes
+    back infinite -- where P3109 has a finite result beyond the format's
+    range, which ``SAT_PROPAGATE`` clamps like any other. float64's largest
+    value stands in for it, beyond every format here."""
     finite = saturation is SaturationMode.SAT_FINITE
     hi = math.ldexp(_max_finite(K, P, signed, finite), _bias(K, P, signed) - bias)
-    projected = _saturate(_round_to_precision(x, P, bias, rounding), saturation, hi, signed)
+    rounded = _round_to_precision(x, P, bias, rounding)
+    beyond = torch.copysign(torch.full_like(rounded, torch.finfo(torch.float64).max), rounded)
+    rounded = torch.where(torch.isinf(rounded) & torch.isfinite(x), beyond, rounded)
+    projected = _saturate(rounded, saturation, hi, signed)
     return torch.where(projected == 0, torch.zeros_like(projected), projected)
 
 
@@ -231,6 +247,92 @@ def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, satur
         want = _project(x.cpu(), K, P, bias, signed, round_mode, saturation).to(device)
         ctx = f"K={K} P={P} bias={bias} {round_mode.name} {saturation.name}"
         _assert_same_words(got, want, ctx)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
+def test_the_wrapper_holds_float64_to_binary64s_bounds(device, K, P, bias, signed):
+    """Every format above is inside binary64's bounds, two on its edges, so the
+    wrapper passes a float64 tensor straight to the op -- and a float32 one
+    that binary32 cannot carry is refused or warned about, not rounded."""
+    x = _wide_inputs(K, P, bias, signed, device)
+    sat = SaturationMode.SAT_FINITE
+    kw: dict[str, Any] = dict(bias=bias, is_signed=signed, saturation_mode=sat)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FormatRangeWarning)
+        got = binaryK_quantize(x, K, P, **kw)
+    _assert_same_words(got, _raw_binaryK(x, K, P, bias, signed, RoundMode.RNE, sat), f"K={K} P={P}")
+    if P > 24:
+        with pytest.raises(ValueError, match="bits of precision"):
+            binaryK_quantize(x.float(), K, P, **kw)
+
+
+# --- the old arithmetic, on request --------------------------------------------
+
+
+# Values float32 cannot hold, each a hair off a point of both formats' grids
+# (binaryK 8p4's 1.0 and the 1.0625 midpoint, superfp m3e4n1b7's 256 and the
+# 272 midpoint), so that narrowing moves every rounding mode's answer.
+WITNESSES = [
+    1.0 + 2.0**-30,  # RU, RO
+    1.0 - 2.0**-30,  # RZ
+    -(1.0 + 2.0**-30),  # RD
+    1.0625 + 2.0**-30,  # RNE
+    1.0625 - 2.0**-30,  # RNA
+    272.0 + 2.0**-22,  # RNE
+    272.0 - 2.0**-22,  # RNA
+    256.0 + 2.0**-22,  # RO
+]
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("round_mode", list(RoundMode))
+def test_binary32_carrier_is_the_narrowed_float32_call(device, op, round_mode):
+    """Bit for bit, SR included: the same float32 kernel on the same narrowed
+    values, drawing the same words, as every float64 call did before phase 3."""
+    x64 = torch.randn(SIZE, device=device, dtype=torch.float64) * 8.0
+    x64[: len(WITNESSES)] = torch.tensor(WITNESSES, dtype=torch.float64)
+    kw = dict(rounding_mode=round_mode, prng_bits=12 if round_mode is RoundMode.SR else 0)
+    torch.manual_seed(99)
+    got = _quant_calls(x64)[op](carrier="binary32", **kw)
+    torch.manual_seed(99)
+    want = _quant_calls(x64.float())[op](**kw).double()
+    assert got.dtype is torch.float64
+    _assert_same_words(got, want, f"{op} {round_mode.name}")
+    # ... which is not what a float64 call without it computes
+    torch.manual_seed(99)
+    assert not torch.equal(_quant_calls(x64)[op](**kw), got)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", OP_NAMES)
+def test_binary32_carrier_of_a_strided_float64_tensor(device, op):
+    base = torch.randn(2 * 4099, device=device, dtype=torch.float64).reshape(4099, 2) * 8.0
+    strided = base[:, 1]
+    got = _quant_calls(strided)[op](carrier="binary32")
+    _assert_same_words(got, _quant_calls(strided.float())[op]().double(), op)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16, torch.float64])
+def test_a_carrier_a_dtype_already_has_changes_nothing(device, op, dtype):
+    x = (torch.randn(4096, device=device) * 8).to(dtype)
+    carrier = "binary64" if dtype is torch.float64 else "binary32"
+    got = _quant_calls(x)[op](carrier=carrier)
+    assert got.dtype is dtype
+    _assert_same_words(got, _quant_calls(x)[op](), f"{op} {dtype}")
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_binary64_carrier_needs_a_float64_tensor(device, dtype):
+    x = torch.ones(8, device=device, dtype=dtype)
+    with pytest.raises(ValueError, match="only a float64 operand"):
+        binaryK_quantize(x, 8, 4, carrier="binary64")
+    with pytest.raises(ValueError, match="carrier must be"):
+        superfp_quantize(x, 3, 4, 1, 7, carrier="float64")
 
 
 # --- stochastic rounding ------------------------------------------------------

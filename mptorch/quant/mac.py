@@ -6,8 +6,8 @@ them needs an arithmetic policy:
 
 * an **elementwise** step -- a weight quantizer, an activation quantizer, a
   gradient quantizer, and (once they exist) ``exp``/``div``/``sqrt`` -- is
-  "compute in fp32, round the result to format F". That is a format plus a
-  rounding mode, and it yields a callable: :class:`Quant`.
+  "compute in the carrier, round the result to format F". That is a format
+  plus a rounding mode, and it yields a callable: :class:`Quant`.
 * a **reduction** step is the only place the *internal* arithmetic is
   simulated, so it is the only place a multiply/accumulate policy means
   anything. That is the GEMM, and nothing else: :class:`SplitMac` and
@@ -55,6 +55,7 @@ from .ops import (
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
     _binaryK_spec,
+    _checked_carrier,
     _GemmSpec,
     _superfp_fma_mixed_spec,
     _superfp_fma_spec,
@@ -161,15 +162,20 @@ class Quant:
         formats.weight_quant = Quant(BinaryK(8, 4))
         formats.input_quant = Quant(SuperFP(3, 4, 8, 7), RoundMode.SR)
 
-    The call is bound at construction, so what is left per call is the op.
+    ``carrier`` is :func:`mptorch.quant.binaryK_quantize`'s: ``None`` rounds in
+    the tensor's own carrier, ``"binary32"`` in binary32 whatever the tensor,
+    and ``"binary64"`` insists on float64. The call is bound at construction,
+    so what is left per call is the op.
     """
 
     fmt: Number
     rounding: RoundMode = RoundMode.RNE
+    _: KW_ONLY
+    carrier: str | None = None
     _call: Callable[[torch.Tensor], torch.Tensor] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        fmt, rm = self.fmt, self.rounding
+        fmt, rm, carrier = self.fmt, self.rounding, _checked_carrier(self.carrier)
         if isinstance(fmt, BinaryK):
 
             def call(x: torch.Tensor) -> torch.Tensor:
@@ -183,6 +189,7 @@ class Quant:
                     rounding_mode=rm,
                     saturation_mode=fmt.saturation,
                     subnormals_mode=fmt.subnormals,
+                    carrier=carrier,
                 )
 
         elif isinstance(fmt, SuperFP):
@@ -198,6 +205,7 @@ class Quant:
                     is_signed=fmt.is_signed,
                     rounding_mode=rm,
                     saturation_mode=fmt.saturation,
+                    carrier=carrier,
                 )
 
         else:
@@ -226,6 +234,12 @@ class SplitMac:
     instantiation count, which is the thing K1 and K2 exist to keep down.
     Saturation, subnormals and the stochastic-rounding width *are* per format,
     and live on the format objects.
+
+    ``carrier`` is the arithmetic both halves and everything between them are
+    computed in -- :func:`mptorch.quant.binaryK_matmul`'s argument of that
+    name: ``None`` takes the operands' (binary64 for float64, binary32 for the
+    rest), ``"binary32"`` narrows float64 operands to it, and ``"binary64"``
+    insists on float64 ones. Every call holds the formats to that carrier.
     """
 
     mul: "Number | Sequence[Number] | Palette"
@@ -233,8 +247,10 @@ class SplitMac:
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: str | None = None
 
     def __post_init__(self) -> None:
+        _checked_carrier(self.carrier)
         mul, acc = _as_palette(self.mul), _as_palette(self.acc)
         if mul is None:
             raise ValueError("a SplitMac needs a multiply format")
@@ -260,15 +276,17 @@ class FusedMac:
 
     ``fma`` is a format, a palette, or ``None`` for an unrounded fused step.
     ``None`` carries no format for ``prec_idx`` to select, so it never selects
-    a ``_mixed`` op.
+    a ``_mixed`` op. ``carrier`` is as for :class:`SplitMac`.
     """
 
     fma: "Number | Sequence[Number] | Palette | None"
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: str | None = None
 
     def __post_init__(self) -> None:
+        _checked_carrier(self.carrier)
         object.__setattr__(self, "fma", _as_palette(self.fma))
 
 
@@ -346,11 +364,7 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
     fields: dict[str, Any] = {
         "accumulate_algorithm": mac.accumulate_algorithm,
         "rounding_mode": mac.rounding,
-        # every format in this mac is a `BinaryK`/`SuperFP` that checked its
-        # own range when it was built, so the builder would only repeat it --
-        # and from here a second warning would point inside mptorch rather
-        # than at the line that named the format
-        "check_formats": False,
+        "carrier": mac.carrier,
     }
 
     if isinstance(mac, FusedMac):
