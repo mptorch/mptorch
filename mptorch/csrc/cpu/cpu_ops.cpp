@@ -5,6 +5,7 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
 {
   m.impl("binaryK_quant", TORCH_FN(binaryK_quantize_cpu));
   m.impl("superfp_quant", TORCH_FN(superfp_quantize_cpu));
+  m.impl("narrow_float64", TORCH_FN(narrow_float64_cpu));
   m.impl("custom_matmul_binaryK", TORCH_FN(binaryK_matmul_cpu));
   m.impl("custom_matmul_superfp", TORCH_FN(superfp_matmul_cpu));
   m.impl("custom_matmul_binaryK_fma", TORCH_FN(binaryK_matmul_fma_cpu));

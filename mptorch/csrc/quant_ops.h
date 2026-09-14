@@ -27,6 +27,13 @@ at::Tensor superfp_quantize_cpu(at::Tensor a, int64_t man_bits, int64_t exp_bits
                                 int64_t normal_binades, int64_t bias, int64_t prng_bits,
                                 bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
+// A float64 tensor rounded once onto float32, float16 or bfloat16 -- the store
+// of a result computed in binary64 for a narrower tensor. See
+// common/narrow_binary64.h.
+at::Tensor narrow_float64_cuda(at::Tensor a, c10::ScalarType dtype);
+
+at::Tensor narrow_float64_cpu(at::Tensor a, c10::ScalarType dtype);
+
 at::Tensor binaryK_matmul_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                                bool accumulate_quant, int64_t acc_K, int64_t acc_P,

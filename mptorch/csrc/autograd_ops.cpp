@@ -53,16 +53,20 @@ namespace
     {
       const std::string &name = op.schema().operator_name().name;
       const bool matmul = name.find("custom_matmul") != std::string::npos;
+      const bool narrow = name.find("narrow_float64") != std::string::npos;
       TORCH_CHECK(
           false, name, " is not differentiable: ",
           matmul ? "it simulates the arithmetic of its own reduction, so which format each "
                    "gradient pass runs in is a choice rather than a derivative. Use "
                    "mptorch.quant.qmatmul (or QMatmul), which computes each gradient in the "
                    "format its own hook names"
-                 : "rounding to a coarse format has a zero derivative almost everywhere, so a "
-                   "gradient through it is a modelling choice. Use mptorch.quant.Quantizer, "
-                   "which applies one format in the forward pass and one of your choosing in "
-                   "the backward",
+          : narrow ? "it is the store of a result mptorch.quant computed in binary64, which "
+                     "its own entry points call where no gradient flows. Use Tensor.to for a "
+                     "differentiable conversion"
+                   : "rounding to a coarse format has a zero derivative almost everywhere, so a "
+                     "gradient through it is a modelling choice. Use mptorch.quant.Quantizer, "
+                     "which applies one format in the forward pass and one of your choosing in "
+                     "the backward",
           ". Detach the operand if no gradient was wanted.");
     }
     op.redispatchBoxed(ks & c10::after_autograd_keyset, stack);
@@ -76,6 +80,7 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   { return torch::CppFunction::makeFromBoxedFunction<&raise_on_grad>(); };
   m.impl("binaryK_quant", kernel());
   m.impl("superfp_quant", kernel());
+  m.impl("narrow_float64", kernel());
   m.impl("custom_matmul_binaryK", kernel());
   m.impl("custom_matmul_superfp", kernel());
   m.impl("custom_matmul_binaryK_fma", kernel());

@@ -118,39 +118,19 @@ def _call_carrier(carrier: torch.dtype | None, dtype: torch.dtype) -> tuple[bool
     return False, False
 
 
-# stored significand bits, and the exponents of the smallest normal and largest
-# finite value, of the two dtypes `_narrowed` rounds onto itself
-_HALF_GRIDS: dict[torch.dtype, tuple[int, int, int]] = {
-    torch.float16: (10, -14, 15),
-    torch.bfloat16: (7, -126, 127),
-}
-
-
 def _narrowed(x: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     """A float64 result stored in ``dtype``, rounded to nearest-even once.
 
-    float64 to float32 is one conversion. To float16 and bfloat16 torch goes
-    through float32, which is two roundings: a value a hair above a tie on the
-    narrow grid is first rounded onto the tie, and then to even -- 65519.999999
-    comes back as float16 infinity. So the value is rounded onto the dtype's
-    grid here, in float64, where dividing by a power of two is exact and
-    ``torch.round`` breaks ties to even; the conversion is then exact, or an
-    overflow to infinity where the rounding carried past the largest value.
-    NaN and infinity pass through the arithmetic unchanged.
+    float64 to float32 is one conversion, and ``.float()`` is it. To float16
+    and bfloat16 torch goes through float32, which is two roundings: a value a
+    hair above a tie on the narrow grid is first rounded onto the tie, and then
+    to even -- 65519.999999 comes back as float16 infinity. The
+    ``narrow_float64`` op rounds the float64 word onto the dtype's once
+    (``csrc/common/narrow_binary64.h``), at about the cost of ``.to()``.
     """
     if dtype is torch.float32:
         return x.float()
-    man_bits, min_normal_exp, top_exp = _HALF_GRIDS[dtype]
-    # The grid's step at x: x's leading-bit exponent less the stored bits, held
-    # to the subnormals' fixed step below and, above the dtype's range, to one
-    # that still rounds past its largest value. Read from the word's exponent
-    # field (float64 subnormals are far below both grids, and NaN and infinity
-    # far above), and built back into a word as the power of two itself -- a
-    # table lookup costs more than the rest of the rounding on the CPU.
-    e = (x.view(torch.int64) >> 52).bitwise_and_(0x7FF).sub_(1023 + man_bits)
-    e = e.clamp_(min_normal_exp - man_bits, top_exp + 1 - man_bits)
-    step = e.add_(1023).bitwise_left_shift_(52).view(torch.float64)
-    return torch.round(x / step).mul_(step).to(dtype)
+    return torch.ops.mptorch.narrow_float64.default(x, dtype)
 
 
 _NOTHING = (None, None)

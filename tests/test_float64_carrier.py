@@ -26,7 +26,8 @@ values against tests/test_binaryk_p3109.py's projection of the standard.
 ``carrier=torch.float64`` gives a float32, float16 or bfloat16 tensor the same
 arithmetic, and narrows each result back to its dtype with one rounding --
 which torch's own ``.to()`` does not give float16 and bfloat16, so the last
-section holds that conversion to an exact reference, and a float32 layer to the
+section holds that conversion, the ``narrow_float64`` op, to an exact reference
+and to a second spelling in torch arithmetic, and a float32 layer to the
 float64 one it widens to.
 """
 
@@ -250,9 +251,13 @@ def test_formats_on_binary64s_edges_are_exact(device, K, P, bias):
 # --- a narrower tensor in binary64 --------------------------------------------
 
 # stored significand bits, and the exponents of the smallest normal and largest
-# finite value: IEEE binary16's, and bfloat16's, which is binary32's range at
-# eight bits of precision
-_GRIDS = {torch.float16: (10, -14, 15), torch.bfloat16: (7, -126, 127)}
+# finite value: IEEE binary16's, bfloat16's, which is binary32's range at eight
+# bits of precision, and binary32's
+_GRIDS = {
+    torch.float16: (10, -14, 15),
+    torch.bfloat16: (7, -126, 127),
+    torch.float32: (23, -126, 127),
+}
 
 
 def _nearest(v: float, dtype: torch.dtype) -> float:
@@ -304,21 +309,105 @@ def _hard_cases(dtype: torch.dtype, count: int, gen: torch.Generator) -> torch.T
     return torch.cat([x, -x])
 
 
+def _same_words(got: torch.Tensor, want: torch.Tensor) -> torch.Tensor:
+    """Elementwise: the same word, or both NaN (whose payloads a device may
+    canonicalize)."""
+    bits = {4: torch.int32, 2: torch.int16}[got.element_size()]
+    return (got.view(bits) == want.view(bits)) | (got.isnan() & want.isnan())
+
+
+def _narrowed_by_torch(x: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """The narrowing in torch arithmetic, written apart from
+    ``csrc/common/narrow_binary64.h`` to hold it to: the grid's step from the
+    word's exponent field, clamped to the subnormal step and past the top and
+    built back into a word as the power of two, ``x / step`` exact, and
+    ``torch.round``'s ties to even. It was ``_narrowed`` itself before the op."""
+    man_bits, min_normal_exp, top_exp = _GRIDS[dtype]
+    e = (x.view(torch.int64) >> 52).bitwise_and_(0x7FF).sub_(1023 + man_bits)
+    e = e.clamp_(min_normal_exp - man_bits, top_exp + 1 - man_bits)
+    step = e.add_(1023).bitwise_left_shift_(52).view(F64)
+    return torch.round(x / step).mul_(step).to(dtype)
+
+
+def _every_field(dtype: torch.dtype, per_field: int, gen: torch.Generator) -> torch.Tensor:
+    """float64 words with every exponent field, 0 to 2047: random mantissas,
+    and at the target's last kept bit -- which moves with the field below the
+    target's smallest normal -- a tie on an odd and an even significand, and a
+    word either side of each."""
+    man_bits, min_normal_exp, _ = _GRIDS[dtype]
+    mask = (1 << 52) - 1
+    words = []
+    for field in range(2048):
+        shift = 52 - man_bits + max(min_normal_exp - (field - 1023), 0)
+        frac = torch.randint(0, 1 << 52, (per_field,), generator=gen)
+        if shift <= 52:
+            q = torch.randint(0, 1 << (53 - shift), (per_field,), generator=gen)
+            tie = ((q << shift) | (1 << (shift - 1))) & mask
+            frac = torch.cat([frac, tie, (tie - 1) & mask, (tie + 1) & mask])
+        frac = torch.cat([frac, torch.tensor([0, 1, mask, 1 << 51])])
+        words.append((field << 52) | frac)
+    x = torch.cat(words)
+    return torch.cat([x, x | (-(1 << 63))]).view(F64)
+
+
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_narrowing_a_binary64_result_rounds_once(device, dtype):
-    """`_narrowed` is correct rounding onto the dtype, at every hard point --
-    and torch's `.to()`, which goes through float32, is not, so this is not
-    vacuous."""
+    """`_narrowed` is correct rounding onto the dtype, at every hard point, and
+    so is the torch spelling the op is checked against -- and torch's `.to()`,
+    which goes through float32, is not, so this is not vacuous."""
     from mptorch.quant.ops import _narrowed
 
     x = _hard_cases(dtype, 4096, torch.Generator().manual_seed(21))
     want = torch.tensor([_nearest(v, dtype) for v in x.tolist()], dtype=F64).to(dtype)
     got = _narrowed(x.to(device), dtype).cpu()
     assert got.dtype is dtype
-    same = (got.view(torch.int16) == want.view(torch.int16)) | (got.isnan() & want.isnan())
+    same = _same_words(got, want)
     assert bool(same.all()), x[~same][:4].tolist()
+    assert bool(_same_words(_narrowed_by_torch(x.to(device), dtype).cpu(), want).all())
     assert not torch.equal(x.to(dtype), want)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+def test_narrow_op_against_an_independent_spelling(device, dtype):
+    """Every float64 exponent field, ties and their neighbours at every shift,
+    and random words: float16 and bfloat16 against the torch spelling, float32
+    against the hardware conversion, and CPU against CUDA word for word."""
+    gen = torch.Generator().manual_seed(22)
+    x = torch.cat(
+        [
+            _every_field(dtype, 8, gen),
+            torch.randint(-(1 << 63), (1 << 63) - 1, (1 << 18,), generator=gen).view(F64),
+        ]
+    )
+    op = torch.ops.mptorch.narrow_float64.default
+    got = op(x.to(device), dtype)
+    assert got.dtype is dtype and got.shape == x.shape
+    want = x.to(device).float() if dtype is F32 else _narrowed_by_torch(x.to(device), dtype)
+    same = _same_words(got, want)
+    assert bool(same.all()), x[~same.cpu()][:4].tolist()
+    if device == "cuda":  # NaN included, so words rather than values
+        bits = {4: torch.int32, 2: torch.int16}[got.element_size()]
+        assert torch.equal(got.cpu().view(bits), op(x, dtype).view(bits))
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_narrow_op_contract(device):
+    op = torch.ops.mptorch.narrow_float64.default
+    x = torch.randn(4099, dtype=F64, device=device) * 1e3
+    # a strided input, and a contiguous view 8 bytes into its storage -- which a
+    # 16-byte vector load cannot read in place -- read what their copies do
+    assert torch.equal(op(x[1::2], torch.float16), op(x[1::2].contiguous(), torch.float16))
+    assert torch.equal(op(x[1:], torch.float16), op(x[1:].clone(), torch.float16))
+    assert op(x[:4098].view(2, 3, 683), torch.bfloat16).shape == (2, 3, 683)
+    assert op(x[:0], torch.float16).shape == (0,)
+    with pytest.raises(RuntimeError, match="must be float64"):
+        op(x.float(), torch.float16)
+    with pytest.raises(RuntimeError, match="narrows to float32, float16 or bfloat16"):
+        op(x, torch.int32)
+    with pytest.raises(RuntimeError, match="narrow_float64 is not differentiable"):
+        op(x.clone().requires_grad_(True), torch.float16)
 
 
 @pytest.mark.parametrize("device", available_devices)
