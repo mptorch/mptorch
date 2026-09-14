@@ -1,0 +1,14 @@
+P of the format each output element runs in:
+tensor([[11, 11, 15, 11, 11],
+        [15, 15, 15, 15, 15],
+        [ 8, 15, 11, 15, 11],
+        [15,  8, 15,  6,  8]])
+
+worst relative error 7.62e-04 (target 1e-03)
+all 20 elements equal their own format's GEMM: True
+
+per-element (multiply, accumulate) pairs match their own GEMM: True
+stochastic fused palette: (4, 5)
+batched map, sample 0 equals its own call: True
+
+ValueError: a Palette shares subnormals across its entries (the kernel tabulates only the format widths): entry 1 has subnormals=<SubnormalsMode.NORMALS: 1>, entry 0 has <SubnormalsMode.SUBNORMALS: 0>

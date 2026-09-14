@@ -266,6 +266,41 @@ subnormal policy -- because the kernel tabulates only the widths.
    :language: text
    :caption: output
 
+A format for every element
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A dense ``[M, N]`` map is the general case: every output element's dot
+product runs in the palette entry its own map entry names, independently of
+its row, its column and its neighbours. How the map is chosen is up to the
+caller -- a sensitivity analysis, a hardware assignment, a search. The run
+below makes one per element: for each of the 20 elements of a product it takes
+the narrowest of eight BinaryK formats, from 3 to 24 bits of precision, whose
+result stays within 0.1% of the exact dot product there. It then runs the
+whole product as a single palette GEMM and checks every element against the
+single-format GEMM in that element's format -- equal, to the bit, because
+an element's dot product reads only its own row and column of the operands
+and its own palette entry.
+
+The same map picks a *pair* when the multiply and the accumulate palettes
+differ: entry ``i`` of a ``SplitMac`` palette pairs ``mul[i]`` with ``acc[i]``,
+so one element can multiply in 4 bits into a 24-bit sum while its neighbour
+does the opposite. A ``FusedMac`` takes a palette the same way, a batched
+product takes a ``[B, M, N]`` map with a format per element of every sample,
+and the fields a palette shares -- sign, stochastic bits, saturation and
+subnormals -- are shared by every element; a palette whose entries disagree
+on one is refused, naming the entry.
+
+.. literalinclude:: ../snippets/gemm_palette_elements.py
+   :language: python
+   :caption: docs/snippets/gemm_palette_elements.py
+
+.. literalinclude:: ../snippets/gemm_palette_elements.out
+   :language: text
+   :caption: output
+
+A map per pass, held and reused
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 A map is indexed by *output* element, and the three passes of a
 differentiable matmul have three output shapes -- ``[M, N]``, ``[M, K]`` and
 ``[K, N]`` -- so a palette that has to differentiate needs a map per pass,
