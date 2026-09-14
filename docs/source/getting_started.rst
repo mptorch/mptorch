@@ -45,8 +45,8 @@ A first example
 
 Two objects carry most of the library: a *format*, which is a plain value,
 and a *quantizer*, which is that format turned into a function on tensors.
-Layers take one quantizer per signal, and anything left unset stays in
-float32.
+Layers take one quantizer per signal, and anything left unset is plain
+PyTorch.
 
 .. literalinclude:: ../snippets/getting_started.py
    :language: python
@@ -77,7 +77,12 @@ rounding mode
    :class:`~mptorch.RoundMode`. A property of an operation, not of a format.
 quantize / quantizer
    To round every element of a tensor to a format; the function that does it.
-   In MPTorch this is always "compute in float32, round the result".
+   In MPTorch this is always "compute in the carrier, round the result".
+carrier
+   The IEEE float a simulation computes and rounds in: binary32 for float32,
+   float16 and bfloat16 tensors, binary64 for float64 ones. It bounds which
+   formats can be simulated whole, and ``carrier="binary32"`` asks for
+   binary32 on a float64 tensor (:doc:`concepts`).
 signal
    One of the tensors flowing through a layer: its input, weight, bias, the
    gradient arriving from above, and the gradients it produces.

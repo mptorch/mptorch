@@ -1,0 +1,7 @@
+30/40-bit arithmetic:  output 3.9e-10, weight grad 3.9e-10
+with carrier='binary32': BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
+
+FP8 recipe: error 2.6e-01 in binary64, 2.6e-01 in binary32
+  binary64 against binary32: output 0.0e+00, weight grad 0.0e+00
+22/23-bit arithmetic: error 6.1e-07 in binary64, 7.4e-07 in binary32
+  binary64 against binary32: output 9.4e-07, weight grad 3.8e-07

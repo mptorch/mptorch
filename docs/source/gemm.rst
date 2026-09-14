@@ -51,17 +51,8 @@ bits are properties of each format and can differ between the two.
 
 Everything the formats do not round -- the product before its rounding, the
 sum before its, the unrounded accumulator -- is computed in the operands'
-dtype's carrier: float32 for float32, float16 and bfloat16 operands, and
-float64 for float64 operands. So a float64 GEMM is not simply the float32 one
-widened. Its products keep 53 bits where float32 keeps 24, so it can round
-differently even when every operand is a float32 value, and under ``SR`` each
-rounding draws twice the random words. A float32 and a float64 operand cannot
-be mixed in one call. Each call holds the formats to its carrier's bounds, so
-a format float32 cannot carry -- 30 bits of precision, say -- is refused on
-float32 operands and computed exactly on float64 ones (:doc:`concepts`). A
-float64 GEMM can still be computed the float32 way, operands narrowed and
-result widened, with ``carrier="binary32"`` on the ``SplitMac`` /
-``FusedMac``, or on the flat function.
+*carrier*: binary32 for float32, float16 and bfloat16 operands, binary64 for
+float64 ones (`float64 and the carrier`_, below).
 
 The following run reproduces a ``SplitMac`` dot product by hand, step by
 step, and gets the same bits.
@@ -109,17 +100,60 @@ its keep when the increments are systematically below half a spacing, which
 is the accumulator case shown in :doc:`concepts` and the weight-update case
 in the :doc:`tutorial`.
 
+float64 and the carrier
+-----------------------
+
+A float64 GEMM is computed in binary64 end to end: every product, every sum
+and every rounding. That makes it a different arithmetic from the float32
+one, not the same one widened, in three ways.
+
+- **Products of narrow operands are rounded once.** In binary32 a product is
+  rounded to 24 bits before the multiply format rounds it again; in binary64
+  the product of two operands of at most 26 significant bits -- two float32
+  values, or two values a quantizer has rounded -- is exact, and only the
+  format rounds it. So a float64 GEMM can round differently even when every
+  operand is a float32 value, as the run's first lines show, and agrees with
+  the float32 GEMM exactly when every product and sum is exact in both --
+  which operands already rounded to a narrow format usually give (the FP8
+  recipe in :doc:`layers` agrees to the bit).
+- **Wider formats.** Each call holds the formats to its carrier's bounds
+  (:doc:`concepts`), so formats past binary32 -- a 30-bit multiply format
+  into a 40-bit accumulator, say -- are refused on float32 operands and
+  computed exactly on float64 ones.
+- **Wider random draws.** Under ``SR`` each rounding draws two words of its
+  element's stream, and ``P - 1 + prng_bits`` may reach 52.
+
+``carrier="binary32"`` on a ``SplitMac`` / ``FusedMac``, or on the flat
+function, computes float64 operands the float32 way instead: both operands
+are narrowed, the float32 kernel runs, and the result is widened -- bit for
+bit what the float32 call returns, random draws included. A float32 and a
+float64 operand cannot be mixed in one call, with or without it.
+
+.. literalinclude:: ../snippets/gemm_float64.py
+   :language: python
+   :caption: docs/snippets/gemm_float64.py
+
+.. literalinclude:: ../snippets/gemm_float64.out
+   :language: text
+   :caption: output
+
+The table shows the other side of the choice. A float64 GEMM in binary32's
+own widest format, 24 bits, is barely nearer to float64's product than the
+same GEMM with ``carrier="binary32"``: past what the formats keep, the carrier
+adds little, and on a GPU it costs (see `Performance notes`_).
+
 Saying which arithmetic
 -----------------------
 
 Three value types name an arithmetic. All are frozen: build them once and
 hold them, and the library memoizes their resolution.
 
-:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE)``
+:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None)``
    ``mul`` and ``acc`` are each a format, a sequence of formats (a palette,
    see below), or -- for ``acc`` -- ``None``. Both must belong to the same
-   family (BinaryK with BinaryK, SuperFP with SuperFP).
-:class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE)``
+   family (BinaryK with BinaryK, SuperFP with SuperFP). ``carrier`` is
+   ``None`` (the operands' own), ``"binary32"`` or ``"binary64"``.
+:class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None)``
    ``fma`` is a format, a palette, or ``None``.
 :class:`~mptorch.quant.Palette` ``(formats)``
    Up to eight formats of one family, selected per output element. A plain
@@ -269,9 +303,10 @@ the two formats of a split multiply-accumulate (``acc_*`` default to the
 ``fma_*`` names the one format of a fused step (``fma_quant=False`` leaves it
 unrounded); ``trans_a``/``trans_b`` transpose the last two dimensions of an
 operand without copying it; ``*_prng_bits`` set the stochastic bits per
-format; the ``_mixed`` variants take sequences for the width arguments, a
-scalar for anything shared by the palette, and ``prec_idx`` as the third
-positional argument. Callers holding one format across many calls should use
+format; ``carrier`` chooses the arithmetic, as on a ``SplitMac``; the
+``_mixed`` variants take sequences for the width arguments, a scalar for
+anything shared by the palette, and ``prec_idx`` as the third positional
+argument. Callers holding one format across many calls should use
 the factories or ``qmatmul`` instead: these functions re-derive the format's
 defaults on every call, which the resolved objects avoid.
 
@@ -291,6 +326,11 @@ Performance notes
 - **Stochastic rounding is not free.** Each rounding draws from a
   per-element Philox stream; expect a ``RoundMode.SR`` GEMM to be slower
   than a deterministic one.
+- **binary64 is slower on a GPU.** A float64 GEMM measured 2.7-3.1x the time
+  of the same product computed in binary32 on an RTX 4060 (up to 6x for a
+  stochastic split step); on the CPU the two are within a percent. A float64
+  model whose formats binary32 can carry recovers the binary32 speed with
+  ``carrier="binary32"``, less the narrowing and widening copies.
 - **The kernels are simulators.** They are written for exactness and
   flexibility, not for speed, and are orders of magnitude slower than
   cuBLAS. The Linear layers fold their batch into one GEMM, which is the

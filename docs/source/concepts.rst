@@ -10,8 +10,9 @@ The simulation model
 --------------------
 
 MPTorch never computes *in* a narrow format. Every operation -- a product, an
-addition, an activation -- is carried out in float32, and its result is then
-**rounded** to the target format :math:`F` with a rounding mode :math:`\circ`:
+addition, an activation -- is carried out in an IEEE binary float, the
+*carrier*, and its result is then **rounded** to the target format :math:`F`
+with a rounding mode :math:`\circ`:
 
 .. math::
 
@@ -29,16 +30,77 @@ arithmetic that :doc:`gemm` simulates:
    \quad\longrightarrow\quad
    s_{k} = Q_{\text{acc}}\big(s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})\big).
 
-Because float32 has far more precision and range than any of the simulated
-formats, computing in float32 and rounding once gives the correctly-rounded
-result of the simulated operation -- the same number a machine working
-natively in :math:`F` would produce.
+Because the carrier has far more precision and range than the simulated
+format, computing in it and rounding once gives the correctly-rounded result
+of the simulated operation -- the same number a machine working natively in
+:math:`F` would produce.
+
+Carriers: binary32 and binary64
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are two carriers, and a tensor's dtype picks one:
+
+- a **float32**, **float16** or **bfloat16** tensor is computed in
+  **binary32** -- a float16 or bfloat16 result is then stored back in its own
+  dtype, which is a second rounding (`What float16 and bfloat16 can store`_);
+- a **float64** tensor is computed in **binary64**, throughout: an elementwise
+  quantizer rounds each value once, directly, and a matrix product computes
+  every partial product and every running sum in binary64 before rounding it.
+
+So moving a model to float64 does more than widen its storage. Formats that
+binary32 cannot hold -- up to 53 bits of precision, ten exponent bits, values
+down to :math:`2^{-1021}` -- become simulable, and a value binary32 cannot hold
+is rounded on its own bits rather than on the nearest float32. The two
+carriers agree wherever both hold every intermediate exactly: rounding a
+float64 tensor of float32 values to a format binary32 holds gives exactly the
+float32 answer, and so does a matrix product whose every product and sum is
+exact in binary32 -- which is usual once a quantizer has rounded its operands
+to a narrow format.
+
+Every function and object that computes takes a ``carrier`` keyword to say
+otherwise: ``carrier="binary32"`` on a float64 tensor narrows it to float32,
+computes and rounds in binary32, and widens the result -- bit for bit what the
+float32 call would return -- and ``carrier="binary64"`` insists on float64
+operands. ``None``, the default, takes the tensor's. The quantizers
+(:func:`~mptorch.quant.binaryK_quantize`, :func:`~mptorch.quant.superfp_quantize`,
+:class:`~mptorch.quant.Quant`), the matrix products
+(:class:`~mptorch.quant.SplitMac`, :class:`~mptorch.quant.FusedMac` and the
+flat ``*_matmul`` functions) and the layer factories
+(:func:`~mptorch.quant.binaryK_gemm_formats` and its siblings) all take it.
+
+===========================================  ==========================  ==========================
+carrier                                      binary32                    binary64
+===========================================  ==========================  ==========================
+tensors computed in it                       float32, float16, bfloat16  float64
+precision, :math:`P` (``man_bits + 1``)      :math:`\le 24`              :math:`\le 53`
+stochastic bits, ``man_bits + prng_bits``    :math:`\le 23`              :math:`\le 52`
+random words per stochastic rounding         1                           2
+largest finite value                         :math:`< 2^{128}`           :math:`< 2^{1024}`
+finest step                                  :math:`2^{-149}`            :math:`2^{-1074}`
+smallest value, ``SUBNORMALS`` or SuperFP    :math:`\ge 2^{-125}`        :math:`\ge 2^{-1021}`
+smallest value, the other two modes (\*)     :math:`\ge 2^{-126}`        :math:`\ge 2^{-1022}`
+exponent bits, at P3109's bias               :math:`\le 7`               :math:`\le 10`
+matrix products on a consumer GPU            fastest                     about 3x slower
+===========================================  ==========================  ==========================
+
+(\*) ``NORMALS`` and ``EXTENDED_NORMALS``, except a binade higher --
+:math:`2^{-125}` and :math:`2^{-1021}` -- at :math:`P = 1`, and for
+``EXTENDED_NORMALS`` at the carrier's full precision, :math:`P = 24` and
+:math:`P = 53`.
+
+The last row is a cost worth knowing: on a GPU, binary64 arithmetic is
+several times slower than binary32, so a float64 model's matrix products are
+too (on the CPU the two are within a few percent, and a float64 elementwise
+quantizer is faster than it used to be, having no narrowing copies to make).
+A float64 model that needs only formats binary32 can carry gets its old speed
+back with ``carrier="binary32"`` on its matrix products.
+
+The rest of this section derives the table's bounds, and says what happens to
+a format that outruns them.
 
 What the carrier can hold
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The float arithmetic a tensor is computed and rounded in is its *carrier*:
-binary64 for a float64 tensor, and binary32 for float32, float16 and bfloat16.
 "Far more" precision and range is true of every format in this guide, but it
 is a bound on the parameters rather than a fact about all of them, and the
 bound is the carrier's. A format outside it is quantized *partially*: the
@@ -104,30 +166,27 @@ severities is not which limit is missed but whether the format still works:
   largest finite value is below the carrier's normals, where every nonzero
   result overflows.
 
-.. code-block:: python
+The run below shows both carriers on the same inputs and formats: a float64
+value rounded once in binary64 and, with ``carrier="binary32"``, the way a
+float32 would be; four formats, each checked against each carrier when a
+tensor meets it; and a 30-bit format computed exactly on a float64 tensor.
 
-   x = torch.randn(64)           # rounded in binary32
-   x64 = x.double()              # rounded in binary64
+.. literalinclude:: ../snippets/formats_carriers.py
+   :language: python
+   :caption: docs/snippets/formats_carriers.py
 
-   Quant(BinaryK(16, 11))(x)            # fine
-   Quant(BinaryK(16, 8))(x)             # FormatRangeWarning: smallest value is 2**-134
-   Quant(BinaryK(16, 8))(x64)           # fine: binary64 holds all of it
-   Quant(BinaryK(24, 8))(x64)           # FormatRangeWarning: reaches 2**32767 -- usable,
-                                        #   but only as a precision-only target
-   Quant(BinaryK(29, 25, bias=8))(x)    # ValueError: 25 bits of precision
-   Quant(BinaryK(29, 25, bias=8))(x64)  # fine
-   BinaryK(60, 54)                      # ValueError: 54 bits, more than either carrier has
+.. literalinclude:: ../snippets/formats_carriers.out
+   :language: text
+   :caption: output
 
-A float64 tensor can still be computed in binary32, as it was before float64
-had a carrier of its own: pass ``carrier="binary32"`` to a quantizer, a GEMM,
-a :class:`~mptorch.quant.Quant` or a :class:`~mptorch.quant.SplitMac` /
-:class:`~mptorch.quant.FusedMac`, and the operands are narrowed to float32,
-rounded with float32's bounds and widened back. ``carrier="binary64"`` insists
-on float64 operands instead.
+A ``carrier="binary32"`` call is held to binary32's bounds even on a float64
+tensor, since binary32 is what rounds it.
 
-``dev/benchmarks/format_limits.py`` reports all of this for a given format in
-binary32, and with ``--audit`` checks the kernels against the format's value
-set to say so.
+``dev/benchmarks/format_limits.py`` reports all of this for a given format,
+in binary32 or with ``--carrier binary64``, and with ``--audit`` checks the
+kernels against the format's value set to say so; its ``sweep --audit`` walks
+every bound in the table above across its edge, and measured each where this
+section puts it.
 
 What float16 and bfloat16 can store
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -505,8 +564,8 @@ mode picks between them -- nearest takes the nearer and a tie the zero, the
 directed modes take their own direction, ``RO`` takes the nonzero one, and
 ``SR`` takes it with probability :math:`|x|` over it.
 
-**By simulating values rather than code points.** A result is a float32
-number, not an encoding, so P3109's single NaN is whichever NaN came in. (Its
+**By simulating values rather than code points.** A result is a value of
+the carrier, not an encoding, so P3109's single NaN is whichever NaN came in. (Its
 single zero is unsigned and gets no such latitude: every zero the kernels
 return is :math:`+0.0`, whether it came from :math:`-0.0` or from a negative
 value that rounded to zero, and the same holds for SuperFP.) And P3109's

@@ -35,11 +35,8 @@ Some things to know about them:
   ``superfp_quantize``, for the reasons given in :doc:`concepts`.
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
   float16 and bfloat16. A float64 input is rounded in binary64, directly, and
-  the format is held to binary64's bounds -- up to 53 bits of precision and
-  ten exponent bits; the others are rounded on their float32 value, in
-  binary32, and held to its bounds (:doc:`concepts`, "What the carrier can
-  hold"). ``carrier="binary32"`` rounds a float64 input the float32 way, and
-  the run shows the two disagreeing on a value float32 cannot hold.
+  the others on their float32 value, in binary32 -- `float64 and the
+  carrier`_ below shows what that changes.
 - The result is stored back in the input's dtype, which rounds a float16 or
   bfloat16 result once more. The input is already a value of that dtype, so
   only an edge of the format's range can miss, and the call warns when one
@@ -52,9 +49,45 @@ Some things to know about them:
 - ``prng_bits`` only matters under ``RoundMode.SR``. The random bits are
   drawn in the carrier, below the format's mantissa, so the two share its
   mantissa bits: 23 in binary32 and 52 in binary64, as the run shows.
+- Every function here also takes ``carrier``, below.
 - CPU and CUDA produce bit-identical results under every deterministic mode.
   Under ``SR`` each device draws from its own default generator, so
   ``torch.manual_seed`` reproduces a run *on the same device*.
+
+float64 and the carrier
+-----------------------
+
+The arithmetic a quantizer rounds in is its tensor's *carrier*
+(:doc:`concepts`): binary64 for a float64 tensor, binary32 for the other
+three dtypes. For a float64 tensor that has three consequences, and a keyword
+to decline all of them.
+
+- **Wider formats.** The format is held to binary64's bounds, so up to 53
+  bits of precision and ten exponent bits are simulated exactly -- where the
+  same call on a float32 tensor raises, because binary32 has only 24 bits to
+  round in.
+- **Rounded once.** A value float32 cannot hold is rounded on its own bits.
+  ``1.0625 + 2**-30`` is above the tie between ``1.0`` and ``1.125`` on
+  E4M3's grid, and rounds up; narrowed to float32 it *is* the tie, and
+  round-to-nearest-even takes it down.
+- **Wider random draws.** Stochastic rounding takes its random bits below the
+  format's mantissa in the carrier, so ``P - 1 + prng_bits`` may reach 52
+  rather than 23, and each element draws two words of its random stream.
+
+``carrier="binary32"`` gives a float64 tensor the float32 arithmetic instead:
+the tensor is narrowed, rounded in binary32 under binary32's bounds, and
+widened back, bit for bit what the float32 call returns. That is what a
+float64 tensor got before it had a carrier of its own, and it is how to
+compare the two. ``carrier="binary64"`` insists on a float64 tensor, and
+:class:`~mptorch.quant.Quant` takes the same keyword.
+
+.. literalinclude:: ../snippets/quantizers_float64.py
+   :language: python
+   :caption: docs/snippets/quantizers_float64.py
+
+.. literalinclude:: ../snippets/quantizers_float64.out
+   :language: text
+   :caption: output
 
 Quant: a format and a rounding mode, as a function
 --------------------------------------------------

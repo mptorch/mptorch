@@ -24,15 +24,6 @@ for dtype in (torch.float64, torch.float16, torch.bfloat16):
     y = binaryK_quantize(x.to(dtype), K=8, P=4)
     print(f"{str(dtype):<14}", y.dtype, y.tolist())
 
-# The two carriers disagree where float32 cannot hold the input: 1.0625 is the
-# tie between 1.0 and 1.125, and the 2**-30 above it is lost when a float64
-# tensor is narrowed to float32 -- which is what carrier="binary32" asks for.
-t = torch.tensor([1.0625 + 2**-30], dtype=torch.float64)
-print(
-    f"\n1.0625 + 2**-30: {binaryK_quantize(t, K=8, P=4).item()} in binary64,",
-    f"{binaryK_quantize(t, K=8, P=4, carrier='binary32').item()} in binary32",
-)
-
 # Storing the result in float16 or bfloat16 rounds it once more, so the format
 # has to fit that dtype too. The inputs are already float16 values, so only an
 # edge of the format's range can miss: E5M2 as spelled here reaches 98304, and

@@ -7,8 +7,6 @@ torch.float64  torch.float64 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 
-1.0625 + 2**-30: 1.125 in binary64, 1.0 in binary32
-
 E5M2, RU, of 60000: 65536.0 in float32, inf in float16
 FormatRangeWarning: BinaryK(K=8, P=3, bias=15) reaches past float16's largest finite value, which is not on the format's grid: a float16 input near it rounds up out of float16's range and is stored as infinity, whatever the saturation mode
 

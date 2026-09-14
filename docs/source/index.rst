@@ -10,9 +10,10 @@ question every such format raises: *what happens to my model if this tensor,
 or the arithmetic inside this matrix product, is rounded to that format?*
 
 The simulation is exact rather than approximate: every operation is carried
-out in IEEE binary32 (float32) and its result is rounded to the format you
-named, with the rounding mode you named, at the points you named. A value that
-comes out of MPTorch is a value the simulated hardware would have produced.
+out in IEEE binary32 -- or, for a float64 model, binary64 -- and its result is
+rounded to the format you named, with the rounding mode you named, at the
+points you named. A value that comes out of MPTorch is a value the simulated
+hardware would have produced.
 
 What you can do today
 ---------------------
@@ -41,6 +42,10 @@ What you can do today
   forward, input gradient, weight gradient -- can be given its own format
   (:doc:`layers`). :class:`~mptorch.quant.Quantizer` is a straight-through
   estimator with one format forward and another backward.
+- **Choose the arithmetic the simulation runs in.** A float64 model is
+  computed in binary64 throughout, which simulates formats up to 53 bits of
+  precision and ten exponent bits; ``carrier="binary32"`` runs the same model
+  the float32 way, bit for bit (:doc:`concepts`).
 - **Reproduce it.** ``torch.manual_seed`` controls the stochastic rounding
   streams, and the deterministic modes are bit-identical between CPU and
   CUDA.

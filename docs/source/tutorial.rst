@@ -260,6 +260,12 @@ Where to go from here
   family with a different trade-off, and any width you like is a
   constructor call away -- ``BinaryK(6, 3)``, ``BinaryK(4, 2)``, or a
   format nobody has built.
+- **Wider arithmetic.** Everything above runs in float32, whose binary32
+  arithmetic carries every format in it. ``model.double()`` moves the same
+  model into binary64, where formats of up to 53 bits of precision are
+  simulated exactly -- a reference with which to measure what an 8-bit
+  accumulator really costs -- and ``carrier="binary32"`` keeps a float64
+  model computing the float32 way (:doc:`layers`).
 - **Other roundings.** Each format in a ``SplitMac`` has its own saturation
   and subnormal policy; each ``SplitMac`` its own rounding mode. The scripts
   in this tutorial take those as arguments and are meant to be edited.
