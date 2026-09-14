@@ -24,9 +24,10 @@ Four things follow, and each has its tests below.
   float64 values exactly, and through the Python wrapper, which holds a
   float64 tensor's format to binary64's bounds (phase 5) and so must let
   every one of them through without a word.
-* **The old arithmetic, on request.** ``carrier="binary32"`` narrows a float64
-  tensor, rounds it in binary32 and widens the result, which is exactly what
-  every float64 call did before phase 3 -- random draws included.
+* **binary64 for any tensor, on request.** ``carrier=torch.float64`` widens a
+  float32, float16 or bfloat16 tensor, rounds it in binary64 and narrows the
+  result back, once -- exactly the float64 call on the widened tensor, random
+  draws included. A carrier narrower than the tensor is refused.
 
 Stochastic rounding draws a 64-bit word per float64 element -- words
 ``2 * (j & 1)`` and the next of Philox block ``j >> 1`` (``common/philox.h``)
@@ -43,6 +44,7 @@ import torch
 
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize, superfp_quantize
+from mptorch.quant.ops import _narrowed
 from tests.markers import available_devices
 from tests.test_binaryk_p3109 import _project
 
@@ -84,7 +86,7 @@ def _assert_same_words(a, b, ctx=""):
     """Raw-word comparison: NaN is not equal to itself and -0.0 is equal to
     0.0, and this is a claim about bits."""
     assert a.dtype == b.dtype, ctx
-    bits = torch.int64 if a.dtype is torch.float64 else torch.int32
+    bits = {8: torch.int64, 4: torch.int32, 2: torch.int16}[a.element_size()]
     same = a.view(bits) == b.view(bits)
     if not bool(same.all()):
         i = int((~same).nonzero()[0])
@@ -266,33 +268,39 @@ WITNESSES = [
 ]
 
 
+NARROW = [torch.float32, torch.float16, torch.bfloat16]
+
+
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("dtype", NARROW)
 @pytest.mark.parametrize("round_mode", list(RoundMode))
-def test_binary32_carrier_is_the_narrowed_float32_call(device, op, round_mode):
-    """Bit for bit, SR included: the same float32 kernel on the same narrowed
-    values, drawing the same words, as every float64 call did before phase 3."""
-    x64 = torch.randn(SIZE, device=device, dtype=torch.float64) * 8.0
-    x64[: len(WITNESSES)] = torch.tensor(WITNESSES, dtype=torch.float64)
+def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_mode):
+    """Bit for bit, SR included: the float64 kernel on the widened values,
+    drawing the same words, and the result narrowed back to the tensor's dtype
+    once."""
+    x = (torch.randn(SIZE, device=device) * 8.0).to(dtype)
     kw = dict(rounding_mode=round_mode, prng_bits=12 if round_mode is RoundMode.SR else 0)
     torch.manual_seed(99)
-    got = _quant_calls(x64)[op](carrier="binary32", **kw)
+    got = _quant_calls(x)[op](carrier=torch.float64, **kw)
     torch.manual_seed(99)
-    want = _quant_calls(x64.float())[op](**kw).double()
-    assert got.dtype is torch.float64
-    _assert_same_words(got, want, f"{op} {round_mode.name}")
-    # ... which is not what a float64 call without it computes
+    want = _narrowed(_quant_calls(x.double())[op](**kw), dtype)
+    assert got.dtype is dtype
+    _assert_same_words(got, want, f"{op} {dtype} {round_mode.name}")
+    # A tensor's own values round the same in either carrier -- the binary32
+    # image, for formats binary32 carries -- so only SR's draws tell them apart
     torch.manual_seed(99)
-    assert not torch.equal(_quant_calls(x64)[op](**kw), got)
+    own = _quant_calls(x)[op](**kw)
+    assert torch.equal(own, got) is (round_mode is not RoundMode.SR)
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
-def test_binary32_carrier_of_a_strided_float64_tensor(device, op):
-    base = torch.randn(2 * 4099, device=device, dtype=torch.float64).reshape(4099, 2) * 8.0
+def test_binary64_carrier_of_a_strided_tensor(device, op):
+    base = (torch.randn(2 * 4099, device=device) * 8.0).reshape(4099, 2)
     strided = base[:, 1]
-    got = _quant_calls(strided)[op](carrier="binary32")
-    _assert_same_words(got, _quant_calls(strided.float())[op]().double(), op)
+    got = _quant_calls(strided)[op](carrier=torch.float64)
+    _assert_same_words(got, _quant_calls(strided.double())[op]().float(), op)
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -300,20 +308,23 @@ def test_binary32_carrier_of_a_strided_float64_tensor(device, op):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16, torch.float64])
 def test_a_carrier_a_dtype_already_has_changes_nothing(device, op, dtype):
     x = (torch.randn(4096, device=device) * 8).to(dtype)
-    carrier = "binary64" if dtype is torch.float64 else "binary32"
+    carrier = torch.float64 if dtype is torch.float64 else torch.float32
     got = _quant_calls(x)[op](carrier=carrier)
     assert got.dtype is dtype
     _assert_same_words(got, _quant_calls(x)[op](), f"{op} {dtype}")
 
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
-def test_binary64_carrier_needs_a_float64_tensor(device, dtype):
-    x = torch.ones(8, device=device, dtype=dtype)
-    with pytest.raises(ValueError, match="only a float64 operand"):
-        binaryK_quantize(x, 8, 4, carrier="binary64")
-    with pytest.raises(ValueError, match="carrier must be"):
-        superfp_quantize(x, 3, 4, 1, 7, carrier="float64")
+def test_a_carrier_narrower_than_the_tensor_is_refused(device):
+    x = torch.ones(8, device=device, dtype=torch.float64)
+    with pytest.raises(ValueError, match="narrower than float64"):
+        binaryK_quantize(x, 8, 4, carrier=torch.float32)
+    with pytest.raises(ValueError, match="narrower than float64"):
+        superfp_quantize(x, 3, 4, 1, 7, carrier=torch.float32)
+    with pytest.raises(ValueError, match="carrier must be torch.float32"):
+        binaryK_quantize(x.half(), 8, 4, carrier=torch.float16)
+    with pytest.raises(TypeError, match="carrier must be a torch.dtype"):
+        superfp_quantize(x, 3, 4, 1, 7, carrier="binary64")  # ty: ignore[invalid-argument-type]
 
 
 # --- stochastic rounding ------------------------------------------------------

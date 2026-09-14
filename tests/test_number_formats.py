@@ -180,7 +180,7 @@ def test_spec_resolution_is_memoized():
     )
 
 
-@pytest.mark.parametrize("carrier", [None, "binary32", "binary64"])
+@pytest.mark.parametrize("carrier", [None, torch.float32, torch.float64])
 def test_carrier_resolves_to_the_flat_spec(carrier):
     """The carrier is part of the spec, and both tiers put it in the same place."""
     fmt, wide = BinaryK(16, 8), BinaryK(40, 30, bias=512)
@@ -212,19 +212,33 @@ def test_a_spec_holds_what_each_carrier_says_about_its_formats():
 
 def test_the_spec_memo_tells_carriers_apart():
     fmt = BinaryK(8, 4)
-    assert spec_for_mac(SplitMac(fmt, fmt)) != spec_for_mac(SplitMac(fmt, fmt, carrier="binary32"))
+    assert spec_for_mac(SplitMac(fmt, fmt)) != spec_for_mac(
+        SplitMac(fmt, fmt, carrier=torch.float64)
+    )
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "error", "match"),
     [
-        lambda: SplitMac(BinaryK(8, 4), carrier="float64"),
-        lambda: FusedMac(BinaryK(8, 4), carrier="binary16"),
-        lambda: Quant(BinaryK(8, 4), carrier="double"),
+        (
+            lambda: SplitMac(BinaryK(8, 4), carrier=torch.float16),
+            ValueError,
+            "torch.float32 .binary32.",
+        ),
+        (
+            lambda: FusedMac(BinaryK(8, 4), carrier=torch.int32),
+            ValueError,
+            "torch.float32 .binary32.",
+        ),
+        (
+            lambda: Quant(BinaryK(8, 4), carrier="binary64"),  # ty: ignore[invalid-argument-type]
+            TypeError,
+            "must be a torch.dtype",
+        ),
     ],
 )
-def test_a_carrier_must_name_one(build):
-    with pytest.raises(ValueError, match="carrier must be 'binary32', 'binary64' or None"):
+def test_a_carrier_must_name_one(build, error, match):
+    with pytest.raises(error, match=match):
         build()
 
 
@@ -345,9 +359,10 @@ def test_a_bias_of_zero_is_a_bias(device):
 
 
 @pytest.mark.parametrize("device", available_devices)
-@pytest.mark.parametrize("carrier", [None, "binary32", "binary64"])
-def test_quant_carrier_is_the_flat_quantizers(device, carrier):
-    x = torch.randn(64, device=device, dtype=torch.float64) * 4
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16])
+@pytest.mark.parametrize("carrier", [None, torch.float64])
+def test_quant_carrier_is_the_flat_quantizers(device, dtype, carrier):
+    x = (torch.randn(64, device=device) * 4).to(dtype)
     assert torch.equal(
         Quant(BinaryK(8, 4), carrier=carrier)(x), binaryK_quantize(x, 8, 4, carrier=carrier)
     )

@@ -264,8 +264,9 @@ Where to go from here
   arithmetic carries every format in it. ``model.double()`` moves the same
   model into binary64, where formats of up to 53 bits of precision are
   simulated exactly -- a reference with which to measure what an 8-bit
-  accumulator really costs -- and ``carrier="binary32"`` keeps a float64
-  model computing the float32 way (:doc:`layers`).
+  accumulator really costs -- and ``carrier=torch.float64`` gives the float32
+  model binary64's products and sums while it keeps its dtype
+  (:doc:`layers`).
 - **Other roundings.** Each format in a ``SplitMac`` has its own saturation
   and subnormal policy; each ``SplitMac`` its own rounding mode. The scripts
   in this tutorial take those as arguments and are meant to be edited.

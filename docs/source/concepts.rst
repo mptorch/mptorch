@@ -38,11 +38,11 @@ of the simulated operation -- the same number a machine working natively in
 Carriers: binary32 and binary64
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-There are two carriers, and a tensor's dtype picks one:
+There are two carriers, and by default a tensor's dtype picks one:
 
 - a **float32**, **float16** or **bfloat16** tensor is computed in
   **binary32** -- a float16 or bfloat16 result is then stored back in its own
-  dtype, which is a second rounding (`What float16 and bfloat16 can store`_);
+  dtype, which is a second rounding (`What a narrower tensor can store`_);
 - a **float64** tensor is computed in **binary64**, throughout: an elementwise
   quantizer rounds each value once, directly, and a matrix product computes
   every partial product and every running sum in binary64 before rounding it.
@@ -58,10 +58,16 @@ exact in binary32 -- which is usual once a quantizer has rounded its operands
 to a narrow format.
 
 Every function and object that computes takes a ``carrier`` keyword to say
-otherwise: ``carrier="binary32"`` on a float64 tensor narrows it to float32,
-computes and rounds in binary32, and widens the result -- bit for bit what the
-float32 call would return -- and ``carrier="binary64"`` insists on float64
-operands. ``None``, the default, takes the tensor's. The quantizers
+otherwise, as the ``torch.dtype`` whose arithmetic the carrier is:
+``torch.float64`` for binary64, ``torch.float32`` for binary32, and ``None``,
+the default, for the tensor's own. ``carrier=torch.float64`` gives a float32,
+float16 or bfloat16 tensor binary64's arithmetic: its operands are widened to
+float64, computed and rounded in binary64, and the result is narrowed back to
+the tensor's dtype with a single rounding -- bit for bit the float64 call on
+the widened tensor, then stored. The result keeps the tensor's dtype either
+way. A carrier is never narrower than its tensor, so ``carrier=torch.float32``
+on a float64 tensor raises: narrowing the operands would round every input
+once before the format does. The quantizers
 (:func:`~mptorch.quant.binaryK_quantize`, :func:`~mptorch.quant.superfp_quantize`,
 :class:`~mptorch.quant.Quant`), the matrix products
 (:class:`~mptorch.quant.SplitMac`, :class:`~mptorch.quant.FusedMac` and the
@@ -71,7 +77,9 @@ flat ``*_matmul`` functions) and the layer factories
 ===========================================  ==========================  ==========================
 carrier                                      binary32                    binary64
 ===========================================  ==========================  ==========================
-tensors computed in it                       float32, float16, bfloat16  float64
+``carrier=``                                 ``torch.float32``           ``torch.float64``
+tensors computed in it by default            float32, float16, bfloat16  float64
+tensors that can name it                     float32, float16, bfloat16  every floating dtype
 precision, :math:`P` (``man_bits + 1``)      :math:`\le 24`              :math:`\le 53`
 stochastic bits, ``man_bits + prng_bits``    :math:`\le 23`              :math:`\le 52`
 random words per stochastic rounding         1                           2
@@ -90,10 +98,11 @@ matrix products on a consumer GPU            fastest                     about 3
 
 The last row is a cost worth knowing: on a GPU, binary64 arithmetic is
 several times slower than binary32, so a float64 model's matrix products are
-too (on the CPU the two are within a few percent, and a float64 elementwise
-quantizer is faster than it used to be, having no narrowing copies to make).
-A float64 model that needs only formats binary32 can carry gets its old speed
-back with ``carrier="binary32"`` on its matrix products.
+too (on the CPU the two are within a few percent). A narrower tensor that names
+binary64 pays that, plus a float64 copy of each operand and a narrowed copy of
+the result. The other way round is a choice of dtype rather than of carrier: a
+float64 model that needs only formats binary32 can carry gets binary32's speed
+as a float32 model.
 
 The rest of this section derives the table's bounds, and says what happens to
 a format that outruns them.
@@ -167,9 +176,11 @@ severities is not which limit is missed but whether the format still works:
   result overflows.
 
 The run below shows both carriers on the same inputs and formats: a float64
-value rounded once in binary64 and, with ``carrier="binary32"``, the way a
-float32 would be; four formats, each checked against each carrier when a
-tensor meets it; and a 30-bit format computed exactly on a float64 tensor.
+value rounded once in binary64, and the float32 value nearest it rounded in
+binary32 and, with ``carrier=torch.float64``, in binary64; four formats, each
+checked against each carrier when a tensor meets it; a 30-bit format computed
+exactly on a float64 tensor; and a product of float32 operands whose rounding
+only binary64 gets right.
 
 .. literalinclude:: ../snippets/formats_carriers.py
    :language: python
@@ -179,8 +190,9 @@ tensor meets it; and a 30-bit format computed exactly on a float64 tensor.
    :language: text
    :caption: output
 
-A ``carrier="binary32"`` call is held to binary32's bounds even on a float64
-tensor, since binary32 is what rounds it.
+A ``carrier=torch.float64`` call is held to binary64's bounds even on a
+float32 tensor, since binary64 is what rounds it -- and its result to what the
+tensor's dtype can store, which the next section gives.
 
 ``dev/benchmarks/format_limits.py`` reports all of this for a given format,
 in binary32 or with ``--carrier binary64``, and with ``--audit`` checks the
@@ -188,12 +200,16 @@ kernels against the format's value set to say so; its ``sweep --audit`` walks
 every bound in the table above across its edge, and measured each where this
 section puts it.
 
-What float16 and bfloat16 can store
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What a narrower tensor can store
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A float16 or bfloat16 tensor is rounded in binary32, its carrier, and the
-result is converted back when it is stored. That conversion is a second rounding, onto
-the dtype's grid, so a format whose results are not all values of the dtype is
+A float16 or bfloat16 tensor is rounded in binary32, its default carrier, and
+the result is converted back when it is stored -- and so, under
+``carrier=torch.float64``, is a float32 one, whose result is rounded in
+binary64. That conversion is a second rounding, onto the dtype's grid, correctly
+rounded to nearest (for float16 and bfloat16 torch's own conversion from
+float64 goes through float32, rounding twice, so MPTorch narrows those itself).
+A format whose results are not all values of the dtype is
 quantized partially in the same way -- with one difference worth knowing: a
 result above the dtype's largest finite value is stored as :math:`\pm\infty`
 *whatever the format's saturation mode*, so a ``SAT_FINITE`` format overflows
@@ -207,19 +223,21 @@ that depends on what the call rounded.
 anywhere, so every value of that format is some result and all of them must
 be values of the dtype. For a BinaryK:
 
-=============  ========================================  =================  ========
-bound          float16                                   bfloat16           severity
-=============  ========================================  =================  ========
-precision      :math:`P \le 11`                          :math:`P \le 8`    raises
-top            largest value below :math:`2^{16}`        float32's          warns
-finest step    :math:`\text{bias} + P \le 26`             float32's          warns
-               (``EXTENDED_NORMALS``: :math:`\le 25`)
-=============  ========================================  =================  ========
+===========  ======================================  ===============  =======================================  ========
+bound        float16                                 bfloat16         float32 (under binary64)                 severity
+===========  ======================================  ===============  =======================================  ========
+precision    :math:`P \le 11`                        :math:`P \le 8`  :math:`P \le 24`                         raises
+top          largest value below :math:`2^{16}`      float32's        largest value below :math:`2^{128}`      warns
+finest step  :math:`\text{bias} + P \le 26`          float32's        :math:`\text{bias} + P \le 151`          warns
+             (``EXTENDED_NORMALS``: :math:`\le 25`)                   (``EXTENDED_NORMALS``: :math:`\le 150`)
+===========  ======================================  ===============  =======================================  ========
 
-A SuperFP is held to the same three, in its own parameters. For bfloat16 only
-the precision is new: its range is float32's to within its precision, so a
-format that passes the float32 checks with at most eight bits of precision is
-inside it at both ends. A SplitMac's multiply format is never stored -- its
+A SuperFP is held to the same three, in its own parameters, and the rule does
+not depend on the carrier that rounded the result. In binary32, for bfloat16
+only the precision is new: its range is float32's to within its precision, so
+a format that passes the float32 checks with at most eight bits of precision is
+inside it at both ends. In binary64 the carrier passes ranges no narrower
+dtype holds, so every row can speak. A SplitMac's multiply format is never stored -- its
 products are intermediates in the carrier -- and a step left unrounded stores
 no format's values at all.
 
@@ -252,7 +270,9 @@ the dtype's smallest, which stores nothing of the format but zero.
 Both rules were measured against the kernels, not only derived:
 ``format_limits.py --dtype float16 --audit`` runs a format through a fused GEMM
 over operands of the dtype and through the quantizer over every value of it,
-and ``sweep --dtype float16 --audit`` walks each boundary above.
+and ``sweep --dtype float16 --audit`` walks each boundary above -- with
+``--carrier binary64`` too, through the widened operands and the narrowed
+result.
 
 BinaryK: the IEEE P3109 formats
 -------------------------------
@@ -435,7 +455,7 @@ In MPTorch this shows in two places:
   A float64 tensor holds all four. And
   ``BinaryK(16, 11, bias=15)``, as the format a GEMM's result holds over
   float16 operands, warns that it reaches past float16
-  (`What float16 and bfloat16 can store`_).
+  (`What a narrower tensor can store`_).
 
 Subnormals, saturation and sign
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

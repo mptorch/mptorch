@@ -44,8 +44,9 @@ What you can do today
   estimator with one format forward and another backward.
 - **Choose the arithmetic the simulation runs in.** A float64 model is
   computed in binary64 throughout, which simulates formats up to 53 bits of
-  precision and ten exponent bits; ``carrier="binary32"`` runs the same model
-  the float32 way, bit for bit (:doc:`concepts`).
+  precision and ten exponent bits; ``carrier=torch.float64`` gives a float32,
+  float16 or bfloat16 model the same arithmetic, keeping its dtype
+  (:doc:`concepts`).
 - **Reproduce it.** ``torch.manual_seed`` controls the stochastic rounding
   streams, and the deterministic modes are bit-identical between CPU and
   CUDA.

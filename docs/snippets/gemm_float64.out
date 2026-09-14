@@ -1,15 +1,24 @@
-float32 operands             1.0
-float64 operands             1.00048828125
-float64, carrier='binary32'  1.0
+float32 operands                 1.0
+float64 operands                 1.00048828125
+float32, carrier=torch.float64   1.00048828125 torch.float32
 
 relative error against a @ b, float64 operands
-  SplitMac(P=30, P=40)                      3.9e-10
-  FusedMac(P=40)                            4.4e-12
-  SplitMac(P=24, P=24)                      2.9e-07
-  SplitMac(P=24, P=24), carrier='binary32'  3.0e-07
-  SplitMac(E4M3, E4M3)                      2.6e-01
+  SplitMac(P=30, P=40)    3.9e-10
+  FusedMac(P=40)          4.4e-12
+  SplitMac(P=24, P=24)    2.9e-07
+  SplitMac(E4M3, E4M3)    2.6e-01
+
+float32 operands            binary32  carrier=torch.float64
+  SplitMac(P=24, None)      3.0e-07   3.7e-08
+  FusedMac(None)            2.9e-07   2.6e-08
+  SplitMac(P=30, P=24)      raises    2.9e-07
+  SplitMac(E4M3, E4M3)      2.6e-01   2.6e-01
 
 float32 operands: BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
+float32, carrier=torch.float64: BinaryK(K=48, P=40, bias=128) has 40 bits of precision, and a float32 result holds 24
 
-carrier='binary32' == the float32 call, widened: True
-binaryK_matmul(..., carrier='binary32') agrees:   True
+torch.float32 carrier=torch.float64 == the float64 call, narrowed: True
+torch.float16 carrier=torch.float64 == the float64 call, narrowed: True
+binaryK_matmul(..., carrier=torch.float64) agrees: True
+
+carrier=torch.float32 on float64: carrier=torch.float32 is narrower than float64 operands, whose inputs it would round once before the format does

@@ -163,15 +163,15 @@ class Quant:
         formats.input_quant = Quant(SuperFP(3, 4, 8, 7), RoundMode.SR)
 
     ``carrier`` is :func:`mptorch.quant.binaryK_quantize`'s: ``None`` rounds in
-    the tensor's own carrier, ``"binary32"`` in binary32 whatever the tensor,
-    and ``"binary64"`` insists on float64. The call is bound at construction,
-    so what is left per call is the op.
+    the tensor's own carrier, ``torch.float64`` in binary64 whatever the
+    tensor, and ``torch.float32`` in binary32, which a float64 tensor refuses.
+    The call is bound at construction, so what is left per call is the op.
     """
 
     fmt: Number
     rounding: RoundMode = RoundMode.RNE
     _: KW_ONLY
-    carrier: str | None = None
+    carrier: torch.dtype | None = None
     _call: Callable[[torch.Tensor], torch.Tensor] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -238,8 +238,9 @@ class SplitMac:
     ``carrier`` is the arithmetic both halves and everything between them are
     computed in -- :func:`mptorch.quant.binaryK_matmul`'s argument of that
     name: ``None`` takes the operands' (binary64 for float64, binary32 for the
-    rest), ``"binary32"`` narrows float64 operands to it, and ``"binary64"``
-    insists on float64 ones. Every call holds the formats to that carrier.
+    rest), ``torch.float64`` widens narrower operands to binary64 and narrows
+    the result back, and ``torch.float32`` refuses float64 ones. Every call
+    holds the formats to that carrier.
     """
 
     mul: "Number | Sequence[Number] | Palette"
@@ -247,7 +248,7 @@ class SplitMac:
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
-    carrier: str | None = None
+    carrier: torch.dtype | None = None
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
@@ -283,7 +284,7 @@ class FusedMac:
     _: KW_ONLY
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
-    carrier: str | None = None
+    carrier: torch.dtype | None = None
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)

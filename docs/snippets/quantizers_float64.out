@@ -4,10 +4,16 @@
                 1e-09 -> 9.999999994736442e-10 the nearest multiple of 2^-59: True
 float32: BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
 
-float64                  [1.125, 1.125]
-float64, carrier=binary32 [1.0, 1.25]
-carrier='binary32' == narrow, round in float32, widen: True
-Quant(..., carrier='binary32') agrees: True
+float64                         [1.125, 1.125]
+float32                         [1.0, 1.25]
+float32, carrier=torch.float64  [1.0, 1.25] torch.float32
+torch.float32  carrier=torch.float64 -> torch.float32, same as binary32's: True
+torch.float16  carrier=torch.float64 -> torch.float16, same as binary32's: True
+torch.bfloat16 carrier=torch.float64 -> torch.bfloat16, same as binary32's: True
+Quant(..., carrier=torch.float64) agrees: True
 
-SR with 40 random bits: values [1.0, 1.125], P(up) = 0.2999
+SR with 40 random bits: values [1.0, 1.125], P(up) = 0.2996
 float32: BinaryK(K=8, P=4, bias=8) asks for 40 stochastic-rounding bits below a 3-bit mantissa
+float32, carrier=torch.float64: P(up) = 0.2995, torch.float32
+
+carrier=torch.float32 on float64: carrier=torch.float32 is narrower than float64 operands, whose inputs it would round once before the format does

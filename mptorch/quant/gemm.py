@@ -123,7 +123,7 @@ def binaryK_gemm_formats(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """
     Build a ``QAffineFormats`` whose ``fwd_math``/``bwd_igrad_math``/
@@ -134,7 +134,9 @@ def binaryK_gemm_formats(
     is ``RoundMode.SR`` -- see :func:`mptorch.quant.ops.binaryK_matmul`,
     whose arguments these are. So is ``carrier``: the layer's formats are
     resolved here, once, and held to the carrier of the tensors each pass
-    runs on -- binary64 for a float64 layer -- unless ``carrier`` names one.
+    runs on -- binary64 for a float64 layer -- unless ``carrier`` names one:
+    ``torch.float64`` runs a float32 or half-precision layer's products in
+    binary64 too, and narrows each result back to the layer's dtype.
     """
     spec = _binaryK_spec(
         mul_K=mul_K,
@@ -171,7 +173,7 @@ def binaryK_gemm_formats_fma(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """
     Fused-multiply-add analog of :func:`binaryK_gemm_formats` -- see its
@@ -218,7 +220,7 @@ def superfp_gemm_formats(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats` -- see its docstring.
 
@@ -259,7 +261,7 @@ def superfp_gemm_formats_fma(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats_fma` -- see its docstring."""
     spec = _superfp_fma_spec(

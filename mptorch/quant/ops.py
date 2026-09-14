@@ -51,8 +51,9 @@ def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
 # --- the format's range against its carrier's ----------------------------------
 #
 # A call rounds in its operands' carrier -- binary64 for float64, binary32 for
-# float32, float16 and bfloat16 -- or in the one its `carrier=` names, and
-# `mptorch.number`'s findings say what that carrier makes of a format. Only the
+# float32, float16 and bfloat16 -- or in the one its `carrier=` names, never
+# narrower than the operands, and `mptorch.number`'s findings say what that
+# carrier makes of a format. Only the
 # call knows the dtype, so the format is held to its carrier here, per call;
 # `BinaryK`/`SuperFP` raise only for what no carrier can do. The wrappers below
 # never see a format object -- they take the parameters as plain integers --
@@ -64,14 +65,15 @@ def _binaryK_bias(K: int, P: int, is_signed: bool) -> int:
 # call pays for a tuple index. A quantizer resolves nothing ahead of the call
 # and looks its format up there, which is the same memo hit.
 #
-# `carrier="binary32"` on a float64 operand is the arithmetic every dtype had
-# before float64 had a carrier of its own: narrow the operands, run the op,
-# widen the result. That is done here, in Python, rather than by a schema
-# argument, and it is bit-identical to what the kernels used to do -- they ran
-# the same float32 instantiation on the same narrowed values, and drew the same
-# random words.
-
-_CARRIER_NAMES = ("binary32", "binary64")
+# `carrier=torch.float64` on a narrower operand is the float64 call on its
+# values: widen the operands, run the op, and narrow the result back to the
+# operands' dtype (`_narrowed`, one rounding). That is done here, in Python,
+# rather than by a schema argument, so it is bit-identical to calling the op on
+# widened operands yourself -- the same binary64 instantiation on the same
+# values, drawing the same random words -- up to that last conversion, which
+# torch's own `.to()` would do twice for float16 and bfloat16. A carrier
+# narrower than the operands is refused: rounding a float64 tensor in binary32
+# would round every input once before the format does.
 
 # (error, warning) pairs, a warning or an error in each, errors first: what one
 # carrier says about the formats of one GEMM. Empty when it holds them all.
@@ -84,28 +86,71 @@ _Findings = tuple[tuple[str | None, str | None], ...]
 _Format = tuple[Callable[..., Any], tuple[Any, ...]]
 
 
-def _checked_carrier(carrier: str | None) -> str | None:
+def _checked_carrier(carrier: torch.dtype | None) -> torch.dtype | None:
     """A ``carrier`` argument, refused if it names no carrier."""
-    if carrier is not None and carrier not in _CARRIER_NAMES:
-        raise ValueError(f"carrier must be 'binary32', 'binary64' or None, got {carrier!r}")
-    return carrier
-
-
-def _call_carrier(carrier: str | None, dtype: torch.dtype) -> tuple[str, bool]:
-    """The carrier a call on ``dtype`` operands rounds in, and whether reaching
-    it narrows a float64 operand to float32."""
-    wide = dtype is torch.float64
-    if carrier is None:
-        return ("binary64" if wide else "binary32"), False
-    if carrier == "binary32":
-        return carrier, wide
-    _checked_carrier(carrier)
-    if not wide:
+    if carrier is None or carrier is torch.float32 or carrier is torch.float64:
+        return carrier
+    if isinstance(carrier, torch.dtype):
         raise ValueError(
-            f"carrier='binary64' rounds in binary64, which only a float64 operand is "
-            f"computed in; got {dtype} operands -- pass float64 ones, or leave carrier unset"
+            f"carrier must be torch.float32 (binary32), torch.float64 (binary64) or None, "
+            f"got {carrier}: the kernels round in binary32 or binary64, and a narrower "
+            f"tensor is stored in its own dtype afterwards"
         )
-    return carrier, False
+    raise TypeError(
+        f"carrier must be a torch.dtype -- torch.float32, torch.float64 -- or None, got {carrier!r}"
+    )
+
+
+def _call_carrier(carrier: torch.dtype | None, dtype: torch.dtype) -> tuple[bool, bool]:
+    """Whether a call on ``dtype`` operands rounds in binary64, and whether
+    reaching it widens them to float64."""
+    if carrier is None:
+        return dtype is torch.float64, False
+    if carrier is torch.float64:
+        return True, dtype is not torch.float64
+    if carrier is torch.float32 and dtype is torch.float64:
+        raise ValueError(
+            "carrier=torch.float32 is narrower than float64 operands, whose inputs it "
+            "would round once before the format does; a carrier is at least as wide as "
+            "its operands -- leave carrier unset, or narrow the operands yourself"
+        )
+    _checked_carrier(carrier)
+    return False, False
+
+
+# stored significand bits, and the exponents of the smallest normal and largest
+# finite value, of the two dtypes `_narrowed` rounds onto itself
+_HALF_GRIDS: dict[torch.dtype, tuple[int, int, int]] = {
+    torch.float16: (10, -14, 15),
+    torch.bfloat16: (7, -126, 127),
+}
+
+
+def _narrowed(x: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """A float64 result stored in ``dtype``, rounded to nearest-even once.
+
+    float64 to float32 is one conversion. To float16 and bfloat16 torch goes
+    through float32, which is two roundings: a value a hair above a tie on the
+    narrow grid is first rounded onto the tie, and then to even -- 65519.999999
+    comes back as float16 infinity. So the value is rounded onto the dtype's
+    grid here, in float64, where dividing by a power of two is exact and
+    ``torch.round`` breaks ties to even; the conversion is then exact, or an
+    overflow to infinity where the rounding carried past the largest value.
+    NaN and infinity pass through the arithmetic unchanged.
+    """
+    if dtype is torch.float32:
+        return x.float()
+    man_bits, min_normal_exp, top_exp = _HALF_GRIDS[dtype]
+    # The grid's step at x: x's leading-bit exponent less the stored bits, held
+    # to the subnormals' fixed step below and, above the dtype's range, to one
+    # that still rounds past its largest value. Read from the word's exponent
+    # field (float64 subnormals are far below both grids, and NaN and infinity
+    # far above), and built back into a word as the power of two itself -- a
+    # table lookup costs more than the rest of the rounding on the CPU.
+    e = (x.view(torch.int64) >> 52).bitwise_and_(0x7FF).sub_(1023 + man_bits)
+    e = e.clamp_(min_normal_exp - man_bits, top_exp + 1 - man_bits)
+    step = e.add_(1023).bitwise_left_shift_(52).view(torch.float64)
+    return torch.round(x / step).mul_(step).to(dtype)
 
 
 _NOTHING = (None, None)
@@ -130,10 +175,10 @@ def _format_findings(formats: Iterable[_Format]) -> tuple[_Findings, _Findings]:
     b32: list[tuple[str | None, str | None]] = []
     b64: list[tuple[str | None, str | None]] = []
     for fn, args in formats:
-        found = fn(*args, "binary32")
+        found = fn(*args, torch.float32)
         if found != _NOTHING:
             b32.append(found)
-            found = fn(*args, "binary64")
+            found = fn(*args, torch.float64)
             if found != _NOTHING:
                 b64.append(found)
     if not b32:
@@ -155,15 +200,16 @@ def _report_findings(found: _Findings) -> None:
         _report_per_call(error, warning)
 
 
-# --- the format's values against a float16 or bfloat16 result -----------------
+# --- the format's values against a result narrower than its carrier ----------
 #
-# A half-width tensor is rounded in binary32, its carrier, and the result is
-# converted back when it is written, which rounds it a second time.
-# `mptorch.number`'s `check_*_storage` are that rule; only the call knows the
-# dtype, so it runs here, per call, and only for the two dtypes it can say
-# anything about -- a float32 or float64 result holds every value of its
-# carrier. It is held against the format whose values the result actually
-# holds: a GEMM's last rounding (the accumulate or fused format), whose sums
+# A tensor narrower than its carrier -- float16 or bfloat16 in binary32, and
+# float32 too in binary64 -- has its result converted back when it is written,
+# which rounds it a second time. `mptorch.number`'s `check_*_storage` are that
+# rule; only the call knows the dtype and the carrier, so it runs here, per
+# call, and only for the dtypes it can say anything about -- a result in the
+# carrier's own dtype holds every value of it. It is held against the format
+# whose values the result actually holds: a GEMM's last rounding (the
+# accumulate or fused format), whose sums
 # reach every value it has, and the elementwise quantizer's own, whose inputs
 # are already the dtype's values and so reach only the edges of its range --
 # which is why the second passes `elementwise=True`. A GEMM's multiply format
@@ -176,7 +222,12 @@ def _report_findings(found: _Findings) -> None:
 # what the storage dtype bounds is the precision of the values written into
 # it, and only those (`dev/gemm_roadmap.md`, T6).
 
-_NARROW_STORAGE: dict[torch.dtype, str] = {torch.float16: "float16", torch.bfloat16: "bfloat16"}
+# what binary32's results and binary64's are stored in a second time
+_NARROW_STORAGE = frozenset((torch.float16, torch.bfloat16))
+_BELOW_BINARY64 = frozenset((torch.float32, torch.float16, torch.bfloat16))
+
+# the carrier `_call_carrier`'s first answer names, as `mptorch.number` keys it
+_CARRIER = (torch.float32, torch.float64)
 
 # the storage check for one format a result may hold, `check(*arguments, storage=...)`
 _Stored = _Format
@@ -191,8 +242,8 @@ def _palette_formats(
     return tuple(dict.fromkeys((fn, (*w, *shared)) for w in widths))
 
 
-def _check_stored(stored: tuple[_Stored, ...], storage: str) -> None:
-    """Hold each format a result holds against the half-width dtype it is stored in."""
+def _check_stored(stored: tuple[_Stored, ...], storage: torch.dtype) -> None:
+    """Hold each format a result holds against the narrower dtype it is stored in."""
     for check, fmt in stored:
         check(*fmt, storage=storage)
 
@@ -270,8 +321,8 @@ class _GemmSpec(NamedTuple):
     # `mptorch.quant.mac` reads this to decide whether a call needs a map,
     # rather than re-deriving from the format what the builder already knew.
     mixed: bool = False
-    # The carrier the caller named, or None for the operands' own.
-    carrier: str | None = None
+    # The carrier the caller named, as its dtype, or None for the operands' own.
+    carrier: torch.dtype | None = None
     # binary32's findings, then binary64's (`_format_findings`).
     findings: tuple[_Findings, _Findings] = ((), ())
 
@@ -299,22 +350,22 @@ def _packed(x: torch.Tensor, trans: bool) -> tuple[torch.Tensor, bool]:
 
 def _named_carrier_operands(
     spec: _GemmSpec, a: torch.Tensor, b: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, bool]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.dtype | None]:
     """The prologue of a call whose spec names its carrier: the checks that
-    carrier and the dtype decide, and the operands in that carrier, with
-    whether they were narrowed to reach it."""
+    carrier and the dtype decide, and the operands in that carrier, with the
+    dtype to narrow the result back to if they were widened to reach it."""
     dtype = a.dtype
-    carrier, narrow = _call_carrier(spec.carrier, dtype)
-    found = spec.findings[carrier == "binary64"]
+    wide, widen = _call_carrier(spec.carrier, dtype)
+    found = spec.findings[wide]
     if found:
         _report_findings(found)
-    if spec.stored and dtype in _NARROW_STORAGE:
-        _check_stored(spec.stored, _NARROW_STORAGE[dtype])
-    # a float64 operand beside a float32 one is the op's to refuse, not this
-    # to paper over by narrowing one of them
-    if narrow and b.dtype is torch.float64:
-        return a.float(), b.float(), True
-    return a, b, False
+    if spec.stored and dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
+        _check_stored(spec.stored, dtype)
+    # operands of two dtypes are the op's to refuse, not this to paper over by
+    # widening both
+    if widen and b.dtype is dtype:
+        return a.double(), b.double(), dtype
+    return a, b, None
 
 
 def _run_gemm(
@@ -326,7 +377,7 @@ def _run_gemm(
     ``torch.matmul`` operand rules -- 1D promotion, leading-dim broadcasting,
     rank > 3 -- are :func:`_matmul_operands`' job, above this.
     """
-    narrow = False
+    narrow = None
     if spec.carrier is not None:
         a, b, narrow = _named_carrier_operands(spec, a, b)
     else:
@@ -340,11 +391,11 @@ def _run_gemm(
         if found:
             _report_findings(found)
         if spec.stored and dtype in _NARROW_STORAGE:
-            _check_stored(spec.stored, _NARROW_STORAGE[dtype])
+            _check_stored(spec.stored, dtype)
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
     out = spec.op(a, b, trans_a, trans_b, *spec.args)
-    return out.double() if narrow else out
+    return out if narrow is None else _narrowed(out, narrow)
 
 
 def _run_gemm_mixed(
@@ -361,7 +412,7 @@ def _run_gemm_mixed(
     C++ side's job, and it memoizes the bounds check against the tensor it is
     handed (finding G5b), which a `.to()` here would defeat.
     """
-    narrow = False
+    narrow = None
     if spec.carrier is not None:
         a, b, narrow = _named_carrier_operands(spec, a, b)
     else:
@@ -370,11 +421,11 @@ def _run_gemm_mixed(
         if found:
             _report_findings(found)
         if spec.stored and dtype in _NARROW_STORAGE:
-            _check_stored(spec.stored, _NARROW_STORAGE[dtype])
+            _check_stored(spec.stored, dtype)
     a, trans_a = _packed(a, trans_a)
     b, trans_b = _packed(b, trans_b)
     out = spec.op(a, b, prec_idx, trans_a, trans_b, *spec.args)
-    return out.double() if narrow else out
+    return out if narrow is None else _narrowed(out, narrow)
 
 
 # --- torch.matmul's operand rules, over a rank-2-or-3 op ----------------------
@@ -579,7 +630,7 @@ def binaryK_quantize(
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     *,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Round every element of ``x`` to a binaryK floating-point format: the
@@ -603,15 +654,16 @@ def binaryK_quantize(
     ``prng_bits``, the number of random bits ``RoundMode.SR`` draws below the
     target mantissa (ignored by every other mode), is drawn in the carrier
     too, so ``P - 1 + prng_bits`` is held to its 23 or 52 mantissa bits.
-    ``carrier="binary32"`` rounds a float64 ``x`` in binary32 all the same,
-    narrowing it first and widening the result, which is what a float64 tensor
-    got before it had a carrier of its own; ``"binary64"`` insists on a float64
-    ``x``; ``None`` takes ``x``'s own.
+    ``carrier=torch.float64`` rounds any ``x`` in binary64: a narrower one is
+    widened first, and the result narrowed back to its dtype, rounded once.
+    ``torch.float32`` names binary32, which a float64 ``x`` refuses -- the
+    carrier is never narrower than the tensor -- and ``None`` takes ``x``'s own.
 
-    A float16 or bfloat16 result is rounded a second time when it is stored,
-    so the format is held against that dtype as well; the inputs are already
-    its values, so only a result at an edge of the format's range can land off
-    its grid, and that warns. NaN inputs pass through, and so do infinities
+    A result narrower than its carrier -- float16 or bfloat16, or float32
+    under binary64 -- is rounded a second time when it is stored, so the
+    format is held against that dtype as well; the inputs are already its
+    values, so only a result at an edge of the format's range can land off its
+    grid, and that warns. NaN inputs pass through, and so do infinities
     except under ``SaturationMode.SAT_FINITE``, which clamps them.
 
     Not differentiable: on a tensor that requires grad under grad mode this
@@ -620,12 +672,12 @@ def binaryK_quantize(
     """
     if bias is None:
         bias = _binaryK_bias(K, P, is_signed)
-    name, narrow = _call_carrier(carrier, x.dtype)
+    dtype = x.dtype
+    wide, widen = _call_carrier(carrier, dtype)
     check_binaryK_carrier(
-        K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits, carrier=name
+        K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits, carrier=_CARRIER[wide]
     )
-    storage = _NARROW_STORAGE.get(x.dtype)
-    if storage is not None:
+    if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_binaryK_storage(
             K,
             P,
@@ -633,12 +685,12 @@ def binaryK_quantize(
             is_signed,
             saturation_mode,
             subnormals_mode,
-            storage=storage,
+            storage=dtype,
             elementwise=True,
         )
 
     out = torch.ops.mptorch.binaryK_quant.default(
-        _quantizer_operand(x, narrow),
+        _quantizer_operand(x, widen),
         K,
         P,
         bias,
@@ -648,14 +700,14 @@ def binaryK_quantize(
         saturation_mode.value,
         subnormals_mode.value,
     )
-    return out.double() if narrow else out
+    return _narrowed(out, dtype) if widen else out
 
 
-def _quantizer_operand(x: torch.Tensor, narrow: bool) -> torch.Tensor:
-    """``x`` as the elementwise op reads it: contiguous, and narrowed to
-    float32 when the call's carrier asks for that, in one copy."""
-    if narrow:
-        return x.to(torch.float32, memory_format=torch.contiguous_format)
+def _quantizer_operand(x: torch.Tensor, widen: bool) -> torch.Tensor:
+    """``x`` as the elementwise op reads it: contiguous, and widened to
+    float64 when the call's carrier asks for that, in one copy."""
+    if widen:
+        return x.to(torch.float64, memory_format=torch.contiguous_format)
     return x.contiguous()
 
 
@@ -670,7 +722,7 @@ def superfp_quantize(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     *,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Round every element of ``x`` to a superfp (supernormal) floating-point format.
@@ -685,24 +737,24 @@ def superfp_quantize(
     Dtypes, carriers, ``prng_bits`` and differentiability are as for
     :func:`binaryK_quantize`.
     """
-    name, narrow = _call_carrier(carrier, x.dtype)
+    dtype = x.dtype
+    wide, widen = _call_carrier(carrier, dtype)
     check_superfp_carrier(
-        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=name
+        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=_CARRIER[wide]
     )
-    storage = _NARROW_STORAGE.get(x.dtype)
-    if storage is not None:
+    if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_superfp_storage(
             man_bits,
             exp_bits,
             normal_binades,
             bias,
             saturation_mode,
-            storage=storage,
+            storage=dtype,
             elementwise=True,
         )
 
     out = torch.ops.mptorch.superfp_quant.default(
-        _quantizer_operand(x, narrow),
+        _quantizer_operand(x, widen),
         man_bits,
         exp_bits,
         normal_binades,
@@ -712,7 +764,7 @@ def superfp_quantize(
         rounding_mode.value,
         saturation_mode.value,
     )
-    return out.double() if narrow else out
+    return _narrowed(out, dtype) if widen else out
 
 
 # --- single-format GEMMs -----------------------------------------------------
@@ -737,7 +789,7 @@ def _binaryK_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -819,7 +871,7 @@ def binaryK_matmul(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Quantized GEMM core: computes ``op(a) @ op(b)``, where ``op(x) = x.T``
@@ -842,9 +894,9 @@ def binaryK_matmul(
     sum before its -- is computed in a carrier, and so are the roundings:
     binary64 for float64 operands and binary32 for the rest, and the formats
     are held to that carrier on every call. ``carrier`` is as for
-    :func:`binaryK_quantize`: ``"binary32"`` narrows float64 operands to it and
-    widens the result, ``"binary64"`` insists on float64 operands, and
-    ``None`` takes theirs.
+    :func:`binaryK_quantize`: ``torch.float64`` widens narrower operands to
+    binary64 and narrows the result back to their dtype, ``torch.float32``
+    refuses float64 operands, and ``None`` takes theirs.
 
     ``a`` and ``b`` follow ``torch.matmul``'s operand rules: 1D operands are
     promoted (and their dimension dropped from the result), leading dimensions
@@ -905,7 +957,7 @@ def _superfp_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul`'s formats -- see it for the contract."""
     if acc_is_signed is None:
@@ -983,7 +1035,7 @@ def superfp_matmul(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul` -- see its docstring for the
@@ -1033,7 +1085,7 @@ def _binaryK_fma_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma`'s format -- see it for the contract."""
     if fma_bias is None:
@@ -1081,7 +1133,7 @@ def binaryK_matmul_fma(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Fused-multiply-add analog of :func:`binaryK_matmul`: every dot-product
@@ -1136,7 +1188,7 @@ def _superfp_fma_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma`'s format -- see it for the contract."""
     rounded: list[_Format] = []
@@ -1182,7 +1234,7 @@ def superfp_matmul_fma(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """superfp analog of :func:`binaryK_matmul_fma` -- see its docstring."""
     return _gemm_nd(
@@ -1232,7 +1284,7 @@ def _binaryK_mixed_spec(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_mixed`'s palette -- see it for the contract."""
     mul_K_l, mul_P_l, n = _palette_pair(mul_K, mul_P, "mul_P", "binaryK_matmul_mixed")
@@ -1317,7 +1369,7 @@ def binaryK_matmul_mixed(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Spatially-varying (per-output-element) mixed-format analog of
@@ -1399,7 +1451,7 @@ def _superfp_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_mixed`'s palette -- see it for the contract."""
     mul_mb_l, mul_eb_l, n = _palette_pair(
@@ -1489,7 +1541,7 @@ def superfp_matmul_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul_mixed` -- see its docstring for
@@ -1540,7 +1592,7 @@ def _binaryK_fma_mixed_spec(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`binaryK_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_K_l, fma_P_l, _ = _palette_pair(fma_K, fma_P, "fma_P", "binaryK_matmul_fma_mixed")
@@ -1591,7 +1643,7 @@ def binaryK_matmul_fma_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     Spatially-varying (per-output-element) mixed-format analog of
@@ -1647,7 +1699,7 @@ def _superfp_fma_mixed_spec(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma_mixed`'s palette -- see it for the contract."""
     fma_mb_l, fma_eb_l, n = _palette_pair(
@@ -1700,7 +1752,7 @@ def superfp_matmul_fma_mixed(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
-    carrier: str | None = None,
+    carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """
     superfp analog of :func:`binaryK_matmul_fma_mixed` -- see its docstring

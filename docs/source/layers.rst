@@ -155,27 +155,33 @@ convolution run above show one in a ``Sequential``.
 float64 models and the carrier
 ------------------------------
 
-A layer computes in its tensors' *carrier* (:doc:`concepts`): a float32 --
-or float16, or bfloat16 -- layer rounds and multiplies in binary32, and a
-float64 layer in binary64, every quantizer and every product. Nothing in the
-formats says which; the dtype does, so ``model.double()`` moves a whole model
-into binary64 and ``model.float()`` back, and each hook checks its formats
-against the carrier it meets on every call.
+A layer computes in its tensors' *carrier* (:doc:`concepts`): by default a
+float32 -- or float16, or bfloat16 -- layer rounds and multiplies in
+binary32, and a float64 layer in binary64, every quantizer and every product.
+Nothing in the formats says which unless they name one; the dtype does, so
+``model.double()`` moves a whole model into binary64 and ``model.float()``
+back, and each hook checks its formats against the carrier it meets on every
+call.
 
 A float64 model therefore reaches formats a float32 one cannot -- up to 53
 bits of precision and ten exponent bits -- which is what a study of
 arithmetic *wider* than binary32 needs, or one whose reference has to be
-exact. To run a float64 model in binary32 instead, as it would have run
-before float64 had a carrier of its own, give ``carrier="binary32"`` to the
-factory and to each :class:`~mptorch.quant.Quant`. On a GPU that is also the
+exact. A float32 model gets binary64's arithmetic without changing dtype by
+giving ``carrier=torch.float64`` to the factory and to each
+:class:`~mptorch.quant.Quant`: each hook widens its operands, computes in
+binary64 and narrows its result back, so its signals stay float32 and are held
+to what float32 can store. The other direction is not a carrier: a float64
+model computes the float32 way as a float32 model, which on a GPU is also the
 faster arithmetic for the matrix products (:doc:`gemm`, "Performance notes").
 
-The run compares the carriers on one float64 layer: a 30-bit arithmetic only
-binary64 can hold; an FP8 recipe, whose operands are rounded to 8 bits before
+The run puts one float64 reference against a float64 layer in a 30-bit
+arithmetic only binary64 can hold, and against a float32 layer in each
+carrier: a 30-bit multiply format under a 24-bit accumulator, which only
+binary64 gives it; an FP8 recipe, whose operands are rounded to 8 bits before
 any product, so that both carriers compute every intermediate exactly and
 agree to the bit; and a 22-bit arithmetic on unquantized operands, where
-binary32 keeps 24 bits of each operand, product and sum ahead of the
-formats' rounding and binary64 keeps 53.
+binary32 keeps 24 bits of each product and sum ahead of the formats' rounding
+and binary64 keeps 53.
 
 .. literalinclude:: ../snippets/layers_float64.py
    :language: python
@@ -191,10 +197,10 @@ Putting a model together
 A mixed-precision model is a set of decisions per layer, and this is where
 they are written down:
 
-0. Choose the **carrier** -- the model's dtype: float32 for the formats
-   binary32 carries, float64 for wider ones or an exact reference, with
-   ``carrier="binary32"`` where a float64 model should compute the float32
-   way.
+0. Choose the **carrier** -- by default the model's dtype: float32 for the
+   formats binary32 carries, float64 for wider ones or an exact reference,
+   with ``carrier=torch.float64`` where a float32 (or half-precision) model
+   should compute in binary64 and keep its dtype.
 1. Choose the format of each **signal** -- a ``Quant`` (or ``Quantizer``, or
    a scaled quantizer of your own) for ``input_quant``, ``weight_quant``,
    ``bias_quant``, and for the three gradient paths.

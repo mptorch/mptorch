@@ -19,6 +19,8 @@ from enum import Enum
 from functools import lru_cache
 from typing import NamedTuple
 
+import torch
+
 
 class SaturationMode(Enum):
     """
@@ -109,12 +111,13 @@ class AccumulateAlgorithm(Enum):
 # The casts do not build encodings. They round a value of their *carrier* onto
 # the format's grid and hand back a value of the carrier (see
 # `docs/source/concepts.rst`, "What the carrier can hold"). The carrier is the
-# operand's: binary64 for a float64 tensor and binary32 for float32, float16
-# and bfloat16 -- and binary32 for float64 too where a call asks for it with
-# `carrier="binary32"`. A format with more range or precision than its carrier
-# is quantized *partially*: the result is still a tensor of plausible numbers,
-# and some of the format's values are simply never among them. The checks
-# below are what stops that being invisible. `dev/gemm_roadmap.md` (T4)
+# operand's by default -- binary64 for a float64 tensor and binary32 for
+# float32, float16 and bfloat16 -- and binary64 for those three too where a
+# call asks for it with `carrier=torch.float64`. It is never narrower than the
+# tensor. A format with more range or precision than its carrier is quantized
+# *partially*: the result is still a tensor of plausible numbers, and some of
+# the format's values are simply never among them. The checks below are what
+# stops that being invisible. `dev/gemm_roadmap.md` (T4)
 # derives binary32's bounds and `dev/benchmarks/format_limits.py` measures
 # them against the kernels, over ~17 M inputs per format in every rounding
 # mode; binary64's are the same derivation, one carrier wider
@@ -169,18 +172,18 @@ class _Carrier(NamedTuple):
 
 _BINARY32 = _Carrier("binary32", 24, 23, 127, -126, -149, -125)
 _BINARY64 = _Carrier("binary64", 53, 52, 1023, -1022, -1074, -1021)
-_CARRIERS: dict[str, _Carrier] = {c.name: c for c in (_BINARY32, _BINARY64)}
+# keyed on the dtype a `carrier=` argument names, which is the float the carrier is
+_CARRIERS: dict[torch.dtype, _Carrier] = {torch.float32: _BINARY32, torch.float64: _BINARY64}
 _MAX_EXP_BITS = 30  # `1 << exp_bits` is a C++ `int` in the kernels
 
 
 class FormatRangeWarning(UserWarning):
     """A format whose range outruns the carrier a call rounds in, or the
-    float16 or bfloat16 tensor its results are stored in, so quantizing to it
-    is partial.
+    narrower tensor its results are stored in, so quantizing to it is partial.
 
-    The carrier is the operand's: binary64 for a float64 tensor and binary32
-    for float32, float16 and bfloat16, unless the call names one with
-    ``carrier=``. Warned per call, by the quantizers and GEMMs of
+    The carrier is the operand's -- binary64 for a float64 tensor and binary32
+    for float32, float16 and bfloat16 -- unless the call names binary64 with
+    ``carrier=torch.float64``. Warned per call, by the quantizers and GEMMs of
     :mod:`mptorch.quant`, when a format reaches above the carrier's largest
     finite value, spaces its values finer than its smallest subnormal
     (:math:`2^{-149}`, :math:`2^{-1074}`), or has a smallest value below
@@ -193,12 +196,13 @@ class FormatRangeWarning(UserWarning):
     know which carrier it will meet; they raise only for what neither carrier
     can do.
 
-    Warned too when the result is a float16 or bfloat16 tensor and the
-    format's range outruns *that* dtype: above its largest finite value, or
-    spaced finer than its smallest subnormal. The cast rounds in binary32, and
-    storing the result rounds a second time, onto the dtype's grid -- with a
-    value above the dtype's range stored as an infinity whatever the format's
-    saturation mode.
+    Warned too when the result is stored in a dtype narrower than the carrier
+    -- float16 or bfloat16 under binary32, and float32 as well under binary64
+    -- and the format's range outruns *that* dtype: above its largest finite
+    value, or spaced finer than its smallest subnormal. The cast rounds in the
+    carrier, and storing the result rounds a second time, onto the dtype's
+    grid -- with a value above the dtype's range stored as an infinity
+    whatever the format's saturation mode.
 
     It is a warning rather than an error because such a format is still
     useful: a wide binaryK is a reasonable precision-only target, where the
@@ -265,7 +269,7 @@ class _Extent(NamedTuple):
     """A format's range, in the only terms the range checks read.
 
     Derived once from the parameters and held against two things: the
-    carrier a cast rounds in, and a float16 or bfloat16 result, which the
+    carrier a cast rounds in, and a result narrower than that carrier, which the
     rounded value is stored in.
     """
 
@@ -512,18 +516,21 @@ def _superfp_extent(
 # default and would make the tests order-dependent.
 #
 # A binary32 finding that binary64 does not share says so, since the cure is
-# then a float64 tensor rather than a different format.
+# then the binary64 carrier rather than a different format.
 
 
 def _pointing_wider(
-    find: Callable[[_Carrier], tuple[str | None, str | None]], carrier: str
+    find: Callable[[_Carrier], tuple[str | None, str | None]], carrier: torch.dtype
 ) -> tuple[str | None, str | None]:
     error, warning = found = find(_CARRIERS[carrier])
-    if carrier == "binary32" and found != (None, None) and find(_BINARY64) == (None, None):
+    if carrier is torch.float32 and found != (None, None) and find(_BINARY64) == (None, None):
 
         def wider(message: str) -> str:
             end = "" if message.endswith(".") else "."
-            return f"{message}{end} A float64 tensor's carrier, binary64, holds all of it."
+            return (
+                f"{message}{end} binary64 holds all of it: a float64 tensor's carrier, "
+                "which carrier=torch.float64 gives a narrower tensor too."
+            )
 
         return error and wider(error), warning and wider(warning)
     return found
@@ -538,7 +545,7 @@ def _binaryK_findings(
     saturation: SaturationMode,
     subnormals: SubnormalsMode,
     prng_bits: int,
-    carrier: str,
+    carrier: torch.dtype,
 ) -> tuple[str | None, str | None]:
     """What ``carrier`` says about a binaryK format: (error, warning)."""
     man_bits = P - 1
@@ -563,7 +570,7 @@ def _superfp_findings(
     bias: int,
     saturation: SaturationMode,
     prng_bits: int,
-    carrier: str,
+    carrier: torch.dtype,
 ) -> tuple[str | None, str | None]:
     """What ``carrier`` says about a superfp format: (error, warning)."""
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
@@ -589,7 +596,7 @@ def check_binaryK(
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     prng_bits: int = 0,
     *,
-    carrier: str = "binary32",
+    carrier: torch.dtype = torch.float32,
     warn: bool = True,
     stacklevel: int = 3,
 ) -> None:
@@ -598,10 +605,11 @@ def check_binaryK(
     Raises :exc:`ValueError` for a format that cannot function -- see the note
     above for the five ways -- and, unless ``warn`` is false, warns with
     :class:`FormatRangeWarning` for one whose range outruns the carrier, which
-    quantizes partially rather than wrongly. ``carrier`` is ``"binary32"`` or
-    ``"binary64"``, and ``bias`` is the resolved one, not ``None``.
+    quantizes partially rather than wrongly. ``carrier`` is ``torch.float32``
+    (binary32) or ``torch.float64`` (binary64), and ``bias`` is the resolved
+    one, not ``None``.
 
-    :class:`BinaryK` calls this with ``carrier="binary64", warn=False``, which
+    :class:`BinaryK` calls this with ``carrier=torch.float64, warn=False``, which
     raises for what no carrier can do and says nothing else: which carrier the
     format meets is the call's to know, and the call holds it to that one with
     :func:`check_binaryK_carrier`. ``stacklevel`` is how far above this the
@@ -624,7 +632,7 @@ def check_superfp(
     saturation: SaturationMode = SaturationMode.OVF_INF,
     prng_bits: int = 0,
     *,
-    carrier: str = "binary32",
+    carrier: torch.dtype = torch.float32,
     warn: bool = True,
     stacklevel: int = 3,
 ) -> None:
@@ -651,7 +659,7 @@ def check_binaryK_carrier(
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     prng_bits: int = 0,
     *,
-    carrier: str,
+    carrier: torch.dtype,
 ) -> None:
     """:func:`check_binaryK`, reported the way a call reports it.
 
@@ -672,7 +680,7 @@ def check_superfp_carrier(
     saturation: SaturationMode = SaturationMode.OVF_INF,
     prng_bits: int = 0,
     *,
-    carrier: str,
+    carrier: torch.dtype,
 ) -> None:
     """:func:`check_binaryK_carrier` for a superfp format."""
     _report_per_call(
@@ -680,15 +688,17 @@ def check_superfp_carrier(
     )
 
 
-# --- what float16 and bfloat16 can store --------------------------------------
+# --- what a tensor narrower than its carrier can store ------------------------
 #
-# A float16 or bfloat16 tensor is rounded in binary32, its carrier, and the
-# result is converted back when it is written -- `SIMDTraits`' store
+# A float16 or bfloat16 tensor is rounded in binary32, its default carrier,
+# and the result is converted back when it is written -- `SIMDTraits`' store
 # in the elementwise quantizers, `store_elem` in the GEMM, a `static_cast` on
-# the host, round to nearest on both backends. That conversion is a second
-# rounding. A format whose results are not all values of the dtype is
-# quantized partially in the way T4's are, with one difference worth saying
-# out loud: a result above the dtype's range is stored as an infinity
+# the host, round to nearest on both backends. Under `carrier=torch.float64`
+# float32 joins them: the operands are widened, rounded in binary64, and the
+# result narrowed by `mptorch.quant.ops._narrowed`, once, to nearest. Either
+# conversion is a second rounding. A format whose results are not all values
+# of the dtype is quantized partially in the way T4's are, with one difference
+# worth saying out loud: a result above the dtype's range is stored as an infinity
 # *whatever the format's saturation mode says*, so a `SAT_FINITE` format
 # overflows too.
 #
@@ -700,10 +710,10 @@ def check_superfp_carrier(
 #                must be the dtype's. T4's "representable" question with a
 #                narrower carrier --
 #
-#                                   float16     bfloat16
-#                  precision        P <= 11     P <= 8      raises
-#                  largest value    < 2**16     < 2**128    warns
-#                  finest step      >= 2**-24   >= 2**-133  warns
+#                                   float16     bfloat16    float32
+#                  precision        P <= 11     P <= 8      P <= 24      raises
+#                  largest value    < 2**16     < 2**128    < 2**128     warns
+#                  finest step      >= 2**-24   >= 2**-133  >= 2**-149   warns
 #
 #   elementwise  rounds the tensor's own values, which are already the
 #                dtype's. A format at least as fine as the dtype somewhere
@@ -722,9 +732,12 @@ def check_superfp_carrier(
 # largest value is below the dtype's smallest, of which nothing is stored. And
 # neither has T4's "faithful" floor: that exists because the casts read a
 # binary32 exponent field, where storing a value reads nothing and rounds it
-# correctly. For bfloat16 only the GEMM's precision bound is new -- its range is
-# binary32's to within its precision, so a format T4 passes with at most eight
-# bits of precision is inside it at both ends.
+# correctly. Under binary32, for bfloat16 only the GEMM's precision bound is
+# new -- its range is binary32's to within its precision, so a format T4 passes
+# with at most eight bits of precision is inside it at both ends. Under binary64
+# the carrier passes ranges no narrower dtype holds, so every row can speak.
+# The rule does not otherwise depend on the carrier, which is wider than the
+# dtype either way and rounds the dtype's own values exactly.
 #
 # The dtype belongs to the call, not the format -- a `BinaryK` does not know
 # what it will be stored in -- so these run per call, from `mptorch.quant.ops`,
@@ -743,9 +756,10 @@ class _Storage(NamedTuple):
     min_exp: int  # the exponent of the smallest positive value, a subnormal
 
 
-_STORAGE: dict[str, _Storage] = {
-    "float16": _Storage("float16", 10, 15, -24),
-    "bfloat16": _Storage("bfloat16", 7, 127, -133),
+_STORAGE: dict[torch.dtype, _Storage] = {
+    torch.float16: _Storage("float16", 10, 15, -24),
+    torch.bfloat16: _Storage("bfloat16", 7, 127, -133),
+    torch.float32: _Storage("float32", 23, 127, -149),
 }
 
 
@@ -875,7 +889,7 @@ def _storage_edge_findings(
 
 
 def _storage_findings(
-    ext: _Extent, storage: str, elementwise: bool, saturation: SaturationMode
+    ext: _Extent, storage: torch.dtype, elementwise: bool, saturation: SaturationMode
 ) -> tuple[str | None, str | None]:
     st = _STORAGE[storage]
     if ext.top_exp < st.min_exp:
@@ -897,22 +911,25 @@ def _binaryK_storage_findings(
     is_signed: bool,
     saturation: SaturationMode,
     subnormals: SubnormalsMode,
-    storage: str,
+    storage: torch.dtype,
     elementwise: bool,
 ) -> tuple[str | None, str | None]:
     man_bits = P - 1
     exp_bits = K - P if is_signed else K - P + 1
     label = _binaryK_label(K, P, bias, is_signed, subnormals)
-    if _width_error(label, exp_bits, man_bits, 0, _BINARY32) is not None:
-        # binary32's to report -- the carrier of both of these dtypes -- and
-        # the carrier check runs before any call reaches this: no range can be
-        # read from such a format
+    # Read against binary64, the wider carrier. The extent a storage rule reads
+    # -- the top, the step, the floor -- is the format's own and the same in
+    # either carrier for a format binary32 holds, and a format only binary64
+    # holds can reach storage too, under `carrier=torch.float64`.
+    if _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None:
+        # the carrier's to report, and the carrier check runs before any call
+        # reaches this: no range can be read from such a format
         return None, None
     ext = _binaryK_extent(
-        label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, _BINARY32
+        label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, _BINARY64
     )
-    if ext.top_field < 1 or ext.top_exp < _BINARY32.min_normal_exp:
-        return None, None  # likewise: no finite value at all, binary32's error
+    if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
+        return None, None  # likewise: no finite value at all, the carrier's error
     return _storage_findings(ext, storage, elementwise, saturation)
 
 
@@ -923,17 +940,17 @@ def _superfp_storage_findings(
     normal_binades: int,
     bias: int,
     saturation: SaturationMode,
-    storage: str,
+    storage: torch.dtype,
     elementwise: bool,
 ) -> tuple[str | None, str | None]:
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
     if (
-        _width_error(label, exp_bits, man_bits, 0, _BINARY32) is not None
+        _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None
         or _superfp_regions_error(label, exp_bits, normal_binades) is not None
     ):
         return None, None  # as for binaryK: the carrier check has said so already
-    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY32)
-    if ext.top_field < 1 or ext.top_exp < _BINARY32.min_normal_exp:
+    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY64)
+    if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
         return None, None
     return _storage_findings(ext, storage, elementwise, saturation)
 
@@ -972,15 +989,16 @@ def check_binaryK_storage(
     saturation: SaturationMode = SaturationMode.OVF_INF,
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     *,
-    storage: str,
+    storage: torch.dtype,
     elementwise: bool = False,
 ) -> None:
     """Hold a binaryK format against the ``storage`` dtype a result is written in.
 
-    ``storage`` is ``"float16"`` or ``"bfloat16"``. The cast rounds in
-    binary32, their carrier -- which :func:`check_binaryK_carrier` holds the
-    format against, and this does not repeat -- and writing the result rounds
-    it again. Which
+    ``storage`` is a dtype narrower than the carrier the cast rounds in:
+    ``torch.float16`` or ``torch.bfloat16`` under binary32, and those or
+    ``torch.float32`` under binary64. :func:`check_binaryK_carrier` holds the
+    format against the carrier, and this does not repeat it; writing the
+    result rounds it again. Which
     results can land off the dtype's grid depends on what was rounded:
     ``elementwise=True`` for a quantizer, whose inputs are already the dtype's
     values, and ``False`` for a GEMM, whose sums reach every value the format
@@ -1006,7 +1024,7 @@ def check_superfp_storage(
     bias: int,
     saturation: SaturationMode = SaturationMode.OVF_INF,
     *,
-    storage: str,
+    storage: torch.dtype,
     elementwise: bool = False,
 ) -> None:
     """:func:`check_binaryK_storage` for a superfp format -- see it for the contract."""
@@ -1080,7 +1098,7 @@ class BinaryK(FloatFormat):
     can simulate -- more than 53 bits of precision, ``P - 1 + prng_bits``
     above 52, an exponent field past 30 bits, or no finite value binary64
     holds -- and warns about nothing. Whether float32 or float64 arithmetic
-    carries the rest is the tensor's to decide, so each call checks the format
+    carries the rest is the call's to decide, so each call checks the format
     against its own (see :class:`FormatRangeWarning`).
     """
 
@@ -1112,7 +1130,7 @@ class BinaryK(FloatFormat):
             self.saturation,
             self.subnormals,
             self.prng_bits,
-            carrier="binary64",
+            carrier=torch.float64,
             warn=False,
         )
 
@@ -1136,7 +1154,7 @@ class SuperFP(FloatFormat):
 
     Like :class:`BinaryK`, building one raises only for what neither carrier
     can simulate -- here also a ``normal_binades`` that leaves no supernormal
-    codes -- and each call checks the format against its tensor's carrier.
+    codes -- and each call checks the format against its own carrier.
     """
 
     man_bits: int
@@ -1166,6 +1184,6 @@ class SuperFP(FloatFormat):
             self.bias,
             self.saturation,
             self.prng_bits,
-            carrier="binary64",
+            carrier=torch.float64,
             warn=False,
         )

@@ -79,10 +79,11 @@ quantize / quantizer
    To round every element of a tensor to a format; the function that does it.
    In MPTorch this is always "compute in the carrier, round the result".
 carrier
-   The IEEE float a simulation computes and rounds in: binary32 for float32,
-   float16 and bfloat16 tensors, binary64 for float64 ones. It bounds which
-   formats can be simulated whole, and ``carrier="binary32"`` asks for
-   binary32 on a float64 tensor (:doc:`concepts`).
+   The IEEE float a simulation computes and rounds in: by default binary32
+   for float32, float16 and bfloat16 tensors, binary64 for float64 ones. It
+   bounds which formats can be simulated whole, and ``carrier=torch.float64``
+   asks for binary64 on a narrower tensor, whose result keeps its dtype
+   (:doc:`concepts`).
 signal
    One of the tensors flowing through a layer: its input, weight, bias, the
    gradient arriving from above, and the gradients it produces.

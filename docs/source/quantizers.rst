@@ -35,10 +35,10 @@ Some things to know about them:
   ``superfp_quantize``, for the reasons given in :doc:`concepts`.
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
   float16 and bfloat16. A float64 input is rounded in binary64, directly, and
-  the others on their float32 value, in binary32 -- `float64 and the
-  carrier`_ below shows what that changes.
-- The result is stored back in the input's dtype, which rounds a float16 or
-  bfloat16 result once more. The input is already a value of that dtype, so
+  the others on their float32 value, in binary32 unless the call names
+  binary64 -- `float64 and the carrier`_ below shows what that changes.
+- The result is stored back in the input's dtype, whichever carrier rounded
+  it, which rounds a float16 or bfloat16 result once more. The input is already a value of that dtype, so
   only an edge of the format's range can miss, and the call warns when one
   can -- the run shows E5M2's top meeting float16's. :doc:`concepts` gives
   the rule, and the stricter one a GEMM's result is held to.
@@ -57,10 +57,11 @@ Some things to know about them:
 float64 and the carrier
 -----------------------
 
-The arithmetic a quantizer rounds in is its tensor's *carrier*
-(:doc:`concepts`): binary64 for a float64 tensor, binary32 for the other
-three dtypes. For a float64 tensor that has three consequences, and a keyword
-to decline all of them.
+The arithmetic a quantizer rounds in is its *carrier* (:doc:`concepts`): by
+default binary64 for a float64 tensor and binary32 for the other three dtypes.
+For a float64 tensor binary64 has three consequences, and
+``carrier=torch.float64`` gives the other dtypes the ones their values can
+use.
 
 - **Wider formats.** The format is held to binary64's bounds, so up to 53
   bits of precision and ten exponent bits are simulated exactly -- where the
@@ -74,11 +75,17 @@ to decline all of them.
   format's mantissa in the carrier, so ``P - 1 + prng_bits`` may reach 52
   rather than 23, and each element draws two words of its random stream.
 
-``carrier="binary32"`` gives a float64 tensor the float32 arithmetic instead:
-the tensor is narrowed, rounded in binary32 under binary32's bounds, and
-widened back, bit for bit what the float32 call returns. That is what a
-float64 tensor got before it had a carrier of its own, and it is how to
-compare the two. ``carrier="binary64"`` insists on a float64 tensor, and
+``carrier=torch.float64`` rounds a float32, float16 or bfloat16 tensor in
+binary64: the tensor is widened, rounded under binary64's bounds, and the
+result narrowed back to the tensor's dtype -- bit for bit the float64 call on
+the widened tensor, stored with one rounding. For an elementwise quantizer
+that buys the wider formats and the wider random draws, but not the rounding
+once: the tensor's values are its dtype's already, and a format binary32
+carries rounds them to the same answer in either carrier, as the run checks.
+The result is held to what its dtype can store (:doc:`concepts`), which for
+float32 is 24 bits of precision and binary32's range at the edges.
+``carrier=torch.float32`` names binary32, which a float64 tensor refuses --
+the carrier is never narrower than the tensor -- and
 :class:`~mptorch.quant.Quant` takes the same keyword.
 
 .. literalinclude:: ../snippets/quantizers_float64.py

@@ -1,23 +1,30 @@
-input                         [1.0625000009313226, 1.1874999990686774]
-float64, rounded in binary64  [1.125, 1.125]
-float64, carrier='binary32'   [1.0, 1.25]
-float32, rounded in binary32  [1.0, 1.25]
+input                               [1.0625000009313226, 1.1874999990686774]
+float64, rounded in binary64        [1.125, 1.125]
+float32, rounded in binary32        [1.0, 1.25]
+float32, carrier=torch.float64      [1.0, 1.25]
 
 BinaryK(8, 4)
   float32: ok
+  float32, carrier=torch.float64: ok
   float64: ok
 BinaryK(16, 8)
   float32: warns (BinaryK(K=16, P=8, bias=128)'s smallest value is 2^-134, below 2^-125)
+  float32, carrier=torch.float64: ok
   float64: ok
 BinaryK(40, 30)
   float32: raises (BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24)
+  float32, carrier=torch.float64: ok
   float64: ok
 BinaryK(64, 53)
   float32: raises (BinaryK(K=64, P=53, bias=1024) asks for 53 bits of precision, and it is rounded in binary32, which has 24)
+  float32, carrier=torch.float64: warns (BinaryK(K=64, P=53, bias=1024) spaces its values 2^-1075 apart at the bottom, below binary64's 2^-1074)
   float64: warns (BinaryK(K=64, P=53, bias=1024) spaces its values 2^-1075 apart at the bottom, below binary64's 2^-1074)
 
 BinaryK(64, 54): BinaryK(K=64, P=54, bias=512) asks for 54 bits of precision, and it is rounded in binary64, which has 53
 
 pi in BinaryK(40, 30): 3.1415926553308964, round(pi * 2**28) / 2**28: 3.1415926553308964, equal: True
 
-carrier='binary64' on float32: carrier='binary64' rounds in binary64, which only a float64 operand is computed in; got torch.float32 operands -- pass float64 ones, or leave carrier unset
+(1 + 2**-13)**2 in P=12, carrier=None: 1.0 (torch.float32)
+(1 + 2**-13)**2 in P=12, carrier=torch.float64: 1.00048828125 (torch.float32)
+
+carrier=torch.float32 on float64: carrier=torch.float32 is narrower than float64 operands, whose inputs it would round once before the format does

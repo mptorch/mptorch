@@ -1,4 +1,5 @@
-"""A float64 model, end to end, in the arithmetic of its own carrier.
+"""The binary64 carrier, end to end: a float64 model in its own carrier's
+arithmetic, and a narrower one that names it.
 
 The other float64 tests hold the pieces: tests/test_quantize_dispatch.py and
 tests/test_binaryk_p3109.py the elementwise casts, tests/test_gemm_dispatch.py
@@ -12,8 +13,8 @@ three tiers the layer tests use (CLAUDE.md):
   to itself, so a GEMM in it is float64 arithmetic in the kernel's
   k-ascending order -- forward and both gradients -- bit for bit.
 * **Tier 2 (statistical):** a 30-bit layer stays within its own precision of
-  the float64 ``nn.Linear``, and nearer to it than the same layer run in
-  binary32 with ``carrier="binary32"`` can be.
+  the float64 ``nn.Linear``, and nearer to it than a float32 layer, rounding
+  in binary32, can be.
 * **Tier 3 (manual baseline):** a ``SplitMac`` and a ``FusedMac`` in wide
   formats, recomputed step by step from the elementwise quantizer -- with
   ``fractions.Fraction`` for the fused step, since Python 3.12 has no
@@ -21,6 +22,12 @@ three tiers the layer tests use (CLAUDE.md):
 
 And the audited edges of binary64's bounds, where the formats sit exactly: their
 values against tests/test_binaryk_p3109.py's projection of the standard.
+
+``carrier=torch.float64`` gives a float32, float16 or bfloat16 tensor the same
+arithmetic, and narrows each result back to its dtype with one rounding --
+which torch's own ``.to()`` does not give float16 and bfloat16, so the last
+section holds that conversion to an exact reference, and a float32 layer to the
+float64 one it widens to.
 """
 
 import math
@@ -36,7 +43,7 @@ from mptorch.quant import FusedMac, QLinear, Quant, SplitMac, binaryK_gemm_forma
 from tests.markers import available_devices
 from tests.test_binaryk_p3109 import _project
 
-F64 = torch.float64
+F32, F64 = torch.float32, torch.float64
 
 
 def _seq_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -108,20 +115,14 @@ def test_tier1_53_bit_qlinear_is_float64_arithmetic(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_tier2_wide_layer_holds_its_precision(device):
-    """A 30-bit accumulator in binary64 is ~2**-29 from float64 per step; the
-    same layer run in binary32 is refused the format outright, and with a
-    format binary32 does carry it is ~2**-23 from float64 at best."""
+    """A 30-bit accumulator in binary64 is ~2**-29 from float64 per step; a
+    float32 layer rounding in binary32 is refused the format outright, and with
+    a format binary32 does carry it is ~2**-23 from float64 at best."""
     torch.manual_seed(5)
     vanilla = nn.Linear(64, 32, device=device, dtype=F64)
     fmt: dict = dict(mul_K=40, mul_P=30, mul_bias=512, acc_K=40, acc_P=30, acc_bias=512)
     layer = QLinear(64, 32, formats=binaryK_gemm_formats(**fmt), device=device, dtype=F64)
-    narrow = QLinear(
-        64,
-        32,
-        formats=binaryK_gemm_formats(31, 24, carrier="binary32"),
-        device=device,
-        dtype=F64,
-    )
+    narrow = QLinear(64, 32, formats=binaryK_gemm_formats(31, 24), device=device, dtype=F32)
     with torch.no_grad():
         for q in (layer, narrow):
             q.weight.copy_(vanilla.weight)
@@ -131,18 +132,20 @@ def test_tier2_wide_layer_holds_its_precision(device):
     ref = vanilla(x)
 
     def err(out: torch.Tensor) -> float:
-        return (torch.linalg.norm(out - ref) / torch.linalg.norm(ref)).item()
+        return (torch.linalg.norm(out.double() - ref) / torch.linalg.norm(ref)).item()
 
     # 64 steps of a product and a sum, each within an ulp of its own magnitude
-    wide_err, narrow_err = err(_silent(lambda: layer(x))), err(narrow(x))
+    wide_err, narrow_err = err(_silent(lambda: layer(x))), err(narrow(x.float()))
     assert 0 < wide_err < 128 * 2.0**-30
     assert 32 * wide_err < narrow_err
-    # and binary32 cannot hold the wide format at all
-    refuse = QLinear(
-        64, 32, formats=binaryK_gemm_formats(**fmt, carrier="binary32"), device=device, dtype=F64
-    )
-    with pytest.raises(ValueError, match="30 bits of precision"):
-        refuse(x)
+    # and binary32 cannot hold the wide format at all, nor a float32 result
+    # store it when the layer names binary64
+    for carrier in (None, F64):
+        refuse = QLinear(
+            64, 32, formats=binaryK_gemm_formats(**fmt, carrier=carrier), device=device, dtype=F32
+        )
+        with pytest.raises(ValueError, match="30 bits of precision"):
+            refuse(x.float())
 
 
 # --- Tier 3 -------------------------------------------------------------------
@@ -242,3 +245,109 @@ def test_formats_on_binary64s_edges_are_exact(device, K, P, bias):
         want = _project(x, K, P, True, rm, SaturationMode.OVF_INF, bias)
         same = (got == want) & (torch.signbit(got) == torch.signbit(want))
         assert bool((same | (got.isnan() & want.isnan())).all()), rm.name
+
+
+# --- a narrower tensor in binary64 --------------------------------------------
+
+# stored significand bits, and the exponents of the smallest normal and largest
+# finite value: IEEE binary16's, and bfloat16's, which is binary32's range at
+# eight bits of precision
+_GRIDS = {torch.float16: (10, -14, 15), torch.bfloat16: (7, -126, 127)}
+
+
+def _nearest(v: float, dtype: torch.dtype) -> float:
+    """``v`` rounded to nearest-even onto ``dtype``'s grid, exactly, by Fraction."""
+    if not math.isfinite(v) or v == 0.0:
+        return v
+    man_bits, min_normal_exp, top_exp = _GRIDS[dtype]
+    lead = math.frexp(abs(v))[1] - 1
+    step = Fraction(2) ** (max(lead, min_normal_exp) - man_bits)
+    q = Fraction(abs(v)) / step
+    n = math.floor(q)
+    if q - n > Fraction(1, 2) or (q - n == Fraction(1, 2) and n % 2):
+        n += 1
+    m = n * step
+    largest = (2 - Fraction(2) ** -man_bits) * Fraction(2) ** top_exp
+    return math.copysign(math.inf if m > largest else float(m), v)
+
+
+def _hard_cases(dtype: torch.dtype, count: int, gen: torch.Generator) -> torch.Tensor:
+    """float64 values at the conversion's hard points: a hair either side of a
+    tie on the dtype's grid (the float32 round-trip lands on the tie), both
+    overflow boundaries, the subnormal floor, and random words across the range."""
+    man_bits, min_normal_exp, top_exp = _GRIDS[dtype]
+    lo = min_normal_exp - man_bits
+    exps = torch.randint(lo, top_exp - man_bits + 1, (count,), generator=gen).double()
+    grid = torch.randint(0, 1 << (man_bits + 1), (count,), generator=gen).double()
+    tie = (2 * grid + 1) * torch.pow(2.0, exps - 1)
+    hair = torch.pow(2.0, exps - 1 - 30)
+    largest = (2 - 2.0**-man_bits) * 2.0**top_exp
+    threshold = largest + 2.0 ** (top_exp - man_bits - 1)
+    fixed = [
+        largest,
+        threshold,
+        threshold - threshold * 2.0**-50,
+        threshold * (1 + 2.0**-50),
+        2.0**lo,
+        2.0 ** (lo - 1),
+        2.0 ** (lo - 1) + 2.0 ** (lo - 30),
+        2.0 ** (lo - 1) - 2.0 ** (lo - 30),
+        2.0 ** (min_normal_exp - 1) * 3 + 2.0 ** (lo - 20),
+        0.0,
+        5e-324,
+        1e300,
+        math.inf,
+        math.nan,
+    ]
+    words = torch.randint(-(1 << 62), 1 << 62, (count,), generator=gen).view(F64)
+    x = torch.cat([tie, tie + hair, tie - hair, torch.tensor(fixed, dtype=F64), words])
+    return torch.cat([x, -x])
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_narrowing_a_binary64_result_rounds_once(device, dtype):
+    """`_narrowed` is correct rounding onto the dtype, at every hard point --
+    and torch's `.to()`, which goes through float32, is not, so this is not
+    vacuous."""
+    from mptorch.quant.ops import _narrowed
+
+    x = _hard_cases(dtype, 4096, torch.Generator().manual_seed(21))
+    want = torch.tensor([_nearest(v, dtype) for v in x.tolist()], dtype=F64).to(dtype)
+    got = _narrowed(x.to(device), dtype).cpu()
+    assert got.dtype is dtype
+    same = (got.view(torch.int16) == want.view(torch.int16)) | (got.isnan() & want.isnan())
+    assert bool(same.all()), x[~same][:4].tolist()
+    assert not torch.equal(x.to(dtype), want)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_float32_layer_in_binary64_is_the_float64_layer_narrowed(device):
+    """Forward and both gradients of a float32 QLinear naming binary64 are the
+    float64 layer's on the widened tensors, narrowed -- in formats float32
+    stores. No bias: it is added after the GEMM, in each layer's own dtype."""
+    torch.manual_seed(7)
+    fmt: dict = dict(mul_K=26, mul_P=22, acc_K=27, acc_P=23)
+    formats = binaryK_gemm_formats(**fmt, carrier=F64)
+    narrow = QLinear(24, 6, bias=False, formats=formats, device=device)
+    wide = QLinear(24, 6, bias=False, formats=binaryK_gemm_formats(**fmt), device=device, dtype=F64)
+    with torch.no_grad():
+        wide.weight.copy_(narrow.weight)
+    x = torch.randn(5, 24, device=device, requires_grad=True)
+    xw = x.detach().double().requires_grad_(True)
+    out, out_w = _silent(lambda: narrow(x)), _silent(lambda: wide(xw))
+    assert out.dtype is F32
+    assert torch.equal(out, out_w.float())
+    g = torch.randn_like(out)
+    out.backward(g)
+    out_w.backward(g.double())
+    assert x.grad is not None and xw.grad is not None
+    assert torch.equal(x.grad, xw.grad.float())
+    assert narrow.weight.grad is not None and wide.weight.grad is not None
+    assert torch.equal(narrow.weight.grad, wide.weight.grad.float())
+    # and binary32's arithmetic is not it: the products of 24-bit operands are
+    # rounded to 24 bits there before the 22-bit format rounds them
+    plain = QLinear(24, 6, bias=False, formats=binaryK_gemm_formats(**fmt), device=device)
+    with torch.no_grad():
+        plain.weight.copy_(narrow.weight)
+        assert not torch.equal(plain(x), out)

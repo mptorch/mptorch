@@ -1,6 +1,7 @@
 """
-Tests for what the GEMM entry points do around the kernels: which carrier a
-float64 operand pair is computed in (dev/binary64_carrier_plan.md, phase 4),
+Tests for what the GEMM entry points do around the kernels: which carrier an
+operand pair is computed in (dev/binary64_carrier_plan.md, phase 4) -- binary64
+for float64, and for any narrower dtype that names it --
 and the validation of a mixed-format op's precision map (finding G5), which is
 now memoized per map so that a map reused across calls costs no device
 synchronization.
@@ -39,6 +40,7 @@ from mptorch.quant import (
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
 )
+from mptorch.quant.ops import _narrowed
 from tests.markers import available_devices
 
 DETERMINISTIC = [rm for rm in RoundMode if rm != RoundMode.SR]
@@ -181,14 +183,14 @@ def test_float64_rounds_the_product_once(device, fused):
     just above the tie between 1 and 1 + 2^-11 on a P = 12 grid. binary32
     rounds the product to 24 bits first, onto the tie itself, and RNE then
     takes it to 1; binary64 holds the product whole and rounds it up. Both
-    operands are float32 values, so this is the carrier and nothing else.
+    operands are float32 values, so this is the carrier and nothing else --
+    which float32 operands get by naming it.
     """
     x = 1 + 2**-13
     cases = (
         (torch.float32, None, 1.0),
         (torch.float64, None, 1 + 2**-11),
-        # the carrier, asked for by name: binary32's arithmetic on float64 operands
-        (torch.float64, "binary32", 1.0),
+        (torch.float32, torch.float64, 1 + 2**-11),
     )
     for dtype, carrier, expected in cases:
         a = torch.full((1, 1), x, dtype=dtype, device=device)
@@ -209,50 +211,53 @@ def test_float64_operand_pair_must_agree(device):
     b = torch.randn(5, 3, device=device, dtype=torch.float32)
     with pytest.raises(RuntimeError, match="same dtype"):
         binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4)
-    # nor narrowed into agreement by asking for binary32
+    # nor widened into agreement by asking for binary64, in either order
     with pytest.raises(RuntimeError, match="same dtype"):
-        binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4, carrier="binary32")
+        binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4, carrier=torch.float64)
+    with pytest.raises(RuntimeError, match="same dtype"):
+        binaryK_matmul(b.mT, a.mT, trans_a=True, mul_K=8, mul_P=4, carrier=torch.float64)
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("rounding_mode", list(RoundMode))
-def test_binary32_carrier_is_the_narrowed_float32_gemm(device, op, rounding_mode):
+def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, rounding_mode):
     """
-    carrier="binary32" on float64 operands is what a float64 GEMM was before
-    phase 4: both operands narrowed, the float32 kernel, the result widened --
-    bit for bit, and under SR from the same draws, since the float32 kernel
-    reserves one word per draw.
+    carrier=torch.float64 on narrower operands is the float64 GEMM of their
+    values: both operands widened, the binary64 kernel, and the result
+    narrowed back to their dtype once -- bit for bit, and under SR from the
+    same draws, since the widened call reserves what a float64 call does.
     """
     M, K, N = 12, 20, 10
     gen = torch.Generator().manual_seed(8)
-    a64 = torch.randn(M, K, dtype=torch.float64, generator=gen).to(device)
-    b64 = torch.randn(N, K, dtype=torch.float64, generator=gen).to(device)
+    a = torch.randn(M, K, generator=gen).to(device, dtype)
+    b = torch.randn(N, K, generator=gen).to(device, dtype)
     pidx = torch.randint(0, 2, (M, N), dtype=torch.int32, generator=gen).to(device)
     pb = 12 if rounding_mode is RoundMode.SR else 0
 
     torch.manual_seed(5)
-    got = _gemm_calls(a64, b64, pidx, rounding_mode, pb, carrier="binary32")[op]()
+    got = _gemm_calls(a, b, pidx, rounding_mode, pb, carrier=torch.float64)[op]()
     torch.manual_seed(5)
-    want = _gemm_calls(a64.float(), b64.float(), pidx, rounding_mode, pb)[op]()
+    want = _gemm_calls(a.double(), b.double(), pidx, rounding_mode, pb)[op]()
 
-    assert got.dtype == torch.float64
-    assert torch.equal(got, want.double())
+    assert got.dtype == dtype
+    assert torch.equal(got, _narrowed(want, dtype))
     if rounding_mode is RoundMode.SR:
         torch.manual_seed(5)
-        assert not torch.equal(_gemm_calls(a64, b64, pidx, rounding_mode, pb)[op](), got)
+        assert not torch.equal(_gemm_calls(a, b, pidx, rounding_mode, pb)[op](), got)
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
-def test_binary64_carrier_needs_float64_operands(device, op):
-    a = torch.ones(3, 4, device=device)
-    b = torch.ones(2, 4, device=device)
+def test_a_carrier_narrower_than_the_operands_is_refused(device, op):
+    a = torch.ones(3, 4, device=device, dtype=torch.float64)
+    b = torch.ones(2, 4, device=device, dtype=torch.float64)
     pidx = torch.zeros(3, 2, dtype=torch.int32, device=device)
-    with pytest.raises(ValueError, match="only a float64 operand"):
-        _gemm_calls(a, b, pidx, carrier="binary64")[op]()
-    out = _gemm_calls(a.double(), b.double(), pidx, carrier="binary64")[op]()
-    assert torch.equal(out, _gemm_calls(a.double(), b.double(), pidx)[op]())
+    with pytest.raises(ValueError, match="narrower than float64"):
+        _gemm_calls(a, b, pidx, carrier=torch.float32)[op]()
+    out = _gemm_calls(a.float(), b.float(), pidx, carrier=torch.float32)[op]()
+    assert torch.equal(out, _gemm_calls(a.float(), b.float(), pidx)[op]())
 
 
 # ---------------------------------------------------------------------------
@@ -453,8 +458,9 @@ def test_the_wrappers_reach_formats_past_binary32(device, fam, fused, mixed):
     The wrappers hold float64 operands to binary64's bounds, so the wide
     formats reach the op through them as through torch.ops -- binaryK's
     without a word, binary64 carrying them whole; superfp's supernormals span
-    2^40 binades a code, past binary64 too, and warn -- while float32 operands,
-    or carrier="binary32", are refused them.
+    2^40 binades a code, past binary64 too, and warn -- while float32 operands
+    are refused them in binary32, and in binary64 too, by the float32 result
+    that would store them.
     """
     M, K, N = 6, 9, 7
     a, b = _operands(M, K, N, device, "wide")
@@ -470,8 +476,45 @@ def test_the_wrappers_reach_formats_past_binary32(device, fam, fused, mixed):
     assert torch.equal(out, _raw_gemm(fused, a, b, prec_idx, mul, acc, RoundMode.RNE))
     with pytest.raises(ValueError, match="bits of precision"):
         _wrapper_gemm(fused, a.float(), b.float(), prec_idx, mul, acc, RoundMode.RNE)
-    with pytest.raises(ValueError, match="bits of precision"):
-        _wrapper_gemm(fused, a, b, prec_idx, mul, acc, RoundMode.RNE, carrier="binary32")
+    with pytest.raises(ValueError, match="a float32 result holds 24"):
+        _wrapper_gemm(
+            fused, a.float(), b.float(), prec_idx, mul, acc, RoundMode.RNE, carrier=torch.float64
+        )
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("fam", ["binaryK", "superfp"])
+@pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
+@pytest.mark.parametrize("mixed", [False, True], ids=["single", "mixed"])
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.RO])
+def test_binary64_carrier_on_float32_operands_matches_its_reference(
+    device, fam, fused, mixed, rounding_mode
+):
+    """
+    Tier 3 for a narrower tensor: float32 operands in the narrow formats, which
+    float32 stores, computed in binary64 -- the float64 reference of the same
+    values -- and not what binary32 computes, whose 24-bit products and sums
+    those formats were chosen to be moved by.
+    """
+    M, K, N = 6, 9, 7
+    a, b = _operands(M, K, N, device, "narrow")
+    a, b = a.float(), b.float()
+    mul, acc = PALETTES[(fam, "narrow")]
+    prec_idx = None
+    if mixed:
+        gen = torch.Generator().manual_seed(3)
+        prec_idx = torch.randint(0, 2, (M, N), dtype=torch.int32, generator=gen).to(device)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FormatRangeWarning)
+        c64 = torch.float64
+        out = _wrapper_gemm(fused, a, b, prec_idx, mul, acc, rounding_mode, carrier=c64)
+        own = _wrapper_gemm(fused, a, b, prec_idx, mul, acc, rounding_mode)
+    ref = _reference(fused, a.double(), b.double(), prec_idx, mul, acc, rounding_mode)
+
+    assert out.dtype == torch.float32
+    assert torch.equal(out.cpu(), ref.float())
+    assert not torch.equal(own, out)
 
 
 @pytest.mark.parametrize("device", available_devices)
