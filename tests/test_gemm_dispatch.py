@@ -205,6 +205,22 @@ def test_float64_rounds_the_product_once(device, fused):
 
 
 @pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.float16])
+def test_operands_that_start_mid_storage(device, op, dtype):
+    """The GEMM kernels load one element at a time, so operands and a map that
+    start off a 16-byte boundary are read in place -- unlike the elementwise
+    kernels' vector loads -- and give what their copies give."""
+    M, K, N, k = 12, 20, 10, 1
+    a = torch.randn(M * K + k, device=device).to(dtype)[k:].view(M, K)
+    b = torch.randn(N * K + k, device=device).to(dtype)[k:].view(N, K)
+    pidx = torch.randint(0, 2, (M * N + k,), dtype=torch.int32, device=device)[k:].view(M, N)
+    assert a.data_ptr() % 16 != 0
+    got = _gemm_calls(a, b, pidx)[op]()
+    assert torch.equal(got, _gemm_calls(a.clone(), b.clone(), pidx.clone())[op]())
+
+
+@pytest.mark.parametrize("device", available_devices)
 def test_float64_operand_pair_must_agree(device):
     """A mismatched (float64, float32) pair is still rejected, not coerced."""
     a = torch.randn(4, 3, device=device, dtype=torch.float64)

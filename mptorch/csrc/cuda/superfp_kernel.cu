@@ -6,6 +6,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "utils.cuh"
+#include "vector_load.h"
 
 using namespace at;
 
@@ -143,8 +144,9 @@ Tensor superfp_quantize_cuda(
     Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
     int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
-    // see binaryK_quantize_cuda for why the input is made contiguous here
-    auto a_c = a.contiguous();
+    // see binaryK_quantize_cuda for why the input is made contiguous, and
+    // 16-byte aligned, here
+    auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
     if (size == 0)

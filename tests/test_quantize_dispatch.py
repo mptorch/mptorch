@@ -327,6 +327,32 @@ def test_a_carrier_narrower_than_the_tensor_is_refused(device):
         superfp_quantize(x, 3, 4, 1, 7, carrier="binary64")  # ty: ignore[invalid-argument-type]
 
 
+# --- a view that starts mid-storage -------------------------------------------
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("op", OP_NAMES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("round_mode", [RoundMode.RNE, RoundMode.SR])
+def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode):
+    """`x[k:]` is contiguous and starts k elements into its storage, so off the
+    16-byte boundary the CUDA kernels' vector load needs; loading it in place
+    was a misaligned-address fault that took the CUDA context with it. It is
+    copied instead, and quantizes to what its copy does, SR draws included."""
+    kw = dict(rounding_mode=round_mode, prng_bits=4 if round_mode is RoundMode.SR else 0)
+    storage = (torch.randn(4099 + 3, device=device) * 8).to(dtype)
+    for k in (1, 2, 3):
+        view = storage[k:]
+        torch.manual_seed(5)
+        got = _quant_calls(view)[op](**kw)
+        torch.manual_seed(5)
+        want = _quant_calls(view.clone())[op](**kw)
+        _assert_same_words(got, want, f"{op} {dtype} {round_mode.name} k={k}")
+    # and a row slice of a matrix, whose offset is a multiple of the row
+    rows = (torch.randn(64, 3, device=device) * 8).to(dtype)[1:]
+    _assert_same_words(_quant_calls(rows)[op](), _quant_calls(rows.clone())[op](), f"{op} rows")
+
+
 # --- stochastic rounding ------------------------------------------------------
 
 

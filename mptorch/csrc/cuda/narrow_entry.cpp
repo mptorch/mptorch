@@ -5,6 +5,7 @@
 #include "../common/narrow_host.h"
 #include "../quant_ops.h"
 #include "narrow_kernel.h"
+#include "vector_load.h"
 #include <ATen/cuda/CUDAContext.h>
 
 using at::Tensor;
@@ -15,13 +16,9 @@ Tensor narrow_float64_cuda(Tensor a, c10::ScalarType dtype)
   const int64_t size = a_c.numel();
   if (size == 0)
     return o;
-  // The kernel loads two doubles at a time as a 16-byte aligned vector, and a
-  // contiguous view need not start on a 16-byte boundary: `x[1:]` of a float64
-  // tensor is 8 bytes in, and loading it is a misaligned-address fault that
-  // poisons the context. A fresh allocation is aligned, so such a view is
-  // copied; mptorch.quant only ever hands this a kernel's own output.
-  if (reinterpret_cast<uintptr_t>(a_c.data_ptr()) % 16 != 0)
-    a_c = a_c.clone();
+  // the kernel loads two doubles at a time, 16 bytes aligned; mptorch.quant
+  // only ever hands this a kernel's own output, which already is
+  a_c = mptorch::vector_loadable(a_c);
   using mptorch::narrow_cuda::Target;
   const Target target = dtype == c10::ScalarType::Half       ? Target::Float16
                         : dtype == c10::ScalarType::BFloat16 ? Target::BFloat16

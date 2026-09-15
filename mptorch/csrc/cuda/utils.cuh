@@ -38,6 +38,11 @@ inline at::PhiloxCudaState quant_rng_engine_inputs()
     return gen->philox_cuda_state(1);
 }
 
+// `a` must start on a 16-byte boundary: the loads below are 16-byte aligned,
+// and a contiguous view can start anywhere in its storage, which faults. The
+// entry points pass their input through mptorch::vector_loadable
+// (vector_load.h), which copies such a view.
+//
 // Indices are 64-bit: `size` comes straight from Tensor::numel(), which an int
 // would truncate past 2^31 elements. The kernel is memory bound on every
 // tensor large enough for the wider arithmetic to be reachable, and measures

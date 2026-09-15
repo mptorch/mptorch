@@ -6,6 +6,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "utils.cuh"
+#include "vector_load.h"
 
 using namespace at;
 
@@ -168,8 +169,10 @@ Tensor binaryK_quantize_cuda(
 {
     // data_ptr() walks storage linearly, so a non-contiguous input would be
     // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
-    // but a direct torch.ops.mptorch.binaryK_quant call need not.
-    auto a_c = a.contiguous();
+    // but a direct torch.ops.mptorch.binaryK_quant call need not. And the
+    // kernel's 16-byte loads fault on a contiguous view that does not start on
+    // a 16-byte boundary, which vector_load.h copies.
+    auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
     if (size == 0)
