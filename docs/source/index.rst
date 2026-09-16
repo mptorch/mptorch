@@ -10,7 +10,7 @@ The simulation is exact rather than approximate: every operation is carried
 out in IEEE binary32 -- or, for a float64 model, binary64 -- and its result is
 rounded to the format you named, with the rounding mode you named, at the
 points you named. A value that comes out of MPTorch is a value the simulated
-hardware would have produced.
+hardware could have produced.
 
 What you can do today
 ---------------------
@@ -21,8 +21,8 @@ What you can do today
   signed or unsigned, with or without infinities. Setting its exponent bias
   and subnormal policy yourself reaches beyond the standard -- E4M3, E5M2,
   bfloat16, float16, or something nobody has built.
-  :class:`~mptorch.SuperFP` is a second family that trades mantissa for
-  dynamic range.
+  :class:`~mptorch.SuperFP` is a second family that trades mantissa precision
+  in certain portions of the representation domain for dynamic range.
 - **Round a tensor to it** with seven rounding modes, including stochastic
   rounding with a configurable number of random bits
   (:doc:`quantizers`).
@@ -30,8 +30,8 @@ What you can do today
   each product, each addition to the running sum, or each fused
   multiply-add -- is rounded to a format you choose, on CPU and CUDA, with
   the full ``torch.matmul`` operand contract and gradients (:doc:`gemm`).
-- **Vary the format per output element** of a matrix product, from a palette
-  of up to eight formats.
+- **Vary the format per output element** of a matrix product, from a
+  user-defined palette of up to eight formats.
 - **Train with it.** :class:`~mptorch.quant.QLinear`,
   :class:`~mptorch.quant.QConv1d`/``2d``/``3d`` and
   :class:`~mptorch.quant.QMatmul` are drop-in layers whose every signal --
@@ -55,8 +55,9 @@ Where to start
 :doc:`concepts` explains the formats and rounding modes, with the equations
 the implementation follows. The three guides -- :doc:`quantizers`,
 :doc:`gemm`, :doc:`layers` -- cover every exposed function and class with a
-worked example each. :doc:`tutorial` puts it all together on the 8-bit
-formats of current NVIDIA GPUs, up to training a network in them.
+worked example each. :doc:`tutorial` puts it all together on 8-bit
+formats that are almost identical to those used by current NVIDIA GPUs,
+up to training a network in them.
 
 .. toctree::
    :maxdepth: 2

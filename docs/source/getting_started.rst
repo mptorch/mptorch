@@ -58,7 +58,7 @@ PyTorch.
 
 ``BinaryK(8, 4)`` is ``Binary8p4se`` from IEEE P3109, the upcoming standard
 for machine-learning number formats: an 8-bit float with 4 bits of precision
-(one of them implicit), in the E4M3 layout. ``1.541`` became ``1.5`` because
+(one of them implicit), in the E4M3 layout. ``1.541`` becomes ``1.5`` because
 the values representable between 1 and 2 are spaced ``1/8`` apart.
 :doc:`concepts` explains the formats and the rounding; the guides take it
 from there.
@@ -81,9 +81,10 @@ quantize / quantizer
 carrier
    The IEEE float a simulation computes and rounds in: by default binary32
    for float32, float16 and bfloat16 tensors, binary64 for float64 ones. It
-   bounds which formats can be simulated whole, and ``carrier=torch.float64``
-   asks for binary64 on a narrower tensor, whose result keeps its dtype
-   (:doc:`concepts`).
+   bounds which formats can be simulated whole. The carrier format, 
+   ``torch.float32`` or ``torch.float64``, must always be at least as large
+   as the dtype the input tensor is stored in. The output tensor keeps the
+   same underlying storage dtype as the input tensor (:doc:`concepts`).
 signal
    One of the tensors flowing through a layer: its input, weight, bias, the
    gradient arriving from above, and the gradients it produces.

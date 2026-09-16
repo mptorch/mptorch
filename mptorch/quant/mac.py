@@ -163,9 +163,11 @@ class Quant:
         formats.input_quant = Quant(SuperFP(3, 4, 8, 7), RoundMode.SR)
 
     ``carrier`` is :func:`mptorch.quant.binaryK_quantize`'s: ``None`` rounds in
-    the tensor's own carrier, ``torch.float64`` in binary64 whatever the
-    tensor, and ``torch.float32`` in binary32, which a float64 tensor refuses.
-    The call is bound at construction, so what is left per call is the op.
+    the tensor's own default carrier (``torch.float32`` for binary16/bfloat16/binary32
+    tensors and ``torch.float64`` for binary64 tensors), ``torch.float64`` in
+    binary64 whatever the tensor, and ``torch.float32`` in binary32, which a
+    binary64 tensor refuses. The call is bound at construction, so what is left
+    per call is the op.
     """
 
     fmt: Number
