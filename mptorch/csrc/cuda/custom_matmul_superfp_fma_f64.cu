@@ -1,14 +1,15 @@
 #include "custom_matmul_kernel.cuh"
 
 // superfp formats, fused mac, in binary64: the float64 kernels of
-// custom_matmul_superfp_fma and its mixed-format twin, whose binary32 kernels are
-// custom_matmul_superfp_fma.cu.
+// custom_matmul_superfp_fma and its mixed-format twin, whose binary32 kernels
+// are custom_matmul_superfp_fma.cu.
 //
-// A separate object rather than two more lines in that file, so that no
-// existing translation unit grows and a build with MPTORCH_NO_FP64=1 can
-// leave the binary64 kernels out by leaving these four files out (setup.py).
-// Like its twin it includes no ATen, which is what keeps its fixed cost near
-// 3 s; see dev/binary64_carrier_plan.md (phase 4) and cuda/gemm_backend.h.
+// A separate file rather than two more lines in that one, so that
+// MPTORCH_NO_FP64=1 can leave the binary64 kernels out of the build by leaving
+// the four *_f64.cu files out, and so that no other translation unit grows.
+// Like its twin it includes no ATen tensor headers, which is what keeps its
+// fixed nvcc cost near 3 s rather than about 25 s; the two explicit
+// instantiations below are all it contains.
 
 namespace mptorch::gemm_cuda
 {

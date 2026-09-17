@@ -1,22 +1,22 @@
-"""The CPU GEMM's per-output-element tile state -- finding C3's gate.
+"""The CPU GEMM's per-output-element tile state.
 
-The reduction state for a 32x32 output tile used to be a
-``std::vector<Accumulator>`` built per tile, each element carrying its own
-copy of the Mac policy. It is now a pair of dense buffers owned by the worker
-task and *reused across every tile that task takes*, with the format policy
-held once for the whole call. Three things could break that the old shape
-made impossible, and each has a test here:
+The CPU kernel (mptorch/csrc/cpu/custom_matmul_kernel.h) keeps the reduction
+state of a 32x32 output tile, a running sum and a Philox stream per element,
+in dense buffers owned by the worker task and *reused across every tile that
+task takes*; the format policy is held once for the whole call, or as a
+pointer per element into the palette on the mixed path. Three things can go
+wrong with that shape, and each has a test here:
 
-* stale state leaking from one tile into the next, since the buffers are no
-  longer freshly constructed per tile;
+* stale state leaking from one tile into the next, since the buffers are not
+  rebuilt per tile and have to be reset before each one instead;
 * a ragged edge tile (``ti < 32`` or ``tj < 32``) indexing the buffers as if
   it were full;
 * the mixed-format path binding the wrong palette slot to an element, since
-  the slot is now a pointer resolved per tile rather than a copy living in
-  the element's own accumulator.
+  the slot is a pointer resolved per tile rather than a copy the element
+  owns.
 
-The checks are bit-exact -- raw words, not tolerances -- because the change
-is supposed to move nothing at all.
+The checks are bit-exact, raw words rather than tolerances, because none of
+this is allowed to move a value.
 """
 
 from typing import TypedDict
@@ -40,6 +40,8 @@ DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
 
 class _BKParams(TypedDict):
+    """Keyword arguments of the split binaryK op, typed for the ``**`` spread."""
+
     mul_K: int
     mul_P: int
     acc_K: int
@@ -47,6 +49,8 @@ class _BKParams(TypedDict):
 
 
 class _SFPParams(TypedDict):
+    """Keyword arguments of the split superfp op, typed for the ``**`` spread."""
+
     mul_man_bits: int
     mul_exp_bits: int
     mul_normal_binades: int
@@ -76,11 +80,13 @@ def words(t):
 
 
 def same(a, b, ctx):
+    """Assert two outputs are equal word for word, naming ``ctx`` on failure."""
     assert torch.equal(words(a), words(b)), f"outputs differ: {ctx}"
 
 
 @pytest.fixture
 def restore_threads():
+    """Put the thread count back after a test that changes it."""
     n = torch.get_num_threads()
     yield
     torch.set_num_threads(n)
@@ -135,8 +141,8 @@ def ops(a, b, mode):
 @pytest.mark.parametrize("mode", list(RoundMode))
 def test_output_is_independent_of_thread_count(shape, mode, restore_threads):
     """The tile buffers are per worker task, so how tiles are shared out must
-    not change a single bit -- SR included, since its stream is keyed by the
-    output element's global index rather than by tiling."""
+    not change a single bit, SR included, since its stream is keyed by the
+    output element's global index rather than by the tiling."""
     m, k, n = shape
     torch.manual_seed(1234)
     a, b = torch.randn(m, k), torch.randn(k, n)
@@ -157,8 +163,8 @@ def test_output_is_independent_of_thread_count(shape, mode, restore_threads):
 def test_row_slice_matches_the_full_gemm(shape, mode):
     """One row computed alone lands in a 1-row tile grid instead of somewhere
     inside a 32-row one. The K-reduction for an element does not depend on
-    tiling, so every word must match -- state left over from a previous tile
-    would not.
+    the tiling, so every word must match; state left over from a previous
+    tile would not.
 
     Deterministic modes only: SR seeds each element from its index in the
     *whole* output, so a 1-row GEMM is a different (and correctly different)
@@ -178,7 +184,7 @@ def test_row_slice_matches_the_full_gemm(shape, mode):
 @pytest.mark.parametrize("mode", DETERMINISTIC)
 def test_mixed_palette_binds_the_right_slot_per_row(shape, mode):
     """Each row of a per-row mixed-format call must equal that row of the
-    single-format call in the slot's own format. The palette slot is now a
+    single-format call in the slot's own format. The palette slot is a
     pointer resolved per tile rather than a copy inside the element's
     accumulator, so a mis-resolved slot is exactly what this catches."""
     m, k, n = shape

@@ -1,19 +1,19 @@
 """Properties of the random stream behind ``RoundMode.SR``.
 
-The elementwise SR path generates its draws inside the kernel, keyed on each
-element's linear index, rather than reading a tensor of draws filled by
-``randint_like`` (finding E1 in dev/gemm_perf_audit.md). Four consecutive
-elements share one Philox block and take one word each, which is a mapping
-that can be wrong in ways the existing SR tests -- grid identity, bounding,
-unbiasedness in test_binaryk_quantize.py and test_superfp_quantize.py -- would
-not notice: a bias tied to position mod 4, a correlation between neighbours,
-or a dependence on how at::parallel_for happens to cut the work. These cover
-that.
+The elementwise SR path generates its draws inside the kernel: one seed is
+drawn from torch's generator per launch, and each element's random word is
+Philox of that seed and the element's own linear index, rather than a tensor
+of draws filled by ``randint_like`` per call. Four consecutive binary32
+elements share one Philox block and take one word each
+(mptorch/csrc/common/philox.h), a mapping that can be wrong in ways the other
+SR tests (grid identity, bounding and unbiasedness in
+test_binaryk_quantize.py and test_superfp_quantize.py) would not notice: a
+bias tied to position mod 4, a correlation between neighbours, or a
+dependence on how at::parallel_for happens to cut the work. These cover that.
 
 A float64 element is rounded in binary64 and takes two words, so two elements
-share a block (``common/philox.h``'s word64): every property is checked for
-it too, position mod 2 included, with 40 random bits -- more than binary32
-has below any mantissa.
+share a block: every property is checked for it too, position mod 2
+included, with 40 random bits, more than binary32 has below any mantissa.
 """
 
 import math
@@ -32,13 +32,13 @@ HALFWAY = LO + 0.5 * STEP
 
 
 DTYPES = [torch.float32, torch.float64]
-# the random bits each carrier's SR is exercised with: 20 of binary32's 23, and
-# 40 of binary64's 52, below a 3-bit mantissa
+# The random bits each carrier's SR is exercised with: 20 of binary32's 23 and
+# 40 of binary64's 52, below a 3-bit mantissa.
 PRNG_BITS = {torch.float32: 20, torch.float64: 40}
 
 
 def sr_up(n, device, dtype=torch.float32):
-    """Round-up indicator for `n` copies of a value exactly halfway up a gap."""
+    """Round-up indicator for ``n`` copies of a value exactly halfway up a gap."""
     x = torch.full((n,), HALFWAY, dtype=dtype, device=device)
     q = binaryK_quantize(
         x, 8, 4, bias=7, prng_bits=PRNG_BITS[dtype], rounding_mode=RoundMode.SR, is_signed=True
@@ -73,6 +73,8 @@ def test_sr_has_no_positional_bias(device, dtype, modulus):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", DTYPES)
 def test_sr_neighbours_are_uncorrelated(device, dtype):
+    """The round-up indicator's autocorrelation at lags 1 to 5 must be at noise
+    level; elements sharing a block must not see related words."""
     n = 1 << 20
     up = sr_up(n, device, dtype)
     centered = up - up.mean()
@@ -118,6 +120,8 @@ def test_sr_successive_calls_are_independent(device, dtype):
     ids=["binaryK", "superfp"],
 )
 def test_sr_is_reproducible_under_manual_seed(device, dtype, quantize):
+    """The same seed must reproduce the same draws, so the per-launch seed
+    comes from torch's generator and nothing else."""
     x = torch.randn(50_001, device=device, dtype=dtype) * 0.5
     outputs = []
     for _ in range(2):

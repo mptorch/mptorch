@@ -13,13 +13,16 @@ using namespace at;
 namespace
 {
 
-    // The superfp twin of binaryK_kernel.cu's BinaryKQuantizer: `p` is a
-    // SuperfpParams built once on the host, so the casts taken here are the
-    // precomputed-parameter overloads rather than the (man_bits, exp_bits,
-    // normal_binades, bias, ...) ones this used to call, which re-derived the
-    // region cutoffs, the rounding masks and the clipping range on every
-    // element. See that struct, and finding E3 in dev/gemm_perf_audit.md.
-    // T is the carrier, as there.
+    // The superfp twin of binaryK_kernel.cu's BinaryKQuantizer: the
+    // per-thread quantizer of one launch, taken by the kernel by value so it
+    // rides in the constant bank. `p` is a SuperfpParams built once on the
+    // host by make_superfp_params (region cutoffs, rounding masks, clipping
+    // range), so the casts called here are the precomputed-parameter
+    // overloads; the (man_bits, exp_bits, normal_binades, bias, ...)
+    // spellings would re-derive all of that on every element. T is the
+    // carrier the cast rounds in, double for a float64 tensor and float for
+    // every other dtype, and the rounding mode is a template parameter so
+    // each instantiation carries exactly one cast body.
     template <typename scalar_t, RoundMode RM>
     struct SuperfpQuantizer
     {
@@ -69,6 +72,10 @@ namespace
         }
     };
 
+    // The six deterministic modes: build the params once, then launch the
+    // quant_kernel_all instantiation of the requested mode. The grid covers
+    // max(vector count, remainder count) threads because the kernel serves
+    // the vector body and the scalar tail from the same thread index.
     template <typename scalar_t>
     void superfp_kernel_impl(const scalar_t *__restrict__ a, scalar_t *o, int64_t size,
                              int man_bits, int exp_bits, int normal_binades, int bias,
@@ -115,6 +122,9 @@ namespace
         }
     }
 
+    // RoundMode::SR: one launch of quant_kernel_all_sr with a (seed, offset)
+    // pair drawn from ATen's generator; the kernel derives each element's
+    // random word from that pair and the element's own index.
     template <typename scalar_t>
     void superfp_kernel_sr_impl(const scalar_t *__restrict__ a,
                                 scalar_t *o, int64_t size,
@@ -144,8 +154,8 @@ Tensor superfp_quantize_cuda(
     Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
     int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
 {
-    // see binaryK_quantize_cuda for why the input is made contiguous, and
-    // 16-byte aligned, here
+    // The input is made contiguous, and 16-byte aligned for the kernel's
+    // vector loads, for the reasons given in binaryK_quantize_cuda.
     auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements

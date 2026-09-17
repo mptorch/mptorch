@@ -1,7 +1,15 @@
+// The mptorch op library: the Python module entry point and the schema of
+// every op, declared once here and implemented per backend elsewhere.
+
 #include "quant_ops.h"
 #include <Python.h>
 #include <torch/library.h>
 
+// The extension is loaded as the Python module mptorch._C, so it needs a
+// module initializer, but the module itself is empty: the ops are reached
+// through torch.ops.mptorch.<op>, which the TORCH_LIBRARY block below
+// registers with the dispatcher when the shared object is loaded. Importing
+// mptorch._C is what triggers that load.
 extern "C"
 {
   PyObject *PyInit__C(void)
@@ -17,6 +25,15 @@ extern "C"
   }
 }
 
+// The schema of each op, in TorchScript schema syntax. The dispatcher
+// parses these to type-check calls from Python, and each backend then binds
+// an implementation with TORCH_LIBRARY_IMPL under its own key
+// (cpu/cpu_ops.cpp, cuda/cuda_ops.cu, autograd_ops.cpp). The mode arguments
+// are int, not string: they carry the RoundMode/SaturationMode/
+// SubnormalsMode enum values of common/modes.h, which mptorch.number mirrors
+// one to one on the Python side. The *_mixed ops take int[] lists, one
+// entry per palette slot, and a prec_idx tensor of slot indices per output
+// element.
 TORCH_LIBRARY(mptorch, m)
 {
   m.def("binaryK_quant(Tensor a, int K, int P, "

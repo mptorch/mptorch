@@ -5,6 +5,15 @@
 #include <c10/util/Half.h>
 #include <c10/util/BFloat16.h>
 
+// How the elementwise kernels move one 16-byte vector of a storage dtype
+// through a per-lane function. vec_elems is how many elements a 16-byte load
+// holds (4 floats, 2 doubles, 8 halves or bfloat16s), and process(v, f)
+// unpacks the vector, calls f(value, lane) on each element in the carrier
+// the cast rounds in, and repacks the results. The vector is carried as a
+// float4 whatever the dtype because that is the 16-byte type the kernels
+// load and store through; the reinterpret_casts below only rename those
+// bytes. `lane` is passed as a literal so that a caller selecting a random
+// word by lane folds the selection to a constant.
 template <typename scalar_t>
 struct SIMDTraits;
 
@@ -19,8 +28,9 @@ struct SIMDTraits<float>
     }
 };
 
-// The one width whose lanes are not handed to `f` as binary32 values: a double
-// rounds in binary64 (carrier_t, bit_helper.h), so `f` takes the double itself.
+// The one width whose lanes are not handed to `f` as binary32 values: a
+// double rounds in binary64 (carrier_t, bit_helper.h), so `f` takes the
+// double itself.
 template <>
 struct SIMDTraits<double>
 {
@@ -36,6 +46,9 @@ struct SIMDTraits<double>
     }
 };
 
+// Half lanes are widened to float two at a time and narrowed back with
+// round-to-nearest: exact on the way up, and the one rounding a float16
+// tensor's store of the carrier's result always has on the way down.
 template <>
 struct SIMDTraits<c10::Half>
 {
@@ -57,6 +70,8 @@ struct SIMDTraits<c10::Half>
     }
 };
 
+// As for Half. The paired bfloat16 conversion intrinsics exist only from
+// sm_80, so older targets convert one lane at a time.
 template <>
 struct SIMDTraits<c10::BFloat16>
 {

@@ -2,26 +2,24 @@
 
 // One plain struct per GEMM op, holding exactly the parameters that op's
 // `TORCH_LIBRARY` schema carries, plus the factory that turns them into the
-// policy objects the kernel is templated on.
+// policy objects the kernel is templated on. This is the only part that
+// genuinely differs between the eight ops; everything they share (the input
+// checks, the shape derivation, the output allocation, the RNG draw) is the
+// driver in common/gemm_host.h, and an entry point is one packer call plus
+// one driver call.
 //
-// Before H1 this lived sixteen times: each entry point derived its own
-// man/exp bits, built its own Mac inside its own `dispatch_round_mode`
-// lambda, and handed it to its own launch call, wrapped in ~60 lines of
-// prologue identical to the other fifteen. The prologue is now
-// common/gemm_host.h; what is left here is the only part that genuinely
-// differs between the eight ops, expressed once and shared by both backends.
-//
-// Deliberately ATen-free (see common/gemm_dtype.h for why): a .cu names these
-// structs, and paying <ATen/core/Tensor.h> for that would cost ~22 s of nvcc
-// per translation unit. The format widths therefore arrive already derived --
-// binaryK's (K, P) -> (man_bits, exp_bits) convention is applied by the entry
-// point in the .cpp, where the schema is bound -- so this header never has to
-// know which spelling a schema used.
+// Deliberately ATen-free: a .cu names these structs, and including
+// <ATen/core/Tensor.h> for that would cost about 22 s of nvcc per
+// translation unit (see common/gemm_dtype.h). The format widths therefore
+// arrive already derived. The binaryK schemas' (K, P) spelling is converted
+// to (man_bits, exp_bits) by binaryK_widths in the host-side packer, so this
+// header never has to know which spelling a schema used.
 //
 // with_accumulator<T, RM> and with_palette<T, RM> build the policies in
-// carrier T (common/gemm_policy.h): the widths are the format's and do not
-// depend on it, so one packed Args serves both carriers, and which one runs is
-// the backend's choice, made on GemmShape::dt.
+// carrier T (common/gemm_policy.h). The widths are the format's and do not
+// depend on the carrier, so one packed Args serves both binary32 and
+// binary64, and which carrier runs is the backend's choice, made from
+// GemmShape::dt.
 
 #include "gemm_dtype.h"
 #include "gemm_policy.h"
@@ -33,16 +31,17 @@ namespace mptorch::gemm
 
   // Everything the kernel needs that is not a format: the operands as raw
   // pointers plus the shape, layout and dtype to read them with. The mixed
-  // ops fill the last four; the single-format ops leave them null, which is
-  // what selects the kernel's MIXED=false instantiation at the call site.
+  // ops fill the last four fields; the single-format ops leave them null,
+  // which is what selects the kernel's MIXED=false instantiation.
   //
-  // One batch dimension (X1). `batch` is the broadcast batch size and the two
-  // operand strides are *element* offsets between consecutive batch elements,
-  // where **0 means broadcast** -- a `[K, N]` weight shared by every batch
-  // element rides at stride 0 rather than being materialized B times. C is
-  // always written densely as [batch, M, N], so its stride is M*N and is not
-  // carried. A 2D call is batch = 1 with both strides 0, which is the same
-  // arithmetic every element ran before: nothing downstream branches on it.
+  // The kernels carry exactly one batch dimension. `batch` is the broadcast
+  // batch size, and the two operand strides are *element* offsets between
+  // consecutive batch elements, where 0 means broadcast: a `[K, N]` weight
+  // shared by every batch element rides at stride 0 rather than being
+  // materialized `batch` times. C is always written densely as
+  // [batch, M, N], so its stride is M*N and is not carried. A 2D call is
+  // batch = 1 with both strides 0, which is the same arithmetic as before
+  // batching existed: nothing downstream branches on it.
   struct GemmShape
   {
     const void *a = nullptr;
@@ -59,9 +58,10 @@ namespace mptorch::gemm
     int64_t idx_row_stride = 0, idx_col_stride = 0, idx_batch_stride = 0;
   };
 
-  // Shared across every palette entry of a mixed op: only the format *widths*
-  // are tabulated per slot, matching the schemas, which take the sign,
-  // saturation, subnormal and prng-bit settings as scalars.
+  // The per-format settings a schema takes as scalars rather than per slot:
+  // sign, saturation, subnormals and the stochastic-rounding bit width. A
+  // mixed op tabulates only the format *widths* per palette slot and shares
+  // one of these across every slot.
   struct BinaryKCommon
   {
     bool is_signed = true;
@@ -77,7 +77,7 @@ namespace mptorch::gemm
     int prng_bits = 0;
   };
 
-  // One palette slot's widths. `n` slots of these ride alongside a *Common.
+  // One palette slot's widths. `n_fmt` of these ride alongside a *Common.
   struct BinaryKWidths
   {
     int man_bits = 0, exp_bits = 0, bias = 0;
@@ -88,10 +88,11 @@ namespace mptorch::gemm
     int man_bits = 0, exp_bits = 0, normal_binades = 0, bias = 0;
   };
 
-  // The schemas spell a binaryK format as (K, P) -- total bits and precision,
-  // the two parameters IEEE P3109 names its binaryK formats by -- where the
-  // policies want (man_bits, exp_bits). One conversion, here, rather than the
-  // same two lines in each of the four entry points that takes that spelling.
+  // The schemas spell a binaryK format as (K, P), total bits and precision,
+  // the two parameters IEEE P3109 names its binaryK formats by, where the
+  // policies want (man_bits, exp_bits). The precision counts the implicit
+  // leading bit, so man_bits = P - 1; the exponent gets what is left after
+  // the significand and, in a signed format, the sign bit.
   inline BinaryKWidths binaryK_widths(int64_t K, int64_t P, int64_t bias, bool is_signed)
   {
     return BinaryKWidths{static_cast<int>(P - 1),
@@ -99,6 +100,7 @@ namespace mptorch::gemm
                          static_cast<int>(bias)};
   }
 
+  // A superfp format's widths, as the schema spells them, narrowed to int.
   inline SuperfpWidths superfp_widths(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                                       int64_t bias)
   {
@@ -106,6 +108,10 @@ namespace mptorch::gemm
                          static_cast<int>(normal_binades), static_cast<int>(bias)};
   }
 
+  // The four policy constructors, in carrier T and rounding mode RM, from a
+  // slot's widths and the op's shared settings. Each builds its cast
+  // constants (BinaryKParamsT / SuperfpParamsT) once here rather than per
+  // multiply-accumulate step.
   template <class T, RoundMode RM>
   CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT<T, RM> make_mul(const BinaryKWidths &w, const BinaryKCommon &c)
   {
@@ -132,17 +138,29 @@ namespace mptorch::gemm
                              c.prng_bits};
   }
 
+  // Each Args struct below carries two constants the driver and the kernel
+  // read: `mixed`, which says whether the op takes a palette and a per-
+  // element precision index, and `draws_per_k_step`, the number of random
+  // values one output element may consume per K-step under RoundMode::SR.
+  // Its `with_accumulator<T, RM>(f)` (single-format) or
+  // `with_palette<T, RM>(f)` (mixed) builds the NaiveAccumulator prototype
+  // in carrier T, and the palette of Macs on the mixed path, and hands them
+  // to `f`, which launches the kernel. An `accumulate_quant` / `fma_quant`
+  // of false substitutes IdentityAdder for the sum's cast, so the running
+  // sum stays in the carrier's precision.
+
   // ----------------------------------------------------------------------
   // binaryK, split mac (custom_matmul_binaryK)
   // ----------------------------------------------------------------------
   struct BinaryKSplitArgs
   {
     static constexpr bool mixed = false;
-    // SplitMac draws for the multiply and the accumulate independently, so a
-    // thread's K-step reduction consumes two Philox values per step where a
-    // FusedMac consumes one. Only RoundMode::SR draws at all; this is the
-    // upper bound matmul_rng_engine_inputs reserves against. A draw is one
-    // word in binary32 and two in binary64, which the driver multiplies in.
+    // SplitMac draws for the multiply and the accumulate independently, so
+    // one output element's K-step reduction consumes two Philox values per
+    // step where a FusedMac consumes one. Only RoundMode::SR draws at all;
+    // this is the upper bound the driver reserves generator state against.
+    // A draw is one word in binary32 and two in binary64, which the driver
+    // multiplies in.
     static constexpr uint64_t draws_per_k_step = 2;
 
     BinaryKWidths mul{};
@@ -180,13 +198,10 @@ namespace mptorch::gemm
     BinaryKWidths acc[MAX_GEMM_FORMATS]{};
     BinaryKCommon acc_c{};
 
-    // This Mac was the biggest of the eight at 112 registers, and finding
-    // G10's derived-params treatment -- rebuilding BinaryKParams' six
-    // fast-path floats where they are read instead of carrying them -- only
-    // took it to 99, where a third resident block needed 80. It was built,
-    // measured at 0.86x, and never taken; K1 has since made the question moot
-    // by taking this kernel to 64-80 registers on its own. Measured, not
-    // assumed; see dev/gemm_perf_audit.md (G10) and the roadmap (H3).
+    // Every slot is a fully built Mac, cast constants included, so the
+    // kernel's per-element prologue copies one and the K-loop rebuilds
+    // nothing. The prototype handed to `f` holds slot 0; the kernel replaces
+    // its Mac per output element from `pal`.
     template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
@@ -303,12 +318,11 @@ namespace mptorch::gemm
     SuperfpWidths acc[MAX_GEMM_FORMATS]{};
     SuperfpCommon acc_c{};
 
-    // Two full superfp policies per palette slot was the one Mac of the eight
-    // that ran out of registers on the GPU -- 100 registers, 2 blocks resident
-    // per SM where its single-format twin got 5 -- which is what finding G10's
-    // second SuperfpParams spelling existed to buy back. K1 took this kernel
-    // to 60-64 registers on its own, so there is nothing left to buy and the
-    // spelling is gone; see dev/gemm_roadmap.md (finding H3).
+    // Two full superfp policies per slot make this the largest palette of
+    // the eight. It fits in registers only because the rounding mode is a
+    // template parameter: with a runtime switch over seven cast bodies this
+    // kernel needed 100 registers, and fixing the mode at compile time took
+    // it to 60-64.
     template <class T, RoundMode RM, class F>
     void with_palette(F &&f) const
     {
@@ -359,6 +373,8 @@ namespace mptorch::gemm
     }
   };
 
+  // Like BinaryKFusedMixedArgs, this has no fma_quant=false form; the entry
+  // point rejects it.
   struct SuperfpFusedMixedArgs
   {
     static constexpr bool mixed = true;

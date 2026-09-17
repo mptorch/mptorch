@@ -9,38 +9,39 @@ using namespace at;
 namespace
 {
 
-  // One body for all six deterministic round modes. Three details in the
-  // signature are each worth a measurement (4M f32 elements, e4m3, RNE, one
-  // thread; see dev/gemm_perf_audit.md finding C4).
+  // Elementwise binaryK cast of `size` values in one deterministic round
+  // mode: o[i] = cast(a[i]) for every i, on ATen's thread pool. Three
+  // details of the signature are each worth a measurement (4M float32
+  // elements, e4m3, RNE, one thread).
   //
   // `Cast` is the round mode's cast wrapped in a stateless lambda, so every
-  // arm of the switch below instantiates this on a distinct closure type and
-  // the cast inlines into quant_kernel's loop body. Passing it instead as a
-  // std::function<scalar_t(scalar_t)>, as this once did, costs an indirect
-  // call per element and a heap allocation for the closure. A function
-  // pointer as a non-type template parameter reads more neatly than a
-  // closure, but taking a cast's address leaves the compiler free to call an
-  // out-of-line copy instead, and measured 18% slower.
+  // arm of the switch in binaryK_kernel_impl instantiates this on a distinct
+  // closure type and the cast inlines into quant_kernel's loop body. A
+  // std::function<scalar_t(scalar_t)> would cost an indirect call per
+  // element and a heap allocation for the closure. A function pointer as a
+  // non-type template parameter reads more neatly than a closure, but taking
+  // a cast's address leaves the compiler free to call an out-of-line copy
+  // instead, and measured 18% slower.
   //
   // `IsSigned` is a template parameter rather than an argument because every
-  // cast opens with `if (origin_float < 0.0f && !is_signed) return 0.0f;`.
-  // As a runtime flag that is a data-dependent early return in the middle of
-  // the loop body; as a constant it folds away entirely on the signed path.
-  // 52.7 ms runtime vs 20.6 ms constant, for identical arithmetic. The
-  // two-way split costs one branch per call and a second instantiation.
+  // cast opens with `if (x < 0 && !is_signed) return 0;`. As a runtime flag
+  // that is a data-dependent early return in the middle of the loop body; as
+  // a constant it folds away entirely on the signed path: 20.6 ms against
+  // 52.7 ms for identical arithmetic. The two-way split costs one branch per
+  // call and a second instantiation.
   //
-  // `p` is a BinaryKParams, so the casts taken here are the precomputed-
-  // parameter overloads rather than the (man_bits, exp_bits, bias, ...) ones
-  // this used to call. The latter re-derive the rounding masks and the
-  // clipping range from those integers on *every element*;
-  // make_binaryK_params does it once per tensor.
+  // `p` is a BinaryKParams built once per tensor by make_binaryK_params, so
+  // the cast reads its rounding masks and clipping range from a struct
+  // instead of re-deriving them from (man_bits, exp_bits, bias) on every
+  // element.
   //
-  // All three want the cast inlined into the loop, which the translation
-  // unit is too big for at GCC's default --param inline-unit-growth. See
-  // setup.py.
+  // All three want the cast inlined into the loop, which this translation
+  // unit is too big for at GCC's default --param inline-unit-growth; setup.py
+  // raises the parameter.
   //
-  // A float64 tensor rounds in binary64: the carrier is carrier_t<scalar_t>,
-  // float for every other dtype, and the arms' closures take it generically.
+  // The cast runs in the carrier, carrier_t<scalar_t>: binary64 for a
+  // float64 tensor and binary32 for float32, float16 and bfloat16. The
+  // closures are generic in the value type, so one set serves both.
   template <typename scalar_t, bool IsSigned, class Cast>
   void binaryK_run(const scalar_t *a, scalar_t *o, int64_t size,
                    SubnormalsMode subnormals_mode, const BinaryKParamsT<carrier_t<scalar_t>> &p, Cast cast)
@@ -53,6 +54,11 @@ namespace
                  });
   }
 
+  // Deterministic-mode driver. The format's field widths follow P3109's
+  // binaryK convention: P - 1 stored mantissa bits, and the exponent takes
+  // the K bits left after the mantissa and, in a signed format, the sign.
+  // The cast's parameters are built once per tensor, and the round mode is
+  // dispatched outside the loop, one closure type per arm.
   template <typename scalar_t, bool IsSigned>
   void binaryK_kernel_impl(const scalar_t *a, scalar_t *o, int64_t size, int K, int P,
                            int bias, RoundMode round_mode,
@@ -111,6 +117,11 @@ namespace
     }
   }
 
+  // Stochastic-rounding driver: the same field derivation and parameter
+  // build, with quant_kernel_sr (utils.h) handing each element a random
+  // word of the carrier's width, keyed on the element's index so the result
+  // does not depend on the thread count. The cast takes prng_bits of that
+  // word as the rounding offset.
   template <typename scalar_t, bool IsSigned>
   void binaryK_kernel_sr_impl(const scalar_t *a, scalar_t *o, int64_t size,
                               int K, int P, int bias, int prng_bits, uint64_t seed,
@@ -134,14 +145,21 @@ namespace
 
 } // namespace
 
+// The CPU kernel behind mptorch::binaryK_quant: a new tensor of a's shape and
+// dtype, every element rounded to the binaryK format (K, P, bias, is_signed)
+// in the given round, saturation and subnormals modes (the int64_t arguments
+// are the enum values of common/modes.h). Dispatches once on the storage
+// dtype and once on the sign, and draws one seed only when the round mode
+// is SR.
 Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                             int64_t prng_bits, bool is_signed,
                             int64_t round_mode, int64_t saturation_mode,
                             int64_t subnormals_mode)
 {
   // data_ptr() walks storage linearly, so a non-contiguous input would be
-  // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
-  // but a direct torch.ops.mptorch.binaryK_quant call need not.
+  // read in the wrong order. mptorch/quant/ops.py already calls
+  // .contiguous(), but a direct torch.ops.mptorch.binaryK_quant call need
+  // not, so the copy is made (or skipped, for a contiguous input) here.
   auto a_c = a.contiguous();
   auto o = empty_like(a_c);
   const int64_t size = a_c.numel(); // int would truncate past 2^31 elements

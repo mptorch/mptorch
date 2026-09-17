@@ -1,27 +1,34 @@
 #pragma once
 
 /*
-What the exponent-zero codes hold, and so where the bottom of the range is.
+SubnormalsMode says what the exponent-zero codes of a binaryK format hold,
+and so where the bottom of the format's range is.
 
 SUBNORMALS:
-Subnormal values are supported. This is IEEE P3109's behaviour: every P3109
-format with more than one bit of precision has subnormals.
+The exponent-zero codes hold subnormal values, as in IEEE 754. This is IEEE
+P3109's behaviour: every P3109 format with more than one bit of precision has
+subnormals.
+
 NORMALS:
-Only normal values are supported. Not a P3109 format.
+Only normal values are representable. The exponent-zero codes hold nothing
+but the zero (and, with the sign bit, the NaN). Not a P3109 format.
+
 EXTENDED_NORMALS:
-The binade used to encode subnormals is used as an extra binade to encode normal
-values. Not a P3109 format. Its mantissa-zero code is *not* one of them: that
-code is the format's zero, and with the sign bit its NaN, as in every binaryK
-format, so the extra binade's values start one step above the power of two it
-would otherwise hold. With man_bits == 0 that step is the whole binade, and the
-mode is NORMALS with extra steps.
+The exponent-zero binade holds one more binade of normal values instead of
+subnormals, which extends the range downward by a factor of two. Not a P3109
+format. The binade's mantissa-zero code is still the format's zero, and with
+the sign bit its NaN, as in every binaryK format, so the extra binade's values
+start one step above the power of two that code would otherwise hold. With
+man_bits == 0 that step is the whole binade, and the mode degenerates to
+NORMALS.
 
 All three modes round the same way below whatever their smallest value is,
-because the shape of that region is the same in each: two candidates, zero and
-that value, and the rounding mode picks between them. Nearest takes the nearer
-and a tie the zero, the directed modes take their own direction, round-to-odd
-takes the nonzero one, and stochastic takes it with probability |x| divided by
-it. See bit_helper.h's UnderflowMode, which is where that is written down.
+because that region has the same shape in each: two candidates, zero and the
+smallest value, and the rounding mode picks between them. Nearest takes the
+nearer and a tie the zero, the directed modes take their own direction,
+round-to-odd takes the nonzero one, and stochastic takes it with probability
+|x| divided by it. bit_helper.h's UnderflowMode is where that rule is
+implemented.
 */
 
 enum class SubnormalsMode
@@ -32,24 +39,24 @@ enum class SubnormalsMode
 };
 
 /*
-The three are IEEE P3109's saturation modes, and they also select P3109's
+The three saturation modes are IEEE P3109's, and they also select P3109's
 domain: SAT_FINITE is the finite domain, in which the code points the extended
 domain spends on the infinities hold finite values, and the other two are the
 extended domain. Which codes those are, and so what the largest finite value
-is, is make_normal_range_params' business (bit_helper.h). In an unsigned
+is, is decided by make_normal_range_params in bit_helper.h. In an unsigned
 format every mode returns 0 for a negative value.
 
 SAT_FINITE:
-P3109 SatFinite. All return values are clamped to the representable finite
-range. NaN inputs pass unchanged.
+P3109 SatFinite. Every return value is clamped to the representable finite
+range, an infinite input included. NaN inputs pass through unchanged.
 
 SAT_PROPAGATE:
-P3109 SatPropagate. Finite return values are clamped to the representable
-range, whereas infinite values are preserved.
+P3109 SatPropagate. Finite values that overflow are clamped to the
+representable range, whereas infinite inputs stay infinite.
 
 OVF_INF:
 P3109 SatNone. Out-of-range values become positive or negative infinity.
-Rounding comes before saturation, so this holds under every rounding mode --
+Rounding comes before saturation, so this holds under every rounding mode,
 unlike IEEE 754, where rounding toward zero, for one, overflows to the largest
 finite value.
  */
@@ -98,9 +105,10 @@ enum class RoundMode
 };
 
 /*
+How a GEMM's dot product is accumulated.
+
 NAIVE:
-The running sum of a dot product is quantized (to the accumulate format)
-after every addition.
+The running sum is quantized (to the accumulate format) after every addition.
 
 KAHAN:
 Kahan-compensated summation of the (quantized) partial products, with the

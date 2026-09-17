@@ -3,12 +3,12 @@
 // Rounding a binary64 value onto a narrower IEEE binary format, once.
 //
 // A tensor narrower than its carrier stores what the carrier computed, and
-// that store is a rounding of its own (dev/gemm_roadmap.md, T6). Under
-// `carrier=torch.float64` the carrier's result is float64 and the store is
-// float64 -> float32, float16 or bfloat16 -- and torch's own conversion to the
-// last two goes through float32 on both backends, which rounds twice: a value
-// a hair past a midpoint of the narrow grid is first rounded onto the midpoint
-// and then to even, so 65519.999999 comes back as float16 infinity (T10). This
+// that store is a rounding of its own. Under `carrier=torch.float64` the
+// carrier's result is float64 and the store is float64 -> float32, float16
+// or bfloat16, and torch's own conversion to the last two goes through
+// float32 on both backends, which rounds twice: a value a hair past a
+// midpoint of the narrow grid is first rounded onto the midpoint and then to
+// even, so 65519.999999 comes back as float16 infinity instead of 65504. This
 // is the conversion done once, on the word, for the narrow_float64 op that
 // mptorch/quant/ops.py's `_narrowed` calls.
 //
@@ -16,11 +16,12 @@
 // 10) is float16, (8, 7) bfloat16 and (8, 23) float32. The result is IEEE 754's
 // convertFormat under roundTiesToEven: a finite value rounds to the nearest
 // value of the target, a tie to the even one; a value that rounds past the
-// largest finite value is an infinity of its sign, and one that rounds below
-// the smallest subnormal a zero of its sign; an infinity stays one, and a NaN
-// stays a NaN -- quieted, keeping the top of its payload, as the hardware
-// conversions do. For (8, 23) that is exactly `static_cast<float>(double)`,
-// which tests/test_float64_carrier.py holds it to.
+// largest finite value is an infinity of its sign, and one at or below half
+// the smallest subnormal a zero of its sign; an infinity stays one, and
+// a NaN stays a NaN, quieted and keeping the top of its payload, as the
+// hardware conversions do. For (8, 23) that is exactly
+// `static_cast<float>(double)`, which tests/test_float64_carrier.py holds it
+// to, along with a Fraction reference at every tie.
 //
 // Integer arithmetic on the words rather than a float division and a
 // nearbyint: nothing here depends on the floating-point environment, a
@@ -63,6 +64,9 @@ CUDA_HOST_DEVICE_INLINE Word narrow_binary64(uint64_t w)
     if (shift > 63)
         return static_cast<Word>(sign);
 
+    // Round to nearest, ties to even, on the integer significand: the dropped
+    // bits above half round up, below half truncate, and exactly half rounds
+    // up only when the kept part is odd.
     const uint64_t m = frac | (uint64_t{1} << 52);
     uint64_t q = m >> shift;
     const uint64_t rest = m & ((uint64_t{1} << shift) - 1);

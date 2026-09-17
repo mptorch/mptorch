@@ -1,18 +1,22 @@
-// The eight CPU GEMM entry points: everything TORCH_LIBRARY binds, and none of
-// the kernels.
+// The eight CPU GEMM entry points: everything cpu_ops.cpp binds for the CPU
+// dispatch key, and none of the kernels.
 //
-// Each is the two things that genuinely differ between the ops -- packing the
-// flat schema into an Args (common/gemm_args.h) and naming the backend --
-// wrapped around the one driver in common/gemm_host.h. The bodies are the
-// same text as their CUDA twins in cuda/custom_matmul_entry.cpp, which is
-// what finding H1 was for.
+// Each entry point is the two things that genuinely differ between the ops,
+// packing its flat schema arguments into an Args struct (common/gemm_args.h)
+// and naming the backend, wrapped around the one driver in
+// common/gemm_host.h. The driver owns the input checks, the shape
+// derivation, the output allocation, the empty early return, the prec_idx
+// validation, the dtype tag and the RNG seed, so an op never repeats any of
+// that. The bodies are the same text as their CUDA twins in
+// cuda/custom_matmul_entry.cpp.
 //
-// They used to sit two to a file beside the kernels they instantiated. Since
-// the kernels come in two carriers they are only declared here, through
-// cpu/gemm_backend.h, and instantiated by the eight custom_matmul_*.cpp files
-// -- the shape the CUDA side already had, so a build without the binary64
-// kernels is four files fewer rather than a preprocessor switch in each
-// (dev/binary64_carrier_plan.md, phase 4).
+// The kernels are only declared here, through cpu/gemm_backend.h, and are
+// explicitly instantiated by the eight custom_matmul_*.cpp files, one per
+// (format family x mac mode x carrier). Keeping the kernel template out of
+// this translation unit means this file compiles in seconds, the eight heavy
+// kernel objects compile in parallel, and a build with MPTORCH_NO_FP64=1
+// drops the binary64 kernels by leaving four files out of the build rather
+// than through a preprocessor switch inside each one.
 
 #include "../common/gemm_host.h"
 #include "../quant_ops.h"
@@ -26,6 +30,10 @@ namespace
   using Backend = mptorch::gemm_cpu::CpuBackend;
 }
 
+// Single-format binaryK GEMM with a split mac: every product is rounded to
+// the mul format and every running sum to the acc format (or kept in the
+// carrier when accumulate_quant is false). The int64_t mode arguments are
+// the RoundMode/SaturationMode/SubnormalsMode enum values of common/modes.h.
 Tensor binaryK_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                            bool accumulate_quant, int64_t acc_K, int64_t acc_P,
@@ -43,14 +51,14 @@ Tensor binaryK_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Spatially-varying (per-output-element) mixed-format binaryK GEMM: same
+// Spatially-varying (per-output-element) mixed-format binaryK GEMM: the same
 // SplitMac arithmetic as binaryK_matmul_cpu, but the multiply/accumulate
-// format for each output element C[i, j] is picked from a palette of up to
-// MAX_GEMM_FORMATS entries by prec_idx[i, j] (see gemm_policy.h's
+// format of each output element C[i, j] is picked from a palette of up to
+// MAX_GEMM_FORMATS entries by prec_idx[i, j] (gemm_policy.h's
 // FormatPalette). mul_K/mul_P/mul_bias and acc_K/acc_P/acc_bias are
-// per-palette-entry lists (all the same length); round_mode/saturation/
-// sign/prng_bits are shared across the palette, matching the mm_impl
-// prototype where only the format widths are tabulated.
+// per-palette-entry lists of one common length; the round mode, saturation
+// and subnormals modes, sign and prng_bits are shared across the palette,
+// since only the format widths vary per element.
 Tensor binaryK_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
@@ -76,6 +84,9 @@ Tensor binaryK_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
       a, b, prec_idx, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
+// Single-format binaryK GEMM with a fused mac: each multiply-add is rounded
+// once, to the fma format, as a hardware FMA would round it (or not at all
+// when fma_quant is false, which leaves the carrier's own FMA).
 Tensor binaryK_matmul_fma_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                                bool fma_quant, int64_t fma_K, int64_t fma_P,
                                int64_t fma_bias, bool fma_is_signed,
@@ -90,12 +101,12 @@ Tensor binaryK_matmul_fma_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Spatially-varying mixed-format binaryK FMA GEMM: same FusedMac arithmetic
-// as binaryK_matmul_fma_cpu (one rounding per K-step), with the FMA format
-// per output element taken from the palette. fma_quant=false is rejected:
-// FusedMac<IdentityAdder> carries no format, so a palette of it would make
-// prec_idx a no-op -- use custom_matmul_binaryK_fma for the unquantized
-// fused step.
+// Spatially-varying mixed-format binaryK FMA GEMM: the same FusedMac
+// arithmetic as binaryK_matmul_fma_cpu (one rounding per K-step), with the
+// fused format of each output element taken from the palette.
+// fma_quant=false is rejected before the palette is built: an unquantized
+// fused step carries no format, so a palette of it would make prec_idx a
+// no-op; custom_matmul_binaryK_fma is the unquantized fused GEMM.
 Tensor binaryK_matmul_fma_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
@@ -118,6 +129,10 @@ Tensor binaryK_matmul_fma_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
       });
 }
 
+// Single-format superfp GEMM with a split mac: the superfp twin of
+// binaryK_matmul_cpu, with each format given as (man_bits, exp_bits,
+// normal_binades, bias) instead of (K, P, bias). superfp has no subnormals
+// mode, since its supernormal binades take the place of subnormals.
 Tensor superfp_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
                            int64_t mul_bias, bool mul_is_signed,
@@ -136,7 +151,9 @@ Tensor superfp_matmul_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// superfp analogue of binaryK_matmul_mixed_cpu -- see its comment.
+// superfp analogue of binaryK_matmul_mixed_cpu: the per-output-element
+// format comes from the palette, the four width lists share one length, and
+// everything else is shared across the palette.
 Tensor superfp_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
@@ -163,6 +180,8 @@ Tensor superfp_matmul_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
       a, b, prec_idx, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
+// Single-format superfp GEMM with a fused mac: the superfp twin of
+// binaryK_matmul_fma_cpu, one rounding per multiply-add.
 Tensor superfp_matmul_fma_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
                                bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
                                int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
@@ -176,7 +195,9 @@ Tensor superfp_matmul_fma_cpu(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// superfp analogue of binaryK_matmul_fma_mixed_cpu -- see its comment.
+// superfp analogue of binaryK_matmul_fma_mixed_cpu: the fused format of each
+// output element comes from the palette, and fma_quant=false is rejected for
+// the same reason, an unquantized fused step has no format to vary.
 Tensor superfp_matmul_fma_mixed_cpu(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,

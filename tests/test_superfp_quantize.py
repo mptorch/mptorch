@@ -1,3 +1,25 @@
+"""
+superfp_quantize on a format small enough to derive every expected value by hand.
+
+superfp is a binade-coded format with three regions (see
+mptorch/csrc/common/cast_superfp.h): the top ``normal_binades`` encoding
+binades carry a ``man_bits`` significand, the encoding binades below them are
+spent one code per power of two (the "supernormal" region, which trades
+subnormals for range), and everything under the smallest supernormal is a
+choice between zero and that value. The reference format here has 1 sign, 3
+exponent and 2 mantissa bits, 4 normal binades and bias 7, so its 64 code
+points are a normal grid from 0.125 to 1.75 in steps of 2**e / 4, fifteen
+supernormal levels 2**-18 .. 2**-4, and zero. That is few enough values that
+each expectation table below is written out from the rounding mode's
+definition rather than from another implementation, which is what makes it
+independent of the kernel. Each region has its own tie rule and its own table:
+the normal region ties on the significand's parity, the supernormal region on
+the exponent's, and the underflow region has one tie, at half the smallest
+supernormal. The last tests hold the saturation modes at the top of the range
+and stochastic rounding's properties, including in the underflow region,
+which binaryK does not have.
+"""
+
 import math
 from typing import Any
 
@@ -8,17 +30,14 @@ from mptorch.number import RoundMode, SaturationMode
 from mptorch.quant import superfp_quantize
 from tests.markers import available_devices
 
-# Reference 6-bit "supernormal" format used throughout this file: 1 sign bit,
-# 3 exponent bits, 2 mantissa bits, 4 normal binades, bias 7. All 64
-# codepoints of this exact configuration were enumerated and cross-checked
-# by hand in temp/show_superfp.cpp during the format's development (see
-# walkthrough_superfp.md / walkthrough_superfp2.md): 15 supernormal levels
-# (2**-18 .. 2**-4), a 32-codepoint normal grid (0.125 .. 1.75 in steps of
-# 2**e / 4), and zero. That makes it a convenient, independently-understood
-# oracle for hand-derived expected values below.
+# The reference format: 1 sign bit, 3 exponent bits, 2 mantissa bits, 4 normal
+# binades, bias 7. Exponent fields 4 .. 7 are the normal binades, exponents -3
+# .. 0, a grid of 32 codes from 0.125 to 1.75 in steps of 2**e / 4; fields
+# 0 .. 3 hold 16 codes, zero and the fifteen supernormal powers of two 2**-18
+# .. 2**-4 (dev/benchmarks/superfp_values.py lists them).
 CFG: dict[str, Any] = {"man_bits": 2, "exp_bits": 3, "normal_binades": 4, "bias": 7}
-SMALLEST_SUPERNORMAL = 2.0**-18  # 3.814697265625e-06
-HALF_SMALLEST = 2.0**-19  # 1.9073486328125e-06, the underflow/supernormal tie boundary
+SMALLEST_SUPERNORMAL = 2.0**-18  # the lowest supernormal level
+HALF_SMALLEST = 2.0**-19  # the tie between zero and SMALLEST_SUPERNORMAL
 
 ALL_MODES = [
     RoundMode.RNE,
@@ -39,6 +58,9 @@ def _quantize(
     saturation_mode=SaturationMode.SAT_FINITE,
     cfg=CFG,
 ):
+    """One value through ``superfp_quantize`` in the format ``cfg``, as a
+    Python float. SAT_FINITE is the default so the whole top binade is in
+    play; the saturation tests name the mode explicitly."""
     x = torch.tensor([x_val], dtype=dtype, device=device)
     return superfp_quantize(
         x,
@@ -63,15 +85,14 @@ def _negated(value: float) -> float:
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_nan_passthrough(device, mode):
-    # exact bit pattern must survive, including a custom NaN payload and
-    # negative-signed NaN, regardless of rounding mode.
+    """A NaN comes back with its word intact, payload and sign included, in
+    every rounding mode: the cast must pass it through, not canonicalize it."""
     import struct
 
-    # 0x7FA51234 (a *signaling* NaN payload, quiet bit unset) is deliberately
-    # avoided here: plain tensor construction alone (no quantization
-    # involved) already quiets it on this platform, which is a torch/CPU
-    # artifact unrelated to superfp -- verified by round-tripping
-    # torch.tensor([nan]).item() with no op applied at all.
+    # A signalling NaN (quiet bit clear, e.g. 0x7FA51234) is left out: torch
+    # quiets it in plain tensor construction, before any op runs, which
+    # `torch.tensor([nan]).item()` alone shows, so it says nothing about the
+    # cast.
     for bits in (0x7FC00000, 0x7FE51234, 0xFFC00000):
         nan = struct.unpack(">f", struct.pack(">I", bits))[0]
         out = _quantize(nan, mode, device)
@@ -85,9 +106,9 @@ def test_nan_passthrough(device, mode):
     [SaturationMode.SAT_FINITE, SaturationMode.SAT_PROPAGATE, SaturationMode.OVF_INF],
 )
 def test_inf_handling(device, mode, saturation_mode):
-    # SAT_FINITE promises a finite result for every input, so an infinity
-    # saturates to the same value an overflowing finite input does; the other
-    # two modes keep it infinite.
+    """An infinity is kept under OVF_INF and SAT_PROPAGATE; under SAT_FINITE,
+    which promises a finite result for every input, it saturates to the same
+    value an overflowing finite input does."""
     for sign in (1.0, -1.0):
         inf = sign * float("inf")
         out = _quantize(inf, mode, device, saturation_mode=saturation_mode)
@@ -102,6 +123,7 @@ def test_inf_handling(device, mode, saturation_mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_zero(device, mode):
+    """Both zeros come back as +0.0: superfp's only zero is unsigned."""
     assert _same(_quantize(0.0, mode, device), 0.0)
     assert _same(_quantize(-0.0, mode, device), 0.0)
 
@@ -109,16 +131,17 @@ def test_zero(device, mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_unsigned_rejects_negative(device, mode):
+    """An unsigned format maps every negative input, -0.0 included, to +0.0."""
     for x in (-3.5, -1.0e-7, -0.0):
         assert _same(_quantize(x, mode, device, is_signed=False), 0.0), x
 
 
 # ---------------------------------------------------------------------------
-# Normal region (man_bits=2 -> mantissa grid step of 2**e / 4 within each
-# binade). 0.13 is a non-tie value between the grid points 0.125 and
-# 0.15625; 0.140625 is their exact midpoint (a genuine tie). These are
-# ordinary IEEE-754-style roundings (standard mantissa-LSB-parity tie-break
-# for RNE), safe to hand-verify directly.
+# Normal region: man_bits = 2 puts four codes in each binade, at a step of
+# 2**e / 4. 0.13 lies between the grid points 0.125 and 0.15625 and is not a
+# tie; 0.140625 is their exact midpoint. These are ordinary IEEE 754 roundings
+# (RNE breaks the tie on the parity of the mantissa's last bit), so each
+# expectation follows from the mode's definition.
 NORMAL_CASES = [
     # (value, mode, expected)
     (0.13, RoundMode.RNE, 0.125),
@@ -155,16 +178,14 @@ def test_normal_region_rounding(device, value, mode, expected):
 
 
 # ---------------------------------------------------------------------------
-# Supernormal region: representable values are bare powers of two (no
-# explicit mantissa), so rounding = choosing between 2**e and 2**(e+1).
-# 1.2*2**-9 is a non-tie value; 1.5*2**-9 and 1.5*2**-10 are exact ties.
-#
-# The RNE tie rule here ("of the two bracketing exponents, keep the one
-# whose *unbiased* value is even") is a property of round_bitwise_nearest_even's
-# bare (0 mantissa bit) overload in bit_helper.h -- an existing primitive
-# shared with binaryK's own man_bits==0 case, and already exercised against
-# gfloat by test_binaryK_quantize.py's P=1 sweep. It is not something new
-# introduced for superfp.
+# Supernormal region: the codes are bare powers of two, so rounding chooses
+# between 2**e and 2**(e + 1). 1.2 * 2**-9 is off the tie; 1.5 * 2**-9 and
+# 1.5 * 2**-10 are exact ties. With no significand to be even, RNE's tie rule
+# is the even exponent: the zero-argument round_bitwise_nearest_even of
+# mptorch/csrc/common/bit_helper.h, which binaryK's P = 1 formats share and
+# tests/test_binaryk_quantize.py checks against gfloat. RO's "odd" is the
+# parity of the code's index from the bottom of the region (cast_superfp_odd
+# in cast_superfp.h), so 2**-10, the ninth level, is already odd.
 SUPERNORMAL_CASES = [
     (1.2 * 2**-9, RoundMode.RNE, 2**-9),
     (1.2 * 2**-9, RoundMode.RNA, 2**-9),
@@ -190,15 +211,19 @@ SUPERNORMAL_CASES = [
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("value,mode,expected", SUPERNORMAL_CASES)
 def test_supernormal_region_rounding(device, value, mode, expected):
+    """The table, and its mirror image for the sign-symmetric modes."""
     assert _quantize(value, mode, device) == pytest.approx(expected)
-    # antisymmetric modes must mirror on negation; RU/RD swap roles instead.
+    # The sign-symmetric modes mirror on negation; RU and RD swap roles
+    # instead, which test_underflow_boundary checks.
     if mode in (RoundMode.RNE, RoundMode.RNA, RoundMode.RZ, RoundMode.RO):
         assert _quantize(-value, mode, device) == pytest.approx(-expected)
 
 
 # ---------------------------------------------------------------------------
-# Underflow region: no graded precision, so it's a single choice between 0
-# and SMALLEST_SUPERNORMAL, split at HALF_SMALLEST = 2**-19.
+# Underflow region: below the smallest supernormal there is no finer grid, so
+# every mode chooses between 0 and SMALLEST_SUPERNORMAL, with the tie at
+# HALF_SMALLEST = 2**-19. RU and RO never flush a nonzero value; RNE sends the
+# tie to zero, the "even" side, and RNA away from it.
 UNDERFLOW_CASES = [
     # (value, mode, expected)
     (2**-20, RoundMode.RNE, 0.0),  # strictly below half -> always flush
@@ -225,12 +250,13 @@ UNDERFLOW_CASES = [
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("value,mode,expected", UNDERFLOW_CASES)
 def test_underflow_boundary(device, value, mode, expected):
-    # Exact, and signed: every value here is a power of two or zero.
+    """The table for x and for -x, compared with the sign: every value here
+    is a power of two or zero, and a zero must come back as +0.0."""
     assert _same(_quantize(value, mode, device), expected)
     if mode in (RoundMode.RNE, RoundMode.RNA, RoundMode.RZ, RoundMode.RO):
         assert _same(_quantize(-value, mode, device), _negated(expected))
     elif mode is RoundMode.RU:
-        # RU(-x) == -RD(x); RD(x) for these cases is always zero, which is +0.0.
+        # RU(-x) == -RD(x), and RD(x) is zero for every case here, so +0.0.
         assert _same(_quantize(-value, mode, device), 0.0)
     elif mode is RoundMode.RD:
         # RD(-x) == -RU(x)
@@ -238,34 +264,37 @@ def test_underflow_boundary(device, value, mode, expected):
 
 
 # ---------------------------------------------------------------------------
-# RO's man_bits==0 normal-region branch is a distinct code path (parity of
-# the target format's own biased exponent) from both the man_bits>0 normal
-# branch above and the supernormal branch's grid-index parity. This config
-# (normal_cutoff=0, max target_exp=4) gives enough headroom for a bump not to
-# hit saturation. 6.0 is an exact tie between 4.0 and 8.0 (floor exponent 2
-# is even -> RNE keeps 4.0, matching the same verified tie rule as the
-# supernormal region since man_bits==0 makes this grid power-of-two spaced
-# too). 5.0 is not a tie, but RO still forces the bump to 8.0 because 4.0's
-# stored exponent parity (target_exp + bias = 2 + 10 = 12, even) isn't odd.
+# RO in the normal region of a man_bits = 0 format is a branch of its own in
+# cast_superfp_odd (mptorch/csrc/common/cast_superfp.h): with no significand,
+# "odd" is the parity of the target's biased exponent, which is neither the
+# significand parity of the man_bits > 0 branch nor the index parity of the
+# supernormal branch. exp_bits 4 with bias 10 leaves binades above 8.0, so a
+# bump up cannot saturate, and normal_binades 6 keeps 4.0 .. 8.0 normal. 6.0
+# is the tie between 4.0 and 8.0: RNE keeps 4.0, whose exponent 2 is even, the
+# same rule as the supernormal region since this grid is power-of-two spaced
+# too. 5.0 is not a tie, but RO still bumps it to 8.0 because 4.0's biased
+# exponent, 2 + 10 = 12, is even.
 RO_ZERO_MAN_BITS_CFG: dict[str, Any] = dict(man_bits=0, exp_bits=4, normal_binades=6, bias=10)
 
 
 @pytest.mark.parametrize("device", available_devices)
 def test_ro_normal_region_zero_man_bits(device):
+    """RO with no significand bits bumps on the biased exponent's parity."""
     assert _quantize(6.0, RoundMode.RNE, device, cfg=RO_ZERO_MAN_BITS_CFG) == 4.0
     assert _quantize(6.0, RoundMode.RO, device, cfg=RO_ZERO_MAN_BITS_CFG) == 8.0
     assert _quantize(5.0, RoundMode.RO, device, cfg=RO_ZERO_MAN_BITS_CFG) == 8.0
 
 
 # ---------------------------------------------------------------------------
-# Saturation-mode differentiation at the overflow boundary, for every
-# rounding mode (not just RNE) -- mirrors temp/test_superfp.cpp's
-# test_superfp_6bit_saturation_modes, generalized across modes. Under
-# OVF_INF, code 31 (011111) is reserved for +Inf, so the max finite value is
-# 1.50 (code 30); under SAT_FINITE the max finite value is 1.75 (code 31).
+# The saturation modes at the overflow boundary, in every rounding mode. Under
+# OVF_INF the top code of the reference format, 31 (011111), is +Inf, so the
+# largest finite value is 1.5 (code 30); SAT_FINITE keeps the whole top binade
+# and its largest finite value is 1.75 (code 31).
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_saturation_mode_differentiation(device, mode):
+    """The largest finite value and the fate of an overflow differ between
+    SAT_FINITE and OVF_INF, whichever the rounding mode."""
     assert _quantize(1.5, mode, device, saturation_mode=SaturationMode.SAT_FINITE) == 1.5
     assert _quantize(1.5, mode, device, saturation_mode=SaturationMode.OVF_INF) == 1.5
 
@@ -282,11 +311,11 @@ def test_saturation_mode_differentiation(device, mode):
 # The same boundary where the reserved code is a large part of the top binade.
 # Outside SAT_FINITE the top binade's last code is +Inf, so with man_bits = 0
 # (one code per binade) the largest finite value is a binade down and with
-# man_bits = 1 it is the binade's first code; SAT_FINITE keeps the whole binade.
-# `above` is the first code past `largest`, which has to saturate like any other
-# overflow -- as does 3e38, which the rounding carries into float32's infinity
-# exponent. exp_bits 4 and bias 7 put the top binade at 2**8; normal_binades 8
-# keeps every value here in the normal region.
+# man_bits = 1 it is the binade's first code; SAT_FINITE keeps the whole
+# binade. `above` is the first code past `largest`, which has to saturate like
+# any other overflow, as does 3e38, which the rounding carries into float32's
+# infinity exponent. exp_bits 4 and bias 7 put the top binade at 2**8;
+# normal_binades 8 keeps every value here in the normal region.
 TOP_CASES = [
     # (man_bits, saturation_mode, largest, above)
     (0, SaturationMode.OVF_INF, 2.0**7, 2.0**8),
@@ -303,6 +332,8 @@ TOP_CASES = [
 @pytest.mark.parametrize("mode", ALL_MODES)
 @pytest.mark.parametrize("man_bits,saturation_mode,largest,above", TOP_CASES)
 def test_top_of_range(device, mode, man_bits, saturation_mode, largest, above):
+    """`largest` is kept and everything above it saturates, to the mode's
+    value, with the sign, in every rounding mode."""
     cfg = {"man_bits": man_bits, "exp_bits": 4, "normal_binades": 8, "bias": 7}
     kw = dict(saturation_mode=saturation_mode, cfg=cfg)
     saturated = math.inf if saturation_mode is SaturationMode.OVF_INF else largest
@@ -313,20 +344,24 @@ def test_top_of_range(device, mode, man_bits, saturation_mode, largest, above):
 
 
 # ---------------------------------------------------------------------------
-# Stochastic rounding: adapted from test_binaryK_stochastic's three
-# properties (grid-point identity, RD/RU bounding, statistical
-# unbiasedness), plus a superfp-specific unbiasedness check in the
-# underflow region (which has no binaryK analogue, since binaryK has no
-# single-boundary flush-or-not region).
+# Stochastic rounding: the three properties tests/test_binaryk_quantize.py
+# checks for binaryK (a grid point is left alone, every result is one of the
+# two neighbours, the mean is the input), plus unbiasedness in the underflow
+# region, which has no binaryK analogue because binaryK's subnormals keep a
+# graded grid all the way down to zero.
 GRID_POINTS = (
     [0.0]
-    + [2.0**e for e in range(-18, -3)]  # supernormal levels
-    + [(1 + m / 4) * 2.0**e for e in range(-3, 1) for m in range(4)]  # normal grid
+    + [2.0**e for e in range(-18, -3)]  # the supernormal levels
+    + [(1 + m / 4) * 2.0**e for e in range(-3, 1) for m in range(4)]  # the normal grid
 )
 
 
 @pytest.mark.parametrize("device", available_devices)
 def test_superfp_stochastic(device):
+    """SR leaves the format's every code point alone, lands on a neighbour of
+    every other input, and is unbiased in both the normal and the underflow
+    region."""
+    # one random bit per significand bit the format drops from binary32's 23
     prng_bits = 23 - CFG["man_bits"]
 
     grid = torch.tensor(GRID_POINTS + [-v for v in GRID_POINTS], dtype=torch.float32, device=device)
@@ -371,7 +406,9 @@ def test_superfp_stochastic(device):
     N_samples = 1_000_000
     tolerance = 0.05
 
-    # unbiasedness in the normal region
+    # Unbiasedness in the normal region: a million draws of 0.14, which lies
+    # between 0.125 and 0.15625. 0.05 is loose against the standard error, so
+    # only a systematic bias fails it.
     test_val = 0.14
     x_large = torch.full((N_samples,), test_val, dtype=torch.float32, device=device)
     q_sr_large = superfp_quantize(
@@ -384,8 +421,9 @@ def test_superfp_stochastic(device):
     )
     assert abs(q_sr_large.mean().item() - test_val) < tolerance
 
-    # unbiasedness in the underflow region: no binaryK analogue, since
-    # binaryK's subnormal region always has graded precision.
+    # Unbiasedness in the underflow region, where the choice is between zero
+    # and the smallest supernormal: the mean of the draws is 0.3 of that
+    # level, to a tolerance scaled by it.
     test_val_uf = SMALLEST_SUPERNORMAL * 0.3
     x_uf = torch.full((N_samples,), test_val_uf, dtype=torch.float32, device=device)
     q_sr_uf = superfp_quantize(

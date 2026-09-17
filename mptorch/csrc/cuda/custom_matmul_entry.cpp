@@ -1,12 +1,13 @@
-// The eight CUDA GEMM entry points: everything TORCH_LIBRARY binds, and
-// nothing nvcc has to see.
+// The eight CUDA GEMM entry points: everything TORCH_LIBRARY binds for the
+// GEMM ops, and nothing nvcc has to see.
 //
-// Each is now the two things that genuinely differ between the ops -- packing
-// the flat schema into an Args (common/gemm_args.h) and naming the backend --
-// wrapped around the one driver in common/gemm_host.h. The ~1,100 lines of
-// prologue these used to carry between them are gone; so is the reason the
-// GEMM .cu files ever included ATen, which is worth ~22 s of nvcc apiece
-// (finding H1, and see cuda/gemm_backend.h).
+// Each entry point is only the two things that differ between the ops:
+// packing the flat schema arguments into an Args struct (common/gemm_args.h)
+// and naming the backend. The input checks, the shape derivation, the output
+// allocation, the prec_idx validation, the dtype tag and the RNG draw are the
+// one driver in common/gemm_host.h, shared with the CPU backend. Keeping
+// at::Tensor here rather than in the .cu files is what lets those compile in
+// about 3 s each instead of about 25 s (see cuda/gemm_backend.h).
 //
 // This file is a .cpp inside csrc/cuda/ on purpose: setup.py globs those only
 // when the CUDA build is on, so a CPU-only build skips it exactly as it skips
@@ -41,14 +42,13 @@ Tensor binaryK_matmul_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Spatially-varying (per-output-element) mixed-format binaryK GEMM: same
-// SplitMac arithmetic as binaryK_matmul_cuda, but the multiply/accumulate
-// format for each output element C[i, j] is picked from a palette of up to
-// MAX_GEMM_FORMATS entries by prec_idx[i, j] (see gemm_policy.h's
-// FormatPalette). mul_K/mul_P/mul_bias and acc_K/acc_P/acc_bias are
-// per-palette-entry lists (all the same length); round_mode/saturation/
-// sign/prng_bits are shared across the palette, matching the mm_impl
-// prototype where only the format widths are tabulated.
+// Per-output-element mixed-format binaryK GEMM: the same SplitMac arithmetic
+// as binaryK_matmul_cuda, but the multiply and accumulate formats of each
+// output element C[i, j] are picked from a palette of up to MAX_GEMM_FORMATS
+// entries by prec_idx[i, j] (gemm_policy.h's FormatPalette). mul_K/mul_P/
+// mul_bias and acc_K/acc_P/acc_bias are per-entry lists of one common
+// length; round_mode, saturation, sign and prng_bits are shared across the
+// palette, since only the format widths vary per element.
 Tensor binaryK_matmul_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
@@ -88,11 +88,11 @@ Tensor binaryK_matmul_fma_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// Spatially-varying mixed-format binaryK FMA GEMM: same FusedMac arithmetic
-// as binaryK_matmul_fma_cuda (one rounding per K-step), with the FMA format
-// per output element taken from the palette. fma_quant=false is rejected:
-// FusedMac<IdentityAdder> carries no format, so a palette of it would make
-// prec_idx a no-op -- use custom_matmul_binaryK_fma for the unquantized
+// Per-output-element mixed-format binaryK FMA GEMM: the same FusedMac
+// arithmetic as binaryK_matmul_fma_cuda (one rounding per K-step), with each
+// output element's FMA format taken from the palette. fma_quant=false is
+// rejected: FusedMac<IdentityAdder> carries no format, so a palette of it
+// would make prec_idx a no-op. custom_matmul_binaryK_fma is the unquantized
 // fused step.
 Tensor binaryK_matmul_fma_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
@@ -134,7 +134,7 @@ Tensor superfp_matmul_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// superfp analogue of binaryK_matmul_mixed_cuda -- see its comment.
+// The superfp analogue of binaryK_matmul_mixed_cuda; see its comment.
 Tensor superfp_matmul_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                  bool trans_a, bool trans_b,
                                  c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
@@ -174,7 +174,7 @@ Tensor superfp_matmul_fma_cuda(Tensor a, Tensor b, bool trans_a, bool trans_b,
       a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
 }
 
-// superfp analogue of binaryK_matmul_fma_mixed_cuda -- see its comment.
+// The superfp analogue of binaryK_matmul_fma_mixed_cuda; see its comment.
 Tensor superfp_matmul_fma_mixed_cuda(Tensor a, Tensor b, Tensor prec_idx,
                                      bool trans_a, bool trans_b, bool fma_quant,
                                      c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,

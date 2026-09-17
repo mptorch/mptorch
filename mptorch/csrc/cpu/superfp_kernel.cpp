@@ -9,10 +9,15 @@ using namespace at;
 namespace
 {
 
-  // One body for all six deterministic round modes, and the superfp twin of
-  // binaryK_kernel.cpp's binaryK_run: `Cast` is a per-arm closure type rather
-  // than a function pointer, `IsSigned` is a template parameter, and `p` is a
-  // precomputed SuperfpParams. See that function for what each is worth.
+  // Elementwise superfp cast of `size` values in one deterministic round
+  // mode, the superfp twin of binaryK_kernel.cpp's binaryK_run: o[i] =
+  // cast(a[i]) on ATen's thread pool. `Cast` is a per-arm closure type
+  // rather than a function pointer so the cast inlines into the loop body
+  // (a function pointer measured 18% slower), `IsSigned` is a template
+  // parameter so the unsigned early return folds away on the signed path
+  // (2.5x on the loop), and `p` is a SuperfpParams built once per tensor
+  // rather than re-derived per element. The cast runs in the carrier,
+  // carrier_t<scalar_t>: binary64 for float64, binary32 otherwise.
   template <typename scalar_t, bool IsSigned, class Cast>
   void superfp_run(const scalar_t *a, scalar_t *o, int64_t size,
                    const SuperfpParamsT<carrier_t<scalar_t>> &p, Cast cast)
@@ -25,6 +30,10 @@ namespace
                  });
   }
 
+  // Deterministic-mode driver: builds the cast's parameters (the region
+  // cutoffs between normal, supernormal and underflow, and the rounding
+  // masks) once per tensor and dispatches the round mode outside the loop,
+  // one closure type per arm.
   template <typename scalar_t, bool IsSigned>
   void superfp_kernel_impl(const scalar_t *a, scalar_t *o, int64_t size, int man_bits,
                            int exp_bits, int normal_binades, int bias,
@@ -73,6 +82,11 @@ namespace
     }
   }
 
+  // Stochastic-rounding driver: the same parameter build, with
+  // quant_kernel_sr (utils.h) handing each element a random word of the
+  // carrier's width, keyed on the element's index so the result does not
+  // depend on the thread count. The cast takes prng_bits of that word as
+  // the rounding offset.
   template <typename scalar_t, bool IsSigned>
   void superfp_kernel_sr_impl(const scalar_t *a, scalar_t *o, int64_t size,
                               int man_bits, int exp_bits, int normal_binades, int bias,
@@ -91,11 +105,19 @@ namespace
 
 } // namespace
 
+// The CPU kernel behind mptorch::superfp_quant: a new tensor of a's shape and
+// dtype, every element rounded to the superfp format (man_bits, exp_bits,
+// normal_binades, bias, is_signed) in the given round and saturation modes
+// (the int64_t arguments are the enum values of common/modes.h). superfp
+// takes no subnormals mode: its supernormal binades occupy the encoding
+// space subnormals would. Dispatches once on the storage dtype and once on
+// the sign, and draws one seed only when the round mode is SR.
 Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                             int64_t bias, int64_t prng_bits, bool is_signed,
                             int64_t round_mode, int64_t saturation_mode)
 {
-  // see binaryK_quantize_cpu for why the input is made contiguous here
+  // data_ptr() walks storage linearly, so a strided input is copied to a
+  // contiguous one first (a no-op for an input that already is).
   auto a_c = a.contiguous();
   auto o = empty_like(a_c);
   const int64_t size = a_c.numel(); // int would truncate past 2^31 elements

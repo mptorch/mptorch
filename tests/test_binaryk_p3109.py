@@ -1,38 +1,41 @@
 """
-binaryK_quantize against IEEE P3109's own definitions, at the two ends of the range.
+``binaryK_quantize`` against IEEE P3109's definitions, at both ends of the range.
 
-MPTorch's BinaryK is P3109's binaryK family (arXiv:2606.04028 is the working
-group's overview). tests/test_binaryk_quantize.py checks the rounding against
-gfloat below the largest finite value; this file checks what happens at and
-beyond it, where the two things P3109 adds to a binary float -- the domain and
-the saturation mode -- decide the answer. It also checks the other end, where
-the same RoundAway decides between zero and the smallest subnormal and a zero
-or float32-subnormal input used to slip past the rounded word's zero test.
+MPTorch's ``BinaryK`` is the binaryK family of IEEE P3109 (arXiv:2606.04028 is
+the working group's overview). ``tests/test_binaryk_quantize.py`` checks the
+rounding against gfloat below the largest finite value. This module guards what
+happens at and beyond that value, where the two things P3109 adds to a binary
+float (the domain and the saturation mode) decide the answer, and at the other
+end, where the same RoundAway chooses between zero and the smallest subnormal.
+Without it, a largest finite value counted the IEEE 754 way (one code point off),
+a signed zero, or a NaN with a rewritten payload would pass every value
+comparison elsewhere in the suite.
 
-The reference is transcribed from the paper, not from an implementation:
+The reference is transcribed from the paper, not from an implementation, so it
+shares no code with the cast it checks:
 
 * the largest finite datum M_hi, from the decoding of Fig. 7 and the code
-  points of SVII: a signed format's top non-negative code, 2^(K-1) - 1, is
-  +infinity in the extended domain; an unsigned format's top code, 2^K - 1, is
-  NaN, and the one below it is +infinity in the extended domain;
+  points of section VII: a signed format's top non-negative code, 2^(K-1) - 1,
+  is +infinity in the extended domain; an unsigned format's top code, 2^K - 1,
+  is NaN, and the one below it is +infinity in the extended domain;
 * omega-RoundToPrecision (Fig. 1) with RoundAway (Fig. 2);
-* omega-Saturate (SIV-B): SatFinite clamps everything into [M_lo, M_hi],
+* omega-Saturate (section IV-B): SatFinite clamps everything into [M_lo, M_hi],
   SatPropagate clamps finite values and keeps infinities, SatNone sends
-  anything outside [M_lo, M_hi] to +-infinity. Rounding comes first, so SatNone
-  overflows to infinity under every rounding mode -- which is where gfloat,
-  following IEEE 754's directed-rounding overflow, parts from the draft, and
-  why it is not the oracle here;
+  anything outside [M_lo, M_hi] to an infinity of the same sign. Rounding comes
+  first, so SatNone overflows to infinity under every rounding mode. gfloat
+  overflows the IEEE 754 way instead (a directed mode that rounds toward zero
+  returns the largest finite value), which is why it is not the reference here;
 * the zero, code point 0: the only one, and unsigned, so a result that rounds
-  to zero is +0.0 whatever the sign of the input -- -0.0 included. The
-  comparison counts the sign of a zero, since -0.0 == 0.0.
+  to zero is +0.0 whatever the sign of the input, -0.0 included. The
+  comparison reads the sign bit of a zero, because ``-0.0 == 0.0`` is true.
 
-SaturationMode carries the domain as well as the saturation: SAT_FINITE is the
-finite domain, the other two the extended one. An unsigned format turns every
-negative input into 0, -infinity included; the paper says so for SatNone, and
-MPTorch reads the other two modes the same way.
+``SaturationMode`` carries the domain as well as the saturation: ``SAT_FINITE``
+is the finite domain, the other two the extended one. An unsigned format turns
+every negative input into 0, -infinity included. The paper says so for SatNone,
+and MPTorch reads the other two modes the same way.
 
 Each test runs on float32 inputs, rounded in binary32, and again on float64
-inputs float32 cannot hold, rounded in binary64 -- over formats up to K = 64
+inputs float32 cannot hold, rounded in binary64, over formats up to K = 64
 whose top binade binary64 holds.
 """
 
@@ -49,22 +52,26 @@ DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
 
 
 def _bias(K: int, P: int, signed: bool) -> int:
+    """P3109's exponent bias: half the exponent codes of a ``K``-bit format."""
     return 2 ** (K - P - 1) if signed else 2 ** (K - P)
 
 
 def _exp_bits(K: int, P: int, signed: bool) -> int:
+    """Width of the exponent field: ``K`` less ``P - 1`` and the sign bit, if any."""
     return K - P if signed else K - P + 1
 
 
 def _top_exponent(K: int, P: int, signed: bool) -> int:
+    """Unbiased exponent of the format's top binade (all exponent bits set)."""
     return 2 ** _exp_bits(K, P, signed) - 1 - _bias(K, P, signed)
 
 
 def _formats(signed: bool) -> list[tuple[int, int]]:
     """Every precision of the 3- to 8-bit formats, and a few wider ones.
 
-    Only formats whose top binade binary32 can hold: a wider one has a largest
-    finite value no float32 input reaches, which the paper's M_hi cannot say.
+    Only formats whose top binade binary32 can hold (exponent at most 127). A
+    wider one has a largest finite value no float32 input reaches, so the
+    paper's M_hi says nothing a float32 run could observe.
     """
     narrow = [(K, P) for K in range(3, 9) for P in range(1, K if signed else K + 1)]
     wide = [(10, 4), (12, 7), (16, 8), (16, 11)]
@@ -75,7 +82,11 @@ def _formats(signed: bool) -> list[tuple[int, int]]:
 
 
 def _max_finite(K: int, P: int, signed: bool, finite: bool) -> float:
-    """M_hi: the value of the highest code point that is neither infinity nor NaN."""
+    """M_hi: the value of the highest code point that is neither infinity nor NaN.
+
+    The code splits into an exponent field ``E`` and a ``P - 1`` bit trailing
+    significand ``T``, and decodes as a subnormal when ``E == 0`` (Fig. 7).
+    """
     B = _bias(K, P, signed)
     top = (2 ** (K - 1) - 1) if signed else (2**K - 2)  # the top code that is not NaN
     if not finite:
@@ -86,7 +97,14 @@ def _max_finite(K: int, P: int, signed: bool, finite: bool) -> float:
 
 
 def _round_to_precision(x: torch.Tensor, P: int, B: int, mode: RoundMode) -> torch.Tensor:
-    """omega-RoundToPrecision (Fig. 1) with RoundAway (Fig. 2), on float64 values."""
+    """omega-RoundToPrecision (Fig. 1) with RoundAway (Fig. 2), on float64 values.
+
+    ``x`` is scaled to an integer significand ``S`` plus a fraction ``eta`` at the
+    exponent the format gives it (clamped to the subnormal exponent ``1 - B``), and
+    ``away`` says per mode whether to step from ``floor(S)`` to the next code.
+    Parity is the significand's last bit. At ``P = 1`` there is no such bit and
+    it is the parity of the biased exponent, with the zero counted as even.
+    """
     ax = x.abs()
     regular = torch.isfinite(x) & (x != 0)
     _, e = torch.frexp(torch.where(regular, ax, torch.ones_like(ax)))
@@ -112,7 +130,10 @@ def _round_to_precision(x: torch.Tensor, P: int, B: int, mode: RoundMode) -> tor
 
 
 def _saturate(z: torch.Tensor, mode: SaturationMode, hi: float, signed: bool) -> torch.Tensor:
-    """omega-Saturate (SIV-B) into [M_lo, M_hi]; an unsigned format sends negatives to 0."""
+    """omega-Saturate (section IV-B) into [M_lo, M_hi].
+
+    An unsigned format sends every negative value to 0 first.
+    """
     lo = -hi if signed else 0.0
     if not signed:
         z = torch.where(z < 0, torch.zeros_like(z), z)
@@ -130,12 +151,12 @@ def _project(
     """omega-Saturate(omega-RoundToPrecision(x)), at P3109's bias or ``bias``.
 
     Another bias moves the largest finite value by the difference, a power of
-    two. And rounding is exact in the paper but done in float64 here, which
-    has no 2**1024: a finite input near float64's largest value that rounds up
-    comes back infinite from `_round_to_precision`, where the paper has a
-    finite result beyond the format's range -- which ``SatPropagate`` clamps
-    like any other. float64's largest value stands in for it; it is beyond
-    every format these tests round to.
+    two. Rounding is exact in the paper but done in float64 here, which has no
+    2**1024: a finite input near float64's largest value that rounds up comes
+    back infinite from ``_round_to_precision``, where the paper has a finite
+    result beyond the format's range, which SatPropagate clamps like any
+    other. float64's largest value stands in for that result, since it is
+    beyond every format these tests round to.
     """
     finite = saturation is SaturationMode.SAT_FINITE
     B = _bias(K, P, signed) if bias is None else bias
@@ -153,7 +174,12 @@ def _project(
 
 def _inputs(K: int, P: int, signed: bool) -> torch.Tensor:
     """Eight float32 values per unit in the last place, from three binades below
-    the top of the format to three above it, and the float32 extremes."""
+    the top of the format to three above it, and the float32 extremes.
+
+    The words are built from the binary32 fields, ``(e + 127) << 23 | m``. The
+    mantissa step keeps three bits below the format's last place, which puts
+    every tie and both sides of it among the inputs.
+    """
     e_top = _top_exponent(K, P, signed)
     step = 1 << max(0, 23 - (P - 1) - 3)
     words = [
@@ -179,9 +205,11 @@ def _inputs64(K: int, P: int, signed: bool) -> torch.Tensor:
     """float64 inputs around the top of the format, three binades either side.
 
     Per binade, the lowest and highest 64 codes of the format, each at the
-    places rounding decides at -- on the grid, an ulp above, and an ulp below,
-    at and above the midpoint to the next code -- plus 256 random mantissas;
-    and binary64's extremes. Most of them have bits float32 does not.
+    places where rounding decides (on the grid and one binary64 ulp above it, at
+    the midpoint to the next code and one ulp either side of it, and one ulp
+    below the next code), plus 256 random mantissas, and binary64's extremes,
+    float32's largest value among them. Most of these inputs have bits float32
+    cannot hold.
     """
     e_top = _top_exponent(K, P, signed)
     shift = 52 - (P - 1)  # the mantissa bits below the format's last place
@@ -215,6 +243,7 @@ def _inputs64(K: int, P: int, signed: bool) -> torch.Tensor:
 
 
 def _mismatches(got: torch.Tensor, want: torch.Tensor) -> torch.Tensor:
+    """Mask of elements that differ, counting a zero's sign and pairing NaN with NaN."""
     same = (got == want) & (torch.signbit(got) == torch.signbit(want))
     return ~(same | (got.isnan() & want.isnan()))
 
@@ -222,13 +251,16 @@ def _mismatches(got: torch.Tensor, want: torch.Tensor) -> torch.Tensor:
 # --- tests --------------------------------------------------------------------
 
 
-# Table I of the paper: the largest finite value of every 4-bit signed format,
-# in both domains. Pins _max_finite itself before anything is checked against it.
+# Table I of the paper, as (P, extended, finite): the largest finite value of
+# every 4-bit signed format in both domains. It pins _max_finite itself before
+# anything is checked against it.
 TABLE_I = [(1, 4.0, 8.0), (2, 2.0, 3.0), (3, 1.5, 1.75)]
 
 
 @pytest.mark.parametrize("P,extended,finite", TABLE_I)
 def test_reference_largest_finite_matches_table_i(P, extended, finite):
+    """The transcribed M_hi reproduces the paper's own table, so a wrong
+    reference cannot agree with a wrong kernel unnoticed."""
     assert _max_finite(4, P, signed=True, finite=False) == extended
     assert _max_finite(4, P, signed=True, finite=True) == finite
 
@@ -247,6 +279,13 @@ def test_reference_largest_finite_matches_table_i(P, extended, finite):
     ],
 )
 def test_largest_finite_value(device, K, P, signed, saturation_mode, largest):
+    """The largest finite value of named P3109 formats is a fixed point, and an
+    input far above it saturates or overflows as the mode says.
+
+    The literals are hand-decoded from the top code points, so they catch a range
+    counted the IEEE 754 way, which reserves a whole exponent code for infinity
+    and NaN where P3109 reserves one or two code points.
+    """
     x = torch.tensor([largest, 3.0e38], device=device)
     for mode in DETERMINISTIC:
         q = binaryK_quantize(
@@ -262,6 +301,11 @@ def test_largest_finite_value(device, K, P, signed, saturation_mode, largest):
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
 def test_top_of_range_matches_p3109(device, carrier, signed, saturation_mode):
+    """Every deterministic mode agrees with the transcription around the top binade.
+
+    It catches a clip that compares before rounding, a mode that saturates where
+    SatNone must overflow, and a largest finite value off by a code point.
+    """
     failures = []
     wide = carrier == "binary64"
     for K, P in _formats64(signed) if wide else _formats(signed):
@@ -292,10 +336,13 @@ def test_top_of_range_matches_p3109(device, carrier, signed, saturation_mode):
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
 def test_zero_and_far_below_the_smallest_subnormal(device, carrier, signed):
-    # The other end of the range, where the same RoundAway decides between zero
-    # and the smallest subnormal: +-0 becomes +0 under every mode, and a nonzero
-    # input far below the grid -- a subnormal of the carrier included -- becomes
-    # +0 or the smallest subnormal, never anything else.
+    """A zero of either sign becomes +0.0, and a nonzero input far below the grid
+    becomes +0.0 or the smallest subnormal, as RoundAway decides.
+
+    The inputs include subnormals of the carrier. A cast that tests the rounded
+    word for zero, rather than the input, lets a zero or a carrier subnormal
+    through with its sign or as a value off the grid.
+    """
     if carrier == "binary64":
         tiny = [0.0, 5e-324, 1.0e-310, 2.0**-1000, 2.0**-600, 2.0**-160 * (1 + 2.0**-40)]
         formats = [(8, 4), (8, 3), (6, 1), (16, 8), (32, 24), (40, 30)]
@@ -306,8 +353,11 @@ def test_zero_and_far_below_the_smallest_subnormal(device, carrier, signed):
         dtype = torch.float32
     x = torch.tensor(tiny + [-v for v in tiny] if signed else tiny, dtype=dtype)
     failures = []
-    # a smallest value binary64 places faithfully: bias + P <= 1023, which an
-    # unsigned 40-bit format, with eleven exponent bits, is not
+    # Keep the formats whose smallest value, 2^(2 - bias - P), is at or above
+    # 2^-1021, the lowest the binary64 cast places a subnormal grid (it derives
+    # the grid from the input's exponent field, which every binary64 subnormal
+    # shares): bias + P <= 1023. The unsigned 40-bit format, with eleven exponent
+    # bits and a bias of 1024, fails it and is skipped.
     for K, P in [(K, P) for K, P in formats if _bias(K, P, signed) + P <= 1023]:
         for mode in DETERMINISTIC:
             want = _project(x.double(), K, P, signed, mode, SaturationMode.OVF_INF)
@@ -327,9 +377,12 @@ def test_zero_and_far_below_the_smallest_subnormal(device, carrier, signed):
 @pytest.mark.parametrize("saturation_mode", list(SaturationMode))
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, saturation_mode):
-    # StochasticA picks one of the two rounding directions per input, and the
-    # result goes through the same omega-Saturate either way: an SR result is
-    # the projection of rounding toward zero or of rounding away from it.
+    """An SR result is the projection of rounding toward zero or away from it.
+
+    Stochastic rounding picks one of the two directions per input, and the result
+    goes through the same omega-Saturate either way. This catches an SR path with
+    its own, different, clip at the top of the range.
+    """
     failures = []
     for K, P, carrier in [
         (8, 4, "binary32"),
@@ -353,7 +406,8 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
             x.to(device),
             K,
             P,
-            # binary64 draws from its 52 bits, so a P = 51 format still has two
+            # The random bits come out of the carrier's mantissa below the format's
+            # last place: binary64 has 52 - (P - 1) of them, two at P = 51.
             prng_bits=min(8, 52 - (P - 1)) if wide else 8,
             is_signed=signed,
             rounding_mode=RoundMode.SR,
@@ -374,24 +428,24 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
 @pytest.mark.parametrize("saturation_mode", list(SaturationMode))
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 def test_nan_passes_through_whole(device, signed, saturation_mode):
-    # "P3109's single NaN is whichever NaN came in" (docs/source/concepts.rst):
-    # the cast simulates a value, not an encoding, so a NaN input comes back
-    # bit for bit -- payload, signalling bit and sign -- under every rounding
-    # mode and on both backends.
-    #
-    # The directed modes are where that is not free. A NaN compares false
-    # against zero, so it takes the arm that builds a negative result as
-    # -cast_absolute_down(-x), and `-x` on a NaN is a float operation PTX does
-    # not require to preserve a payload: on CUDA -(-NaN) canonicalizes it, and
-    # the sign with it, so `nan` came back as `-nan` (or the reverse) depending
-    # on how nvcc had inlined the cast. bit_helper.h's flip_sign does that
-    # negation on the word instead (T3).
+    """A NaN input comes back bit for bit (payload, signalling bit and sign) under
+    every rounding mode and on both backends.
+
+    The cast simulates a value, not an encoding, so P3109's single NaN is
+    whichever NaN came in. The directed modes are where that is not free: a NaN
+    compares false against zero, so it takes the arm that rounds a magnitude and
+    negates it back. A float negation on the device may canonicalize a NaN's
+    payload and sign, so a cast that negates with ``-x`` returns ``nan`` as
+    ``-nan`` or the reverse, depending on how the compiler inlines it.
+    ``bit_helper.h``'s ``flip_sign`` and ``negate_magnitude`` negate on the word.
+    """
+    # Signalling and quiet NaNs of both signs, with small, full and mixed payloads.
     nans32 = torch.tensor(
         [0x7F800001, 0xFF800001, 0x7FC00000, 0xFFC00000, 0x7FFFFFFF, 0xFF812345],
         dtype=torch.int64,
     ).to(torch.int32)
-    # the same in float64, and a payload in the low word, which a narrowing
-    # to float32 would have lost
+    # The same in float64, plus payloads in the low 32 bits of the word, which a
+    # cast that went through float32 would lose. The sign bit is or-ed in below.
     nans64 = torch.tensor(
         [
             0x7FF0000000000001,
@@ -427,8 +481,8 @@ def test_nan_passes_through_whole(device, signed, saturation_mode):
                 saturation_mode=saturation_mode,
             )
             bits = got.cpu().view(nans.dtype)
-            # an unsigned format turns every negative input into +0.0, which a
-            # negative NaN is not -- it is not negative, it is unordered
+            # An unsigned format turns every negative input into +0.0. A NaN with
+            # its sign bit set is not negative, it is unordered, so it stays.
             bad = bits != nans
             if bad.any():
                 i = int(bad.nonzero()[0])

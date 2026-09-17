@@ -1,16 +1,17 @@
 #pragma once
 
 // The CUDA backend as common/gemm_host.h's driver sees it: a launch context
-// and one `launch` per op. Nothing here reaches nvcc-only code, so the .cpp
-// that owns the tensors can include it; the `launch` bodies live in
-// custom_matmul_kernel.cuh and are instantiated by the four .cu files.
+// and one `launch` per op. Nothing here needs nvcc, so the .cpp that owns the
+// tensors (custom_matmul_entry.cpp) includes it; the `launch_as` bodies are
+// in custom_matmul_kernel.cuh and are instantiated by the eight
+// custom_matmul_*.cu files.
 //
-// That split is the point (finding H1). A .cu pays ~25 s of nvcc just to put
-// ATen's headers through the front end, against 3.2 s for one that includes
-// only the policies and the CUDA fp16 headers -- and the only thing the GEMM
-// .cu files ever wanted from ATen was at::Tensor in a signature and
-// getCurrentCUDAStream() in a launch. Both now happen on the g++ side of this
-// header.
+// The split exists for build time. Under nvcc a translation unit that
+// includes ATen's tensor headers pays about 25 s of fixed front-end cost,
+// against about 3 s for one that includes only the policy headers and the
+// CUDA fp16 headers. The only things the GEMM .cu files ever needed from ATen
+// were at::Tensor in a signature and getCurrentCUDAStream() in a launch, and
+// both now happen on the g++ side of this header.
 
 #include "../common/gemm_args.h"
 #include <ATen/cuda/PhiloxCudaState.h>
@@ -22,9 +23,9 @@ namespace mptorch::gemm_cuda
 
   struct CudaBackend
   {
-    // Whatever the kernel needs beyond the shape. The Philox state is drawn
+    // What the kernel needs beyond the shape. The Philox state is present
     // even when use_rng is false (as an empty state) so the launch signature
-    // does not branch; only RoundMode::SR consumes it.
+    // does not branch on it; only RoundMode::SR reads it.
     struct LaunchContext
     {
       at::PhiloxCudaState rng{};
@@ -35,20 +36,20 @@ namespace mptorch::gemm_cuda
     // generator and picks up the current stream.
     static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
 
-    // custom_matmul_kernel.cuh defines this; each custom_matmul_*.cu
-    // instantiates it for the two ops it owns in binary32, and its
-    // custom_matmul_*_f64.cu twin in binary64, which is what keeps every
-    // kernel specialization in exactly one object (finding B2) and every
-    // existing object the size it was (dev/binary64_carrier_plan.md, phase 4).
+    // Defined in custom_matmul_kernel.cuh. Each custom_matmul_*.cu
+    // instantiates it for the two ops it owns in binary32 (T = float), and
+    // its custom_matmul_*_f64.cu twin for the same two ops in binary64
+    // (T = double), so every kernel specialization lives in exactly one
+    // object and the binary64 kernels can be left out of a build.
     template <class T, class Args>
     static void launch_as(const mptorch::gemm::GemmShape &s, const Args &args,
                           const LaunchContext &ctx);
 
     // The carrier is chosen here, on the host, once per call: a float64 GEMM
-    // runs the binary64 kernels and every other dtype the binary32 ones, whose
-    // loads convert on the device. A build with MPTORCH_NO_FP64 has no
-    // binary64 objects to call, and gemm_dtype_of has already refused the
-    // dtype by the time this runs.
+    // runs the binary64 kernels, and every other dtype runs the binary32
+    // ones, whose loads convert on the device. A build with MPTORCH_NO_FP64
+    // has no binary64 objects to call, and gemm_dtype_of has already refused
+    // float64 operands by the time this runs.
     template <class Args>
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
                        const LaunchContext &ctx)

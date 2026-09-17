@@ -1,29 +1,45 @@
-"""What each carrier can hold, and what a narrower tensor can store (T4, T6).
+"""What each carrier can hold, and what a narrower tensor can store.
 
-The casts round a value of their carrier onto the format's grid and return a
-value of it -- binary64 for a float64 tensor, binary32 for float32, float16 and
-bfloat16 -- so a format with more range or precision than its carrier is
-quantized *partially*: a tensor of plausible numbers, some of the format's
-values never among them. These checks are what stops that being invisible, and
-they come in two strengths: a format that cannot function raises, and one that
-works over part of its range warns.
+This module guards the format checks of ``mptorch.number`` as ``mptorch.quant``
+reports them.
 
-Which carrier a format meets is the call's to know, so the checks run per
-call, against the carrier the call rounds in. Building a ``BinaryK`` or a
-``SuperFP`` raises only for what neither carrier can do, and warns about
-nothing.
+A cast rounds a value of its carrier onto the format's grid and returns a value
+of that carrier (binary64 for a float64 tensor or under
+``carrier=torch.float64``, binary32 for float32, float16 and bfloat16). A format
+with more range or precision than its carrier is therefore quantized
+partially: the output is a tensor of plausible numbers in which some of the
+format's values never appear. The checks guarded here make that visible, in
+two strengths. A format that cannot work at all raises ``ValueError``, and one
+that quantizes correctly over the part that fits warns with
+``FormatRangeWarning``.
 
-A result narrower than its carrier -- float16 or bfloat16 in binary32, and
-float32 too under ``carrier=torch.float64`` -- is rounded once more when it is
-stored, so the format is held against that dtype too, per call, by one of two
-rules: a
-GEMM's result can be any value of its last format, and an elementwise
-quantizer's can only be the format's answer to a value of the dtype.
+The carrier rule, for binary32: at most 24 significand bits, a largest finite
+value no bigger than binary32's, at most seven exponent bits, and a smallest
+value no lower than the floor the cast can place. That floor is 2**-125 where
+the grid is derived from the input's exponent field, which every binary32
+subnormal shares (binaryK's subnormals, superfp's supernormals), and 2**-126
+where the bottom is a magnitude compare (``NORMALS``, ``EXTENDED_NORMALS``).
+binary64 is the same derivation one carrier wider: 53 bits, 2**1023, floors
+2**-1021 and 2**-1022, ten exponent bits.
 
-The boundaries asserted here are the ones
-``dev/benchmarks/format_limits.py sweep --audit`` (and ``sweep --dtype float16
---audit``, ``--dtype bfloat16``) measured against the kernels, so a change
-that moves a bound should move a measurement first.
+Only the call knows its carrier, so the checks run per call, against the
+carrier the call rounds in. Building a ``BinaryK`` or a ``SuperFP`` raises only
+for what neither carrier can do, and warns about nothing.
+
+The storage rule: a result narrower than its carrier (float16 or bfloat16 in
+binary32, and float32 too in binary64) is rounded again when it is stored, so
+the format the result holds is also checked against that dtype, per call. A
+GEMM's sums reach the format's whole value set, so precision above the dtype's
+raises and a top or a finest step past the dtype warns. An elementwise
+quantizer's inputs are already the dtype's values, so only three edges of the
+range can land off the dtype's grid, and those warn.
+
+The pinned boundaries are not derived from the checks under test. They are the
+ones ``dev/benchmarks/format_limits.py`` measured against the kernels, with an
+oracle built from the format's value set rather than from a second cast:
+``sweep --audit`` for binary32, ``sweep --carrier binary64 --audit`` for
+binary64, and ``sweep --dtype float16 --audit`` (and ``--dtype bfloat16``) for
+storage. A change that moves a bound should move a measurement first.
 """
 
 import itertools
@@ -66,15 +82,19 @@ F32, F64 = torch.float32, torch.float64
 
 
 def _silent(call):
-    """Run a call with `FormatRangeWarning` promoted to an error."""
+    """Run ``call`` with ``FormatRangeWarning`` promoted to an error."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", FormatRangeWarning)
         return call()
 
 
 def _in(dtype, build):
-    """Build a format and round a tensor of ``dtype`` to it: the call that
-    holds the format to that dtype's carrier."""
+    """Return a thunk that builds a format and rounds a ``dtype`` tensor to it.
+
+    Running the thunk is the call that checks the format against that dtype's
+    carrier. ``build`` is a zero-argument callable, so construction errors
+    surface inside the thunk too.
+    """
     return lambda: Quant(build())(torch.ones(4, dtype=dtype))
 
 
@@ -93,14 +113,15 @@ def _in(dtype, build):
         lambda: BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE),
         lambda: BinaryK(8, 4, subnormals=SubnormalsMode.NORMALS),
         lambda: BinaryK(8, 4, subnormals=SubnormalsMode.EXTENDED_NORMALS),
-        # exactly on the floor those two reach, 2**-126
+        # smallest value exactly on the magnitude-compare floor, 2**-126
         lambda: BinaryK(8, 4, bias=127, subnormals=SubnormalsMode.NORMALS),
         lambda: BinaryK(8, 4, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
-        # and on the two exceptions, a binade higher at 2**-125
+        # the exceptions to that floor, a binade higher at 2**-125 (P = 1 in
+        # both modes, EXTENDED_NORMALS at P = 24)
         lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.NORMALS),
         lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         lambda: BinaryK(31, 24, bias=125, subnormals=SubnormalsMode.EXTENDED_NORMALS),
-        lambda: BinaryK(8, 4, prng_bits=20),  # 3 + 20 == binary32's 23
+        lambda: BinaryK(8, 4, prng_bits=20),  # man_bits 3 + 20 == binary32's 23
         lambda: SuperFP(3, 4, 1, 7),
         lambda: SuperFP(3, 4, 2, 7),
         lambda: SuperFP(3, 4, 8, 7),
@@ -110,32 +131,40 @@ def _in(dtype, build):
     ],
 )
 def test_formats_in_range_are_silent(build, dtype):
-    """Every format the library, its docs and its tests use is inside binary32's
-    bound, and so inside binary64's, which is wider at every edge."""
+    """Formats the library, docs and tests use, plus formats exactly on a bound.
+
+    All are inside binary32's bound, hence inside binary64's, which is wider at
+    every edge. A warning here means a check rejects a format the kernels hold.
+    """
     _silent(_in(dtype, build))
 
 
 @pytest.mark.parametrize(
     ("build", "match", "stored"),
     [
-        # precision: binary32 has 24 bits and cannot hold a finer grid, so
-        # nothing of such a format survives
+        # Precision: binary32 has 24 significand bits and cannot hold a finer
+        # grid, so no part of such a format quantizes correctly.
         (lambda: BinaryK(29, 25, bias=8), "bits of precision", True),
-        # no finite normal value binary32 can hold: max_num is zero, so every
-        # nonzero result overflows and only 0 and the infinities come back --
-        # and in binary64 every value is below float32's smallest
+        # No finite normal value binary32 can hold: the largest finite value
+        # is zero, so every nonzero result overflows and only 0 and the
+        # infinities come back. In binary64 every value of these two formats is
+        # below float32's smallest, hence `stored` is False.
         (lambda: BinaryK(8, 4, bias=200), "no finite normal value", False),
         (lambda: SuperFP(3, 4, 1, 200), "no finite normal value", False),
-        # the random bits share binary32's significand with the mantissa
+        # The random bits share binary32's 23-bit significand field with the
+        # mantissa, and 3 + 21 does not fit.
         (lambda: BinaryK(8, 4, prng_bits=21), "stochastic-rounding bits", True),
         (lambda: SuperFP(3, 4, 2, 7, prng_bits=21), "stochastic-rounding bits", True),
     ],
 )
 def test_formats_that_cannot_function_in_binary32_raise_at_the_call(build, match, stored):
-    """The error half: a format no part of which quantizes -- in binary32. Each
-    is whole in binary64, so building it says nothing, a float64 call is
-    silent, and the float32 call raises and points at binary64 -- which the
-    same float32 call reaches by naming it, where float32 can store the result."""
+    """A format of which binary32 quantizes nothing raises at the float32 call.
+
+    Each is whole in binary64, so building it and a float64 call are silent,
+    and the float32 error points at ``carrier=torch.float64``. Naming that
+    carrier on float32 operands works when float32 can store the result
+    (``stored``) and raises the storage error otherwise.
+    """
     fmt = _silent(build)
     with pytest.raises(ValueError, match=match) as raised:
         Quant(fmt)(torch.ones(4))
@@ -150,8 +179,12 @@ def test_formats_that_cannot_function_in_binary32_raise_at_the_call(build, match
 
 
 def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64():
-    """No hint here: a 24-bit mantissa spreads superfp's supernormals over 2**24
-    binades a code, which outruns binary64's bottom as well."""
+    """The binary32 error offers binary64 only when binary64 holds the format.
+
+    With a 24-bit mantissa superfp's supernormal codes are 2**24 binades
+    apart, which outruns binary64's bottom as well, so the float32 error
+    carries no hint and the float64 call warns.
+    """
     fmt = _silent(lambda: SuperFP(24, 4, 1, 7))
     with pytest.raises(ValueError, match="bits of precision") as raised:
         Quant(fmt)(torch.ones(4))
@@ -163,28 +196,35 @@ def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64()
 @pytest.mark.parametrize(
     ("build", "match"),
     [
-        # precision: binary64 has 53 bits
+        # precision: binary64 has 53 significand bits
         (lambda: BinaryK(60, 54), "54 bits of precision.*binary64, which has 53"),
         (lambda: SuperFP(53, 4, 1, 7), "54 bits of precision"),
-        # no finite value binary64 holds
+        # no finite normal value binary64 holds
         (lambda: BinaryK(8, 4, bias=2000), "no finite normal value binary64"),
-        # the exponent field the kernels shift a 32-bit int by
+        # 39 exponent bits: the kernels compute `1 << exp_bits` in a 32-bit int
         (lambda: BinaryK(40, 1), "exponent bits"),
-        # the regions would be misordered and the lowest normal binade lost
+        # normal_binades == 2**exp_bits leaves superfp no supernormal codes:
+        # its regions would be misordered and the lowest normal binade lost
         (lambda: SuperFP(3, 4, 16, 7), "no supernormal codes"),
-        # the random bits share binary64's significand with the mantissa
+        # the random bits share binary64's 52-bit significand field with the
+        # mantissa, and 3 + 50 does not fit
         (lambda: BinaryK(8, 4, prng_bits=50), "stochastic-rounding bits.*52 bits"),
         (lambda: BinaryK(8, 4, prng_bits=-1), "non-negative"),
     ],
 )
 def test_what_no_carrier_can_do_raises_when_the_format_is_built(build, match):
+    """Construction raises exactly what binary64, the wider carrier, cannot do."""
     with pytest.raises(ValueError, match=match):
         build()
 
 
 def test_building_a_format_never_warns():
-    """Neither for a range that outruns binary32 nor for one that outruns both:
-    which carrier a format meets is not known until it is used."""
+    """Construction is silent for a range that outruns one carrier or both.
+
+    The carrier is not known until the format is used, so a warning at build
+    time would be wrong for one of the two. Resolving a mac or a layer format
+    is construction too.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", FormatRangeWarning)
         BinaryK(16, 8)  # below binary32's floor
@@ -198,21 +238,22 @@ def test_building_a_format_never_warns():
 @pytest.mark.parametrize(
     ("build", "match"),
     [
-        # the top: above binary32's largest finite value the codes are
-        # unreachable, but everything below still quantizes -- a wide binaryK
-        # used as a precision-only target is exactly this
+        # The top: codes above binary32's largest finite value are unreachable,
+        # but everything below still quantizes. A wide binaryK used as a
+        # precision-only target is exactly this case.
         (lambda: BinaryK(8, 4, bias=-113), "above binary32"),
         (lambda: BinaryK(16, 5), "above binary32"),
         (lambda: BinaryK(16, 8, is_signed=False), "above binary32"),
-        (lambda: BinaryK(24, 8), "above binary32"),  # tests/ uses this one
+        (lambda: BinaryK(24, 8), "above binary32"),  # other test modules use it
         (lambda: SuperFP(2, 3, 1, -121), "above binary32"),
-        # the bottom: a spacing finer than 2**-149 is not binary32 at all
+        # The bottom: values spaced finer than 2**-149, binary32's smallest
+        # subnormal, are not binary32 values at all.
         (lambda: BinaryK(11, 4, bias=200), "apart at the bottom"),
         (lambda: SuperFP(4, 4, 2, 7), "apart at the bottom"),
     ],
 )
 def test_formats_whose_range_outruns_binary32_warn(build, match):
-    """The warning half: quantizes over the part binary32 holds, partially."""
+    """A range past binary32's warns: the part binary32 holds still quantizes."""
     with pytest.warns(FormatRangeWarning, match=match):
         _in(F32, build)()
 
@@ -229,13 +270,14 @@ def test_formats_whose_range_outruns_binary32_warn(build, match):
     ],
 )
 def test_formats_below_binary32_normals_warn(build, smallest):
-    """Held by binary32, but the casts cannot place an input that far down.
+    """A smallest value binary32 holds but the cast cannot place warns, by name.
 
     Every cast classifies its input by the exponent field of the binary32
-    word, and all binary32 subnormals share field 0 -- so a format reaching
-    below 2**-126 is rounded on a grid one binade coarse (binaryK) or onto
-    powers of two the cast cannot name (superfp). binary64 places all of
-    these, and a float64 tensor is silent.
+    word, and all binary32 subnormals share field 0. A format reaching below
+    2**-126 is therefore rounded on a grid one binade too coarse (binaryK) or
+    onto powers of two the cast cannot name (superfp). The warning names the
+    format's smallest value. binary64 places all of these, so a float64 tensor
+    is silent.
     """
     with pytest.warns(FormatRangeWarning, match=re.escape(smallest)):
         _in(F32, build)()
@@ -245,11 +287,14 @@ def test_formats_below_binary32_normals_warn(build, smallest):
 @pytest.mark.parametrize(
     ("ok", "bad"),
     [
-        # the bottom, at the exact bias the audit found: bias + P <= 127
+        # SUBNORMALS: the smallest value is 2**(2 - bias - P), and the floor
+        # of 2**-125 makes that bias + P <= 127
         (lambda: BinaryK(8, 4, bias=123), lambda: BinaryK(8, 4, bias=124)),
         # NORMALS and EXTENDED_NORMALS decide their bottom by comparing
         # magnitudes rather than by reading an exponent field, so they are
-        # exact one binade lower -- down to a floor of 2**-126 (T5)
+        # exact one binade lower, down to a floor of 2**-126: bias <= 127
+        # under NORMALS (floor 2**(1 - bias)) and 126 under EXTENDED_NORMALS
+        # (floor just above 2**-bias)
         (
             lambda: BinaryK(8, 4, bias=127, subnormals=SubnormalsMode.NORMALS),
             lambda: BinaryK(8, 4, bias=128, subnormals=SubnormalsMode.NORMALS),
@@ -258,9 +303,10 @@ def test_formats_below_binary32_normals_warn(build, smallest):
             lambda: BinaryK(8, 4, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
             lambda: BinaryK(8, 4, bias=127, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         ),
-        # -- except where half that floor is out of binary32's reach, which
-        # stops two of their formats a binade short. At P = 1 the round reads
-        # 2**-127 as a tie between binades and carries it to the floor ...
+        # The exceptions are where half that floor is out of binary32's
+        # reach, which stops these formats a binade short. At P = 1 the round
+        # reads the exponent field, sees 2**-127 as a tie between two binades
+        # and carries it to the floor ...
         (
             lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.NORMALS),
             lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.NORMALS),
@@ -269,21 +315,28 @@ def test_formats_below_binary32_normals_warn(build, smallest):
             lambda: BinaryK(8, 1, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
             lambda: BinaryK(8, 1, bias=127, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         ),
-        # ... and at P = 24 EXTENDED_NORMALS' half-floor needs a 2**-150 step
+        # ... and at P = 24 EXTENDED_NORMALS' half-floor, (1 + 2**-23) * 2**-127,
+        # needs a 2**-150 step, below binary32's 2**-149
         (
             lambda: BinaryK(31, 24, bias=125, subnormals=SubnormalsMode.EXTENDED_NORMALS),
             lambda: BinaryK(31, 24, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
         ),
-        # which NORMALS' power-of-two floor never does
+        # which NORMALS' power-of-two floor never needs
         (
             lambda: BinaryK(31, 24, bias=127, subnormals=SubnormalsMode.NORMALS),
             lambda: BinaryK(31, 24, bias=128, subnormals=SubnormalsMode.NORMALS),
         ),
-        # superfp's supernormal floor, likewise
+        # superfp's supernormals are placed by the exponent field too: 2**-125
         (lambda: SuperFP(3, 4, 1, 21), lambda: SuperFP(3, 4, 1, 22)),
     ],
 )
 def test_bottom_boundary_is_where_it_was_measured(ok, bad):
+    """Each pair straddles binary32's bottom bound by one step of the bias.
+
+    ``format_limits.py sweep --audit`` found no wrong answer for ``ok`` and
+    wrong answers for ``bad``. A check that drifts from the kernels fails one
+    side of a pair.
+    """
     _silent(_in(F32, ok))
     with pytest.warns(FormatRangeWarning):
         _in(F32, bad)()
@@ -301,12 +354,17 @@ def test_bottom_boundary_is_where_it_was_measured(ok, bad):
             lambda: BinaryK(31, 24, bias=126, subnormals=SubnormalsMode.EXTENDED_NORMALS),
             "round-to-nearest-away",
         ),
-        # below 2**-126 the floor itself is out of reach, and that is what is said
+        # below 2**-126 the floor itself is out of reach, and the warning says
+        # that rather than naming the half-floor
         (lambda: BinaryK(8, 1, bias=128, subnormals=SubnormalsMode.NORMALS), "exponent field"),
     ],
 )
 def test_bottom_warning_names_the_reason(build, match):
-    """The two half-floor limits are not the exponent-field one, and say so."""
+    """The warning text tells the two half-floor limits from the field one.
+
+    A P = 1 tie and a P = 24 half-floor are different defects from a floor in
+    the subnormal exponent field, and a user fixes each differently.
+    """
     with pytest.warns(FormatRangeWarning, match=match):
         _in(F32, build)()
 
@@ -319,16 +377,19 @@ def test_bottom_warning_names_the_reason(build, match):
     ],
 )
 def test_top_boundary_is_where_it_was_measured(ok, bad):
+    """Each pair straddles binary32's largest finite value by one bias step."""
     _silent(_in(F32, ok))
     with pytest.warns(FormatRangeWarning, match="above binary32"):
         _in(F32, bad)()
 
 
-# --- binary64's edges, where `sweep --carrier binary64 --audit` measured them --
+# --- binary64's edges -----------------------------------------------------------
 #
-# The same derivation one carrier wider, rounded in by a float64 tensor. Every
-# `ok` below is a format whose float64 audit found no wrong answer and no lost
-# value, and every `bad` one whose audit found both, a parameter step away.
+# The same derivation one carrier wider (53 bits, 2**1023, floors 2**-1021 and
+# 2**-1022, ten exponent bits), rounded in by a float64 tensor. Measured by
+# `dev/benchmarks/format_limits.py sweep --carrier binary64 --audit`: every
+# `ok` below is a format whose audit found no wrong answer and no lost value,
+# and every `bad` one whose audit found both, one parameter step away.
 
 EXT64 = SubnormalsMode.EXTENDED_NORMALS
 NRM64 = SubnormalsMode.NORMALS
@@ -337,9 +398,11 @@ NRM64 = SubnormalsMode.NORMALS
 @pytest.mark.parametrize(
     ("ok", "bad"),
     [
-        # SUBNORMALS: bias + P <= 1023
+        # SUBNORMALS: smallest value 2**(2 - bias - P) >= 2**-1021, so
+        # bias + P <= 1023
         (lambda: BinaryK(14, 4, bias=1019), lambda: BinaryK(14, 4, bias=1020)),
-        # the magnitude compares: bias <= 1023 under NORMALS, 1022 under EXTENDED_NORMALS
+        # the magnitude compares, floor 2**-1022: bias <= 1023 under NORMALS
+        # and 1022 under EXTENDED_NORMALS
         (
             lambda: BinaryK(14, 4, bias=1023, subnormals=NRM64),
             lambda: BinaryK(14, 4, bias=1024, subnormals=NRM64),
@@ -358,7 +421,7 @@ NRM64 = SubnormalsMode.NORMALS
             lambda: BinaryK(11, 1, bias=1023, subnormals=EXT64),
         ),
         # ... and EXTENDED_NORMALS at binary64's full precision, whose half-floor
-        # needs a 2**-1075 step
+        # needs a 2**-1075 step, below binary64's 2**-1074
         (
             lambda: BinaryK(63, 53, bias=1021, subnormals=EXT64),
             lambda: BinaryK(63, 53, bias=1022, subnormals=EXT64),
@@ -374,11 +437,12 @@ NRM64 = SubnormalsMode.NORMALS
         ),
         # superfp's supernormal floor, 2**-1021
         (lambda: SuperFP(3, 4, 1, 917), lambda: SuperFP(3, 4, 1, 918)),
-        # ten exponent bits at P3109's bias, not eleven
+        # ten exponent bits at P3109's default bias, not eleven
         (lambda: BinaryK(14, 4), lambda: BinaryK(15, 4)),
     ],
 )
 def test_binary64_bottom_boundary_is_where_it_was_measured(ok, bad):
+    """Each pair straddles binary64's bottom bound by one parameter step."""
     _silent(_in(F64, ok))
     with pytest.warns(FormatRangeWarning, match="binary64"):
         _in(F64, bad)()
@@ -392,6 +456,7 @@ def test_binary64_bottom_boundary_is_where_it_was_measured(ok, bad):
     ],
 )
 def test_binary64_top_boundary_is_where_it_was_measured(ok, bad):
+    """Each pair straddles binary64's largest finite value by one bias step."""
     _silent(_in(F64, ok))
     with pytest.warns(FormatRangeWarning, match="above binary64"):
         _in(F64, bad)()
@@ -408,13 +473,16 @@ def test_binary64_top_boundary_is_where_it_was_measured(ok, bad):
     ],
 )
 def test_binary64_bottom_warning_names_the_reason(build, match):
+    """binary64's bottom warnings tell the same three reasons apart."""
     with pytest.warns(FormatRangeWarning, match=match):
         _in(F64, build)()
 
 
 def test_binary64_precision_and_stochastic_bits_are_where_they_were_measured():
-    """P = 53 and ``man_bits + prng_bits = 52`` are the last the kernel rounds
-    faithfully; one past either raises when the format is built."""
+    """``P = 53`` and ``man_bits + prng_bits = 52`` are the last binary64 rounds.
+
+    One past either raises when the format is built, since no carrier is wider.
+    """
     x = torch.ones(4, dtype=F64)
     _silent(lambda: Quant(BinaryK(63, 53, bias=512))(x))
     _silent(lambda: Quant(BinaryK(14, 4, bias=512, prng_bits=49), RoundMode.SR)(x))
@@ -425,7 +493,10 @@ def test_binary64_precision_and_stochastic_bits_are_where_they_were_measured():
 
 
 def test_warning_can_be_filtered():
-    """The warning names a category so a caller who means it can silence it."""
+    """The warning has its own category, so a caller who means it can filter it.
+
+    The filtered call still quantizes.
+    """
     fmt = BinaryK(16, 8)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("ignore", FormatRangeWarning)
@@ -436,11 +507,12 @@ def test_warning_can_be_filtered():
 
 @pytest.mark.parametrize("dtype", [F32, torch.float16, torch.bfloat16])
 def test_precision_is_bounded_by_the_carrier_not_by_storage(dtype):
-    """A float64 operand rounds in binary64, and every other dtype in binary32
-    unless it names binary64.
+    """Precision is checked against the carrier, not the dtype the tensor stores.
 
-    The format below holds ``1 + 2**-30`` exactly and binary32 does not; before
-    binary64 was a carrier the float64 call was refused too.
+    A float64 operand rounds in binary64, and every other dtype in binary32
+    unless the call names binary64. The 41-bit format below holds ``1 + 2**-30``
+    exactly and binary32 does not, so the float64 call must return it and the
+    narrower calls must raise rather than round it away.
     """
     x = torch.tensor([1.0 + 2.0**-30], dtype=F64)
     assert _silent(lambda: binaryK_quantize(x, 50, 41, bias=256)).item() == 1.0 + 2.0**-30
@@ -449,9 +521,11 @@ def test_precision_is_bounded_by_the_carrier_not_by_storage(dtype):
     with pytest.raises(ValueError, match="bits of precision"):
         superfp_quantize(x.to(dtype), 30, 4, 1, 7)
     # 24 bits of precision is the most binary32 can express, and it is allowed
+    # whatever the dtype stores
     assert binaryK_quantize(x.to(dtype), 30, 24, bias=8).dtype == dtype
-    # binary64's bounds for the narrower tensor too: its own values, which a
-    # finer format hands back unchanged, and nothing for the dtype to say
+    # Naming binary64 applies its bounds to the narrower tensor too. The
+    # inputs are the dtype's own values, which a finer format hands back
+    # unchanged, so the storage check has nothing to report.
     y = x.to(dtype)
     assert torch.equal(_silent(lambda: binaryK_quantize(y, 50, 41, bias=256, carrier=F64)), y)
     # and a carrier narrower than the tensor is refused, not used
@@ -460,7 +534,11 @@ def test_precision_is_bounded_by_the_carrier_not_by_storage(dtype):
 
 
 def test_the_carrier_a_call_rounds_in_is_the_one_it_checks():
-    """One format, both verdicts: the operand dtype and `carrier=` pick which."""
+    """One format gets each carrier's verdict, picked by dtype and ``carrier=``.
+
+    ``BinaryK(16, 8)`` reaches 2**-134, below binary32's floor and inside
+    binary64's.
+    """
     mac = SplitMac(BinaryK(16, 8), BinaryK(16, 8))
     mac64 = SplitMac(BinaryK(16, 8), BinaryK(16, 8), carrier=F64)
     a = torch.ones(2, 3, dtype=F64)
@@ -470,16 +548,19 @@ def test_the_carrier_a_call_rounds_in_is_the_one_it_checks():
     with pytest.warns(FormatRangeWarning, match="2\\^-134"):
         Quant(BinaryK(16, 8))(a.float())
     # binary64 holds all of it, and a float32 result stores all of it: the
-    # finest step, 2**-134, is a float32 subnormal
+    # finest step, 2**-134, is on float32's subnormal grid (step 2**-149)
     _silent(lambda: qmatmul(a.float(), a.float().mT, mac64))
     _silent(lambda: Quant(BinaryK(16, 8), carrier=F64)(a.float()))
 
 
 def test_binary64_holds_every_format_binary32_holds():
-    """The spec builders ask binary64 only about formats binary32 has found
-    something in (`_format_findings`), which is sound only if binary64 is wider
-    at every edge. Swept over widths, biases either side of both carriers'
-    edges and every mode that moves an edge."""
+    """No format is clean in binary32 and flagged in binary64.
+
+    The spec builders ask binary64 only about formats binary32 found something
+    in (``_format_findings``), which is sound only if binary64 is wider at
+    every edge. Swept over widths, biases either side of both carriers' edges
+    and every mode that moves an edge.
+    """
     b32 = b64 = 0
     for K, P in itertools.product(range(1, 36), range(1, 28)):
         if P > K:
@@ -512,10 +593,11 @@ def test_binary64_holds_every_format_binary32_holds():
 # --- the plain-integer wrappers reach the same rule ---------------------------
 #
 # The wrappers in `mptorch.quant.ops` take a format as loose integers and never
-# build a `BinaryK`/`SuperFP`, so without these they would quantize onto a grid
-# they cannot reach and say nothing. `BinaryK(16, 8)` and `SuperFP(3, 4, 1, 22)`
-# are the two formats used below: the first reaches 2**-134, the second
-# 2**-126, both inside binary32 at the top and inside binary64 everywhere.
+# build a `BinaryK`/`SuperFP`, so without their own checks they would quantize
+# onto a grid they cannot reach and say nothing. `BinaryK(16, 8)` and
+# `SuperFP(3, 4, 1, 22)` are the two formats used below: the first reaches
+# 2**-134, the second 2**-126, both inside binary32 at the top and inside
+# binary64 everywhere.
 
 
 @pytest.mark.parametrize(
@@ -551,8 +633,13 @@ def test_binary64_holds_every_format_binary32_holds():
     ],
 )
 def test_every_spec_builder_finds_every_slot(build):
-    """Each builder holds every format it rounds with to both carriers, once,
-    and says nothing until a call picks one of them."""
+    """Each builder checks every format slot against both carriers, silently.
+
+    Each case hides one out-of-range format in a different slot (multiply,
+    accumulate, fused, a later palette entry). ``findings`` is a (binary32,
+    binary64) pair, each a deduplicated tuple of ``(error, warning)`` entries,
+    reported only when a call picks a carrier.
+    """
     spec = _silent(build)
     (b32, b64) = spec.findings
     assert len(b32) == 1 and b32[0][0] is None and "smallest value" in str(b32[0][1])
@@ -560,7 +647,11 @@ def test_every_spec_builder_finds_every_slot(build):
 
 
 def test_a_spec_builder_raises_what_no_carrier_can_do():
-    """The plain-integer spelling of what `BinaryK(60, 54)` raises when built."""
+    """A builder raises what ``BinaryK(60, 54)`` raises when built.
+
+    It takes plain integers and never constructs the format object. A
+    ``carrier`` that is not ``torch.float32`` or ``torch.float64`` raises too.
+    """
     with pytest.raises(ValueError, match="54 bits of precision"):
         _binaryK_spec(mul_K=8, mul_P=4, acc_K=60, acc_P=54)
     with pytest.raises(ValueError, match="54 bits of precision"):
@@ -572,6 +663,7 @@ def test_a_spec_builder_raises_what_no_carrier_can_do():
 
 
 def test_quantize_wrappers_check_their_format():
+    """The two elementwise wrappers warn and raise per call, from plain integers."""
     x = torch.zeros(4)
     with pytest.warns(FormatRangeWarning, match=re.escape("2^-134")):
         binaryK_quantize(x, 16, 8)
@@ -582,6 +674,7 @@ def test_quantize_wrappers_check_their_format():
 
 
 def test_matmul_wrapper_checks_its_format():
+    """A flat GEMM wrapper reports the verdict of the carrier its operands pick."""
     a, b = torch.randn(2, 3), torch.randn(3, 2)
     with pytest.warns(FormatRangeWarning, match=re.escape("2^-134")):
         binaryK_matmul(a, b, mul_K=16, mul_P=8)
@@ -591,8 +684,12 @@ def test_matmul_wrapper_checks_its_format():
 
 
 def test_a_format_object_is_checked_once_per_call_at_the_callers_line():
-    """Not when it is built, not when its mac is resolved: at the call, which
-    is the first to know the carrier, naming the line that made it."""
+    """A format object is reported once, at the call, naming the caller's line.
+
+    Neither building it nor resolving its mac knows the carrier. The warning
+    is raised deep inside mptorch, and ``skip_file_prefixes`` attributes it to
+    the first frame outside mptorch and torch.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", FormatRangeWarning)
         fmt = BinaryK(16, 8)
@@ -604,21 +701,27 @@ def test_a_format_object_is_checked_once_per_call_at_the_callers_line():
     assert caught[0].filename == __file__
 
 
-# --- what a tensor narrower than its carrier can store (T6) --------------------
+# --- what a tensor narrower than its carrier can store --------------------------
 #
 # A half-width tensor rounds in binary32, its carrier, and the result is
-# rounded again when it is written; under binary64 a float32 one does too. The
-# dtype is the call's, so the check runs per call, against the
-# format whose values the result holds -- and by one of two rules, because the
-# two ops reach different parts of that format. `sweep --dtype float16 --audit`
-# measured every boundary below through both: a fused GEMM over operands of the
-# dtype, and the elementwise quantizer over every value of it.
+# rounded again when it is written. Under binary64 a float32 one is too. Only
+# the call knows the dtype, so the check runs per call, against the format
+# whose values the result holds, and by one of two rules, because the two ops
+# reach different parts of that format. float16's bounds are 11 bits of
+# precision, a top of 65504 and a finest step of 2**-24, and bfloat16's
+# precision is 8 bits. `dev/benchmarks/format_limits.py sweep --dtype float16
+# --audit` measured every boundary below through both ops: a fused GEMM over
+# operands of the dtype, and the elementwise quantizer over every value of it.
 
 F16, BF16 = torch.float16, torch.bfloat16
 
 
 def _fma(dtype, **fmt):
-    """A fused GEMM whose result holds `fmt`'s values, over operands of `dtype`."""
+    """Return a thunk running a fused GEMM over all-ones ``dtype`` operands.
+
+    The result holds ``fmt``'s values. superfp keywords (``fma_man_bits``)
+    select ``superfp_matmul_fma``, anything else ``binaryK_matmul_fma``.
+    """
     a, b = torch.ones(2, 3, dtype=dtype), torch.ones(3, 2, dtype=dtype)
     if "fma_man_bits" in fmt:
         return lambda: superfp_matmul_fma(a, b, **fmt)
@@ -626,6 +729,11 @@ def _fma(dtype, **fmt):
 
 
 def _quant(dtype, *fmt, **kw):
+    """Return a thunk quantizing a ``dtype`` tensor elementwise.
+
+    Four positional format arguments select ``superfp_quantize``, two select
+    ``binaryK_quantize``.
+    """
     x = torch.ones(4, dtype=dtype)
     if len(fmt) == 4:
         return lambda: superfp_quantize(x, *fmt, **kw)
@@ -640,13 +748,15 @@ SATF: dict[str, Any] = dict(saturation_mode=SaturationMode.SAT_FINITE)
 @pytest.mark.parametrize(
     ("ok", "bad", "match"),
     [
-        # the top: a result above 65504 is stored as infinity (bias >= 16)
+        # the top: a result above 65504 is stored as infinity, and this 5-bit
+        # exponent field stays under it only for bias >= 16
         (
             _fma(F16, fma_K=8, fma_P=3, fma_bias=16),
             _fma(F16, fma_K=8, fma_P=3, fma_bias=15),
             "above float16",
         ),
-        # the finest step, 2**-24, in each subnormals mode
+        # the finest step float16 stores, 2**-24, in each subnormals mode and
+        # for superfp, followed by superfp's top
         (
             _fma(F16, fma_K=8, fma_P=4, fma_bias=22),
             _fma(F16, fma_K=8, fma_P=4, fma_bias=23),
@@ -675,7 +785,11 @@ SATF: dict[str, Any] = dict(saturation_mode=SaturationMode.SAT_FINITE)
     ],
 )
 def test_gemm_storage_range_boundaries_warn(ok, bad, match):
-    """A GEMM's sums land anywhere, so every value of its last format is a result."""
+    """A GEMM whose last format tops or undercuts the dtype's range warns.
+
+    Its sums land anywhere on that format's grid, so every value of the format
+    is a possible result, stored or not.
+    """
     _silent(ok)
     with pytest.warns(FormatRangeWarning, match=match):
         bad()
@@ -694,7 +808,8 @@ def test_gemm_storage_range_boundaries_warn(ok, bad, match):
             _fma(BF16, fma_K=13, fma_P=9, fma_bias=8),
             "a bfloat16 result holds 8",
         ),
-        # nothing of the format is stored: its largest value is under 2**-24
+        # nothing of the format is stored: its largest value is under 2**-24,
+        # float16's smallest
         (
             _fma(F16, fma_K=8, fma_P=4, fma_bias=22),
             _fma(F16, fma_K=8, fma_P=4, fma_bias=60),
@@ -703,6 +818,11 @@ def test_gemm_storage_range_boundaries_warn(ok, bad, match):
     ],
 )
 def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
+    """One bit past the dtype's precision (float16 11, bfloat16 8) raises.
+
+    Storing would round every sum a second time, so the format does not
+    survive. A format the dtype stores no nonzero value of raises as well.
+    """
     _silent(ok)
     with pytest.raises(ValueError, match=match):
         bad()
@@ -711,14 +831,14 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
 @pytest.mark.parametrize(
     ("ok", "bad", "match"),
     [
-        # the top, where it is also the value set's: 65504 is off the grid of
-        # a format that reaches past it, and rounds up out of float16's range
+        # Edge 1, the top: 65504 is off the grid of a format that reaches past
+        # it, and rounds up out of float16's range.
         (_quant(F16, 8, 3, bias=16), _quant(F16, 8, 3, bias=15), "rounds up out of float16"),
         (_quant(F16, 2, 3, 4, -8), _quant(F16, 2, 3, 4, -9), "rounds up out of float16"),
-        # EXTENDED_NORMALS' hole: 2**-bias is an input float16 has and the
-        # format does not, and the value above it is float16's only while its
-        # step is -- up to bias 21, and again from 25, where float16 no longer
-        # has the hole either
+        # Edge 2, EXTENDED_NORMALS' hole: 2**-bias is an input float16 has and
+        # the format does not, and the value above it, (1 + 2**-3) * 2**-bias,
+        # is float16's only while its 2**(-bias - 3) step is, which is up to
+        # bias 21. From bias 25 float16 no longer has the hole either.
         (
             _quant(F16, 8, 4, bias=21, **EXT),
             _quant(F16, 8, 4, bias=22, **EXT),
@@ -729,7 +849,8 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
             _quant(F16, 8, 4, bias=24, **EXT),
             "no value at 2\\^-24",
         ),
-        # a largest value finer than float16, reached only by saturating onto it
+        # Edge 3: a largest value finer than float16's grid, which an input
+        # reaches only by saturating onto it.
         (_quant(F16, 16, 12, bias=8), _quant(F16, 16, 12, bias=8, **SATF), "saturates onto it"),
         (
             _quant(F16, 15, 11, bias=8, **SATF),
@@ -739,11 +860,12 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
     ],
 )
 def test_quantizer_storage_edges_warn(ok, bad, match):
-    """An elementwise quantizer's inputs are the dtype's values already.
+    """The three range edges where a quantizer leaves the dtype's grid warn.
 
-    So what it can return off the dtype's grid is only at the edges of the
-    format's range -- the audit measured every one of these clean on one side
-    and wrong on the other.
+    An elementwise quantizer's inputs are the dtype's values already, and a
+    format at least as fine hands them back unchanged, so an off-grid result
+    can only come from an edge of the format's range. The audit measured each
+    ``ok`` clean and each ``bad`` wrong.
     """
     _silent(ok)
     with pytest.warns(FormatRangeWarning, match=match):
@@ -768,7 +890,11 @@ def test_quantizer_storage_edges_warn(ok, bad, match):
     ],
 )
 def test_what_a_gemm_reaches_a_quantizer_does_not(quantize, gemm):
-    """The two rules differ exactly where the audit found the two ops differ."""
+    """Formats a quantizer accepts silently and a GEMM warns or raises about.
+
+    The two rules differ exactly where the audit found the two ops differ. One
+    rule shared by both ops fails one half of every pair.
+    """
     _silent(quantize)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", FormatRangeWarning)
@@ -780,9 +906,11 @@ def test_what_a_gemm_reaches_a_quantizer_does_not(quantize, gemm):
 
 
 def test_the_storage_rule_is_what_the_kernel_does():
-    """One case per rule, straight from the kernel, so the text is not the evidence."""
-    # E5M2 as this library spells it reaches 98304; 60000 rounds up to 65536,
-    # and float16 stores that as infinity even though the format saturates
+    """One kernel run per rule, so a warning's text is not the only evidence."""
+    # BinaryK(8, 3, bias=15) is E5M2's layout, but P3109 reserves only the top
+    # code rather than the top binade, so it reaches 98304. 60000 rounds up to
+    # 65536 on its grid, and float16 stores that as infinity even though the
+    # format saturates.
     x = torch.tensor([60000.0], dtype=F16)
     with pytest.warns(FormatRangeWarning):
         y = binaryK_quantize(x, 8, 3, bias=15, rounding_mode=RoundMode.RU, **SATF)
@@ -798,18 +926,24 @@ def test_the_storage_rule_is_what_the_kernel_does():
 
 
 def test_only_the_last_rounding_of_a_gemm_is_stored():
-    """The multiply format's products are binary32 intermediates; the sum is the result."""
+    """Only the format a GEMM rounds last is checked against the dtype.
+
+    The multiply format's products are intermediates in the carrier, and the
+    accumulate (or fused) rounding is what the result holds.
+    """
     a, b = torch.ones(2, 3, dtype=F16), torch.ones(3, 2, dtype=F16)
     # a multiply format float16 could not store, under an accumulate it can
     _silent(lambda: binaryK_matmul(a, b, mul_K=20, mul_P=16, mul_bias=8, acc_K=8, acc_P=4))
     with pytest.raises(ValueError, match="float16 result holds 11"):
         binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=12, acc_bias=8)
-    # nothing rounded last, nothing to hold against the dtype
+    # with the last rounding off, no format's values are stored and there is
+    # nothing to check against the dtype
     _silent(lambda: binaryK_matmul(a, b, mul_K=16, mul_P=12, mul_bias=8, accumulate_quant=False))
     _silent(lambda: binaryK_matmul_fma(a, b, fma_K=16, fma_P=12, fma_bias=8, fma_quant=False))
 
 
 def test_every_palette_entry_is_held_against_the_dtype():
+    """A mixed GEMM checks each palette entry, not just the first, for storage."""
     a, b = torch.ones(2, 3, dtype=F16), torch.ones(3, 2, dtype=F16)
     prec_idx = torch.tensor([[0, 1], [1, 0]], dtype=torch.int32)
     _silent(lambda: binaryK_matmul_mixed(a, b, prec_idx, mul_K=[8, 8], mul_P=[4, 3]))
@@ -818,7 +952,7 @@ def test_every_palette_entry_is_held_against_the_dtype():
 
 
 def test_float32_and_float64_results_are_not_held_against_a_dtype():
-    """They store every value of their carrier, so there is nothing more to say."""
+    """A result as wide as its carrier stores every value, so nothing is checked."""
     for dtype in (torch.float32, torch.float64):
         _silent(_quant(dtype, 16, 12, bias=8, **SATF))
         _silent(_quant(dtype, 8, 3, bias=15))
@@ -826,9 +960,9 @@ def test_float32_and_float64_results_are_not_held_against_a_dtype():
     _silent(_fma(torch.float64, fma_K=16, fma_P=12, fma_bias=8, carrier=F64))
 
 
-# The same two rules hold a float32 result under binary64, at float32's bounds:
-# 24 bits of precision, 2**128 and a 2**-149 step for a GEMM, and the edges of
-# the range for the quantizer. The formats are binary64's to carry either way.
+# The same two rules apply to a float32 result under binary64, at float32's
+# bounds: 24 bits of precision, 2**128 and a 2**-149 step for a GEMM, and the
+# edges of the range for the quantizer. binary64 carries every format below.
 C64: dict[str, Any] = dict(carrier=F64)
 
 
@@ -865,7 +999,7 @@ C64: dict[str, Any] = dict(carrier=F64)
             "saturates onto it",
             False,
         ),
-        # and float16's bounds for a float16 result, whichever carrier made it
+        # float16's bounds hold for a float16 result whichever carrier made it
         (
             _fma(F16, fma_K=15, fma_P=11, fma_bias=8, **C64),
             _fma(F16, fma_K=16, fma_P=12, fma_bias=8, **C64),
@@ -881,6 +1015,7 @@ C64: dict[str, Any] = dict(carrier=F64)
     ],
 )
 def test_a_binary64_result_is_held_against_the_narrower_dtype(ok, bad, match, error):
+    """The storage rule reads the result's dtype, not the carrier that rounded it."""
     _silent(ok)
     if error:
         with pytest.raises(ValueError, match=match):
@@ -891,8 +1026,12 @@ def test_a_binary64_result_is_held_against_the_narrower_dtype(ok, bad, match, er
 
 
 def test_the_binary64_storage_rule_is_what_the_call_does():
-    """float32's largest value is off a 4-bit grid that reaches past it, so
-    rounding it up in binary64 lands on 2**128, which float32 stores as infinity."""
+    """The kernel run behind the float32 top-edge warning.
+
+    float32's largest value is off a 4-bit grid that reaches past it, so
+    rounding it up in binary64 lands on 2**128, which float32 stores as
+    infinity.
+    """
     x = torch.tensor([3.4028234663852886e38], dtype=F32)
     with pytest.warns(FormatRangeWarning, match="rounds up out of float32"):
         y = binaryK_quantize(x, 12, 4, bias=127, rounding_mode=RoundMode.RU, carrier=F64)
@@ -901,7 +1040,10 @@ def test_the_binary64_storage_rule_is_what_the_call_does():
 
 
 def test_a_format_object_is_held_against_the_dtype_at_the_call():
-    """A `BinaryK` does not know its dtype, so the mac tier checks per call too."""
+    """The mac tier applies the storage rule per call as well.
+
+    A ``BinaryK`` does not know the dtype its values will be stored in.
+    """
     mac = SplitMac(BinaryK(8, 4), BinaryK(8, 3, bias=15))
     a = torch.ones(2, 3, dtype=F16)
     _silent(lambda: qmatmul(a.float(), a.float().mT, mac))
@@ -912,10 +1054,14 @@ def test_a_format_object_is_held_against_the_dtype_at_the_call():
 
 
 def test_stochastic_bits_are_bounded_by_the_carrier_not_the_dtype():
-    """The bits are drawn in the carrier's value the kernel rounds, not in the dtype."""
+    """``man_bits + prng_bits`` is bounded by the carrier's significand field.
+
+    The random bits are drawn against the carrier value the kernel rounds, not
+    against the dtype the tensor stores.
+    """
     x = torch.rand(64, dtype=BF16)
     sr: dict[str, Any] = dict(rounding_mode=RoundMode.SR)
-    # 3 + 20 == binary32's 23, far past bfloat16's 7
+    # man_bits 3 + 20 == binary32's 23, far past bfloat16's 7
     _silent(lambda: binaryK_quantize(x, 8, 4, prng_bits=20, **sr))
     _silent(
         lambda: binaryK_matmul_fma(
@@ -942,8 +1088,12 @@ def test_stochastic_bits_are_bounded_by_the_carrier_not_the_dtype():
 
 
 def test_a_storage_warning_names_the_callers_line():
-    """Reached at different depths -- a wrapper, a hook, a backward pass -- it
-    names the first frame outside mptorch and torch, which is the caller's."""
+    """A storage warning names the caller's line at whatever depth it is raised.
+
+    A wrapper, a layer hook and a backward pass reach the check at different
+    stack depths, so a fixed ``stacklevel`` would point into mptorch or torch.
+    ``skip_file_prefixes`` names the first frame outside both trees.
+    """
     lin = QLinear(
         3, 3, formats=binaryK_gemm_formats(mul_K=8, mul_P=4, acc_K=8, acc_P=3, acc_bias=15)
     )

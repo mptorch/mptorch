@@ -1,3 +1,8 @@
+// Binds the CUDA implementations to the op schemas declared in
+// ../quant_ops.cpp. The functions are declared in ../quant_ops.h and defined
+// in this directory: the two elementwise quantizers in binaryK_kernel.cu and
+// superfp_kernel.cu, the narrowing op in narrow_entry.cpp, and the eight
+// GEMM ops in custom_matmul_entry.cpp.
 #include "../quant_ops.h"
 #include <torch/library.h>
 

@@ -6,18 +6,18 @@
 namespace mptorch::gemm_cuda
 {
 
-  // Draws (seed, offset) from ATen's default CUDA generator (respecting
-  // torch.manual_seed, same as the elementwise binaryK_quantize/
-  // superfp_quantize SR path's quant_rng_engine_inputs in cuda/utils.cuh),
-  // reserving `counter_offset` 128-bit Philox blocks so a subsequent
-  // unrelated RNG-consuming op doesn't reuse the same (seed, offset) pair --
-  // the standard native CUDA RNG kernel idiom (see e.g. native/cuda/Dropout.cu
-  // upstream). Only drawn when RoundMode::SR is selected. draws_per_thread is
-  // a safe upper bound on how many random values any single output element's
-  // thread may draw over its K-step reduction (2*K for SplitMac's independent
-  // mul/add draws, K for FusedMac's single draw per step -- Args::
-  // draws_per_k_step times K, applied by the driver) -- Philox batches 4
-  // draws per 128-bit block.
+  // Picks up the current stream and, under RoundMode::SR, draws (seed,
+  // offset) from ATen's default CUDA generator, so torch.manual_seed governs
+  // the GEMM's draws exactly as it governs the elementwise quantizers'
+  // (quant_rng_engine_inputs in utils.cuh). The generator's offset is
+  // advanced by `counter_offset` 128-bit Philox blocks so that no later
+  // RNG-consuming op reuses the same (seed, offset) pair; this is the idiom
+  // of ATen's own CUDA RNG kernels (native/cuda/Dropout.cu, for one).
+  // draws_per_thread is an upper bound on the 32-bit words one output
+  // element's thread consumes over its K-step reduction, as the driver
+  // computes it: Args::draws_per_k_step (2 for SplitMac's separate multiply
+  // and add draws, 1 for FusedMac's one per step) times K, doubled in
+  // binary64 where a draw is two words. Philox yields four words per block.
   CudaBackend::LaunchContext CudaBackend::make_context(bool use_rng, uint64_t draws_per_thread)
   {
     LaunchContext ctx;

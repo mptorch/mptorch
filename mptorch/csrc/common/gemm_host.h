@@ -1,36 +1,24 @@
 #pragma once
 
-// The host-side prologue and epilogue every GEMM entry point repeats, written
-// once (finding H1).
+// The host-side prologue and epilogue shared by all sixteen GEMM entry
+// points (eight ops, two backends): the input checks, the shape derivation,
+// the contiguous() copies, the output allocation, the empty early-return,
+// the precision-index validation, the dtype tag and the RNG-state draw. An
+// entry point is one schema-to-Args packing (the pack_* functions at the
+// bottom, structs in common/gemm_args.h) plus one call to a driver below
+// with the backend's name. Keeping this in one place is what stops the two
+// backends' checks, error messages and observable ordering from drifting
+// apart.
 //
-// B2 moved the kernels and their helpers into cuda/custom_matmul_kernel.cuh /
-// cpu/custom_matmul_kernel.h and spread the sixteen entry points over eight
-// files, but left the entry points themselves ~1,100 lines that differed only
-// in which policy they constructed. Every one repeated the input checks, the
-// shape derivation, the float64 narrowing, contiguous(), the output
-// allocation, the empty early-return, the enum casts, the RNG-state draw, the
-// dtype tag and the widen -- and check_matmul_inputs, matmul_output_shape,
-// check_palette_lengths and resolve_prec_idx were copied verbatim between the
-// two backends' headers besides.
-//
-// What is left at each of the sixteen call sites is the schema-to-Args
-// packing (common/gemm_args.h) and the name of the backend. X1's batch
-// handling lands here, once, rather than in twenty places.
-//
-// A Backend supplies:
-//   using LaunchContext            -- whatever its kernel needs beyond the
-//                                     shape: an RNG state, a stream.
-//   make_context(use_rng, draws)   -- draws that state on the host.
-//   launch(shape, args, ctx)       -- one call per Args type, which picks the
-//                                     carrier from shape.dt and calls a
-//                                     launch_as<T, Args> that is only declared
-//                                     where this header is included: the
-//                                     kernel headers define it and the
-//                                     custom_matmul_*.cu / .cpp files
-//                                     instantiate it, one carrier per file
-//                                     (so this ATen-carrying header never
-//                                     reaches nvcc, and no object holds both
-//                                     carriers' kernels).
+// A Backend supplies three things. `LaunchContext` is whatever its kernel
+// needs beyond the shape: an RNG state, a stream. `make_context(use_rng,
+// draws)` draws that state on the host, where `draws` is the most Philox
+// words one output element may consume. `launch(shape, args, ctx)` is one
+// call per Args type, which picks the carrier from shape.dt and calls a
+// `launch_as<T, Args>` that is only declared where this header is included:
+// the kernel headers define it and the custom_matmul_*.cu / .cpp files
+// instantiate it, one carrier per file, so this ATen-carrying header never
+// reaches nvcc and no object holds both carriers' kernels.
 
 #include "dispatch.h"
 #include "gemm_args.h"
@@ -48,11 +36,12 @@ namespace mptorch::gemm
 {
   using at::Tensor;
 
-  // The one place a GEMM's round_mode is validated. Both drivers below call
-  // this before anything casts the integer, so dispatch_round_mode never sees
-  // a value it would have to guess at -- it used to map an unnamed one to RNE
-  // through its `default:`, which is invisible from Python. The enum members
-  // themselves are checked in gemm_dtype.h's is_round_mode.
+  // The one place a GEMM's ranks, round_mode and accumulate_algorithm are
+  // validated. Both drivers call this before anything casts the integers, so
+  // dispatch_round_mode never sees a value it would have to guess at: an
+  // integer naming no mode would otherwise fall through its `default:` arm
+  // and round to nearest-even, invisibly from Python. The enum members
+  // themselves are enumerated in gemm_dtype.h's is_round_mode.
   inline void check_matmul_inputs(const Tensor &a, const Tensor &b, const char *op_name,
                                   int64_t round_mode, int64_t accumulate_algorithm)
   {
@@ -65,17 +54,20 @@ namespace mptorch::gemm
                 op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
   }
 
-  // The op boundary is rank 2 or 3, strictly (X1): all broadcasting, 1D
-  // promotion and reshaping stay in Python (mptorch/quant/ops.py's
-  // `_matmul_operands`), which is where torch.matmul's own rules can be
-  // expressed as views instead of as another shape language down here.
+  // Derives (M, K, N), the batch size, the two operand batch strides and
+  // whether the output is rank 3, and rejects mismatched inner or batch
+  // dimensions.
   //
-  // What is left is one batch dimension whose extent each operand either
-  // carries or does not: a rank-3 operand's leading dim is the batch or 1,
-  // and 1 -- like rank 2 -- becomes a stride of 0, so a shared operand is
-  // read in place rather than expanded. `batched` says whether the *output*
-  // gets that dimension, which is a question about the caller's ranks rather
-  // than about `batch`: a `[1, M, K] @ [K, N]` call returns [1, M, N].
+  // The op boundary is rank 2 or 3, strictly: all broadcasting, 1D promotion
+  // and reshaping stay in Python (mptorch/quant/ops.py's `_matmul_operands`),
+  // where torch.matmul's own rules can be expressed as views instead of as a
+  // second shape language down here. What is left is one batch dimension
+  // whose extent each operand either carries or does not: a rank-3
+  // operand's leading dim is the batch or 1, and 1, like rank 2, becomes a
+  // stride of 0, so a shared operand is read in place rather than expanded.
+  // `batched` says whether the *output* gets that dimension, which is a
+  // question about the caller's ranks rather than about `batch`: a
+  // `[1, M, K] @ [K, N]` call returns [1, M, N].
   inline void matmul_output_shape(const Tensor &a, const Tensor &b, bool trans_a, bool trans_b,
                                   const char *op_name, int64_t &M, int64_t &K, int64_t &N,
                                   int64_t &batch, int64_t &stride_a, int64_t &stride_b,
@@ -106,9 +98,9 @@ namespace mptorch::gemm
     stride_b = bb == 1 ? 0 : b_r * b_c;
   }
 
-  // The output's shape, as the two drivers allocate it. Returned by value and
-  // consumed inside the same full-expression, where the vector outlives the
-  // IntArrayRef at::empty borrows from it.
+  // The output's shape, as the two drivers allocate it. Returned by value
+  // and consumed inside the same full-expression, so the vector outlives the
+  // IntArrayRef that at::empty borrows from it.
   inline std::vector<int64_t> matmul_output_sizes(int64_t batch, int64_t M, int64_t N,
                                                   bool batched)
   {
@@ -117,6 +109,9 @@ namespace mptorch::gemm
     return {M, N};
   }
 
+  // A mixed op's palette has `n` formats, 1..MAX_GEMM_FORMATS, and every
+  // per-slot parameter list must have that length. Called by the mixed
+  // packers before they index any list.
   inline void check_palette_lengths(int64_t n, const char *op_name,
                                     std::initializer_list<int64_t> other_lens)
   {
@@ -127,44 +122,44 @@ namespace mptorch::gemm
                   " (got one of length ", l, ")");
   }
 
-  // Remembers precision maps that have already passed the bounds check below,
-  // so a map reused across calls is checked once rather than every time.
+  // One entry of the memo of precision maps that have already passed the
+  // bounds check in resolve_prec_idx, so a map reused across calls is
+  // checked once rather than every time.
   //
   // The check needs the index *values* on the host, and on CUDA that means a
   // device-to-host copy, which drains the stream before the GEMM is even
-  // launched: 0.23 ms per call on an RTX 4060 laptop under WSL2, against
-  // 0.27 ms for an entire 64^3 mixed GEMM. A map is normally built once and
-  // reused, so this skips the copy while the same tensor comes back
-  // unchanged. A miss runs exactly the check it always ran, with the same
-  // error and the same message.
+  // launched: 0.23 ms per call on an RTX 4060 laptop, against 0.27 ms for an
+  // entire 64^3 mixed GEMM. A map is normally built once and reused, so the
+  // memo skips the copy while the same tensor comes back unchanged. A miss
+  // runs exactly the check it always ran, with the same error message.
   //
   // The key is the TensorImpl's address plus its version counter, and the
   // entry holds a weak reference to that impl. The weak reference is what
   // makes comparing raw addresses sound: it keeps the impl's control block
-  // (not its storage -- the map itself is not pinned) alive, so no other
-  // tensor can be constructed at that address while an entry still names it.
-  // The version counter catches every in-place write that goes through ATen.
+  // alive (not its storage; the map itself is not pinned), so no other
+  // tensor can be constructed at that address while an entry still names
+  // it. The version counter catches every in-place write that goes through
+  // ATen.
   //
   // The keyed tensor is the caller's map, not the int32 contiguous copy the
   // kernel reads. Those two are the same object only when the caller already
   // holds an int32 contiguous tensor on the operand's device; for anything
-  // else -- an int64 map, which is what torch.zeros/randint/arange hand back
-  // without an explicit dtype, or a strided view -- `to(...).contiguous()`
-  // allocates a fresh tensor on every call, so keying on it missed every
-  // time and paid back the very sync this memo exists to remove (finding
-  // G5b). Keying on the input is sound because the converted contents are a
-  // pure function of it, and a view shares its base's version counter.
+  // else (an int64 map, which is what torch.zeros/randint/arange hand back
+  // without an explicit dtype, or a strided view) `to(...).contiguous()`
+  // allocates a fresh tensor on every call, so keying on the copy would miss
+  // every time and pay the very sync the memo exists to remove. Keying on
+  // the input is sound because the converted contents are a pure function
+  // of it, and a view shares its base's version counter.
   //
   // Two cases are deliberately never memoized: a check that will run on the
   // host, which has no sync to save, and a tensor with no version counter
   // (created under torch.inference_mode), which has nothing to invalidate
   // against. Both take the full check on every call. A map that lives on the
-  // host while the operands are on the device is also skipped: the copy makes
-  // a new tensor each call, so there is no stable key to hold.
+  // host while the operands are on the device is also skipped: the copy
+  // makes a new tensor each call, so there is no stable key to hold.
   //
   // FormatPalette::slot masks the index into range regardless, so nothing
   // here can turn a stale entry into an out-of-bounds read.
-  // See dev/gemm_perf_audit.md (findings G5, G5b).
   struct ValidatedPrecIdx
   {
     c10::weak_intrusive_ptr<c10::TensorImpl, at::UndefinedTensorImpl> impl;
@@ -173,14 +168,16 @@ namespace mptorch::gemm
     int64_t n_formats;
   };
 
+  // The memo holds the last few distinct maps; more than a handful of
+  // per-layer maps in flight is not a case worth a hash table.
   constexpr size_t PREC_IDX_MEMO_SLOTS = 4;
   inline std::mutex g_prec_idx_memo_mutex;
   inline std::vector<ValidatedPrecIdx> g_prec_idx_memo;
 
-  // (impl address, version) if this tensor is a candidate for the memo.
-  // `on_device` says the check would run on CUDA, i.e. that there is a sync
-  // worth skipping; the tensor itself must be on the device too, or the copy
-  // that puts it there makes the key useless.
+  // Fills (impl address, version) and returns true if this tensor is a
+  // candidate for the memo. `on_device` says the check would run on CUDA,
+  // that is, that there is a sync worth skipping; the tensor itself must be
+  // on the device too, or the copy that puts it there makes the key useless.
   inline bool prec_idx_memo_key(const Tensor &prec_idx, bool on_device,
                                 const c10::TensorImpl *&raw, uint32_t &version)
   {
@@ -194,6 +191,8 @@ namespace mptorch::gemm
     return true;
   }
 
+  // Whether this exact (tensor, version) has passed the bounds check against
+  // a palette of `n_formats` formats since it was last written.
   inline bool prec_idx_already_validated(const Tensor &prec_idx, bool on_device, int64_t n_formats)
   {
     const c10::TensorImpl *raw = nullptr;
@@ -207,6 +206,8 @@ namespace mptorch::gemm
     return false;
   }
 
+  // Records a map that has just passed the check, evicting the oldest entry
+  // when the memo is full.
   inline void remember_validated_prec_idx(const Tensor &prec_idx, bool on_device,
                                           int64_t n_formats)
   {
@@ -215,7 +216,7 @@ namespace mptorch::gemm
     if (!prec_idx_memo_key(prec_idx, on_device, raw, version))
       return;
     std::lock_guard<std::mutex> lock(g_prec_idx_memo_mutex);
-    // drop entries whose tensor is gone, and any stale record of this one
+    // Drop entries whose tensor is gone, and any stale record of this one.
     auto dead = std::remove_if(g_prec_idx_memo.begin(), g_prec_idx_memo.end(),
                                [&](const ValidatedPrecIdx &e)
                                { return e.impl.expired() || e.raw == raw; });
@@ -228,17 +229,17 @@ namespace mptorch::gemm
         raw, version, n_formats});
   }
 
-  // Validates a spatially-varying mixed-format op's per-output-element
-  // precision index and derives the (batch_stride, row_stride, col_stride)
-  // triple the kernel reads it with -- accepting a dense [M, N] map, a per-row
-  // [M, 1] map, or a per-column [1, N] map (see gemm_policy.h's
-  // FormatPalette), each of which may carry a leading batch dimension of
-  // `batch` (one map per batch element) or of 1. A 2D map on a batched call is
-  // shared across the batch, which is the common case: the palette is a
-  // property of the layer, not of the sample. Casts to int32 on the operand's
-  // device, bounds-checks every entry against the palette size (see the memo
-  // above for when that costs a device sync), and hands back the contiguous
-  // tensor to keep alive across the launch.
+  // Validates a mixed-format op's per-output-element precision index and
+  // derives the (batch_stride, row_stride, col_stride) triple the kernel
+  // reads it with. Accepts a dense [M, N] map, a per-row [M, 1] map, or a
+  // per-column [1, N] map (see gemm_policy.h's FormatPalette), each of which
+  // may carry a leading batch dimension of `batch` (one map per batch
+  // element) or of 1. A 2D map on a batched call is shared across the batch,
+  // which is the common case: the palette is a property of the layer, not
+  // of the sample. Casts to int32 on the operand's device, bounds-checks
+  // every entry against the palette size (see the memo above for when that
+  // costs a device sync), and hands back the contiguous tensor in
+  // `pidx_out`, which the caller keeps alive across the launch.
   inline void resolve_prec_idx(const Tensor &prec_idx, const Tensor &ref, int64_t batch, int64_t M,
                                int64_t N, const char *op_name, int64_t n_formats, Tensor &pidx_out,
                                int64_t &idx_row_stride, int64_t &idx_col_stride,
@@ -272,21 +273,23 @@ namespace mptorch::gemm
                   ", N=", N, "), got [", r, ", ", c, "]");
     }
     idx_batch_stride = bsz == 1 ? 0 : r * c;
-    // Check whichever of the two copies is already on the host: for a host
-    // map feeding a device GEMM that is the caller's tensor, and reading its
-    // bounds there costs nothing, where reading them from the device copy is
-    // the same sync the memo exists to avoid -- and cannot be memoized, since
-    // the copy is a new tensor every call. `prec_idx` may still be int64 here,
-    // which only makes the check stricter: an index that would wrap on the
-    // narrowing to int32 is rejected rather than silently aliased.
+    // Check whichever of the two copies is already on the host. For a host
+    // map feeding a device GEMM that is the caller's tensor: reading its
+    // bounds there costs nothing, whereas reading them from the device copy
+    // is the same sync the memo exists to avoid, and cannot be memoized,
+    // since the copy is a new tensor every call. `prec_idx` may still be
+    // int64 here, which only makes the check stricter: an index that would
+    // wrap on the narrowing to int32 is rejected rather than silently
+    // aliased.
     const Tensor &to_check = prec_idx.is_cuda() ? pidx : prec_idx;
     const bool memo = pidx.is_cuda();
     if (!prec_idx_already_validated(prec_idx, memo, n_formats))
     {
-      // aminmax is one reduction where min() and max() were two. Reading the
-      // pair back differs by device on purpose: on CUDA the two scalars are
-      // stacked so the sync is one 2-element copy rather than two; on CPU
-      // there is no sync to amortize and .item() avoids the extra allocation.
+      // aminmax is one reduction where min() and max() would be two. Reading
+      // the pair back differs by device on purpose: on CUDA the two scalars
+      // are stacked so the sync is one 2-element copy rather than two; on
+      // CPU there is no sync to amortize and .item() avoids the extra
+      // allocation.
       auto mm = at::aminmax(to_check);
       int64_t lo, hi;
       if (to_check.is_cuda())
@@ -308,17 +311,17 @@ namespace mptorch::gemm
     pidx_out = pidx;
   }
 
-  // The two fma_mixed ops reject fma_quant=false, and they do it between
-  // check_matmul_inputs and matmul_output_shape. Rather than move that check
-  // (which would change which error a doubly-invalid call reports), the
-  // driver takes an optional hook that runs exactly where it ran.
+  // The default pre-check hook of run_custom_matmul_mixed: a no-op. The two
+  // fma_mixed ops pass a hook that rejects fma_quant=false, and it runs
+  // between check_matmul_inputs and matmul_output_shape so that a call that
+  // is invalid in two ways reports the same error on both backends.
   struct NoPrecheck
   {
     void operator()() const {}
   };
 
-  // What one Args::draws_per_k_step draw is in Philox words: one in binary32,
-  // two in binary64 (philox.h's PhiloxEngine::next64).
+  // What one Args::draws_per_k_step draw is in Philox words: one in
+  // binary32, two in binary64 (philox.h's PhiloxEngine::next64).
   inline uint64_t words_per_draw(mptorch::GemmDtype dt)
   {
     return dt == mptorch::GemmDtype::Double ? 2 : 1;
@@ -328,16 +331,15 @@ namespace mptorch::gemm
   // The driver
   // ----------------------------------------------------------------------
   //
-  // The order below is the order the sixteen entry points ran in, and is kept
-  // deliberately: the empty early-return happens before prec_idx is validated
-  // and before the generator is advanced. Each of those is observable.
-  //
-  // One step moved when the GEMM gained its binary64 kernels (and the float64
-  // narrowing that stood before the allocation went): the dtype tag is now
-  // derived before the RNG state is drawn rather than after, because a
+  // Runs a single-format op: checks, shapes, allocates the output, fills a
+  // GemmShape, draws the backend's launch context and launches. The order of
+  // the steps is observable and deliberate: the empty early-return happens
+  // before prec_idx is validated and before the generator is advanced, so an
+  // empty call raises no index error and consumes no random state; and the
+  // dtype tag is derived before the RNG state is drawn, both because a
   // binary64 draw is two words and the reservation has to know which carrier
-  // it is for. A float call reserves what it always did; the only difference
-  // is that a rejected operand pair no longer advances the generator first.
+  // it is for, and so that a rejected operand pair does not advance the
+  // generator first.
   template <class Backend, class Args>
   Tensor run_custom_matmul(const char *op_name, const Args &args, Tensor a, Tensor b,
                            bool trans_a, bool trans_b, int64_t accumulate_algorithm,
@@ -381,10 +383,13 @@ namespace mptorch::gemm
     return c;
   }
 
+  // Runs a mixed-format op: the single-format sequence plus the precision
+  // index, resolved after the output allocation and the empty early-return.
   // `make_args` is a factory rather than a ready-made Args because the
-  // palette-length check has to happen after the two checks above and before
-  // anything indexes the parameter lists -- which is exactly where the
-  // sixteen entry points ran it. It returns the packed Args with n_fmt set.
+  // palette-length check it runs has to happen after check_matmul_inputs
+  // and the shape check, and before anything indexes the parameter lists,
+  // so that each kind of invalid call reports the same error it always did.
+  // It returns the packed Args with n_fmt set.
   template <class Backend, class ArgsFactory, class Precheck = NoPrecheck>
   Tensor run_custom_matmul_mixed(const char *op_name, ArgsFactory &&make_args, Tensor a, Tensor b,
                                  Tensor prec_idx, bool trans_a, bool trans_b,
@@ -447,14 +452,15 @@ namespace mptorch::gemm
   // policies are built from, once rather than once per backend. The mixed
   // packers run check_palette_lengths before they index any list, which is
   // why the driver calls them through a factory instead of taking a
-  // ready-made Args: that check has to land after the shape check and before
-  // the first subscript, exactly where it always did.
+  // ready-made Args: that check has to land after the shape check and
+  // before the first subscript.
 
-  // The saturation and subnormal modes are per format slot, not per op (X1):
-  // `BinaryKCommon` was always one struct per slot, so a SplitMac whose
-  // multiply saturates to the format's max and whose accumulate overflows to
-  // infinity costs two schema integers and no kernel change. The four fused
-  // ops keep one pair each, because one format is all they have.
+  // The saturation and subnormal modes are per format slot, not per op:
+  // the multiply and the accumulate each get their own `BinaryKCommon`, so
+  // a SplitMac whose multiply saturates to the format's largest value and
+  // whose accumulate overflows to infinity costs two schema integers and no
+  // kernel change. The four fused ops take one pair each, because one format
+  // is all they have.
   inline BinaryKSplitArgs pack_binaryK_split(
       int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
       bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed,

@@ -1,6 +1,6 @@
 // The CUDA entry point of narrow_float64: the tensors and the stream, and
-// nothing nvcc has to see (narrow_kernel.h says why). A .cpp inside csrc/cuda/,
-// so a CPU-only build skips it with the .cu it drives.
+// nothing nvcc has to see (narrow_kernel.h says why). A .cpp inside
+// csrc/cuda/, so a CPU-only build skips it along with the .cu it drives.
 
 #include "../common/narrow_host.h"
 #include "../quant_ops.h"
@@ -16,8 +16,10 @@ Tensor narrow_float64_cuda(Tensor a, c10::ScalarType dtype)
   const int64_t size = a_c.numel();
   if (size == 0)
     return o;
-  // the kernel loads two doubles at a time, 16 bytes aligned; mptorch.quant
-  // only ever hands this a kernel's own output, which already is
+  // The kernel loads two doubles at a time through a 16-byte-aligned load,
+  // so a view off that boundary is copied first (vector_load.h).
+  // mptorch.quant only hands this a kernel's own output, which is already
+  // aligned; the copy is for direct torch.ops callers.
   a_c = mptorch::vector_loadable(a_c);
   using mptorch::narrow_cuda::Target;
   const Target target = dtype == c10::ScalarType::Half       ? Target::Float16

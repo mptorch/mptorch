@@ -1,3 +1,18 @@
+"""
+``QConv2d`` against ``nn.Conv2d`` and against a hand-written baseline.
+
+The three tiers every layer test module follows. Tier 1 (exact): identity
+quantizers, and the quantized layer must match the vanilla layer's forward
+and backward to within float32 noise, which validates the autograd plumbing
+with no numerics in the way. Tier 2 (statistical): real ``binaryK_quantize``
+quantizers on every tensor, and the outputs and gradients must stay close to
+the vanilla layer's in cosine similarity, over float32, float16 and
+bfloat16. Tier 3 (manual baseline): the expected result is recomputed by
+hand from the formats' own quantizers, ``F.conv2d`` for the forward and
+``torch.nn.grad.conv2d_input`` / ``conv2d_weight`` for the backward, so
+the layer must quantize exactly the tensors it claims to and nowhere else.
+"""
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -12,6 +27,10 @@ from tests.markers import available_devices
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("bias", [True, False])
 def test_qconv_tier1_exact(device, bias):
+    """
+    Tier 1: with identity quantizers on every tensor, ``QConv2d`` matches a
+    vanilla ``nn.Conv2d`` in forward and in all three gradients.
+    """
     dtype = torch.float32
 
     formats = QAffineFormats(
@@ -75,6 +94,11 @@ def test_qconv_tier1_exact(device, bias):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("bias", [True, False])
 def test_qconv_tier2_statistical(device, dtype, bias):
+    """
+    Tier 2: with a real K=8, P=4 quantizer on every tensor, the output and
+    both gradients stay close to the vanilla layer's in cosine similarity.
+    """
+
     def quant_fn(x):
         return binaryK_quantize(x, K=8, P=4, rounding_mode=RoundMode.RNE)
 
@@ -143,6 +167,12 @@ def test_qconv_tier2_statistical(device, dtype, bias):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("bias", [True, False])
 def test_qconv_tier3_manual_baseline(device, dtype, bias):
+    """
+    Tier 3: the layer computes exactly what a hand-written script does with
+    the same quantizers, ``F.conv2d`` forward and ``torch.nn.grad`` backward, so
+    the custom Function quantizes exactly the tensors it claims to.
+    """
+
     def quant_fn(x):
         return binaryK_quantize(x, K=8, P=4, rounding_mode=RoundMode.RNE)
 
@@ -176,9 +206,10 @@ def test_qconv_tier3_manual_baseline(device, dtype, bias):
     x_q_layer = x_man.clone().detach().requires_grad_(True)
 
     # Under no_grad because these quantize tensors that require grad and then
-    # read the *values*: nothing backprops through the quantizer here, and the
-    # raw quantize ops raise rather than hand back a tensor whose gradient
-    # would silently vanish (see csrc/autograd_ops.cpp).
+    # read only the values: nothing backprops through the quantizer here, and
+    # the raw quantize ops raise on a requires_grad operand under grad mode
+    # rather than hand back a tensor whose gradient would silently vanish
+    # (csrc/autograd_ops.cpp).
     with torch.no_grad():
         qw = quant_fn(w)
         qx = quant_fn(x_man)
@@ -195,6 +226,7 @@ def test_qconv_tier3_manual_baseline(device, dtype, bias):
 
     out_layer = q_layer(x_q_layer)
 
+    # The forward must be bit-identical: same quantized operands, same op.
     assert torch.all(out_man == out_layer), "Manual Forward divergence!"
 
     g_out = torch.randn_like(out_man)
@@ -227,6 +259,10 @@ def test_qconv_tier3_manual_baseline(device, dtype, bias):
 
     out_layer.backward(g_out)
 
+    # The gradients are held to a small tolerance rather than to equality, a
+    # margin for the convolution backward reducing in a different order
+    # between two calls. A quantizer applied to the wrong tensor, or skipped,
+    # moves a K=8, P=4 result far beyond 1e-3.
     assert x_q_layer.grad is not None
     assert q_layer.weight.grad is not None
     assert torch.allclose(x_q_layer.grad.detach(), igrad_man.detach(), atol=1e-3, rtol=1e-3), (

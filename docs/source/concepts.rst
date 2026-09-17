@@ -1,8 +1,8 @@
 Formats and rounding
 ====================
 
-This page is the theory the rest of the documentation relies on: what a
-number format is, which formats MPTorch implements, what each rounding mode
+This page presents the fundamentals that the rest of the documentation relies on:
+what a number format is, which formats MPTorch implements, what each rounding mode
 does, and the equations the kernels follow. Everything here is exercised by
 a run.
 
@@ -31,9 +31,9 @@ arithmetic that :doc:`gemm` simulates:
    s_{k} = Q_{\text{acc}}\big(s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})\big).
 
 Because the carrier has far more precision and range than the simulated
-format, computing in it and rounding once gives the correctly-rounded result
-of the simulated operation -- the same number a machine working natively in
-:math:`F` would produce.
+format, computing in it and rounding once should give the correctly-rounded
+result of the simulated operation -- the same number a machine working 
+natively in :math:`F` would produce.
 
 Carriers: binary32 and binary64
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

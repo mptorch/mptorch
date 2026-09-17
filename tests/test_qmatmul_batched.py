@@ -1,9 +1,12 @@
-"""Batched and broadcasting GEMM: the ``torch.matmul`` operand contract (X1).
+"""Batched and broadcasting GEMM: the ``torch.matmul`` operand contract.
 
-The three tiers of ``test_qmatmul.py``, applied to the operand rules rather
-than to the arithmetic -- Tier 3 is the load-bearing one here, because the
+The op boundary is rank 2 or 3 with one batch dimension, and everything
+``torch.matmul`` accepts on top of that (1D promotion, leading dims of any
+rank, broadcasting between them) is views built in ``mptorch.quant.ops``. The
+three tiers of ``test_qmatmul.py`` are applied here to those operand rules
+rather than to the arithmetic. Tier 3 is the load-bearing one, because the
 claim is not "close to ``a @ b``" but "the same values a loop of 2D calls
-produces", which is checkable with ``torch.equal``.
+produces", which ``torch.equal`` can check.
 """
 
 from typing import Any
@@ -32,12 +35,12 @@ DETERMINISTIC_ROUND_MODES = [
 ]
 
 MATMUL_DTYPES = [torch.float32, torch.float16, torch.bfloat16, torch.float64]
-# float64 is computed in binary64, by separate kernels, which the batch identity
-# holds for just the same
+# float64 runs the binary64 kernels, a separate instantiation, so the batch
+# identity is checked for both carriers
 TIER3_DTYPES = [torch.float32, torch.float64]
 
-# A near-identity binaryK format: 24 bits of precision in 32, i.e. float32's
-# own, so the only difference from `a @ b` is the reduction order.
+# A near-identity binaryK format: 24 bits of precision in 32, float32's own,
+# so the only difference from `a @ b` is the reduction order.
 IDENTITY_BK: dict[str, Any] = dict(mul_K=32, mul_P=24, acc_K=32, acc_P=24)
 BK: dict[str, Any] = dict(mul_K=8, mul_P=4)
 SFP: dict[str, Any] = dict(mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=8, mul_bias=7)
@@ -62,7 +65,7 @@ RANK_CASES = [
 
 
 # ------------------------------------------------------------------------------------
-# Tier 1: the operand contract itself -- shapes and values against torch.matmul
+# Tier 1: the operand contract itself, shapes and values against torch.matmul
 # under a format wide enough that only the reduction order differs.
 
 
@@ -94,6 +97,7 @@ def test_tier1_transpose_flags_on_3d(device, trans_a, trans_b):
 
 
 def _cos(out, ref):
+    """Cosine similarity of two tensors, flattened and compared in float32."""
     return torch.nn.functional.cosine_similarity(
         out.flatten().float(), ref.flatten().float(), dim=0
     ).item()
@@ -129,6 +133,7 @@ def test_tier2_superfp_batched_statistical(device, dtype):
 
 
 def _loop(fn, a, b, n):
+    """``fn`` applied to each of the ``n`` batch elements in turn, stacked."""
     return torch.stack([fn(a[i], b[i]) for i in range(n)])
 
 
@@ -168,7 +173,7 @@ def test_tier3_fma_batched_equals_loop(device, dtype, round_mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", TIER3_DTYPES)
 def test_tier3_shared_operand_equals_loop(device, dtype):
-    """A 2D operand rides at stride 0 -- the same values, never expanded."""
+    """A 2D operand rides at batch stride 0: the same values, never expanded."""
     a = torch.randn(4, 33, 40, device=device, dtype=dtype)
     w = torch.randn(40, 17, device=device, dtype=dtype)
     got = binaryK_matmul(a, w, **BK)
@@ -179,11 +184,12 @@ def test_tier3_shared_operand_equals_loop(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", TIER3_DTYPES)
 def test_tier3_fold_into_m_equals_loop(device, dtype):
-    """`[..., M, K] @ [K, N]` folds its batch into M, and that is a view.
+    """``[..., M, K] @ [K, N]`` folds its batch into M, and that is a view.
 
-    Bit-identical rather than merely equivalent: an element's SR subsequence
-    is `(b*M + row)*N + col` batched and `row' * N + col` folded, with
-    `row' = b*M + row`, i.e. the same index.
+    Bit-identical rather than merely equivalent: an element's SR stream is
+    keyed on its global index, ``(b*M + row)*N + col`` batched and
+    ``row'*N + col`` folded with ``row' = b*M + row``, which is the same
+    index.
     """
     a = torch.randn(5, 12, 40, device=device, dtype=dtype)
     w = torch.randn(40, 17, device=device, dtype=dtype)
@@ -222,8 +228,8 @@ def test_tier3_1d_promotion_equals_2d_call(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("round_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR])
 def test_tier3_binary64_formats_batched_equal_loop(device, round_mode):
-    """Formats only binary64 carries -- 30 and 40 bits of precision, ten
-    exponent bits -- batched, folded and in a palette, bit for bit."""
+    """Formats only binary64 carries, 30 and 40 bits of precision and ten
+    exponent bits, batched, folded and in a palette, bit for bit."""
     a = torch.randn(3, 21, 30, device=device, dtype=torch.float64)
     b = torch.randn(3, 30, 13, device=device, dtype=torch.float64)
     sr = round_mode is RoundMode.SR
@@ -303,7 +309,7 @@ def test_sr_every_batch_element_draws_its_own_stream(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", TIER3_DTYPES)
 def test_mixed_shared_map_equals_loop(device, dtype):
-    """A 2D map is shared across the batch -- the palette is a property of the
+    """A 2D map is shared across the batch: the palette is a property of the
     layer, not of the sample."""
     a = torch.randn(3, 20, 24, device=device, dtype=dtype)
     b = torch.randn(3, 24, 16, device=device, dtype=dtype)
@@ -335,8 +341,8 @@ def test_mixed_map_broadcast_shapes(device, shape):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_int64_map_is_accepted_batched(device):
-    """The G5b regression, on the batched path: an int64 map is what
-    torch.randint hands back without an explicit dtype."""
+    """An int64 map, which is what torch.randint hands back without an explicit
+    dtype, is accepted on the batched path and gives the int32 map's result."""
     a = torch.randn(2, 20, 24, device=device)
     b = torch.randn(2, 24, 16, device=device)
     idx64 = torch.randint(0, 2, (2, 20, 16), device=device, dtype=torch.int64)
@@ -349,11 +355,11 @@ def test_mixed_int64_map_is_accepted_batched(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_3d_by_2d_keeps_its_batch(device):
-    """The fold into `M` is off for a palette op.
+    """The fold into ``M`` is off for a palette op.
 
-    `prec_idx` is indexed by output element, so a map shaped for the [M, N]
+    ``prec_idx`` is indexed by output element, so a map shaped for the [M, N]
     output of a batched call does not describe the [B*M, N] output of a folded
-    one -- the fold would turn a valid call into a shape error.
+    one: the fold would turn a valid call into a shape error.
     """
     a = torch.randn(3, 20, 24, device=device)
     b = torch.randn(24, 16, device=device)
@@ -420,10 +426,11 @@ def test_mixed_superfp_batched_equals_loop(device, dtype):
 @pytest.mark.parametrize("dtype", TIER3_DTYPES)
 @pytest.mark.parametrize("shape", [(2, 12, 8), (12, 8)])
 def test_transposed_view_is_values_preserving(device, dtype, shape):
-    """`q @ k.mT` sets the kernel's flag instead of materializing the operand.
+    """``q @ k.mT`` sets the kernel's transpose flag instead of copying.
 
-    A values-preserving change or a bug: the kernel reads op(b) either way,
-    and SR indexes by output element rather than by operand layout.
+    The kernel reads op(b) either way, and SR indexes by output element rather
+    than by operand layout, so the view and its contiguous copy must give the
+    same words.
     """
     q = torch.randn(*shape, device=device, dtype=dtype)
     k = torch.randn(*shape, device=device, dtype=dtype)
@@ -432,7 +439,7 @@ def test_transposed_view_is_values_preserving(device, dtype, shape):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_transposed_view_does_not_allocate(device):
-    """...and it does not copy, which is the point of doing it at all."""
+    """The transposed view is used in place, which is the point of the flag."""
     k = torch.randn(2, 12, 8, device=device)
     q = torch.randn(2, 12, 8, device=device)
     view = k.mT
@@ -444,7 +451,8 @@ def test_transposed_view_does_not_allocate(device):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", TIER3_DTYPES)
 def test_fold_into_m_survives_sr(device, dtype):
-    """The fold needs no gate of its own: it is the same SR index."""
+    """The fold needs no special case for SR: the folded and batched spellings
+    key each element's stream on the same global index."""
     a = torch.randn(4, 9, 20, device=device, dtype=dtype)
     w = torch.randn(20, 11, device=device, dtype=dtype)
     fmt: dict[str, Any] = dict(rounding_mode=RoundMode.SR, mul_prng_bits=5, **BK)
@@ -472,7 +480,8 @@ def test_empty_batch_or_rows(device, shape):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_large_batch_is_chunked(device):
-    """More batch elements than the 65,535 grid-z limit, on a tiny GEMM."""
+    """More batch elements than CUDA's 65,535 grid-z limit, so the launcher
+    has to split the batch over several launches; a tiny GEMM keeps it cheap."""
     n = 70_000
     a = torch.randn(n, 1, 2, device=device)
     b = torch.randn(n, 2, 1, device=device)

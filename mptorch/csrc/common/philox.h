@@ -3,44 +3,53 @@
 #include "bit_helper.h"
 #include <cstdint>
 
-// ------------------------------------------------------------------------------------
-// Philox4x32-10, bit-identical to at::philox_engine (ATen/core/PhiloxRNGEngine.h)
-// over the reset_state()/set_offset()/operator() sequence the GEMM accumulators
-// use: same round function, same constants, same counter and cache bookkeeping,
-// so a stream seeded the same way yields the same words in the same order.
+// ---------------------------------------------------------------------------
+// Philox4x32-10, bit-identical to at::philox_engine
+// (ATen/core/PhiloxRNGEngine.h) over the reset_state()/set_offset()/
+// operator() sequence the GEMM accumulators use: same round function, same
+// constants, same counter and cache bookkeeping, so a stream seeded the same
+// way yields the same words in the same order.
 //
-// Why not just use at::philox_engine, which this replaces verbatim: it caches
-// its four output words in a std::array and reads one back as
-// output_[static_cast<int>(STATE)] -- a *dynamically indexed array member*.
-// ptxas cannot promote such an array to registers, so it places the whole
-// enclosing object in local memory, and NaiveAccumulator embeds the engine
-// alongside the running sum and the Mac policy. The running sum was therefore
-// loaded and stored through local memory on every one of the K accumulate
-// steps -- for all seven rounding modes, including the six deterministic ones
-// that never draw a random number. Every shipped GEMM instantiation with a
-// real Adder reported a 112-168 byte stack frame; the one where the SR branch
-// is unreachable (FusedMac<IdentityAdder>) reported 0.
+// Philox is a counter-based generator: the output block is a fixed function
+// of a 128-bit counter and a 64-bit key, so any block of any stream can be
+// produced directly without stepping through the ones before it. That is
+// what lets every output element of a GEMM own an independent stream keyed
+// on its own index, at no per-element setup cost beyond writing the counter.
 //
-// Naming the four cached words and selecting between them with a switch is the
-// whole fix: no array member, so the accumulator stays in registers. See
-// dev/gemm_perf_audit.md (finding G1) for the measurements.
+// Why not use at::philox_engine directly: it caches its four output words
+// in a std::array and reads one back at a runtime index, `output_[STATE]`.
+// ptxas cannot promote an array indexed at runtime to registers, so it
+// places the whole enclosing object in local memory, and NaiveAccumulator
+// embeds the engine alongside the running sum and the Mac policy. The
+// running sum was therefore loaded and stored through local memory on every
+// one of the K accumulate steps, for all seven rounding modes, including the
+// six deterministic ones that never draw. Every GEMM instantiation with a
+// real Adder showed a 112-168 byte stack frame; the one where the SR branch
+// is unreachable (FusedMac<IdentityAdder>) showed 0. Naming the four cached
+// words and selecting between them with a switch is the whole fix: with no
+// array member, the accumulator stays in registers.
 struct PhiloxEngine
 {
     static constexpr uint32_t kPhilox10A = 0x9E3779B9;
     static constexpr uint32_t kPhilox10B = 0xBB67AE85;
     static constexpr uint32_t kPhiloxSA = 0xD2511F53;
     static constexpr uint32_t kPhiloxSB = 0xCD9E8D57;
-    // at::philox_engine's default seed, kept so a default-constructed engine
-    // (the acc_proto prototype's) starts from the same state it used to.
+    // at::philox_engine's default seed, so a default-constructed engine (the
+    // kernels' acc_proto prototype) starts from the same state ATen's would.
     static constexpr uint64_t kDefaultSeed = 67280421310721;
 
-    // Counter, key and output cache as named scalars rather than arrays.
+    // Counter (c0..c3), key (k0, k1) and output cache (o0..o3) as named
+    // scalars rather than arrays, for the reason above. `state` is the index
+    // of the next cached word to hand out, 0..3.
     uint32_t c0 = 0, c1 = 0, c2 = 0, c3 = 0;
     uint32_t k0 = static_cast<uint32_t>(kDefaultSeed);
     uint32_t k1 = static_cast<uint32_t>(kDefaultSeed >> 32);
     uint32_t o0 = 0, o1 = 0, o2 = 0, o3 = 0;
     uint32_t state = 0;
 
+    // Start the stream (seed, subsequence) from its first block: the seed is
+    // the key, the subsequence the high 64 bits of the counter, and the low
+    // 64 bits (the block offset) are zero until set_offset().
     CUDA_HOST_DEVICE_INLINE void reset_state(uint64_t seed = kDefaultSeed, uint64_t subsequence = 0)
     {
         k0 = static_cast<uint32_t>(seed);
@@ -59,8 +68,8 @@ struct PhiloxEngine
         c1 = static_cast<uint32_t>(offset >> 32);
     }
 
-    // One unique 32-bit value per call, regenerating the 4-word cache every
-    // fourth call (matching at::philox_engine's own bookkeeping).
+    // One 32-bit value per call, regenerating the 4-word cache every fourth
+    // call, with the same bookkeeping as at::philox_engine.
     CUDA_HOST_DEVICE_INLINE uint32_t operator()()
     {
         if (state == 0)
@@ -89,10 +98,10 @@ struct PhiloxEngine
     }
 
     // A binary64 GEMM's draw: the next two values of the stream, low word
-    // first -- two statements, since the order of two calls in one expression
-    // is unspecified. A draw may straddle two blocks, which the stream's own
-    // bookkeeping handles; the words are the stream's in the order a binary32
-    // GEMM would have read them.
+    // first. Two statements, because the order in which two calls in one
+    // expression are evaluated is unspecified. A draw may straddle two
+    // blocks, which the stream's own bookkeeping handles; the words are the
+    // stream's, in the order a binary32 GEMM would have read them.
     CUDA_HOST_DEVICE_INLINE uint64_t next64()
     {
         const uint64_t lo = (*this)();
@@ -101,6 +110,7 @@ struct PhiloxEngine
     }
 
 private:
+    // The low 32 bits of a*b, with the high 32 in *result_high.
     CUDA_HOST_DEVICE_INLINE static uint32_t mulhilo32(uint32_t a, uint32_t b, uint32_t *result_high)
     {
 #if defined(__CUDA_ARCH__)
@@ -113,6 +123,8 @@ private:
 #endif
     }
 
+    // One Philox round: two 32x32 multiplies and the key mixed in, with the
+    // word permutation at::philox_engine uses.
     CUDA_HOST_DEVICE_INLINE static void single_round(uint32_t &x0, uint32_t &x1, uint32_t &x2, uint32_t &x3,
                                                      uint32_t key0, uint32_t key1)
     {
@@ -127,8 +139,9 @@ private:
         x3 = lo0;
     }
 
-    // 10 rounds, the key bumped between all but the last -- at::philox_engine's
-    // rand() with its back-compat default n_rounds = 10.
+    // Fill the cache from the current counter: 10 rounds, the key bumped
+    // between all but the last, as at::philox_engine's rand() does with its
+    // default n_rounds = 10.
     CUDA_HOST_DEVICE_INLINE void generate()
     {
         uint32_t x0 = c0, x1 = c1, x2 = c2, x3 = c3;
@@ -146,7 +159,7 @@ private:
         o3 = x3;
     }
 
-    // Advance the counter by one 128-bit block.
+    // Advance the 128-bit counter by one block, carrying across the words.
     CUDA_HOST_DEVICE_INLINE void incr()
     {
         if (++c0)
@@ -168,7 +181,7 @@ private:
 // fits. Here every element consumes exactly one random value, so a stream per
 // element would throw away three words of every block it generates. Keying
 // the block on `index >> 2` instead and picking word `index & 3` amortizes
-// one 10-round generate over four consecutive elements -- which is also
+// one 10-round generate over four consecutive elements, which is also
 // exactly one vectorized float lane group, so the vector path costs one
 // generate per iteration for float and two for half/bfloat16.
 //
@@ -178,16 +191,17 @@ private:
 //
 // A binary64 element draws a 64-bit word, two of the block's, so a block
 // covers two elements rather than four. The layout is the same rule at
-// either width -- element `j` of a carrier whose word is WPE 32-bit words
+// either width: element `j` of a carrier whose draw is WPE 32-bit words
 // long takes block `j / (4 / WPE)`, words from `(j % (4 / WPE)) * WPE` on,
-// low word first -- which for binary32 is exactly the `j >> 2`, `j & 3` above,
-// so no float stream moves, and for binary64 is block `j >> 1`, words
-// `2 * (j & 1)` and the one after: one block per double2 vector, as one block
-// is one float4 vector's.
+// low word first. For binary32 that is exactly the `j >> 2`, `j & 3` above,
+// so no float stream moves; for binary64 it is block `j >> 1`, words
+// `2 * (j & 1)` and the one after, one block per double2 vector, as one
+// block is one float4 vector's.
 struct PhiloxBlock
 {
     uint32_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
 
+    // Word `k & 3` of the block.
     CUDA_HOST_DEVICE_INLINE uint32_t word(int k) const
     {
         switch (k & 3)
@@ -210,12 +224,12 @@ struct PhiloxBlock
     }
 };
 
-// Generate block `subsequence` of the (seed, offset) stream. Same counter
-// layout as PhiloxEngine's own -- (offset, subsequence) as the 128-bit
-// counter, seed as the key -- so blocks drawn here and streams drawn through
-// the engine never collide as long as their subsequences differ, which is
-// the standard ATen convention (one subsequence per element or per thread,
-// `counter_offset` blocks of `offset` reserved per call).
+// Generate block `offset` of the (seed, subsequence) stream. Same counter
+// layout as PhiloxEngine's own, (offset, subsequence) as the 128-bit counter
+// and seed as the key, so blocks drawn here and streams drawn through the
+// engine never collide as long as their subsequences differ. That is the
+// standard ATen convention: one subsequence per element or per thread, and
+// `counter_offset` blocks of `offset` reserved per call.
 CUDA_HOST_DEVICE_INLINE PhiloxBlock philox_block(uint64_t seed, uint64_t subsequence,
                                                  uint64_t offset)
 {

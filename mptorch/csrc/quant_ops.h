@@ -1,10 +1,15 @@
 #pragma once
 
-// <ATen/ATen.h> is deliberately not used here: it pulls ATen/Functions.h, the
-// declaration of every operator in ATen, which costs 22 s per translation unit
-// through nvcc and is why every .cu in this extension used to take ~43 s
-// before it compiled a line of its own. This header set is what these files
-// actually need. See dev/gemm_roadmap.md (finding B2).
+// Declarations of every per-backend op implementation, CPU and CUDA, in the
+// same order as the schemas in quant_ops.cpp. The registration files
+// (cpu/cpu_ops.cpp, cuda/cuda_ops.cu) and the entry point files include it.
+// Both backends are declared in every build; a CPU-only build simply never
+// references the CUDA ones, since only a registration file names them.
+//
+// <ATen/ATen.h> is deliberately not included: it pulls in ATen/Functions.h,
+// the declaration of every operator in ATen, which costs about 22 s per
+// translation unit through nvcc before a line of the file's own is compiled.
+// <ATen/core/Tensor.h> is all these declarations need.
 #include <ATen/core/Tensor.h>
 #include <cstdint>
 
@@ -27,9 +32,9 @@ at::Tensor superfp_quantize_cpu(at::Tensor a, int64_t man_bits, int64_t exp_bits
                                 int64_t normal_binades, int64_t bias, int64_t prng_bits,
                                 bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
-// A float64 tensor rounded once onto float32, float16 or bfloat16 -- the store
-// of a result computed in binary64 for a narrower tensor. See
-// common/narrow_binary64.h.
+// A float64 tensor rounded once, to nearest even, onto float32, float16 or
+// bfloat16: the store of a result computed in binary64 for a narrower
+// tensor. The rounding is common/narrow_binary64.h.
 at::Tensor narrow_float64_cuda(at::Tensor a, c10::ScalarType dtype);
 
 at::Tensor narrow_float64_cpu(at::Tensor a, c10::ScalarType dtype);

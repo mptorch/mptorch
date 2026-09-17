@@ -1,25 +1,32 @@
 """
 No quantizer and no GEMM returns -0.0.
 
-IEEE P3109 has a single zero, code point 0, and it is unsigned; superfp spends
-no code on a negative zero either. The kernels simulate a format's values on
-binary32, which does have -0.0 and hands it out readily -- an underflow that
-keeps its sign, a directed mode negating a magnitude that rounded away, -0.0
-itself going in -- so every zero a cast returns has to be made +0.0. The checks
-here are on the sign bit: `-0.0 == 0.0` is true, which is how the value
-comparisons in the rest of the suite let it through (dev/gemm_roadmap.md, T2).
+IEEE P3109 has a single zero, code point 0, and it is unsigned: in a signed
+binaryK the encoding that would hold -0.0 is the format's NaN, and superfp
+spends no code on a negative zero either. The kernels simulate a format's
+values in a carrier, binary32 or binary64, that does have -0.0 and produces it
+readily: an underflow that keeps its sign, a directed mode negating a magnitude
+that rounded away, a -0.0 input passed through. So every zero a cast returns
+has to be made +0.0, and the casts do it where the zero is made rather than on
+the way out: the clip functions of mptorch/csrc/common/bit_helper.h drop the
+sign with the magnitude, superfp's region arms return a bare zero, the
+float-arithmetic fast paths select +0.0, and the one signed zero that can still
+arise afterwards, a directed mode's negation of a magnitude that rounded to
+zero, is handled by bit_helper.h's negate_magnitude. The checks here are on
+the sign bit, because -0.0 == 0.0 is true and a value comparison, which is what
+the rest of the suite makes, lets a -0.0 through.
 
-A float64 tensor is rounded in binary64, which has -0.0 just as readily, by
-separate instantiations of the same casts, so the elementwise and GEMM checks
-run again on float64 inputs down to binary64's own subnormals, over formats
-binary32 cannot carry.
+A float64 tensor is rounded in binary64 by separate instantiations of the same
+casts, so the elementwise and GEMM checks run again on float64 inputs down to
+binary64's own subnormals, over formats binary32 cannot carry.
 
 The GEMMs get their own tests because a -0.0 reaches their output by another
 route. The running sum starts at +0.0, which absorbs a -0.0 product, so what
-survives is an accumulate step rounding a negative partial sum to zero. On CUDA
-it survived only when K was a multiple of 16: the kernel pads its last tile with
-0 * 0 steps, whose +0.0 absorbed that zero's sign as well. The CPU does not pad,
-and returned -0.0 for the same call.
+survives is an accumulate step rounding a negative partial sum to zero. On
+CUDA a K that is not a multiple of 16 hides that: the kernel pads its last
+tile with 0 * 0 steps, whose +0.0 absorbs the zero's sign as well, while the
+CPU does not pad and returns what the accumulate step made. So K takes both
+kinds of value, and the two backends are held to the same words.
 """
 
 import itertools
@@ -43,9 +50,11 @@ from mptorch.quant import (
 from tests.markers import available_devices, requires_cuda
 
 # (K, P, bias) and (man_bits, exp_bits, normal_binades, bias): formats on both
-# sides of the fast paths' gates, one without significand bits, one with an
-# exponent range wider than binary32's, and one superfp format whose underflow
-# region binary32 cannot reach.
+# sides of the gates that admit the float-arithmetic fast paths of
+# cast_binaryK.h and cast_superfp.h, one binaryK without significand bits
+# (P = 1), one with an exponent range wider than binary32's (24p8), and one
+# superfp format whose underflow region binary32 cannot reach (m5e5n1b15,
+# whose supernormals run down to 2**-976).
 BINARYK_FORMATS = [
     (8, 4, None),
     (8, 3, None),
@@ -65,15 +74,16 @@ SUPERFP_FORMATS = [
     (3, 4, 8, 7),
 ]
 
-# SR repeats the probe so each input draws several times.
+# SR repeats the probe so each input draws several times, which is what
+# reaches the rounding-up and the rounding-down arm of every value.
 SR_REPEATS = 16
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
 
 def _probe() -> torch.Tensor:
     """+-0, and four significands in every binade from float32's smallest
-    subnormal up to 2 with their negatives -- so whatever a format's range, some
-    of these round to zero from below it."""
+    subnormal up to 2, with their negatives, so that whatever a format's range,
+    some of these round to zero from below it."""
     mags = torch.tensor([m * 2.0**e for e in range(-149, 2) for m in (1.0, 1.25, 1.5, 1.75)])
     mags = mags[mags > 0].unique()
     zero = torch.zeros(1)
@@ -82,7 +92,8 @@ def _probe() -> torch.Tensor:
 
 def _probe64() -> torch.Tensor:
     """`_probe` for binary64: +-0, and in every binade from its smallest
-    subnormal up to 2, significands float32 could hold and ones it could not."""
+    subnormal up to 2, two significands float32 could hold and two it could
+    not."""
     sigs = (1.0, 1.25, 1.5 + 2.0**-40, 2.0 - 2.0**-52)
     mags = torch.tensor([m * 2.0**e for e in range(-1074, 2) for m in sigs], dtype=torch.float64)
     mags = mags[mags > 0].unique()
@@ -90,6 +101,8 @@ def _probe64() -> torch.Tensor:
     return torch.cat([zero, -zero, mags, -mags])
 
 
+# The binary64 formats: the binary32 ones again, two past binary32's precision
+# and exponent range, and two whose floor sits at binary64's own subnormals.
 BINARYK_FORMATS64 = [
     (8, 4, None),
     (6, 1, None),
@@ -102,10 +115,12 @@ SUPERFP_FORMATS64 = [(3, 4, 1, 7), (0, 4, 1, 7), (20, 10, 1020, 511), (3, 4, 1, 
 
 
 def _negative_zeros(t: torch.Tensor) -> torch.Tensor:
+    """Elementwise: a zero whose sign bit is set, which `t == -0.0` cannot see."""
     return (t == 0) & torch.signbit(t)
 
 
 def _describe(x: torch.Tensor, out: torch.Tensor) -> str:
+    """How many -0.0 `out` holds, and the input of the first one."""
     bad = _negative_zeros(out)
     first = int(bad.nonzero()[0, 0])
     return f"{int(bad.sum())} x -0.0, e.g. from {x[first].item()!r}"
@@ -119,6 +134,8 @@ def _describe(x: torch.Tensor, out: torch.Tensor) -> str:
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
 def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
+    """No binaryK format, saturation mode and rounding mode returns a -0.0 for
+    any probe value, in either carrier."""
     wide = carrier == "binary64"
     x = _probe64() if wide else _probe()
     failures = []
@@ -148,6 +165,8 @@ def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
 def test_superfp_quantize(device, carrier, signed):
+    """The same for superfp, whose underflow region flushes to a zero of its
+    own making."""
     wide = carrier == "binary64"
     x = _probe64() if wide else _probe()
     failures = []
@@ -177,10 +196,10 @@ def test_superfp_quantize(device, carrier, signed):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float64], ids=str)
 def test_storage_dtypes(device, dtype):
-    # float16 and bfloat16 load into the same float32 cast and store its result
-    # back, and -0.0 survives both conversions, so the sign has to come off
-    # inside the cast; float64 is rounded in binary64, whose casts have to take
-    # it off just the same.
+    """The other storage dtypes: float16 and bfloat16 load into the same
+    binary32 cast and store its result back, and -0.0 survives both
+    conversions, so the sign has to come off inside the cast; float64 is
+    rounded in binary64, whose casts have to take it off just the same."""
     x = _probe().to(dtype)
     failures = []
     for mode in RoundMode:
@@ -209,7 +228,8 @@ def test_storage_dtypes(device, dtype):
 # --- GEMMs ----------------------------------------------------------------------
 
 M, N = 3, 5
-# Ragged against both tilings, a whole number of CUDA tiles, and past a CPU tile.
+# Ragged against both tilings (2), a whole number of CUDA tiles (16), and past
+# one CPU tile (34).
 K_VALUES = [2, 16, 34]
 GEMM_OPS = [
     "binaryK split",
@@ -226,8 +246,9 @@ GEMM_OPS = [
 def _operands(op: str, K: int, device, dtype=torch.float32) -> tuple[torch.Tensor, torch.Tensor]:
     """Operands whose every output element is s^2 (1 - 1 + 1 - ... + 1 - (1 + d)):
     exactly +0.0 before the last pair and -s^2 d after it, which is below the
-    accumulator format's smallest magnitude. The multiply format holds 1 + d, so
-    the products reach the accumulator unrounded. K must be even."""
+    accumulator format's smallest magnitude, so the last accumulate step rounds
+    a negative partial sum to zero. The multiply format holds 1 + d, so the
+    products reach the accumulator unrounded. K must be even."""
     s, d = (1.0, 2.0**-12) if op.startswith("binaryK") else (2.0**-55, 2.0**-8)
     col = torch.full((K,), s)
     col[1 : K - 2 : 2] = -s
@@ -238,10 +259,11 @@ def _operands(op: str, K: int, device, dtype=torch.float32) -> tuple[torch.Tenso
 
 
 def _gemm(op: str, a, b, mode: RoundMode, subnormals_mode: SubnormalsMode) -> torch.Tensor:
-    # binaryK: multiply in Binary16p13 (holds 1 + 2^-12), accumulate in
-    # Binary8p4 (smallest subnormal 2^-10). superfp: multiply in m12e8n254b127
-    # (normal down to 2^-125), accumulate in m3e4n1b7 (underflows below 2^-112).
-    # The mixed ops put every element on slot 0, which is the same pair.
+    """The GEMM `op` on `a @ b` in the formats `_operands` was built for.
+    binaryK: multiply in Binary16p13 (holds 1 + 2^-12), accumulate in Binary8p4
+    (smallest subnormal 2^-10). superfp: multiply in m12e8n254b127 (normal down
+    to 2^-125), accumulate in m3e4n1b7 (underflows below 2^-112). The mixed ops
+    put every element on slot 0, which is the same pair."""
     prng = 4 if mode is RoundMode.SR else 0
     idx = torch.zeros(M, N, dtype=torch.int32, device=a.device)
     if op == "binaryK split":
@@ -351,7 +373,8 @@ def _gemm(op: str, a, b, mode: RoundMode, subnormals_mode: SubnormalsMode) -> to
 
 
 def _gemm_configs(op: str, modes):
-    # superfp takes no subnormals mode; one pass stands for it.
+    """(rounding mode, subnormals mode, K) for every configuration `op` takes.
+    superfp has no subnormals mode, so one pass stands for it."""
     subs = list(SubnormalsMode) if op.startswith("binaryK") else [SubnormalsMode.SUBNORMALS]
     return itertools.product(modes, subs, K_VALUES)
 
@@ -360,12 +383,16 @@ def _gemm_configs(op: str, modes):
 @pytest.mark.parametrize("op", GEMM_OPS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
 def test_gemm(device, op, dtype):
+    """An accumulate step that rounds a negative partial sum to zero writes
+    +0.0, in every GEMM op, rounding mode, subnormals mode and K, on operands
+    of either carrier."""
     failures = []
     for mode, subnormals_mode, K in _gemm_configs(op, RoundMode):
         out = _gemm(op, *_operands(op, K, device, dtype), mode, subnormals_mode).cpu()
         assert out.dtype is dtype
         if mode is RoundMode.RZ:
-            # Toward zero, every element's sum is a zero -- the case under test.
+            # Toward zero every element's sum is a zero, which is the case
+            # under test, so this guards the operands' construction.
             assert (out == 0).all(), (subnormals_mode.name, K)
         if _negative_zeros(out).any():
             failures.append(
@@ -379,9 +406,10 @@ def test_gemm(device, op, dtype):
 @pytest.mark.parametrize("op", GEMM_OPS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
 def test_gemm_backends_agree_on_zero(op, dtype):
-    # These calls accumulate in the same order on both backends, so the only
-    # thing that could tell them apart is what the CUDA kernel's tile padding
-    # adds -- which is +0.0, and so a matter of the zero's sign alone.
+    """CPU and CUDA return the same words, sign of zero included. Both
+    accumulate in the same order, so the only thing that could tell them apart
+    is what the CUDA kernel's tile padding adds, which is +0.0, and so a matter
+    of the zero's sign alone."""
     failures = []
     words = torch.int64 if dtype is torch.float64 else torch.int32
     for mode, subnormals_mode, K in _gemm_configs(op, DETERMINISTIC):

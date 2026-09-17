@@ -9,18 +9,15 @@
 //
 // Both ops dispatch on the storage dtype and compute in its carrier
 // (carrier_t, bit_helper.h): binary64 for a float64 tensor, binary32 for the
-// other three, whose values binary32 holds. A float64 tensor used to be
-// narrowed to float32 up front instead (finding G6), because every kernel
-// converted to float on load anyway, so a double instantiation computed
-// nothing a float one did not. Computing in double is what changes that: an
-// input is rounded once, directly, and a format finer or wider than binary32
-// can be reached (dev/binary64_carrier_plan.md, phases 3 and 4).
+// other three, whose values binary32 holds exactly. Computing a float64
+// tensor in double rather than narrowing it to float first is what lets an
+// input be rounded once, directly, and lets a format finer or wider than
+// binary32 be reached at all.
 //
-// The GEMM's half of the dispatch -- mptorch::GemmDtype and
-// dispatch_round_mode -- lives in common/gemm_dtype.h, which carries no ATen,
-// so the .cu files can name them without paying for <ATen/core/Tensor.h>
-// (finding H1). This header includes it, so every existing spelling still
-// resolves from here.
+// The GEMM's half of the dispatch, mptorch::GemmDtype and
+// dispatch_round_mode, lives in common/gemm_dtype.h, which carries no ATen,
+// so the .cu files can name them without paying for <ATen/core/Tensor.h>.
+// This header includes it, so every spelling resolves from here.
 #define MPTORCH_DISPATCH_QUANT_TYPES(TYPE, NAME, ...)       \
   AT_DISPATCH_SWITCH(                                       \
       TYPE, NAME,                                           \
@@ -32,9 +29,10 @@
 namespace mptorch
 {
 
-  // The check that `data_ptr<scalar_t>()` used to make for free: a GEMM whose
-  // operands disagree, or whose dtype the kernel cannot load, must be rejected
-  // rather than reinterpreted. A (float64, float32) pair is one of those: the
+  // The dtype tag of a GEMM's operand pair, with the checks that a typed
+  // `data_ptr<scalar_t>()` used to make for free: operands that disagree, or
+  // a dtype the kernel cannot load, are rejected rather than reinterpreted
+  // through a `const void *`. A (float64, float32) pair is one of those: the
   // two carriers are different kernels, and picking one for the pair would
   // round the other operand in a carrier it did not ask for.
   //

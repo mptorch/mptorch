@@ -1,14 +1,23 @@
 """
-Tests for the case where a quantized layer is asked for only *some* of its
-gradients -- a frozen block, or the first layer of a network.
+A quantized layer asked for only *some* of its gradients: a frozen block, or
+the first layer of a network, where the input needs no gradient.
 
-These guard the narrowing done for findings P1/P2/P3 in
-dev/gemm_perf_audit.md: backward now quantizes ``grad_output`` only for the
-paths that will consume it, forward saves only the tensors backward reads,
-and the GEMM ``fwd`` hooks fold the bias in place. Each is only sound because
-of an exact claim about what backward touches, so the tests check the claims
-rather than just the numbers: which quantizers ran, and what the graph node
-actually holds.
+The layers' autograd Functions (``mptorch/quant/modules/linear.py``,
+``conv.py``) do three things that only pay off in that case, and each rests
+on an exact claim about what backward touches. Backward quantizes
+``grad_output`` separately for the input-gradient and weight-gradient paths
+and only for the paths that will run, so a frozen layer does not pay a
+grad-output-sized quantize and allocation for a tensor it then discards.
+Forward saves only what backward reads: the quantized input feeds the weight
+gradient alone and the quantized weight the input gradient alone, and the
+quantized bias is never read, so a frozen layer does not pin a quantized
+copy of its whole activation for the length of the backward pass. And the
+GEMM ``fwd_math`` hooks (``mptorch/quant/gemm.py``) add the bias into the
+op's freshly allocated output in place, which saves an output-sized
+allocation per forward and must be value-identical to the out-of-place add.
+A wrong claim would surface as a ``None`` gradient, a stale saved tensor or
+a perturbed parameter, so the tests check the claims themselves, which
+quantizers ran and what the graph node holds, rather than only the numbers.
 """
 
 import functools
@@ -29,7 +38,8 @@ from mptorch.quant import (
 )
 from tests.markers import available_devices
 
-# (input.requires_grad, weight/bias.requires_grad)
+# (input.requires_grad, weight and bias requires_grad): both, input only,
+# parameters only.
 PATTERNS = [(True, True), (True, False), (False, True)]
 
 
@@ -45,6 +55,7 @@ class CountingQuant:
 
 
 def counting_formats():
+    """A ``QAffineFormats`` of six call-counting quantizers, plus those quantizers."""
     quants = {
         name: CountingQuant()
         for name in (
@@ -60,7 +71,7 @@ def counting_formats():
 
 
 def _build(kind, device, bias, formats):
-    """A quantized layer and its vanilla twin, sharing parameters."""
+    """A quantized layer of ``kind``, its vanilla twin sharing parameters, an input."""
     if kind == "linear":
         q = QLinear(8, 6, bias=bias, formats=formats, device=device)
         v = nn.Linear(8, 6, bias=bias, device=device)
@@ -87,6 +98,7 @@ def _build(kind, device, bias, formats):
 
 
 def identity_formats():
+    """A ``QAffineFormats`` whose six quantizers are the identity."""
     ident = {
         name: (lambda x: x)
         for name in (
@@ -140,7 +152,10 @@ def test_partial_grads_match_vanilla(device, kind, rg_in, rg_param):
 @pytest.mark.parametrize("kind", ["linear", "conv2d"])
 @pytest.mark.parametrize("rg_in, rg_param", PATTERNS)
 def test_grad_output_quantized_only_where_consumed(device, kind, rg_in, rg_param):
-    """P1: a gradient quantizer runs exactly when its path runs."""
+    """
+    A gradient quantizer runs exactly when its path runs: one call each for
+    the requested gradients, none for the others.
+    """
     formats, quants = counting_formats()
     q, _, x = _build(kind, device, True, formats)
     q.weight.requires_grad_(rg_param)
@@ -160,9 +175,9 @@ def test_grad_output_quantized_only_where_consumed(device, kind, rg_in, rg_param
 @pytest.mark.parametrize("bias", [True, False])
 def test_forward_saves_only_what_backward_reads(device, kind, rg_in, rg_param, bias):
     """
-    P2: the graph node holds the quantized input only for the weight-gradient
-    path and the quantized weight only for the input-gradient path, and never
-    holds a quantized bias.
+    The graph node holds the quantized input only when the weight gradient is
+    requested and the quantized weight only when the input gradient is, and
+    never holds a quantized bias.
     """
     q, _, x = _build(kind, device, bias, identity_formats())
     q.weight.requires_grad_(rg_param)
@@ -180,8 +195,8 @@ def test_forward_saves_only_what_backward_reads(device, kind, rg_in, rg_param, b
 @pytest.mark.parametrize("device", available_devices)
 def test_gemm_bias_fold_matches_out_of_place(device):
     """
-    P3: folding the bias into the GEMM output in place is value-identical to
-    the out-of-place add it replaced, and does not disturb the operands.
+    Adding the bias into the GEMM output in place is value-identical to the
+    out-of-place add, and leaves the weight and bias parameters untouched.
     """
     formats = binaryK_gemm_formats(mul_K=8, mul_P=4, acc_K=10, acc_P=5)
     layer = QLinear(12, 7, bias=True, formats=formats, device=device)

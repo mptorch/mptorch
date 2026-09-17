@@ -1,3 +1,29 @@
+"""
+The eight flat GEMM wrappers (``binaryK_matmul``, ``superfp_matmul``, their
+``_fma`` variants and the ``_mixed`` palette variants of each) against
+references built outside the kernels.
+
+Three tiers per op. Tier 1 runs a near-identity format (24 significand bits,
+binary32's range) against ``torch.matmul`` within a tight tolerance, over
+several shapes and every transpose combination, to validate the wiring. Tier
+2 runs a real low-bit format and asks only for high cosine similarity with
+the unquantized result. Tier 3 is the exact check: it reproduces the kernel's
+own arithmetic in Python, one sequential pass over K per output element with
+the elementwise quantizer applied where the kernel rounds, and demands
+bit-for-bit agreement. That reference is trustworthy because the elementwise
+quantizers are checked exhaustively over every binary32 input against
+independent reference casts (``dev/benchmarks/gemm_cast_*_arith.cu``), so a
+tier 3 mismatch points at the GEMM's rounding placement, its summation order
+or its operand handling, not at the cast.
+
+On top of the tiers: every deterministic rounding mode through the tier 3
+reference, the two properties of stochastic rounding (bounded by the RD and
+RU neighbours, unbiased in the mean), the host-side rejections (rank, operand
+dtype, palette shape and length), and, for the mixed ops, equivalence of a
+one-slot palette with the single-format op and of a broadcast ``prec_idx``
+with the dense map it expands to.
+"""
+
 from typing import Any
 
 import numpy as np
@@ -28,25 +54,24 @@ DETERMINISTIC_ROUND_MODES = [
     RoundMode.RO,
 ]
 
-# Storage dtypes for the operand matrices. The GEMM kernel (gemm_policy.h)
-# always upcasts each element to float32 before multiplying/accumulating and
-# only narrows back to the storage dtype once, on the final output element --
-# regardless of whether that storage dtype is float32, float16, or bfloat16.
-# Tier 2/3 tests below are parametrized over this list; Tier 1 stays
-# float32-only (it already covers many shape/transpose combinations and
-# exists to validate wiring, not per-dtype numerics).
+# Operand dtypes the binary32 kernels accept. Each element is converted to the
+# binary32 carrier on load, every product and sum is computed and rounded
+# there, and the result is narrowed to the storage dtype once, on the write,
+# whether that dtype is float32, float16 or bfloat16. Tier 2 and 3 tests are
+# parametrized over this list; tier 1 stays float32, since it exists to
+# validate the wiring across shapes and transposes, not per-dtype numerics.
 MATMUL_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
-# Stochastic rounding draws its bits in the binary32 value the kernels round,
-# whatever the operand dtype, so the widest draw a format allows is binary32's
-# mantissa less its own.
+# Stochastic rounding draws its random bits in the binary32 carrier, whatever
+# the operand dtype, so the widest draw a format allows is binary32's 23
+# mantissa bits less the format's own.
 F32_MAN_BITS = 23
 
-# allclose tolerances scale with the storage dtype's own precision -- a
-# bfloat16/float16 tensor's *inputs* already carry far more rounding error
-# than float32's, so comparisons against a plain (unquantized) reference need
-# proportionally looser tolerances, independent of anything the custom GEMM
-# kernel itself does.
+# allclose tolerances against a plain unquantized reference, per storage
+# dtype. A float16 or bfloat16 operand already carries far more rounding error
+# than a float32 one, independent of anything the GEMM kernel does, so the
+# tolerance scales with the dtype's unit roundoff (2^-24, 2^-11, 2^-8) times
+# the few tens of terms of the K=32 reduction that uses it, rounded up.
 ALLCLOSE_TOL: dict[torch.dtype, dict[str, Any]] = {
     torch.float32: dict(atol=1e-4, rtol=1e-4),
     torch.float16: dict(atol=1e-2, rtol=1e-2),
@@ -55,6 +80,7 @@ ALLCLOSE_TOL: dict[torch.dtype, dict[str, Any]] = {
 
 
 def _ref(a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool) -> torch.Tensor:
+    """Plain ``torch.matmul`` reference honouring the two transpose flags."""
     op_a = a.t() if trans_a else a
     op_b = b.t() if trans_b else b
     return op_a @ op_b
@@ -62,21 +88,22 @@ def _ref(a: torch.Tensor, b: torch.Tensor, trans_a: bool, trans_b: bool) -> torc
 
 def _equal_nan_ok(a: torch.Tensor, b: torch.Tensor) -> bool:
     """
-    Elementwise equality, treating NaN == NaN as a match (unlike
-    ``torch.equal``). A narrow-range format (e.g. superfp with few exponent
-    bits) can legitimately overflow to +-inf and then produce NaN (e.g.
-    inf + -inf) during accumulation -- the same NaN in both the kernel's
-    output and this file's manual baseline is a match, not a divergence.
+    Elementwise equality that counts NaN == NaN as a match, unlike
+    ``torch.equal``. A narrow-range format (a superfp with few exponent bits,
+    say) can legitimately overflow to an infinity and then produce NaN from
+    ``inf + -inf`` during accumulation; the same NaN in the kernel's output
+    and in this file's manual baseline is agreement, not divergence.
     """
     return bool(((a == b) | (a.isnan() & b.isnan())).all())
 
 
 def _fma32(a: float, b: float, c: float) -> float:
     """
-    Single-rounding float32 fused multiply-add, computed via 80-bit
-    ``np.longdouble`` (64-bit mantissa -- ample headroom over float32's 24
-    bits) so the a*b+c intermediate needs no rounding of its own before the
-    one rounding down to float32, matching real hardware FMA semantics.
+    Single-rounding float32 fused multiply-add. A hardware FMA forms a*b+c
+    exactly and rounds once; here the product of two 24-bit significands (48
+    bits, exact) and the addend go through x87's 80-bit ``np.longdouble``,
+    whose 64-bit significand leaves the intermediate at most one rounding far
+    below float32's 24 bits, before the one rounding to float32 that counts.
     """
     la, lb, lc = np.longdouble(a), np.longdouble(b), np.longdouble(c)
     return float(np.float32(la * lb + lc))
@@ -86,13 +113,13 @@ TRANS_COMBOS = [(False, False), (False, True), (True, False)]
 
 
 # ------------------------------------------------------------------------------------
-# Tier 1: near-identity format vs. a plain matmul reference.
+# Tier 1: near-identity format against a plain matmul reference.
 #
-# The kernel's own accumulation order (strictly sequential over K) differs
-# from cuBLAS/ATen's internal reduction order, so even a lossless format
-# doesn't give bit-exact agreement with `a @ b` -- only a tight numerical
-# tolerance. Bit-exact agreement is instead checked in Tier 3 below, against
-# a manual reference that reproduces the kernel's own summation order.
+# The kernel sums strictly sequentially over K, which is not the reduction
+# order cuBLAS or ATen use, so even a lossless format does not agree with
+# `a @ b` bit for bit, only within a tight tolerance. Bit-exact agreement is
+# checked in tier 3, against a manual reference that reproduces the kernel's
+# own summation order.
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -135,7 +162,7 @@ def test_superfp_matmul_tier1_near_identity(device, trans_a, trans_b):
 
 
 # ------------------------------------------------------------------------------------
-# Tier 2: statistical -- real low-bit formats stay close to the fp32 reference.
+# Tier 2: statistical. Real low-bit formats stay close to the fp32 reference.
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -184,9 +211,12 @@ def test_superfp_matmul_tier2_statistical(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_accumulate_quant_false_uses_full_precision_sum(device, dtype):
-    # accumulate_quant=False should only quantize the multiply, leaving the
-    # running sum in full precision -- distinct from accumulate_quant=True
-    # with the same (low-precision) multiply format.
+    """
+    ``accumulate_quant=False`` quantizes only the multiply and keeps the
+    running sum in the carrier, so it must differ from ``accumulate_quant=True``
+    at the same low-precision multiply format; equal outputs would mean the
+    flag is ignored.
+    """
     M, K, N = 8, 32, 6
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -199,10 +229,11 @@ def test_binaryK_matmul_accumulate_quant_false_uses_full_precision_sum(device, d
 
 
 # ------------------------------------------------------------------------------------
-# Tier 3: manual baseline -- reproduce the kernel's own (sequential-over-K)
-# summation order in Python, calling the same quantizer once per scalar FMA.
-# This is what actually proves the fused kernel's add/mul dispatch is wired
-# correctly, not just "close enough".
+# Tier 3: manual baseline. Reproduce the kernel's own sequential-over-K
+# summation in Python, calling the elementwise quantizer once per scalar
+# multiply and once per add, and demand bit-exact agreement. This is what
+# proves the kernel's multiply and add casts are the intended ones, rather
+# than merely close.
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -216,12 +247,12 @@ def test_binaryK_matmul_tier3_manual_baseline(device, dtype):
     def q(x: torch.Tensor) -> torch.Tensor:
         return binaryK_quantize(x, K=K_fmt, P=P_fmt)
 
-    # The kernel upcasts each operand to float32 before multiplying and only
-    # narrows the running sum back to the storage dtype once, at the very
-    # end -- so the reference must widen a[i,k]/b[j,k] to float32 before the
-    # multiply too, else a lower-precision storage dtype would round the
-    # product an extra time before quantizing it (double rounding the kernel
-    # itself never does).
+    # The kernel converts each operand to binary32 on load and narrows the
+    # running sum to the storage dtype once, on the write, so the reference
+    # must widen a[i, k] and b[j, k] to float32 before the multiply too.
+    # Otherwise a float16 or bfloat16 product would be rounded to the storage
+    # dtype before the quantizer saw it, a second rounding the kernel never
+    # performs.
     ref = torch.zeros(M, N, device=device)
     for i in range(M):
         for j in range(N):
@@ -250,7 +281,7 @@ def test_superfp_matmul_tier3_manual_baseline(device, dtype):
         )
 
     # See test_binaryK_matmul_tier3_manual_baseline: widen to float32 before
-    # the multiply to match the kernel's own upcast-before-multiply order.
+    # the multiply to match the kernel's own convert-on-load order.
     ref = torch.zeros(M, N, device=device)
     for i in range(M):
         for j in range(N):
@@ -275,13 +306,13 @@ def test_superfp_matmul_tier3_manual_baseline(device, dtype):
 
 
 # ------------------------------------------------------------------------------------
-# Rounding mode selection: every deterministic RoundMode (RNE/RNA/RU/RD/RZ/RO)
-# is wired through to the GEMM kernel's Multiplier/Adder, each with its own
-# precomputed-parameter fast path (see gemm_policy.h / dev/gemm_roadmap.md
-# Roadmap item 6). Reuses the Tier 3 manual-baseline pattern above, since bit-
-# exact agreement is the whole point -- a near-identity/statistical tolerance
-# wouldn't catch a mode being silently ignored or mismatched between the
-# kernel's Multiplier and Adder.
+# Rounding mode selection: every deterministic RoundMode (RNE, RNA, RU, RD,
+# RZ, RO) is a template parameter of the kernel's Multiplier and Adder, each
+# of which builds the format's constants once per launch and rounds with them
+# in the hot loop (the precomputed-parameter fast path, gemm_policy.h). These
+# reuse the tier 3 manual-baseline pattern because bit-exact agreement is the
+# point: a near-identity or statistical tolerance would not catch a mode that
+# is silently ignored, or one the Multiplier and the Adder disagree on.
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -297,7 +328,7 @@ def test_binaryK_matmul_tier3_manual_baseline_round_modes(device, dtype, round_m
         return binaryK_quantize(x, K=K_fmt, P=P_fmt, rounding_mode=round_mode)
 
     # See test_binaryK_matmul_tier3_manual_baseline: widen to float32 before
-    # the multiply to match the kernel's own upcast-before-multiply order.
+    # the multiply to match the kernel's own convert-on-load order.
     ref = torch.zeros(M, N, device=device)
     for i in range(M):
         for j in range(N):
@@ -340,7 +371,7 @@ def test_superfp_matmul_tier3_manual_baseline_round_modes(device, dtype, round_m
         )
 
     # See test_binaryK_matmul_tier3_manual_baseline: widen to float32 before
-    # the multiply to match the kernel's own upcast-before-multiply order.
+    # the multiply to match the kernel's own convert-on-load order.
     ref = torch.zeros(M, N, device=device)
     for i in range(M):
         for j in range(N):
@@ -367,25 +398,31 @@ def test_superfp_matmul_tier3_manual_baseline_round_modes(device, dtype, round_m
 
 # ------------------------------------------------------------------------------------
 # Stochastic rounding (RoundMode.SR): each output element seeds its own
-# independent random stream (gemm_policy.h's NaiveAccumulator::seed_rng),
-# so a single K=1, many-output-elements call gives many independent SR
-# draws at once -- mirroring test_binaryK_stochastic's bounding-guarantee
-# (SR must land on either the RD or RU neighbor) and statistical-
-# unbiasedness (mean over many draws of a fixed value converges to it)
-# properties from tests/test_binaryk_quantize.py, applied per-output-
-# element instead of per-input-element. accumulate_quant=False isolates
-# the multiplier's SR rounding (a single K=1 term needs no accumulate
-# step to interpret).
+# Philox stream on its global linear index into the output (gemm_policy.h's
+# seed_rng), so one K=1 call with many output elements yields that many
+# independent draws at once. The two properties are the ones
+# tests/test_binaryk_quantize.py checks per input element, applied per output
+# element: SR lands on either the RD or the RU neighbour, and the mean of
+# many draws of a fixed value converges to that value. accumulate_quant=False
+# isolates the multiplier's rounding, since with K=1 there is a single
+# product and no accumulate step to interpret.
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
+    """
+    The multiplier's SR result is one of the two directed neighbours, and
+    its mean over many draws of a fixed value is that value, for every
+    storage dtype.
+    """
     K_fmt, P_fmt = 8, 4
-    # prng_bits is capped at binary32's 23 mantissa bits minus the target
-    # format's: the random bits are drawn in the binary32 value the kernel
-    # rounds, so a float16 or bfloat16 operand allows exactly as many as a
-    # float32 one (dev/gemm_roadmap.md, T6).
+    # prng_bits is capped at binary32's 23 mantissa bits minus the format's
+    # own: the random bits are drawn in the binary32 carrier, so a float16 or
+    # bfloat16 operand allows exactly as many as a float32 one. A result
+    # narrower than its carrier is rounded once more when it is stored, but
+    # that second rounding is a bound on the format the result holds (the
+    # storage check in ops.py), not on the draw.
     prng_bits = F32_MAN_BITS - (P_fmt - 1)
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
@@ -408,6 +445,10 @@ def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
     )
     assert torch.all((q_sr == q_rd) | (q_sr == q_ru))
 
+    # 0.333333 lies strictly between two P=4 values (0.3125 and 0.34375, a
+    # 2^-5 step), so every draw rounds. The 0.01 margin is well above both
+    # the sampling noise of 5000 draws over that step (about 2e-4) and the
+    # error bfloat16 puts into the constant itself (about 7e-4).
     test_val = 0.333333
     a_const = torch.full((5000, 1), test_val, device=device, dtype=dtype)
     q_sr_const = binaryK_matmul(
@@ -425,6 +466,7 @@ def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_stochastic_bounds_and_unbiased(device, dtype):
+    """Superfp twin of the binaryK SR test above (a 3-bit mantissa, same step)."""
     man_bits, exp_bits, normal_binades, bias = 3, 4, 8, 7
     prng_bits = F32_MAN_BITS - man_bits
 
@@ -451,11 +493,14 @@ def test_superfp_matmul_stochastic_bounds_and_unbiased(device, dtype):
     assert abs(q_sr_const.float().mean().item() - test_val) < 0.01
 
 
-# The op boundary is rank 2 or 3, strictly: 1D promotion and rank>3
-# broadcasting are Python's job (ops.py's `_matmul_operands`), so a rank-4
-# operand reaching the op is a bug in that layer rather than a user error.
-# The wrapper above it takes all of them -- see test_qmatmul_batched.py.
 def test_raw_matmul_op_rejects_rank_4():
+    """
+    The op boundary is rank 2 or 3, strictly. 1D promotion and rank>3
+    broadcasting are Python's job (ops.py's ``_matmul_operands``, exercised
+    by test_qmatmul_batched.py), so a rank-4 operand reaching the op is a bug
+    in that layer and must be reported, not reshaped.
+    """
+    # Positional arguments follow the op schema in csrc/quant_ops.cpp.
     a = torch.randn(2, 3, 4, 5)
     b = torch.randn(5, 6)
     with pytest.raises(RuntimeError, match="expects 2D or 3D tensors"):
@@ -464,13 +509,13 @@ def test_raw_matmul_op_rejects_rank_4():
         )
 
 
-# The GEMM kernels take their operands as `const void *` plus a runtime dtype
-# tag (finding K2), so the storage dtype is checked once on the host instead of
-# by `data_ptr<scalar_t>()` inside a per-dtype dispatch. That check has to keep
-# rejecting a pair the kernel cannot load as one type. A (float64, float32)
-# pair is one of those: float64 selects the binary64 kernels and the others the
-# binary32 ones, so a disagreeing pair is rejected rather than computed in a
-# carrier one of its operands did not ask for.
+# The GEMM kernels take their operands as `const void *` plus one runtime
+# dtype tag, so the storage dtype is checked once on the host rather than by a
+# `data_ptr<scalar_t>()` inside a per-dtype dispatch. That host check has to
+# keep rejecting a pair the kernel cannot load as one type. A (float64,
+# float32) pair is one of those: float64 selects the binary64 kernels and the
+# other three dtypes the binary32 ones, so a disagreeing pair is rejected
+# rather than computed in a carrier one of its operands did not ask for.
 @pytest.mark.parametrize(
     "dtype_a, dtype_b",
     [
@@ -481,6 +526,7 @@ def test_raw_matmul_op_rejects_rank_4():
 )
 @pytest.mark.parametrize("device", available_devices)
 def test_matmul_rejects_mismatched_operand_dtypes(device, dtype_a, dtype_b):
+    """Operands of different dtypes are rejected on the host, for both families."""
     a = torch.randn(4, 3, device=device).to(dtype_a)
     b = torch.randn(5, 3, device=device).to(dtype_b)
     with pytest.raises(RuntimeError):
@@ -498,11 +544,11 @@ def test_matmul_rejects_mismatched_operand_dtypes(device, dtype_a, dtype_b):
 
 
 # ------------------------------------------------------------------------------------
-# FMA (fused multiply-add) variant: each dot-product step is a single
-# hardware-style fused multiply-add rounded once, instead of a quantized
-# multiply followed by a separately quantized add. Same Tier 1/2/3
-# structure as above, plus a case that pins down the single-rounding
-# (Fused) vs. double-rounding (Split) distinction directly.
+# FMA (fused multiply-add) variant: each dot-product step is one
+# hardware-style fused multiply-add rounded once to the format, instead of a
+# quantized multiply followed by a separately quantized add. Same tier 1/2/3
+# structure as above, plus a case that pins down the single-rounding (fused)
+# against double-rounding (split) distinction directly.
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -589,9 +635,12 @@ def test_superfp_matmul_fma_tier2_statistical(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_fma_quant_false_matches_plain_matmul(device, dtype):
-    # fma_quant=False runs the fused step in full fp32 precision (a real
-    # FMA, no rounding beyond fp32 itself) -- close to a plain matmul, and
-    # distinct from fma_quant=True at the same (low-precision) format.
+    """
+    ``fma_quant=False`` runs the fused step in the binary32 carrier with no
+    format rounding (a real FMA), so it tracks a plain matmul within the
+    dtype's tolerance and differs from ``fma_quant=True`` at the same
+    low-precision format.
+    """
     M, K, N = 8, 32, 6
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -617,12 +666,11 @@ def test_binaryK_matmul_fma_tier3_manual_baseline(device, dtype):
             torch.tensor(x, dtype=torch.float32, device=device), K=K_fmt, P=P_fmt
         ).item()
 
-    # a[i, k].item()/b[j, k].item() already read back the exact (widened)
-    # value regardless of storage dtype, and _fma32 itself computes in
-    # ``np.longdouble`` before its single float32 rounding -- so this
-    # reference already matches the kernel's upcast-before-compute order
-    # without further changes; only the final cast to the storage dtype
-    # needs to happen explicitly here (the kernel does it once, on write-out).
+    # a[i, k].item() and b[j, k].item() read back the exact value whatever
+    # the storage dtype, and _fma32 computes in ``np.longdouble`` before its
+    # single float32 rounding, so this reference already matches the kernel's
+    # convert-on-load order. Only the final narrowing to the storage dtype
+    # has to be spelled out, and the kernel does that once, on the write.
     ref = torch.zeros(M, N, device=device)
     for i in range(M):
         for j in range(N):
@@ -748,12 +796,13 @@ def test_superfp_matmul_fma_tier3_manual_baseline_round_modes(device, dtype, rou
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
-    # FMA analog of test_binaryK_matmul_stochastic_bounds_and_unbiased --
-    # with K=1, FusedMac's fma_f32(a, b, 0) reduces to a plain a*b, so the
-    # same RD/RU-bounding and unbiasedness properties apply to the single
-    # Adder's SR rounding (fma_quant=True is the default -- there's no
-    # separate multiply format to leave unquantized here, unlike the Split
-    # ops' accumulate_quant=False).
+    """
+    FMA analog of test_binaryK_matmul_stochastic_bounds_and_unbiased. With
+    K=1 the fused step fma(a, b, 0) is a plain a*b, so the same bounding and
+    unbiasedness properties hold for the fused format's one SR rounding.
+    ``fma_quant=True`` is the default: unlike the split ops' ``accumulate_quant``
+    there is no separate multiply format to leave unquantized.
+    """
     K_fmt, P_fmt = 8, 4
     prng_bits = F32_MAN_BITS - (P_fmt - 1)
 
@@ -778,6 +827,7 @@ def test_binaryK_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
+    """Superfp twin of the binaryK fused SR test above."""
     man_bits, exp_bits, normal_binades, bias = 3, 4, 8, 7
     prng_bits = F32_MAN_BITS - man_bits
 
@@ -806,10 +856,12 @@ def test_superfp_matmul_fma_stochastic_bounds_and_unbiased(device, dtype):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_split_vs_fused_diverge(device, dtype):
-    # Split (quantized multiply, then quantized add -- two roundings) and
-    # Fused (single hardware-style FMA rounding) are different arithmetic,
-    # not just different entry points to the same computation: at a
-    # low-precision accumulate format they should disagree in general.
+    """
+    Split (quantized multiply, then quantized add: two roundings per step)
+    and fused (one rounding per step) are different arithmetic, not two entry
+    points to the same computation, so at a low-precision format they must
+    disagree somewhere in a K=48 reduction.
+    """
     M, K, N = 16, 48, 10
     K_fmt, P_fmt = 8, 4
     a = torch.randn(M, K, device=device, dtype=dtype)
@@ -824,6 +876,7 @@ def test_binaryK_matmul_split_vs_fused_diverge(device, dtype):
 
 
 def test_raw_matmul_fma_op_rejects_rank_4():
+    """The fused op's boundary is rank 2 or 3 too (see the split case above)."""
     a = torch.randn(2, 3, 4, 5)
     b = torch.randn(5, 6)
     with pytest.raises(RuntimeError, match="expects 2D or 3D tensors"):
@@ -833,19 +886,21 @@ def test_raw_matmul_fma_op_rejects_rank_4():
 
 
 # ------------------------------------------------------------------------------------
-# Mixed-format (spatially-varying) variant: the multiply/accumulate format
-# each output element's dot product runs in is picked, per element, from a
-# small palette by a prec_idx tensor (gemm_policy.h's FormatPalette). Same
-# Tier 1/2/3 structure; plus degenerate-palette equivalence to the
-# single-format op, prec_idx broadcast shapes, and the host-side validation.
+# Mixed-format (spatially varying) variant: the multiply and accumulate
+# formats each output element's dot product runs in are picked, per element,
+# from a small palette by a prec_idx tensor (gemm_policy.h's FormatPalette,
+# whose slots are prebuilt Mac policies copied into the accumulator before the
+# element's K-loop). Same tier 1/2/3 structure, plus equivalence of a one-slot
+# palette with the single-format op, the prec_idx broadcast shapes, and the
+# host-side validation of the index map and the palette lists.
 
 
 def _mixed_manual_baseline(a, b, prec_idx, q_by_slot, device):
     """
-    Reproduce the mixed kernel's own (sequential-over-K) summation for
-    C = a @ b.T, quantizing every scalar FMA with the quantizer of the
-    palette slot prec_idx[i, j] selects. prec_idx may be [M, N], [M, 1] or
-    [1, N] (broadcast like the kernel does).
+    Reproduce the mixed kernel's own sequential-over-K summation for
+    ``C = a @ b.T``, quantizing every scalar multiply and add with the
+    quantizer of the palette slot ``prec_idx[i, j]`` selects. ``prec_idx``
+    may be ``[M, N]``, ``[M, 1]`` or ``[1, N]``, broadcast as the kernel does.
     """
     M, K = a.shape
     N = b.shape[0]
@@ -870,10 +925,10 @@ def test_binaryK_matmul_mixed_tier1_near_identity(device, trans_a, trans_b, M, K
     a = torch.randn(*a_shape, device=device)
     b = torch.randn(*b_shape, device=device)
 
-    # every palette slot is a few mantissa bits narrower than binary32
-    # (P = 21..23 -> man_bits 20..22, vs fp32's 23) -- quantization genuinely
-    # happens, but each dot product still stays within a tight tolerance of
-    # the plain fp32 matmul regardless of which slot its element lands on.
+    # Every palette slot is a few mantissa bits narrower than binary32
+    # (P = 21..23, that is 20..22 explicit bits against binary32's 23), so
+    # quantization genuinely happens, yet each dot product stays within a
+    # tight tolerance of the plain fp32 matmul whichever slot it lands on.
     prec_idx = torch.randint(0, 3, (M, N), dtype=torch.int32, device=device)
     out = binaryK_matmul_mixed(
         a,
@@ -892,9 +947,11 @@ def test_binaryK_matmul_mixed_tier1_near_identity(device, trans_a, trans_b, M, K
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 @pytest.mark.parametrize("accumulate_quant", [True, False])
 def test_binaryK_matmul_mixed_single_format_matches_nonmixed(device, dtype, accumulate_quant):
-    # a one-entry palette with any prec_idx must reproduce the plain
-    # single-format op bit-for-bit -- proves the palette-bind hook doesn't
-    # perturb the arithmetic.
+    """
+    A one-slot palette reproduces the single-format op bit for bit, which
+    shows that binding a palette slot into the accumulator does not perturb
+    the arithmetic.
+    """
     M, K, N = 12, 20, 10
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -913,6 +970,7 @@ def test_binaryK_matmul_mixed_single_format_matches_nonmixed(device, dtype, accu
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
 def test_binaryK_matmul_mixed_tier3_manual_baseline(device, dtype, round_mode):
+    """Bit-exact against the per-slot manual baseline, in every deterministic mode."""
     M, K, N = 4, 5, 6
     formats = [(8, 4), (10, 5), (6, 3)]  # (K, P) per palette slot
     a = torch.randn(M, K, device=device, dtype=dtype)
@@ -941,13 +999,14 @@ def test_binaryK_matmul_mixed_tier3_manual_baseline(device, dtype, round_mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_mixed_stochastic_bounds_and_unbiased(device, dtype):
-    # RoundMode.SR on the mixed path: the palette bind only swaps acc.mac's
-    # format params, never acc.rng -- so each output element still seeds its
-    # own Philox stream (keyed by row*N+col) and a fresh random value is
-    # drawn per atomic rounding. K=1 / accumulate_quant=False isolates the
-    # multiplier's per-multiply SR draw; two distinct palette slots chosen
-    # per row exercise SR with the format actually varying across outputs.
-    # Mirrors test_binaryK_matmul_stochastic_bounds_and_unbiased.
+    """
+    SR on the mixed path. Binding a palette slot replaces only the
+    accumulator's Mac, never its Philox stream, so each output element still
+    seeds on its global index and draws a fresh value per rounding. K=1 with
+    ``accumulate_quant=False`` isolates the multiplier's draw, and two slots
+    alternating row by row exercise SR with the format actually varying
+    across outputs. Mirrors test_binaryK_matmul_stochastic_bounds_and_unbiased.
+    """
     formats = [(8, 4), (6, 3)]  # (K, P) per palette slot
     prng_bits = F32_MAN_BITS - (max(p for _, p in formats) - 1)
 
@@ -968,8 +1027,10 @@ def test_binaryK_matmul_mixed_stochastic_bounds_and_unbiased(device, dtype):
     )
     assert torch.all((q_sr == q_rd) | (q_sr == q_ru))
 
-    # unbiasedness: mean over many independent per-output-element draws of a
-    # fixed value converges to it, even with the format varying row to row.
+    # Unbiasedness: the mean over many independent per-output-element draws of
+    # a fixed value converges to it even with the format varying row to row.
+    # The P=3 rows step by 2^-4 around 0.333333, so the sampling noise of
+    # 4000 draws is about 5e-4, well inside the 0.02 margin.
     test_val = 0.333333
     a_const = torch.full((4000, 1), test_val, device=device, dtype=dtype)
     pidx_const = (torch.arange(4000, device=device).reshape(-1, 1) % 2).to(torch.int32)
@@ -981,8 +1042,11 @@ def test_binaryK_matmul_mixed_stochastic_bounds_and_unbiased(device, dtype):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_mixed_broadcast_row_and_col(device):
-    # [M, 1] / [1, N] prec_idx must give the same result as the dense
-    # [M, N] index they broadcast to.
+    """
+    A ``[M, 1]`` or ``[1, N]`` prec_idx gives the same result as the dense
+    ``[M, N]`` map it broadcasts to; the kernel reads both through one strided
+    index expression, so a wrong stride would show up here.
+    """
     M, K, N = 7, 6, 5
     a = torch.randn(M, K, device=device)
     b = torch.randn(N, K, device=device)
@@ -1001,10 +1065,15 @@ def test_binaryK_matmul_mixed_broadcast_row_and_col(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_mixed_prec_idx_dtype_and_layout(device):
-    # The host narrows prec_idx to int32 on the operand's device and memoizes
-    # the bounds check against the caller's tensor (gemm_host.h, finding G5b).
-    # Every spelling of the same map -- int64, non-contiguous, host-resident
-    # while the operands are not -- must give the same answer as the plain one.
+    """
+    The host casts prec_idx to int32 on the operand's device, checks its
+    values against the palette size, and memoizes that check on the caller's
+    tensor (its TensorImpl address and version counter, gemm_host.h), since
+    on CUDA the check is a device-to-host copy that drains the stream and the
+    device copy is a new tensor every call. Every spelling of the same map,
+    int64, non-contiguous, or host-resident while the operands are not, must
+    give the same answer as the plain one.
+    """
     M, K, N = 7, 6, 5
     a = torch.randn(M, K, device=device)
     b = torch.randn(N, K, device=device)
@@ -1022,10 +1091,12 @@ def test_binaryK_matmul_mixed_prec_idx_dtype_and_layout(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_mixed_prec_idx_memo_sees_mutation(device):
-    # The memo keys on the caller's tensor, so an in-place edit of a map that
-    # has already been validated has to invalidate it -- both when the edit
-    # keeps it in range (the result must follow the new indices) and when it
-    # puts it out of range (the call must still be rejected).
+    """
+    The memo keys on the caller's tensor and its version counter, so an
+    in-place edit of a map that already passed the check invalidates the
+    entry: an edit that keeps it in range must change the result, and one
+    that puts it out of range must still be rejected.
+    """
     M, K, N = 7, 6, 5
     a = torch.randn(M, K, device=device)
     b = torch.randn(N, K, device=device)
@@ -1045,6 +1116,7 @@ def test_binaryK_matmul_mixed_prec_idx_memo_sees_mutation(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_mixed_rejects_bad_prec_idx(device):
+    """An out-of-range slot index or a wrongly shaped map is rejected on the host."""
     M, K, N = 5, 4, 6
     a = torch.randn(M, K, device=device)
     b = torch.randn(N, K, device=device)
@@ -1062,19 +1134,25 @@ def test_binaryK_matmul_mixed_rejects_bad_prec_idx(device):
 
 
 def test_binaryK_matmul_mixed_rejects_bad_palette_lengths():
+    """
+    The palette lists must agree in length (checked in Python) and fit the
+    kernel's fixed slot array (checked on the host).
+    """
     a = torch.randn(4, 3)
     b = torch.randn(5, 3)
     prec_idx = torch.zeros(4, 5, dtype=torch.int32)
     with pytest.raises(ValueError):
         binaryK_matmul_mixed(a, b, prec_idx, trans_b=True, mul_K=[8, 8], mul_P=[4])
     with pytest.raises(RuntimeError):
-        # more palette entries than MAX_GEMM_FORMATS (8)
+        # More entries than MAX_GEMM_FORMATS (8): the palette is a fixed array
+        # passed by value into the kernel (gemm_policy.h).
         binaryK_matmul_mixed(a, b, prec_idx, trans_b=True, mul_K=[8] * 9, mul_P=[4] * 9)
 
 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_mixed_single_format_matches_nonmixed(device, dtype):
+    """A one-slot superfp palette reproduces the single-format op bit for bit."""
     M, K, N = 12, 20, 10
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -1106,6 +1184,7 @@ def test_superfp_matmul_mixed_single_format_matches_nonmixed(device, dtype):
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
 def test_superfp_matmul_mixed_tier3_manual_baseline(device, dtype, round_mode):
+    """Bit-exact against the per-slot manual baseline, in every deterministic mode."""
     M, K, N = 4, 5, 6
     # (man_bits, exp_bits, normal_binades, bias) per palette slot
     formats = [(2, 3, 4, 7), (3, 4, 8, 7)]
@@ -1139,19 +1218,20 @@ def test_superfp_matmul_mixed_tier3_manual_baseline(device, dtype, round_mode):
 
 
 # ------------------------------------------------------------------------------------
-# Mixed-format FMA variant: per-output-element selection of the single
-# fused-multiply-add rounding format from a palette (FusedMac slots -- one
-# rounding per K-step). Same structure as the split _mixed tests above, plus
-# the fma_quant=False rejection (a palette of FusedMac<IdentityAdder> has no
-# format to vary).
+# Mixed-format FMA variant: per-output-element selection of the fused
+# multiply-add format from a palette of FusedMac slots, one rounding per
+# K-step. Same structure as the split _mixed tests above, plus the
+# fma_quant=False rejection: with the fused cast replaced by an identity a
+# palette has no format to vary.
 
 
 def _mixed_fma_manual_baseline(a, b, prec_idx, q_by_slot, device):
     """
-    FMA analog of _mixed_manual_baseline: reproduce the mixed FMA kernel's
-    own summation for C = a @ b.T -- one single-rounding float32 fused
-    multiply-add per K-step (via _fma32), quantized by the palette slot
-    prec_idx[i, j] selects. q_by_slot entries take/return a python float.
+    FMA analog of ``_mixed_manual_baseline``: reproduce the mixed FMA kernel's
+    own summation for ``C = a @ b.T``, one single-rounding float32 fused
+    multiply-add per K-step (via ``_fma32``) quantized by the palette slot
+    ``prec_idx[i, j]`` selects. ``q_by_slot`` entries take and return a
+    Python float.
     """
     M, K = a.shape
     N = b.shape[0]
@@ -1176,8 +1256,8 @@ def test_binaryK_matmul_fma_mixed_tier1_near_identity(device, trans_a, trans_b, 
     a = torch.randn(*a_shape, device=device)
     b = torch.randn(*b_shape, device=device)
 
-    # palette slots a few mantissa bits below binary32 (P = 21..23) --
-    # quantization genuinely happens, still near-identity vs plain matmul.
+    # Palette slots a few mantissa bits below binary32 (P = 21..23), so
+    # quantization genuinely happens while staying near-identity.
     prec_idx = torch.randint(0, 3, (M, N), dtype=torch.int32, device=device)
     out = binaryK_matmul_fma_mixed(
         a,
@@ -1195,8 +1275,7 @@ def test_binaryK_matmul_fma_mixed_tier1_near_identity(device, trans_a, trans_b, 
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_fma_mixed_single_format_matches_nonmixed(device, dtype):
-    # one-entry palette with any prec_idx must reproduce the plain
-    # single-format FMA op bit-for-bit.
+    """A one-slot palette reproduces the single-format FMA op bit for bit."""
     M, K, N = 12, 20, 10
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -1211,6 +1290,7 @@ def test_binaryK_matmul_fma_mixed_single_format_matches_nonmixed(device, dtype):
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
 def test_binaryK_matmul_fma_mixed_tier3_manual_baseline(device, dtype, round_mode):
+    """Bit-exact against the per-slot fused manual baseline, in every mode."""
     M, K, N = 4, 5, 6
     formats = [(8, 4), (10, 5), (6, 3)]  # (K, P) per palette slot
     a = torch.randn(M, K, device=device, dtype=dtype)
@@ -1245,10 +1325,12 @@ def test_binaryK_matmul_fma_mixed_tier3_manual_baseline(device, dtype, round_mod
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_binaryK_matmul_fma_mixed_stochastic_bounds_and_unbiased(device, dtype):
-    # SR on the mixed FMA path: with K=1, FusedMac's fma_f32(a, b, 0)
-    # reduces to a plain a*b, so the single Adder's per-step SR draw has the
-    # RD/RU-bounding and unbiasedness properties -- here with the format
-    # varying row to row. Mirrors test_binaryK_matmul_fma_stochastic_*.
+    """
+    SR on the mixed FMA path. With K=1 the fused step fma(a, b, 0) is a
+    plain a*b, so the fused format's one SR draw per step has the bounding
+    and unbiasedness properties, here with the format varying row to row.
+    Mirrors test_binaryK_matmul_fma_stochastic_bounds_and_unbiased.
+    """
     formats = [(8, 4), (6, 3)]  # (K, P) per palette slot
     prng_bits = F32_MAN_BITS - (max(p for _, p in formats) - 1)
 
@@ -1279,8 +1361,11 @@ def test_binaryK_matmul_fma_mixed_stochastic_bounds_and_unbiased(device, dtype):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_fma_mixed_broadcast_row_and_col(device):
-    # [M, 1] / [1, N] prec_idx must match the dense [M, N] index they
-    # broadcast to (shared resolve_prec_idx path -- one op is enough).
+    """
+    A ``[M, 1]`` or ``[1, N]`` prec_idx matches the dense ``[M, N]`` map it
+    broadcasts to. All mixed ops resolve the map through the same host
+    routine, so one fused op is enough here.
+    """
     M, K, N = 7, 6, 5
     a = torch.randn(M, K, device=device)
     b = torch.randn(N, K, device=device)
@@ -1300,6 +1385,10 @@ def test_binaryK_matmul_fma_mixed_broadcast_row_and_col(device):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_binaryK_matmul_fma_mixed_rejects_fma_quant_false(device):
+    """
+    ``fma_quant=False`` replaces the fused cast with an identity, leaving a
+    palette nothing to vary, so the mixed FMA ops reject it on the host.
+    """
     a = torch.randn(4, 3, device=device)
     b = torch.randn(5, 3, device=device)
     prec_idx = torch.zeros(4, 5, dtype=torch.int32, device=device)
@@ -1312,6 +1401,7 @@ def test_binaryK_matmul_fma_mixed_rejects_fma_quant_false(device):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 def test_superfp_matmul_fma_mixed_single_format_matches_nonmixed(device, dtype):
+    """A one-slot superfp palette reproduces the single-format FMA op bit for bit."""
     M, K, N = 12, 20, 10
     a = torch.randn(M, K, device=device, dtype=dtype)
     b = torch.randn(N, K, device=device, dtype=dtype)
@@ -1337,6 +1427,7 @@ def test_superfp_matmul_fma_mixed_single_format_matches_nonmixed(device, dtype):
 @pytest.mark.parametrize("dtype", MATMUL_DTYPES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC_ROUND_MODES)
 def test_superfp_matmul_fma_mixed_tier3_manual_baseline(device, dtype, round_mode):
+    """Bit-exact against the per-slot fused manual baseline, in every mode."""
     M, K, N = 4, 5, 6
     # (man_bits, exp_bits, normal_binades, bias) per palette slot
     formats = [(2, 3, 4, 7), (3, 4, 8, 7)]

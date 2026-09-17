@@ -1,38 +1,46 @@
 """
-What the elementwise quantize entry points do with an operand's dtype.
+Which carrier the elementwise quantizers round an operand in, by its dtype.
 
-A float32, float16 or bfloat16 tensor rounds in binary32, whose values all
-three are. A float64 tensor rounds in binary64 (dev/binary64_carrier_plan.md,
-phase 3): its kernels are instantiated for ``double`` and compute in it, where
-they used to narrow the tensor to float32 first and widen the result back. So
-a float64 input is rounded once, directly, and a format that needs more than
-binary32 -- 24 bits of precision, seven exponent bits, a floor at 2**-125 --
-can be reached.
+Guards ``binaryK_quantize`` and ``superfp_quantize`` (``mptorch/quant/ops.py``)
+and the kernels behind them. A float64 tensor rounds in binary64: its kernels
+are instantiated for ``double`` and compute in it. A float32, float16 or
+bfloat16 tensor rounds in binary32, whose values all three are, unless the call
+names ``carrier=torch.float64``. A dispatch that narrowed a float64 tensor to
+float32 first would round every input twice, silently, and could not reach a
+format that needs more than binary32 offers (24 bits of precision, seven
+exponent bits, a smallest value of 2**-125).
 
-Four things follow, and each has its tests below.
+Five properties follow, one section each.
 
 * **The binary32 image.** A float64 tensor holding float32 values, quantized
   to a format binary32 simulates faithfully, gives exactly the float32
-  result: the format's answer does not depend on which carrier held the input.
-  ``dev/benchmarks/cast_all_modes_sweep.cu image64`` proves that for the casts
-  over every float32 input; these hold the kernels' dispatch, vector loads and
-  scalar tail to it.
-* **Rounding once.** Where the float64 value is not a float32 value the two
-  paths legitimately differ, because narrowing was a rounding of its own.
-* **Formats past binary32.** Checked through ``torch.ops`` against
-  ``tests/test_binaryk_p3109.py``'s transcription of P3109, which rounds
-  float64 values exactly, and through the Python wrapper, which holds a
-  float64 tensor's format to binary64's bounds (phase 5) and so must let
-  every one of them through without a word.
+  result: the answer does not depend on which carrier held the input.
+  ``dev/benchmarks/cast_all_modes_sweep.cu image64`` checks that for the casts
+  over every float32 input. These tests hold the kernels' dtype dispatch,
+  vector loads and scalar tail to the same claim.
+* **Rounding once.** Where the float64 value is not a float32 value, the
+  result differs from the one a narrowing to float32 would give, because that
+  narrowing is a rounding of its own.
+* **Formats past binary32.** The raw op is checked against
+  ``tests/test_binaryk_p3109.py``'s ``_project``, a transcription of the
+  projection in IEEE P3109 (arXiv:2606.04028) that shares no code with the
+  kernels and is exact on float64 inputs. The Python wrapper holds a float64
+  tensor's format to binary64's bounds rather than binary32's, so it must
+  pass every such format without a warning.
 * **binary64 for any tensor, on request.** ``carrier=torch.float64`` widens a
-  float32, float16 or bfloat16 tensor, rounds it in binary64 and narrows the
-  result back, once -- exactly the float64 call on the widened tensor, random
+  float32, float16 or bfloat16 tensor in Python, rounds it with the binary64
+  kernel and narrows the result back once through the ``narrow_float64`` op.
+  That is bit-identical to the float64 call on the widened tensor, random
   draws included. A carrier narrower than the tensor is refused.
+* **A view that starts mid-storage.** A contiguous view off a 16-byte
+  boundary is copied before the CUDA kernel's aligned vector load.
 
-Stochastic rounding draws a 64-bit word per float64 element -- words
-``2 * (j & 1)`` and the next of Philox block ``j >> 1`` (``common/philox.h``)
--- so it is checked by property: every result is one of the input's two
-neighbours, and each element's draw is a function of its own index.
+Stochastic rounding (SR) draws one 64-bit word per float64 element: element
+``j`` takes Philox block ``j >> 1`` and its 32-bit words ``2 * (j & 1)`` and
+the next, low word first (``csrc/common/philox.h``). The draws have no
+closed-form reference, so SR is checked by property: every result is one of
+the input's two neighbours in the format, each element's draw is a function
+of its own index, and the mean is the input.
 """
 
 import math
@@ -48,8 +56,8 @@ from mptorch.quant.ops import _narrowed
 from tests.markers import available_devices
 from tests.test_binaryk_p3109 import _project
 
-# 100_003 is prime: neither the float4 body nor any dtype's vector width
-# divides it, so the scalar tail runs on every backend and dtype.
+# 100_003 is prime, so no vector width (4 floats, 2 doubles) divides it and the
+# kernels' scalar tail runs on every backend and dtype.
 SIZE = 100_003
 
 DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
@@ -57,7 +65,10 @@ SATURATION_MODES = list(SaturationMode)
 
 
 def _quant_calls(x):
-    """Both elementwise quantize entry points, keyed by op name."""
+    """Both elementwise quantizers bound to ``x``, keyed by op name.
+
+    Each value takes the remaining keyword arguments. The formats are binaryK
+    ``K=8, P=4`` and superfp ``m3e4n1b7``, both of which binary32 carries."""
     return {
         "binaryK": lambda **kw: binaryK_quantize(x, K=8, P=4, **kw),
         "superfp": lambda **kw: superfp_quantize(
@@ -70,8 +81,12 @@ OP_NAMES = list(_quant_calls(torch.empty(0)).keys())
 
 
 def _float32_values(device, n=SIZE):
-    """float64 tensor of float32 values: x8 so the format's normal,
-    supernormal and saturating regions are all hit, and a few specials."""
+    """A float64 tensor whose values are all float32 values.
+
+    The normal draws are scaled by 8 so that the formats' normal, supernormal
+    and saturating regions are all hit. The first ten elements are specials:
+    both zeros, infinities, NaN, float32's smallest subnormal, a value near its
+    largest, and 1.0625, a tie of binaryK 8p4."""
     torch.manual_seed(7)
     x = torch.randn(n, device=device, dtype=torch.float32) * 8.0
     specials = torch.tensor(
@@ -83,8 +98,10 @@ def _float32_values(device, n=SIZE):
 
 
 def _assert_same_words(a, b, ctx=""):
-    """Raw-word comparison: NaN is not equal to itself and -0.0 is equal to
-    0.0, and this is a claim about bits."""
+    """Assert that ``a`` and ``b`` hold the same words, naming the first mismatch.
+
+    Bits are compared rather than values because NaN is not equal to itself
+    and -0.0 is equal to 0.0, and the claims here include both."""
     assert a.dtype == b.dtype, ctx
     bits = {8: torch.int64, 4: torch.int32, 2: torch.int16}[a.element_size()]
     same = a.view(bits) == b.view(bits)
@@ -100,6 +117,10 @@ def _assert_same_words(a, b, ctx=""):
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC)
 def test_float64_of_float32_values_matches_float32(device, op, round_mode):
+    """The binary64 kernel gives float32 values the binary32 kernel's result.
+
+    Catches a float64 dispatch, vector load or scalar tail that rounds
+    differently from the float32 one in any deterministic rounding mode."""
     x64 = _float32_values(device)
     out64 = _quant_calls(x64)[op](rounding_mode=round_mode)
     out32 = _quant_calls(x64.float())[op](rounding_mode=round_mode)
@@ -112,8 +133,10 @@ def test_float64_of_float32_values_matches_float32(device, op, round_mode):
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("saturation_mode", SATURATION_MODES)
 def test_float64_of_float32_values_across_saturation_modes(device, op, saturation_mode):
-    # saturation only decides anything for operands past the format's range,
-    # which is what the x8 scale is for
+    """The binary32 image holds in every saturation mode.
+
+    Saturation decides the result only for operands past the format's range,
+    which the scale of 8 in ``_float32_values`` provides."""
     x64 = _float32_values(device)
     kw = {"saturation_mode": saturation_mode}
     out64 = _quant_calls(x64)[op](**kw)
@@ -124,8 +147,12 @@ def test_float64_of_float32_values_across_saturation_modes(device, op, saturatio
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
 def test_float64_of_float32_values_across_subnormals_modes(device, subnormals_mode):
-    # /64 as well, so the values below each mode's floor are reached -- divided
-    # in float32, or the smallest subnormal's quotient would not be a float32 value
+    """The binary32 image holds in every subnormals mode, below its floor too.
+
+    The inputs are repeated divided by 64 so that values below each mode's
+    smallest value are reached. The division is done in float32, because in
+    float64 the quotient of float32's smallest subnormal is not a float32
+    value."""
     x32 = _float32_values(device).float()
     x64 = torch.cat([x32, x32 / 64.0]).double()
     for round_mode in DETERMINISTIC:
@@ -143,15 +170,22 @@ def test_float64_of_float32_values_across_subnormals_modes(device, subnormals_mo
 @pytest.mark.parametrize(
     ("round_mode", "x", "via_float32", "direct"),
     [
-        # 1.0625 is the tie between 1.0 and 1.125, and float32 has no 2**-30
-        # to break it with: narrowed, RNE takes the even 1.0
+        # binaryK 8p4 has steps of 0.125 in [1, 2), so 1.0625 is the tie between
+        # 1.0 and 1.125. float32's step there is 2**-23 and cannot hold the 2**-30
+        # that breaks the tie, so the narrowed input is the tie and RNE takes the
+        # even 1.0.
         (RoundMode.RNE, 1.0625 + 2.0**-30, 1.0, 1.125),
-        # narrowed, 1.0 is on the grid and RU has nothing to round
+        # Narrowed to float32 the input is 1.0, a grid point, and RU and RD have
+        # nothing to round.
         (RoundMode.RU, 1.0 + 2.0**-30, 1.0, 1.125),
         (RoundMode.RD, -(1.0 + 2.0**-30), -1.0, -1.125),
     ],
 )
 def test_float64_is_rounded_once(device, round_mode, x, via_float32, direct):
+    """A float64 input a hair off a grid point or a tie rounds by its own value.
+
+    A kernel that narrowed the tensor to float32 first would return
+    ``via_float32`` for the float64 call."""
     t = torch.tensor([x], device=device, dtype=torch.float64)
     got = binaryK_quantize(t, K=8, P=4, rounding_mode=round_mode)
     assert got.item() == direct
@@ -160,8 +194,11 @@ def test_float64_is_rounded_once(device, round_mode, x, via_float32, direct):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_float64_is_rounded_once_superfp(device):
-    # superfp m3e4n1b7's one normal binade is [256, 512) in steps of 32, and
-    # 272 is the tie between 256 and 288 that float32 cannot see past
+    """The superfp kernel rounds a float64 input once as well.
+
+    superfp ``m3e4n1b7`` has one normal binade, [256, 512) in steps of 32, so
+    272 is the tie between 256 and 288. float32's step there is 2**-15, so the
+    2**-22 that breaks the tie is lost by a narrowing to float32."""
     t = torch.tensor([272.0 + 2.0**-22], device=device, dtype=torch.float64)
     assert superfp_quantize(t, 3, 4, 1, 7).item() == 288.0
     assert superfp_quantize(t.float(), 3, 4, 1, 7).item() == 256.0
@@ -169,23 +206,27 @@ def test_float64_is_rounded_once_superfp(device):
 
 # --- formats past binary32 ----------------------------------------------------
 
-# (K, P, bias, signed): each needs binary64 -- precision past 24 bits, an
-# exponent field past 7 bits, or a smallest value below 2**-125 -- and each is
-# inside binary64's own bounds, two of them on its edges.
+# (K, P, bias, signed). All but the last need binary64: precision past 24 bits,
+# an exponent field past 7 bits, or a smallest value below 2**-125. Each is inside
+# binary64's own bounds (53 bits, smallest value 2**(1 - bias - (P - 1)) no lower
+# than 2**-1021), and two sit on that floor.
 WIDE_FORMATS = [
     (40, 30, 512, True),  # 30 bits of precision, ten exponent bits
     (63, 53, 511, True),  # binary64's full precision
-    (63, 53, 970, True),  # ... with its smallest value at 2**-1021, binary64's faithful floor
-    (11, 1, 1022, True),  # P = 1 on that floor
-    (40, 31, 512, False),
-    (16, 12, 8, True),  # a format binary32 holds too, beside them
+    (63, 53, 970, True),  # smallest value 2**(1 - 970 - 52) = 2**-1021, the floor
+    (11, 1, 1022, True),  # P = 1 on that floor: 2**(1 - 1022) = 2**-1021
+    (40, 31, 512, False),  # unsigned, so the sign bit is a tenth exponent bit
+    (16, 12, 8, True),  # a format binary32 carries too, as a control
 ]
 
 
 def _wide_inputs(K, P, bias, signed, device, n=65_536):
-    """float64 values across the format's range and a little past both ends:
-    random 53-bit significands at every exponent, the format's own grid points
-    and the midpoints between them, and the specials."""
+    """float64 inputs across the format's range and a little past both ends.
+
+    Exponents run from three below the smallest subnormal to two above the top
+    binade, clipped to binary64's. Each gets a random 53-bit significand, a
+    point of the format's own grid and the midpoint above it (a tie for the
+    nearest modes). Specials are appended and signs are random."""
     g = torch.Generator().manual_seed(K * 1000 + P)
     exp_bits = K - P if signed else K - P + 1
     top = 2**exp_bits - 1 - bias
@@ -207,6 +248,7 @@ def _wide_inputs(K, P, bias, signed, device, n=65_536):
 
 
 def _raw_binaryK(x, K, P, bias, signed, round_mode, saturation, prng_bits=0):
+    """The ``binaryK_quant`` op itself, past the Python wrapper's format checks."""
     return torch.ops.mptorch.binaryK_quant.default(
         x,
         K,
@@ -224,6 +266,10 @@ def _raw_binaryK(x, K, P, bias, signed, round_mode, saturation, prng_bits=0):
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 @pytest.mark.parametrize("saturation", SATURATION_MODES)
 def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, saturation):
+    """The binary64 kernel matches the P3109 projection in formats binary32 cannot hold.
+
+    Catches a cast constant or shift that is still sized for binary32 (a
+    32-bit word, a 23-bit significand) in the ``double`` instantiation."""
     x = _wide_inputs(K, P, bias, signed, device)
     for round_mode in DETERMINISTIC:
         got = _raw_binaryK(x, K, P, bias, signed, round_mode, saturation)
@@ -235,9 +281,12 @@ def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, satur
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 def test_the_wrapper_holds_float64_to_binary64s_bounds(device, K, P, bias, signed):
-    """Every format above is inside binary64's bounds, two on its edges, so the
-    wrapper passes a float64 tensor straight to the op -- and a float32 one
-    that binary32 cannot carry is refused or warned about, not rounded."""
+    """The wrapper checks a float64 tensor's format against binary64's bounds.
+
+    Every format in ``WIDE_FORMATS`` is inside them, so the call must be silent
+    and equal to the raw op. A wrapper that applied binary32's bounds would
+    warn or raise here. The same format on a float32 tensor is refused when
+    its precision is past binary32's 24 bits."""
     x = _wide_inputs(K, P, bias, signed, device)
     sat = SaturationMode.SAT_FINITE
     kw: dict[str, Any] = dict(bias=bias, is_signed=signed, saturation_mode=sat)
@@ -250,12 +299,13 @@ def test_the_wrapper_holds_float64_to_binary64s_bounds(device, K, P, bias, signe
             binaryK_quantize(x.float(), K, P, **kw)
 
 
-# --- the old arithmetic, on request --------------------------------------------
+# --- binary64 for any tensor, on request ---------------------------------------
 
 
-# Values float32 cannot hold, each a hair off a point of both formats' grids
-# (binaryK 8p4's 1.0 and the 1.0625 midpoint, superfp m3e4n1b7's 256 and the
-# 272 midpoint), so that narrowing moves every rounding mode's answer.
+# float64 values float32 cannot hold, each a hair off a grid point or a midpoint
+# of one of the two formats (binaryK 8p4: 1.0 and the tie 1.0625, superfp
+# m3e4n1b7: 256 and the tie 272). The trailing comment names the rounding mode
+# whose answer a narrowing to float32 would move.
 WITNESSES = [
     1.0 + 2.0**-30,  # RU, RO
     1.0 - 2.0**-30,  # RZ
@@ -276,9 +326,11 @@ NARROW = [torch.float32, torch.float16, torch.bfloat16]
 @pytest.mark.parametrize("dtype", NARROW)
 @pytest.mark.parametrize("round_mode", list(RoundMode))
 def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_mode):
-    """Bit for bit, SR included: the float64 kernel on the widened values,
-    drawing the same words, and the result narrowed back to the tensor's dtype
-    once."""
+    """``carrier=torch.float64`` equals the float64 call on the widened tensor.
+
+    Bit for bit after ``_narrowed``, in every rounding mode: the same kernel on
+    the same values drawing the same random words. Catches a widening that
+    changes the SR stream or a result narrowed with more than one rounding."""
     x = (torch.randn(SIZE, device=device) * 8.0).to(dtype)
     kw = dict(rounding_mode=round_mode, prng_bits=12 if round_mode is RoundMode.SR else 0)
     torch.manual_seed(99)
@@ -287,8 +339,9 @@ def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_m
     want = _narrowed(_quant_calls(x.double())[op](**kw), dtype)
     assert got.dtype is dtype
     _assert_same_words(got, want, f"{op} {dtype} {round_mode.name}")
-    # A tensor's own values round the same in either carrier -- the binary32
-    # image, for formats binary32 carries -- so only SR's draws tell them apart
+    # A tensor's own values round the same in either carrier (the binary32 image,
+    # for formats binary32 carries), so only SR tells the two apart: it draws 64
+    # bits per element in binary64 and 32 in binary32.
     torch.manual_seed(99)
     own = _quant_calls(x)[op](**kw)
     assert torch.equal(own, got) is (round_mode is not RoundMode.SR)
@@ -297,6 +350,7 @@ def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_m
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_binary64_carrier_of_a_strided_tensor(device, op):
+    """A non-contiguous float32 tensor is widened by its strides, not its storage."""
     base = (torch.randn(2 * 4099, device=device) * 8.0).reshape(4099, 2)
     strided = base[:, 1]
     got = _quant_calls(strided)[op](carrier=torch.float64)
@@ -307,6 +361,7 @@ def test_binary64_carrier_of_a_strided_tensor(device, op):
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16, torch.float64])
 def test_a_carrier_a_dtype_already_has_changes_nothing(device, op, dtype):
+    """Naming the carrier a dtype rounds in by default is the default call."""
     x = (torch.randn(4096, device=device) * 8).to(dtype)
     carrier = torch.float64 if dtype is torch.float64 else torch.float32
     got = _quant_calls(x)[op](carrier=carrier)
@@ -316,6 +371,11 @@ def test_a_carrier_a_dtype_already_has_changes_nothing(device, op, dtype):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_a_carrier_narrower_than_the_tensor_is_refused(device):
+    """A carrier below the tensor's dtype, or one that is not a carrier, raises.
+
+    ``torch.float32`` on a float64 tensor would round every input once before
+    the format does. Only float32 and float64 name a carrier, and a string is
+    a ``TypeError`` rather than a silent default."""
     x = torch.ones(8, device=device, dtype=torch.float64)
     with pytest.raises(ValueError, match="narrower than float64"):
         binaryK_quantize(x, 8, 4, carrier=torch.float32)
@@ -335,10 +395,14 @@ def test_a_carrier_narrower_than_the_tensor_is_refused(device):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("round_mode", [RoundMode.RNE, RoundMode.SR])
 def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode):
-    """`x[k:]` is contiguous and starts k elements into its storage, so off the
-    16-byte boundary the CUDA kernels' vector load needs; loading it in place
-    was a misaligned-address fault that took the CUDA context with it. It is
-    copied instead, and quantizes to what its copy does, SR draws included."""
+    """A contiguous view that starts off a 16-byte boundary quantizes as its copy.
+
+    ``x[k:]`` is contiguous and starts ``k`` elements into its storage, which
+    is off a 16-byte boundary for every ``k`` and dtype here except ``k = 2``
+    in float64. The CUDA kernels' vector load is aligned, and reading such a
+    view in place is a misaligned-address fault that poisons the CUDA context,
+    so the entry point must copy it (``csrc/cuda/vector_load.h``). SR draws are
+    included: the copy must not move an element's index."""
     kw = dict(rounding_mode=round_mode, prng_bits=4 if round_mode is RoundMode.SR else 0)
     storage = (torch.randn(4099 + 3, device=device) * 8).to(dtype)
     for k in (1, 2, 3):
@@ -348,7 +412,7 @@ def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode)
         torch.manual_seed(5)
         want = _quant_calls(view.clone())[op](**kw)
         _assert_same_words(got, want, f"{op} {dtype} {round_mode.name} k={k}")
-    # and a row slice of a matrix, whose offset is a multiple of the row
+    # A row slice of a matrix starts one row of 3 elements into its storage.
     rows = (torch.randn(64, 3, device=device) * 8).to(dtype)[1:]
     _assert_same_words(_quant_calls(rows)[op](), _quant_calls(rows.clone())[op](), f"{op} rows")
 
@@ -359,6 +423,11 @@ def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode)
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 def test_float64_sr_lands_on_a_neighbour(device, K, P, bias, signed):
+    """SR in binary64 returns the RD or the RU projection of each input.
+
+    ``prng_bits`` is capped so that ``man_bits + prng_bits`` stays within the
+    52 significand bits binary64 has for the random tail. The zero check holds
+    SR to P3109's unsigned zero, which a value comparison cannot see."""
     x = _wide_inputs(K, P, bias, signed, device)
     prng_bits = min(30, 52 - (P - 1))
     sat = SaturationMode.SAT_FINITE
@@ -374,11 +443,15 @@ def test_float64_sr_lands_on_a_neighbour(device, K, P, bias, signed):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_sr_draw_is_keyed_on_the_element_index(device, op):
-    """A float64 element's draw depends on its index alone: the first n
-    elements of a call come out as a call on those n does, whichever of the
-    vector body and the scalar tail each lands in."""
+    """A float64 element's draw depends on its index alone.
+
+    The first ``n`` elements of a long call equal a call on those ``n``,
+    whichever of the vector body and the scalar tail each lands in. Catches a
+    tail that restarts the stream or pairs the block's words differently."""
     x = torch.randn(SIZE, device=device, dtype=torch.float64) * 8.0
-    n = 4099  # prime, and odd, so the shorter call's tail starts mid-block
+    # 4099 is prime, so the shorter call ends in a scalar tail, on a half-used
+    # Philox block, where the longer call is still in its vector body.
+    n = 4099
 
     def call(t):
         torch.manual_seed(1234)
@@ -389,8 +462,13 @@ def test_float64_sr_draw_is_keyed_on_the_element_index(device, op):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_float64_sr_is_unbiased(device):
-    """SR's mean is the input, to within 5 sigma, for a value float32 cannot hold."""
-    frac = 0.3 + 2.0**-40  # 1 + frac/8 has bits past binary32's reach
+    """SR's mean is the input, for a value float32 cannot hold.
+
+    The input sits ``frac`` of the way from 1.0 to 1.125, so the fraction of
+    results at 1.125 is a binomial proportion with standard deviation
+    sqrt(0.3 * 0.7 / 400_000) = 0.00072. The tolerance 0.004 is about 5.5 of
+    those."""
+    frac = 0.3 + 2.0**-40  # 1 + frac / 8 has bits below float32's 2**-23 step
     x = torch.full((400_000,), 1.0 + frac * 0.125, device=device, dtype=torch.float64)
     got = binaryK_quantize(x, K=8, P=4, rounding_mode=RoundMode.SR, prng_bits=20)
     assert set(got.unique().tolist()) <= {1.0, 1.125}
@@ -403,6 +481,7 @@ def test_float64_sr_is_unbiased(device):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_empty_tensor_keeps_its_dtype(device, op):
+    """The empty early return allocates float64, not the kernel's default dtype."""
     empty = torch.empty(0, device=device, dtype=torch.float64)
     out = _quant_calls(empty)[op]()
     assert out.dtype is torch.float64
@@ -412,6 +491,7 @@ def test_float64_empty_tensor_keeps_its_dtype(device, op):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_non_contiguous_input(device, op):
+    """A strided float64 tensor quantizes as its contiguous copy does."""
     base = torch.randn(2 * SIZE, device=device, dtype=torch.float64).reshape(SIZE, 2) * 8.0
     strided = base[:, 0]
     assert not strided.is_contiguous()
@@ -425,6 +505,7 @@ def test_float64_non_contiguous_input(device, op):
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_other_dtypes_keep_their_dtype(device, op, dtype):
+    """Rounding in binary32 does not change a float16 or bfloat16 result's dtype."""
     x = torch.randn(4096, device=device).to(dtype)
     out = _quant_calls(x)[op]()
     assert out.dtype is dtype
@@ -439,10 +520,10 @@ def test_other_dtypes_keep_their_dtype(device, op, dtype):
     ],
 )
 def test_integer_input_is_still_rejected(device, raw_op, args):
-    # The dispatch lists the four floating dtypes, and an unsupported one
-    # still has to raise rather than fall through. Called through
-    # ``torch.ops`` because the Python wrappers reject a non-float dtype
-    # earlier, on their own mantissa-width lookup.
+    """A dtype outside the four floating ones raises instead of falling through.
+
+    Called through ``torch.ops`` because the Python wrappers reject a
+    non-float dtype earlier, on their own mantissa-width lookup."""
     x = torch.ones(64, device=device, dtype=torch.int32)
     fn = getattr(torch.ops.mptorch, raw_op).default
     with pytest.raises(NotImplementedError, match="not implemented for 'Int'"):

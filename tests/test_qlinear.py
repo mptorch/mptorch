@@ -1,3 +1,21 @@
+"""
+``QLinear`` against ``nn.Linear`` and against a hand-written baseline.
+
+The three tiers every layer test module follows. Tier 1 (exact): identity
+quantizers, and the quantized layer must match the vanilla layer's forward
+and backward to within float32 noise, which validates the autograd plumbing
+(the custom Function, its saved tensors, the bias handling) with no numerics
+in the way. Tier 2 (statistical): real ``binaryK_quantize`` quantizers on
+every tensor, and the outputs and gradients must stay close to the vanilla
+layer's in cosine similarity, over float32, float16 and bfloat16. Tier 3
+(manual baseline): the expected result is recomputed by hand from the
+formats' own quantizers and the plain ``F.linear`` and matmul spellings of
+the backward, so the layer must quantize exactly the tensors it claims to,
+where it claims to, and nowhere else. A last case runs the layer over the
+custom-arithmetic GEMM hooks that ``binaryK_gemm_formats`` installs,
+including an input with extra leading dimensions.
+"""
+
 import pytest
 import torch
 import torch.nn.functional as F
@@ -12,18 +30,14 @@ from tests.markers import available_devices
 @pytest.mark.parametrize("bias", [True, False])
 def test_qlinear_tier1_exact(device, bias):
     """
-    Tier 1: High-Precision Equivalence (Sanity Check)
-    Tests that QLinear with K=32, P=23 (float32 eq) perfectly matches a vanilla nn.Linear
-    in both forward and backward passes.
+    Tier 1: with identity quantizers on every tensor, ``QLinear`` matches a
+    vanilla ``nn.Linear`` in forward and in all three gradients, so any
+    divergence is in the autograd plumbing rather than in a format.
     """
     dtype = torch.float32
-    # IEEE float32 is roughly K=32, P=23. But binaryK_quantize may not support K=32 if P
-    # is high depending on impl.
-    # Actually, if we just use a dummy identity, we test the autograd plumbing perfectly.
-    # But user specifically wants binaryK_quantize. We can use a high precision like K=16,
-    # P=10 for float16 equivalent, or just use lambda x: x for true identity.
-    # Let's test with lambda x: x to prove the autograd graph is exactly identical to native.
-    # Then we test Tier 3 with binaryK_quantize to prove exact arithmetic.
+    # Identity lambdas rather than a wide binaryK format: the point is that
+    # the graph is the native one, with no rounding at all in the way. Tier 3
+    # is where binaryK_quantize proves the arithmetic.
 
     formats = QAffineFormats(
         weight_quant=lambda x: x,
@@ -37,7 +51,6 @@ def test_qlinear_tier1_exact(device, bias):
     vanilla = nn.Linear(32, 16, bias=bias, device=device, dtype=dtype)
     q_layer = QLinear(32, 16, bias=bias, formats=formats, device=device, dtype=dtype)
 
-    # Sync weights
     with torch.no_grad():
         q_layer.weight.copy_(vanilla.weight)
         if bias:
@@ -82,9 +95,10 @@ def test_qlinear_tier1_exact(device, bias):
 @pytest.mark.parametrize("bias", [True, False])
 def test_qlinear_tier2_statistical(device, dtype, bias):
     """
-    Tier 2: Statistical Similarity
-    Tests that QLinear with lower precision (e.g. K=8, P=4) degrades gracefully and
-    maintains high cosine similarity with vanilla layers.
+    Tier 2: with a real K=8, P=4 quantizer on every tensor, the forward output
+    and both gradients stay close to the vanilla layer's in cosine similarity
+    (a bound that tolerates the format's rounding but not a wrong tensor or a
+    dropped path), for float32, float16 and bfloat16 parameters.
     """
 
     def quant_fn(x):
@@ -113,13 +127,12 @@ def test_qlinear_tier2_statistical(device, dtype, bias):
     out_v = vanilla(x_v)
     out_q = q_layer(x_q)
 
-    # Convert to float32 for cosine similarity calculation
+    # Cosine similarity is computed in float32 whatever the layer's dtype.
     cos_sim_out = F.cosine_similarity(
         out_v.flatten().float(), out_q.flatten().float(), dim=0
     ).item()
     assert cos_sim_out > 0.90, f"Forward Cosine Sim too low: {cos_sim_out}"
 
-    # We use a random backward gradient to test
     g_out = torch.randn_like(out_v)
 
     out_v.backward(g_out)
@@ -148,9 +161,10 @@ def test_qlinear_tier2_statistical(device, dtype, bias):
 @pytest.mark.parametrize("bias", [True, False])
 def test_qlinear_tier3_manual_baseline(device, dtype, bias):
     """
-    Tier 3: Manual Functional Baseline
-    Tests that the layer calculates exactly what a manual script would, proving the
-    autograd function correctly drops bits during backprop without diverging.
+    Tier 3: the layer computes exactly what a hand-written script does with
+    the same quantizers, ``F.linear`` for the forward and plain matmuls for
+    the two gradients, so the custom Function quantizes exactly the tensors
+    it claims to, forward and backward, and nothing else.
     """
 
     def quant_fn(x):
@@ -167,16 +181,17 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
 
     q_layer = QLinear(32, 16, bias=bias, formats=formats, device=device, dtype=dtype)
 
-    # 1. Manual Math
+    # The manual baseline, on detached copies of the layer's parameters.
     w = q_layer.weight.clone().detach().requires_grad_(True)
     b = q_layer.bias.clone().detach().requires_grad_(True) if bias else None
     x_man = torch.randn(8, 32, device=device, dtype=dtype, requires_grad=True)
     x_q_layer = x_man.clone().detach().requires_grad_(True)
 
-    # Forward Pass Manual. Under no_grad because these quantize tensors that
-    # require grad and then read the *values*: nothing backprops through the
-    # quantizer here, and the raw quantize ops raise rather than hand back a
-    # tensor whose gradient would silently vanish (see csrc/autograd_ops.cpp).
+    # Under no_grad because these quantize tensors that require grad and then
+    # read only the values: nothing backprops through the quantizer here, and
+    # the raw quantize ops raise on a requires_grad operand under grad mode
+    # rather than hand back a tensor whose gradient would silently vanish
+    # (csrc/autograd_ops.cpp).
     with torch.no_grad():
         qw = quant_fn(w)
         qx = quant_fn(x_man)
@@ -185,10 +200,9 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
 
     out_layer = q_layer(x_q_layer)
 
-    # Forward pass must be EXACTLY identical
+    # The forward must be bit-identical: same quantized operands, same op.
     assert torch.all(out_man == out_layer), "Manual Forward divergence!"
 
-    # Backward Pass Manual
     g_out = torch.randn_like(out_man)
 
     q_igrad_out = quant_fn(g_out)
@@ -203,8 +217,10 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
 
     out_layer.backward(g_out)
 
-    # Backward pass must be EXACTLY identical (or extremely close due to
-    # associativy differences if sum(0) differs slightly)
+    # The gradients are held to a small tolerance rather than to equality, a
+    # margin for torch reducing two spellings of the same product in a
+    # different order. A quantizer applied to the wrong tensor, or skipped,
+    # moves a K=8, P=4 result far beyond 1e-5.
     assert x_q_layer.grad is not None
     assert q_layer.weight.grad is not None
     assert torch.allclose(x_q_layer.grad.detach(), igrad_man.detach(), atol=1e-5), (
@@ -226,13 +242,12 @@ def test_qlinear_tier3_manual_baseline(device, dtype, bias):
 @pytest.mark.parametrize("input_shape", [(8, 32), (4, 3, 32)])
 def test_qlinear_gemm_formats_end_to_end(device, bias, input_shape):
     """
-    End-to-end check that `binaryK_gemm_formats` (mptorch/quant/gemm.py)
-    correctly wires the custom-arithmetic GEMM core into QAffineFormats'
-    fwd_math/bwd_igrad_math/bwd_wgrad_math hooks: forward should closely
-    track a vanilla nn.Linear (near-identity GEMM format), backward should
-    run and produce correctly-shaped, finite gradients, including for
-    inputs with extra leading (batch) dims that gemm.py must flatten before
-    calling the 2D-only GEMM op and reshape back afterwards.
+    ``binaryK_gemm_formats`` (mptorch/quant/gemm.py) wires the custom GEMM
+    into the ``fwd_math``, ``bwd_igrad_math`` and ``bwd_wgrad_math`` hooks:
+    with a near-identity format the forward tracks a vanilla ``nn.Linear``,
+    and the backward produces finite, correctly shaped gradients, including
+    for an input with an extra leading dimension, which the hooks flatten
+    into the row dimension before the GEMM and restore afterwards.
     """
     dtype = torch.float32
     formats = binaryK_gemm_formats(mul_K=33, mul_P=24)

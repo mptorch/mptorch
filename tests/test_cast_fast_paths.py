@@ -1,37 +1,39 @@
 """
-Tests that the host and the device agree bit for bit on every deterministic
-cast, which since finding C5 in dev/gemm_roadmap.md is a claim about two
-different implementations rather than one.
+The host and the device must agree bit for bit on every deterministic cast.
 
-The float-arithmetic cast fast paths (G3, G7, G8) used to be ``#if
-defined(__CUDA_ARCH__)``: the Veltkamp split they are built on is exact only
-if the compiler does not contract ``t - (t - x)`` into an FMA, which the _rn
-intrinsics guarantee and a host compiler only promises under
-``-ffp-contract=off``. setup.py now asks for that promise and defines
-``MPTORCH_FAST_CAST`` when it is given, so a host build takes the same paths
--- except ``cast_superfp_rne_fast``, which is exact on the host and slower
-than the integer path it would replace, and so stays off there.
+That is a claim about two different implementations. The casts in
+mptorch/csrc/common/cast_binaryK.h and cast_superfp.h have float-arithmetic
+fast paths built on a Veltkamp split, ``t - (t - x)`` with ``t = c * x``,
+which is exact only if the compiler neither contracts the multiply and the
+subtraction into one FMA nor evaluates them wider than float. The device pass
+has that guarantee from the ``_rn`` intrinsics; a host build has it only when
+setup.py passes ``-ffp-contract=off`` together with ``-DMPTORCH_FAST_CAST=1``
+and ``FLT_EVAL_METHOD == 0`` holds (mptorch/csrc/common/bit_helper.h states
+the contract). The host also declines one fast path on speed alone:
+``cast_superfp_rne_fast`` is exact there but slower than the integer path it
+would replace.
 
-The upshot is that for one format and one rounding mode the two backends can
-now be running different code: binaryK RNE is the float path on both,
-superfp RNE is the float path on the device and the bitwise one on the host,
-and the two SR paths differ from neither. All of them are meant to be the
-same function of the input, and this file is what says so. The exhaustive
-proof is elsewhere -- dev/benchmarks/gemm_cast_{float,superfp,sr}_arith.cu
-compare every one of the 2^32 float inputs, and build for the host as well
-since C5 -- but that runs in minutes, not in a test suite, and it compares a
-path against its own build. This compares the two builds against each other.
+So for one format and one rounding mode the two backends can be running
+different code: binaryK RNE is the float path on both, superfp RNE is the
+float path on the device and the bitwise one on the host, and the directed
+modes take the integer path on both. All are meant to be the same function of
+the input, and this file is what says so. The exhaustive proof is
+dev/benchmarks/gemm_cast_{float,superfp,sr}_arith.cu, which compare every one
+of the 2^32 float inputs against a reference and build for the host as well
+as the device, but that runs in minutes rather than in a test suite, and it
+compares a path against its own build. This compares the two builds against
+each other.
 
 A float64 tensor is a third pair of builds: binary64 has no fast path on
-either backend, so both run the integer path, instantiated for ``double`` and
-compiled once by g++ and once by nvcc -- and these compare those too, over
+either backend, so both run the integer path instantiated for ``double``,
+compiled once by g++ and once by nvcc, and these compare those too, over
 formats binary32 cannot carry.
 
-Elementwise quantization is the right shape for that: it applies the cast and
-nothing else, so a difference is the cast's. A GEMM is not -- its accumulation
-order is the backend's tiling, so its results are not expected to match across
-devices, and tests/test_qmatmul.py checks each backend against a reference
-instead.
+Elementwise quantization is the right shape for this: it applies the cast and
+nothing else, so a difference is the cast's. A GEMM is not, since its
+accumulation order is the backend's tiling, so its results are not expected to
+match across devices, and tests/test_qmatmul.py checks each backend against a
+reference instead.
 """
 
 import math
@@ -48,14 +50,14 @@ from tests.markers import requires_cuda
 DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
 
 # 100_003 is prime, so no backend's vector width divides it and the scalar
-# tail runs on both -- the same argument tests/test_quantize_dispatch.py makes.
+# tail runs on both, the same argument tests/test_quantize_dispatch.py makes.
 SIZE = 100_003
 
 # Widths that straddle the fast paths' gate: (8, 4) and (11, 5) are admitted,
-# (6, 3) has a narrow exponent, and one of them is wide enough in the
-# significand that make_binaryK_params' split-product bound refuses it -- so
-# the parametrization covers both sides of the gate without naming which is
-# which, which is make_binaryK_params' business and not this file's.
+# (6, 3) has a narrow exponent, and (24, 8) is wide enough in the significand
+# that make_binaryK_params' split-product bound refuses it. The
+# parametrization thus covers both sides of the gate without naming which is
+# which; that is make_binaryK_params' business and not this file's.
 BINARYK_FORMATS = [(8, 4), (11, 5), (6, 3), (24, 8)]
 SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7)]
 # binary64's own: precision and exponent fields past binary32's, one on its edge
@@ -64,16 +66,15 @@ SUPERFP_FORMATS64 = [(3, 4, 1, 7), (5, 5, 1, 15), (20, 10, 1020, 511), (40, 8, 2
 
 
 def _same_bits(a: torch.Tensor, b: torch.Tensor) -> bool:
-    """Bitwise equality -- so -0.0 and 0.0 are different -- except for NaN payloads.
+    """Bitwise equality, so -0.0 and 0.0 differ, except for NaN payloads.
 
     A NaN only has to still be a NaN. The two backends do not agree on more
     than that under directed rounding: RU, RD and RZ return the input's exact
     NaN on the host and a canonical ``0x7fffffff`` on the device, for every
-    binaryK format (superfp agrees on both). That predates C5 and is untouched
-    by it -- those modes have no fast path, and the pre-C5 build diverges the
-    same way -- so it is stated here rather than quietly excluded. RNE, RNA and
-    RO do preserve the payload on both, and this comparison would catch it if
-    one of them stopped.
+    binaryK format (superfp agrees on both). Those modes have no fast path, so
+    this is a difference between the two integer builds, stated here rather
+    than quietly excluded. RNE, RNA and RO do preserve the payload on both,
+    and this comparison would catch it if one of them stopped.
     """
     nan = a.isnan()
     if not torch.equal(nan, b.isnan()):

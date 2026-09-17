@@ -1,3 +1,27 @@
+"""Build script for MPTorch's C++/CUDA extension, ``mptorch._C``.
+
+The extension is one shared object built from every source under
+``mptorch/csrc`` (the CUDA directory only when a CUDA toolchain is present).
+Most of this file is compiler flags, and several of them are load-bearing for
+speed or for numerics rather than cosmetic; each says why where it is added.
+
+Environment switches, all read at build time:
+
+``USE_CUDA=0``
+    Build the CPU-only extension even if CUDA is available.
+``DEBUG=1``
+    Compile with ``-O0 -g`` instead of ``-O3 -g0``.
+``USE_NINJA=0``
+    Use the serial distutils backend instead of ninja.
+``MPTORCH_NO_FP64=1``
+    Leave out the float64 GEMM kernels for a faster iteration build.
+
+Always install with ``pip3 install -e . --no-build-isolation``, so that the
+extension is compiled against the torch that will import it. An isolated build
+resolves its own torch, and an ABI mismatch then shows up as an ``undefined
+symbol`` error at import.
+"""
+
 import os
 import shutil
 import subprocess
@@ -15,6 +39,8 @@ from torch.utils.cpp_extension import (
 
 library_name = "mptorch"
 
+# From torch 2.6 an extension can target CPython's stable ABI, so one wheel
+# (tagged abi3) serves every supported Python instead of one wheel per version.
 if torch.__version__ >= "2.6.0":
     py_limited_api = True
 else:
@@ -22,7 +48,21 @@ else:
 
 
 def compiler_accepts(flag: str, source: str = "int main() { return 0; }\n") -> bool:
-    """True if the C++ compiler that will build the extension compiles `source` with `flag`."""
+    """Probe the host C++ compiler for a flag, or for a property of the target.
+
+    Compiles ``source`` with ``flag`` using the compiler the extension build
+    will use (``$CXX``, else ``c++``) and reports whether that succeeded. With
+    the default source this asks "does the compiler know this flag"; with a
+    source holding a ``static_assert`` it asks a question about the target
+    instead, which is how the fast-cast probe checks ``FLT_EVAL_METHOD``.
+
+    Args:
+        flag: One or more space-separated compiler options to test.
+        source: The translation unit to compile with them.
+
+    Returns:
+        True if the compile succeeded, False if it failed or no compiler ran.
+    """
     cxx = os.environ.get("CXX", "c++")
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "probe.cpp"
@@ -41,17 +81,21 @@ def compiler_accepts(flag: str, source: str = "int main() { return 0; }\n") -> b
 
 
 def ensure_ninja_on_path() -> bool:
-    """Make torch's ninja probe succeed when ninja is installed but not on PATH.
+    """Put the ``ninja`` package's executable on ``PATH`` if it is not there.
 
-    `BuildExtension` picks its backend with `is_ninja_available()`, which shells
-    out to `ninja --version` -- a plain PATH lookup. The ninja that
-    pyproject.toml's `requires` pulls in is a Python package whose executable
-    lands in the environment's script directory, so the probe succeeds with the
-    venv activated and fails when its interpreter is invoked by path
-    (`.venv/bin/pip3 install -e .`, which is how this repo documents building).
-    Torch then falls back to distutils, which compiles the nine translation
-    units one at a time: 360 s against 103 s on a 16-core machine, with no
-    error and one easily-missed warning. See dev/gemm_roadmap.md (finding B0).
+    ``BuildExtension`` chooses its backend by running ``ninja --version``,
+    which is a plain ``PATH`` lookup. The ninja that ``pyproject.toml`` requires
+    is a Python package whose executable sits in the environment's script
+    directory, so the lookup succeeds with the virtualenv activated and fails
+    when its interpreter is invoked by path (``.venv/bin/pip3 install -e .``).
+    Torch then falls back to distutils without an error, and distutils compiles
+    the roughly thirty translation units one at a time: about 360 s instead of
+    about 66 s on 16 threads. Prepending the package's ``BIN_DIR`` makes the
+    choice independent of how the interpreter was reached.
+
+    Returns:
+        True if ``ninja`` is runnable after the call, False if it is not
+        installed at all.
     """
     if shutil.which("ninja") is not None:
         return True
@@ -66,21 +110,30 @@ def ensure_ninja_on_path() -> bool:
 
 
 def get_extensions():
+    """Describe the one extension module, ``mptorch._C``, and its build flags.
+
+    Returns:
+        A one-element list holding a ``CUDAExtension`` when a CUDA build is
+        possible and wanted, else a ``CppExtension`` over the CPU sources only.
+    """
     debug_mode = os.getenv("DEBUG", "0") == "1"
     use_cuda = os.getenv("USE_CUDA", "1") == "1"
     if debug_mode:
         print("Compiling in debug mode")
 
+    # A CUDA build is attempted only if torch sees a device and a toolkit is
+    # installed (CUDA_HOME). Missing either, the build degrades to CPU-only
+    # rather than failing.
     use_cuda = use_cuda and torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    # -fopenmp is required for at::parallel_for to actually parallelize: with
-    # this torch build's AT_PARALLEL_OPENMP backend, ATen/ParallelOpenMP.h's
-    # `#pragma omp parallel` is a header template inlined into *our* translation
-    # units, so without the flag it compiles to nothing and CPU kernels run
-    # single-threaded. torch itself links GNU libgomp, which is the same runtime
-    # gcc's -fopenmp uses, so there is no second OpenMP runtime to oversubscribe
-    # with. See dev/gemm_perf_audit.md (finding C1).
+    # -fopenmp is what makes at::parallel_for parallel. Torch's OpenMP backend
+    # implements it as a header template (ATen/ParallelOpenMP.h) containing a
+    # `#pragma omp parallel`, and that template is instantiated inside this
+    # extension's translation units, not inside libtorch. Without the flag the
+    # pragma is ignored and every CPU kernel runs on one thread, silently.
+    # Torch links GNU libgomp, the same runtime gcc's -fopenmp uses, so the
+    # process still holds one OpenMP runtime and cannot oversubscribe itself.
     extra_link_args = ["-fopenmp"]
     extra_compile_args = {
         "cxx": [
@@ -94,43 +147,43 @@ def get_extensions():
             "--extended-lambda",
         ],
     }
-    # GCC caps how much a translation unit may grow through inlining at 20% of
-    # its own size (--param inline-unit-growth). The CPU quantization kernels
-    # blow past that: each instantiates a ~150-instruction format cast, and
-    # binaryK_kernel.cpp alone has 48 of them (4 dtypes x 6 round modes x
-    # signed/unsigned). Past the cap GCC stops inlining the cast into the
-    # elementwise loop, which costs a call per element and blocks the constant
-    # folding the templated is_signed exists for. Raising the cap is worth
-    # 2.8x on binaryK_quantize (14.3 -> 5.3 ns/element, 4M f32, e4m3, RNE,
-    # one thread) and is bit-exact. It is a GCC/Clang spelling, hence the
-    # probe. See dev/gemm_perf_audit.md (finding C4).
+    # GCC stops inlining once a translation unit has grown by 20% through
+    # inlining (--param inline-unit-growth). The CPU quantization kernels pass
+    # that quickly: each instantiates a format cast of about 150 instructions,
+    # and binaryK_kernel.cpp alone holds dozens of them (dtypes x round modes x
+    # signed/unsigned). Past the cap the cast stays a call per element inside
+    # the elementwise loop, which also blocks the constant folding that the
+    # `is_signed` template parameter exists for. Raising the cap is worth 2.8x
+    # on binaryK_quantize (14.3 to 5.3 ns per element) and changes no result
+    # bit. The spelling is GCC's and Clang's, hence the probe.
     inline_growth = "--param inline-unit-growth=400"
     if compiler_accepts(inline_growth):
         extra_compile_args["cxx"].extend(inline_growth.split())
 
-    # The float-arithmetic cast fast paths (common/bit_helper.h's
-    # MPTORCH_FAST_CAST) are exact only where a float expression is evaluated
-    # as a float and no two operations are contracted into one. Both are
-    # properties of the build, not of the source, so they are asked for here
-    # and the paths are only admitted if the answer is yes:
+    # The float-arithmetic cast fast paths (MPTORCH_FAST_CAST, documented in
+    # common/bit_helper.h) round with a Veltkamp split, `t - (t - x)`, which is
+    # exact only if each float operation is evaluated as a float and no two of
+    # them are contracted into one. Both are properties of the build, not of
+    # the source, so they are requested and checked here, and the paths are
+    # admitted only if both hold:
     #
-    #   -ffp-contract=off  forbids the contraction. It costs nothing: nothing
-    #                      in csrc wants an implicit FMA (gemm_policy.h's
-    #                      fma_f32 asks for one explicitly, via std::fma, which
-    #                      the flag does not touch), and on the baseline x86-64
-    #                      this builds for there is no FMA instruction to
-    #                      contract into in the first place -- the flag is
-    #                      insurance against a CFLAGS or -march that adds one.
-    #   FLT_EVAL_METHOD    must be 0, i.e. no x87 excess precision. SSE is the
-    #                      default on x86-64 so this holds there; the probe is
-    #                      what makes it a checked assumption rather than an
-    #                      assumed one on any other target.
+    #   -ffp-contract=off  forbids fusing the split into an FMA, which would
+    #                      skip the intermediate rounding the split relies on.
+    #                      It costs nothing: no code in csrc wants an implicit
+    #                      FMA (gemm_policy.h asks for its FMA explicitly with
+    #                      std::fma, which the flag does not affect), and the
+    #                      baseline x86-64 target has no FMA instruction. The
+    #                      flag is insurance against a CFLAGS or -march that
+    #                      adds one.
+    #   FLT_EVAL_METHOD    must be 0, meaning no x87 excess precision. SSE
+    #                      arithmetic is the x86-64 default, so this holds
+    #                      there; the static_assert in the probe makes it a
+    #                      checked assumption on every other target.
     #
-    # Both or neither, since either one alone is not enough. nvcc is left out:
-    # its device pass turns the paths on by itself (the _rn intrinsics carry
-    # the no-contraction guarantee in the source), and its host pass compiles
-    # these headers under a host compiler these flags never reach.
-    # See dev/gemm_roadmap.md (finding C5).
+    # The flag and the define go in together or not at all, since either alone
+    # is not enough. Neither is passed to nvcc: device code turns the paths on
+    # by itself in the header, because CUDA's `_rn` intrinsics carry the
+    # no-contraction guarantee in the source.
     fp_contract = "-ffp-contract=off"
     if compiler_accepts(
         fp_contract,
@@ -140,41 +193,37 @@ def get_extensions():
     else:
         print("Fast cast paths off: this compiler cannot promise unfused float32 arithmetic.")
 
-    # No -DPy_LIMITED_API here: BuildExtension adds
-    # -DPy_LIMITED_API=<its own min supported CPython> to every extension built
-    # with py_limited_api=True, and it does so *after* extra_compile_args. Ours
-    # only ever produced a "redefined" warning per host TU and then lost.
+    # -DPy_LIMITED_API is deliberately absent. BuildExtension adds its own
+    # -DPy_LIMITED_API=<oldest supported CPython> to every extension built with
+    # py_limited_api=True, and adds it after extra_compile_args, so a define
+    # here would only produce a "redefined" warning per file and then lose.
     if debug_mode:
         extra_compile_args["cxx"].append("-g")
         extra_compile_args["nvcc"].append("-g")
         extra_link_args.extend(["-O0", "-g"])
     else:
-        # torch.utils.cpp_extension builds host .cpp files with Python's own
-        # CFLAGS (`self.compiler.compiler_so[1:]`), which on a CPython built
-        # the usual way carries -g. Nothing here asks for it, and it is
-        # expensive: these TUs inline a ~150-instruction format cast into
-        # dozens of unrolled loop bodies, and GCC's var-tracking then dominates
-        # the compile. Compiled on its own, the CPU GEMM host code (then one
-        # cpu/custom_matmul_kernel.cpp, since split into four -- finding B2)
-        # was 78 s / 13.7 MB of object with -g and 57 s / 1.0 MB without; the
-        # other host TUs are 1.5-1.7x. Debug info was 16.5 MB of the 23.7 MB .so,
-        # which drops to 7.3 MB. Bit-exact and codegen-identical: .text and
-        # .nv_fatbin come out byte for byte the same (unlike dropping Python's
-        # -fno-omit-frame-pointer, which perturbs .text for no measurable
-        # gain). Our flags land after Python's on the command line, so the last
-        # -g wins. The .cu files never saw -g in the first place: torch's ninja
-        # path passes only preprocessor options and our own nvcc flags to
-        # nvcc. See dev/gemm_roadmap.md (finding B1).
+        # torch.utils.cpp_extension compiles host .cpp files with the CFLAGS
+        # CPython itself was built with, and those usually include -g. Debug
+        # info is expensive here: these files inline a format cast of about 150
+        # instructions into dozens of unrolled loop bodies, and GCC's variable
+        # tracking then dominates the compile. Measured on the CPU GEMM host
+        # code: 78 s and 13.7 MB of object with -g, 57 s and 1.0 MB without;
+        # debug info was 16.5 MB of a 23.7 MB shared object. -g0 comes after
+        # Python's flags on the command line, so it wins. The generated code is
+        # byte for byte the same (.text and .nv_fatbin), unlike dropping
+        # Python's -fno-omit-frame-pointer, which perturbs .text for no
+        # measurable gain. nvcc never received -g: torch's ninja path hands it
+        # only preprocessor options and the nvcc flags listed above.
         extra_compile_args["cxx"].append("-g0")
 
-    # The GEMM's binary64 kernels are eight translation units of their own,
-    # custom_matmul_*_f64.{cu,cpp}, which is most of what computing a float64
-    # GEMM in float64 costs the build. MPTORCH_NO_FP64=1 leaves them out for a
-    # faster iteration build; the GEMM entry points then refuse float64
-    # operands with an error naming the flag (common/dispatch.h). The
-    # elementwise quantizers keep their float64 path either way -- it is
-    # instantiated in place and worth about a second. See
-    # dev/binary64_carrier_plan.md (phase 4).
+    # The GEMM kernels that compute in binary64 live in eight translation units
+    # of their own, custom_matmul_*_f64.{cu,cpp}, and account for most of what
+    # float64 support costs the build. MPTORCH_NO_FP64=1 leaves them out: the
+    # sources are skipped by `glob` below, and the define makes the GEMM entry
+    # points refuse float64 operands with an error that names this flag
+    # (common/dispatch.h) instead of failing at link time. The elementwise
+    # quantizers keep their float64 path either way, since it is instantiated
+    # in place and costs about a second.
     no_fp64 = os.getenv("MPTORCH_NO_FP64", "0") == "1"
     if no_fp64:
         print("MPTORCH_NO_FP64=1: building without the float64 GEMM kernels.")
@@ -185,20 +234,31 @@ def get_extensions():
     csrc = root / library_name / "csrc"
 
     def glob(directory: Path, pattern: str) -> list[str]:
+        """List a directory's sources, repo-relative and sorted.
+
+        Sorted so the ninja build file, and with it the incremental rebuild, is
+        stable across runs. Relative because setuptools rejects absolute source
+        paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``.
+        """
         return sorted(
             str(p.relative_to(root))
             for p in directory.glob(pattern)
             if not (no_fp64 and p.stem.endswith("_f64"))
         )
 
+    # Sources are globbed, so a new kernel file only needs to land in the right
+    # directory: csrc/ for registrations, csrc/cpu/ for host kernels, csrc/cuda/
+    # for anything that needs the CUDA toolkit.
     sources = glob(csrc, "*.cpp")
     sources += glob(csrc / "cpu", "*.cpp")
     if use_cuda:
-        # Both, and only under use_cuda: since H1 the CUDA GEMM's entry points
-        # and its launch-context draw are .cpp files sitting next to the .cu
-        # files they drive, because a .cu that never sees at::Tensor compiles
-        # its fixed ATen cost in ~3 s instead of ~25 s. A CPU-only build skips
-        # this directory whole, exactly as it always did.
+        # csrc/cuda holds .cpp files as well as .cu files. The CUDA GEMM's entry
+        # points and RNG-state draws are host code that handles at::Tensor, and
+        # putting ATen's headers through nvcc costs about 25 s per file against
+        # about 3 s for a .cu that sees only raw pointers. Keeping the tensors
+        # in .cpp files next to the kernels they drive saves that per kernel
+        # file. Both patterns stay under use_cuda, so a CPU-only build skips
+        # the directory whole.
         sources += glob(csrc / "cuda", "*.cu")
         sources += glob(csrc / "cuda", "*.cpp")
 
@@ -218,13 +278,16 @@ def get_extensions():
     return ext_modules
 
 
-# Decided here rather than left to BuildExtension's own probe so that the
-# serial fallback is a stated outcome instead of a silent one, and so USE_NINJA=0
-# can ask for it deliberately (torch offers no env-var opt-out of its own).
+# The backend is chosen here rather than left to BuildExtension's own probe for
+# two reasons: the serial fallback becomes a printed outcome instead of a silent
+# one, and USE_NINJA=0 can ask for it on purpose (torch offers no environment
+# switch of its own for that).
 use_ninja = os.getenv("USE_NINJA", "1") == "1" and ensure_ninja_on_path()
 if not use_ninja:
     print("Building without ninja: translation units will compile one at a time.")
 
+# The wheel is tagged for the stable ABI only when the extension was built
+# against it (see py_limited_api above).
 setup(
     name=library_name,
     packages=find_packages(),

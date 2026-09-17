@@ -13,20 +13,26 @@ using namespace at;
 namespace
 {
 
-    // `p` is a BinaryKParams built once on the host, so the casts taken here
-    // are the precomputed-parameter overloads rather than the (man_bits,
-    // exp_bits, bias, ...) ones this used to call. The latter re-derive the
-    // rounding masks and the clipping range from those integers on *every
-    // element*; make_binaryK_params does it once per tensor. It is also what
-    // puts RNE on cast_binaryK_rne_fast, since that float-arithmetic path is
-    // gated inside the BinaryKParams overload -- the two are one edit.
-    // See finding E3 in dev/gemm_perf_audit.md, and C4 for the CPU twin.
+    // The per-thread quantizer of one launch: everything a thread needs to
+    // round one element, in a struct the kernel takes by value. A kernel
+    // argument lands in the constant bank, so every thread's read of it is a
+    // broadcast served from cache and it occupies no registers until a field
+    // is used.
     //
-    // The struct is passed by value as a kernel argument, so it lands in
-    // constant memory and every thread's read of it is broadcast and cached.
+    // `p` is a BinaryKParams built once on the host by make_binaryK_params
+    // (rounding masks, clipping range, subnormal floor), so the casts called
+    // here are the precomputed-parameter overloads; the (man_bits, exp_bits,
+    // bias, ...) spellings would re-derive all of that on every element. That
+    // overload is also the one that admits the float-arithmetic RNE fast
+    // path on the device. The rounding mode is a template parameter so that
+    // each instantiation carries exactly one cast body instead of a switch
+    // over seven.
     //
-    // A float64 tensor rounds in binary64: T is the carrier (carrier_t), and
-    // it is float for every other dtype, which is the struct this always was.
+    // T is the carrier the cast rounds in: double for a float64 tensor, and
+    // float for float32, float16 and bfloat16 (carrier_t in bit_helper.h).
+    // scalar() and scalar_sr() take one storage value and hand one back;
+    // vec() rounds the lanes of one 16-byte vector through SIMDTraits, which
+    // converts them to the carrier and back.
     template <typename scalar_t, RoundMode RM>
     struct BinaryKQuantizer
     {
@@ -78,6 +84,9 @@ namespace
 
     };
 
+    // binaryK's (K, P) spelling to the cast's (man_bits, exp_bits): P counts
+    // the significand bits including the implicit one, and an unsigned
+    // format spends the sign's bit on the exponent field.
     template <class T>
     BinaryKParamsT<T> binaryK_params(int K, int P, int bias, bool is_signed,
                                      SaturationMode saturation_mode,
@@ -89,6 +98,10 @@ namespace
                                       subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
     }
 
+    // The six deterministic modes: build the params once, then launch the
+    // quant_kernel_all instantiation of the requested mode. The grid covers
+    // max(vector count, remainder count) threads because the kernel serves
+    // the vector body and the scalar tail from the same thread index.
     template <typename scalar_t>
     void binaryK_kernel_impl(const scalar_t *__restrict__ a, scalar_t *o, int64_t size,
                              int K, int P, int bias, bool is_signed,
@@ -136,6 +149,9 @@ namespace
         }
     }
 
+    // RoundMode::SR: one launch of quant_kernel_all_sr with a (seed, offset)
+    // pair drawn from ATen's generator; the kernel derives each element's
+    // random word from that pair and the element's own index.
     template <typename scalar_t>
     void binaryK_kernel_sr_impl(const scalar_t *__restrict__ a,
                                 scalar_t *o, int64_t size,
@@ -168,10 +184,11 @@ Tensor binaryK_quantize_cuda(
     int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
     // data_ptr() walks storage linearly, so a non-contiguous input would be
-    // read in the wrong order. mptorch/quant/ops.py already calls .contiguous(),
-    // but a direct torch.ops.mptorch.binaryK_quant call need not. And the
-    // kernel's 16-byte loads fault on a contiguous view that does not start on
-    // a 16-byte boundary, which vector_load.h copies.
+    // read in the wrong order; mptorch/quant/ops.py calls .contiguous(), but
+    // a direct torch.ops.mptorch.binaryK_quant call need not. The kernel's
+    // 16-byte vector loads also fault on a contiguous view that does not
+    // start on a 16-byte boundary, so vector_loadable (vector_load.h) copies
+    // such a view as well.
     auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
     const int64_t size = a_c.numel(); // int would truncate past 2^31 elements

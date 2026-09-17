@@ -1,24 +1,23 @@
 """
-Tests for what the GEMM entry points do around the kernels: which carrier an
-operand pair is computed in (dev/binary64_carrier_plan.md, phase 4) -- binary64
-for float64, and for any narrower dtype that names it --
-and the validation of a mixed-format op's precision map (finding G5), which is
-now memoized per map so that a map reused across calls costs no device
-synchronization.
+What the GEMM entry points do around the kernels.
 
-A float64 GEMM used to be narrowed to float32 on the way in and widened on the
-way out (finding G6), so it was the float32 GEMM's image by construction. It is
-now computed in binary64 -- every product, every sum and every cast -- so the
-image holds only where both carriers compute exactly, and the rest is checked
-against a reference built from the elementwise quantizers, which
-tests/test_quantize_dispatch.py checks against IEEE P3109 in float64. The
-reference is Python's own float64 arithmetic, exactly the kernel's steps in
-the kernel's order, with the fused step as a correctly-rounded Fraction sum.
+Two things are guarded here. The first is the carrier: an operand pair is
+computed in binary64 when its dtype is float64 or the call names
+``carrier=torch.float64``, and in binary32 otherwise. Every product, sum and
+cast of a float64 GEMM happens in binary64, so its result equals the float32
+GEMM's image only where both carriers compute exactly; elsewhere it is held to
+a reference built from the elementwise quantizers, which
+tests/test_quantize_dispatch.py checks against IEEE P3109 in float64. That
+reference is Python's own float64 arithmetic walking the kernel's steps in the
+kernel's order, with the fused step as a correctly-rounded Fraction sum.
 
-G5 may not move a value either: a memo hit has to be indistinguishable from
-running the check again, which means it has to be invalidated by anything that
-could change the answer -- an in-place edit of the map, or the same map used
-against a different palette.
+The second is the validation of a mixed-format op's precision map. The host
+checks every index against the palette size, which on CUDA needs the map's
+values on the host and so costs a device sync per call; the check is memoized
+on the map tensor's identity and version counter so a map reused across calls
+is checked once. A memo hit has to be indistinguishable from running the check
+again, so it must be invalidated by anything that could change the answer: an
+in-place edit of the map, or the same map used against a smaller palette.
 """
 
 import warnings
@@ -155,11 +154,11 @@ OP_NAMES = list(_gemm_calls(torch.empty(0), torch.empty(0), torch.empty(0)).keys
 def test_float64_of_exact_arithmetic_is_the_float32_image(device, op, rounding_mode):
     """
     Where both carriers compute every product and sum exactly, a float64 GEMM
-    is the float32 GEMM's image: the casts then see the same values, and the
-    elementwise image identity does the rest. Operands on a 2^-4 grid in
-    [-4, 4) keep every intermediate a multiple of 2^-8 below 2^16, which
-    binary32 holds. This is the plumbing check -- dtype in, dtype out, the
-    right kernel, every op.
+    is the float32 GEMM's image: the casts see the same values, and a value
+    both carriers hold rounds to the same format value in either. Operands on
+    a 2^-4 grid in [-4, 4) keep every intermediate a multiple of 2^-8 below
+    2^16, which binary32 holds exactly. This is the plumbing check: dtype in,
+    dtype out, the right kernel, every op.
     """
     M, K, N = 12, 20, 10
     gen = torch.Generator().manual_seed(7)
@@ -179,12 +178,12 @@ def test_float64_of_exact_arithmetic_is_the_float32_image(device, op, rounding_m
 @pytest.mark.parametrize("fused", [False, True])
 def test_float64_rounds_the_product_once(device, fused):
     """
-    The witness that the carrier moved. (1 + 2^-13)^2 = 1 + 2^-12 + 2^-26 is
-    just above the tie between 1 and 1 + 2^-11 on a P = 12 grid. binary32
+    The witness that the carrier is binary64. (1 + 2^-13)^2 = 1 + 2^-12 + 2^-26
+    lies just above the tie between 1 and 1 + 2^-11 on a P = 12 grid. binary32
     rounds the product to 24 bits first, onto the tie itself, and RNE then
-    takes it to 1; binary64 holds the product whole and rounds it up. Both
-    operands are float32 values, so this is the carrier and nothing else --
-    which float32 operands get by naming it.
+    takes it down to 1; binary64 holds the product whole and rounds it up.
+    Both operands are float32 values, so the carrier is the only thing that
+    differs, and float32 operands reach it by naming ``carrier=torch.float64``.
     """
     x = 1 + 2**-13
     cases = (
@@ -208,9 +207,9 @@ def test_float64_rounds_the_product_once(device, fused):
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.float16])
 def test_operands_that_start_mid_storage(device, op, dtype):
-    """The GEMM kernels load one element at a time, so operands and a map that
-    start off a 16-byte boundary are read in place -- unlike the elementwise
-    kernels' vector loads -- and give what their copies give."""
+    """The GEMM kernels load one element at a time, so an operand or a map
+    that starts off a 16-byte boundary is read in place, unlike the elementwise
+    kernels' vector loads, and gives what its copy gives."""
     M, K, N, k = 12, 20, 10, 1
     a = torch.randn(M * K + k, device=device).to(dtype)[k:].view(M, K)
     b = torch.randn(N * K + k, device=device).to(dtype)[k:].view(N, K)
@@ -222,12 +221,12 @@ def test_operands_that_start_mid_storage(device, op, dtype):
 
 @pytest.mark.parametrize("device", available_devices)
 def test_float64_operand_pair_must_agree(device):
-    """A mismatched (float64, float32) pair is still rejected, not coerced."""
+    """A mismatched (float64, float32) pair is rejected, not coerced."""
     a = torch.randn(4, 3, device=device, dtype=torch.float64)
     b = torch.randn(5, 3, device=device, dtype=torch.float32)
     with pytest.raises(RuntimeError, match="same dtype"):
         binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4)
-    # nor widened into agreement by asking for binary64, in either order
+    # and not widened into agreement by naming binary64, in either order
     with pytest.raises(RuntimeError, match="same dtype"):
         binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4, carrier=torch.float64)
     with pytest.raises(RuntimeError, match="same dtype"):
@@ -240,10 +239,11 @@ def test_float64_operand_pair_must_agree(device):
 @pytest.mark.parametrize("rounding_mode", list(RoundMode))
 def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, rounding_mode):
     """
-    carrier=torch.float64 on narrower operands is the float64 GEMM of their
-    values: both operands widened, the binary64 kernel, and the result
-    narrowed back to their dtype once -- bit for bit, and under SR from the
-    same draws, since the widened call reserves what a float64 call does.
+    ``carrier=torch.float64`` on narrower operands is the float64 GEMM of
+    their values: both operands widened, the binary64 kernel run, and the
+    result narrowed back to their dtype once. Bit for bit, and under SR from
+    the same draws, since the widened call reserves the same generator state
+    a float64 call does.
     """
     M, K, N = 12, 20, 10
     gen = torch.Generator().manual_seed(8)
@@ -267,6 +267,9 @@ def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, roundin
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_a_carrier_narrower_than_the_operands_is_refused(device, op):
+    """A binary32 carrier on float64 operands would round every input before
+    the format sees it, so it is refused; on float32 operands it names their
+    own carrier and changes nothing."""
     a = torch.ones(3, 4, device=device, dtype=torch.float64)
     b = torch.ones(2, 4, device=device, dtype=torch.float64)
     pidx = torch.zeros(3, 2, dtype=torch.int32, device=device)
@@ -279,28 +282,31 @@ def test_a_carrier_narrower_than_the_operands_is_refused(device, op):
 # ---------------------------------------------------------------------------
 # float64 against a reference, through the raw ops
 #
-# The formats only binary64 can carry -- P up to 53, exponents to ten bits --
-# are spelled here once, as tuples, and reach the op through torch.ops, whose
-# argument names a palette and a single format share; the typed wrappers take
-# them too on float64 operands, which the last test of this section checks.
-# A format is ("binaryK", K, P, bias) or ("superfp", man_bits, exp_bits,
-# normal_binades, bias); every format here is signed, OVF_INF, SUBNORMALS.
+# The formats only binary64 can carry, P up to 53 and exponents up to ten
+# bits, are spelled once here as tuples and reach the op through torch.ops,
+# whose argument names a palette and a single format share. The typed wrappers
+# accept them too on float64 operands, which the last test of this section
+# checks. A format is ("binaryK", K, P, bias) or ("superfp", man_bits,
+# exp_bits, normal_binades, bias); every format here is signed, OVF_INF,
+# SUBNORMALS.
 
 
 def _bk(K, P):
+    """A signed binaryK format tuple with the default bias ``2^(K - P - 1)``."""
     return ("binaryK", K, P, 2 ** (K - P - 1))
 
 
 def _sfp(man_bits, exp_bits, normal_binades, bias):
+    """A superfp format tuple."""
     return ("superfp", man_bits, exp_bits, normal_binades, bias)
 
 
 # (multiply palette, accumulate palette) per family and width. A single-format
-# op takes the first slot. Narrow formats are inside binary32's bounds, but
-# fine enough (P = 20 to 23, and superfp biased so the operands' magnitudes land
-# in its normal region) that rounding a product or a sum to 24 bits first moves
-# their results, so they fail against a build that narrows; wide ones need
-# binary64's precision or range.
+# op takes the first slot. The narrow formats fit binary32's bounds but are
+# fine enough (P = 20 to 23, and superfp biased so the operands' magnitudes
+# land in its normal region) that rounding a product or a sum to 24 bits first
+# moves their results, so they fail against a build that computes in binary32;
+# the wide ones need binary64's precision or range outright.
 PALETTES = {
     ("binaryK", "narrow"): ([_bk(26, 22), _bk(24, 20)], [_bk(27, 23), _bk(26, 22)]),
     ("binaryK", "wide"): ([_bk(48, 40), _bk(40, 30)], [_bk(60, 50), _bk(63, 53)]),
@@ -316,6 +322,7 @@ PALETTES = {
 
 
 def _quant(fmt, x, rm, prng_bits=0):
+    """The elementwise quantizer of ``fmt`` through torch.ops, in ``x``'s dtype."""
     if fmt[0] == "binaryK":
         _, K, P, bias = fmt
         return torch.ops.mptorch.binaryK_quant.default(
@@ -472,11 +479,11 @@ def _wrapper_gemm(fused, a, b, prec_idx, mul, acc, rm, carrier=None):
 def test_the_wrappers_reach_formats_past_binary32(device, fam, fused, mixed):
     """
     The wrappers hold float64 operands to binary64's bounds, so the wide
-    formats reach the op through them as through torch.ops -- binaryK's
-    without a word, binary64 carrying them whole; superfp's supernormals span
-    2^40 binades a code, past binary64 too, and warn -- while float32 operands
-    are refused them in binary32, and in binary64 too, by the float32 result
-    that would store them.
+    formats reach the op through them as through torch.ops: binaryK's without
+    a warning, since binary64 carries them whole, and superfp's with a
+    FormatRangeWarning, since its supernormals span 2^40 binades per code,
+    past binary64 too. float32 operands are refused them in binary32 by the
+    carrier, and in binary64 by the float32 result that would store them.
     """
     M, K, N = 6, 9, 7
     a, b = _operands(M, K, N, device, "wide")
@@ -507,10 +514,10 @@ def test_binary64_carrier_on_float32_operands_matches_its_reference(
     device, fam, fused, mixed, rounding_mode
 ):
     """
-    Tier 3 for a narrower tensor: float32 operands in the narrow formats, which
-    float32 stores, computed in binary64 -- the float64 reference of the same
-    values -- and not what binary32 computes, whose 24-bit products and sums
-    those formats were chosen to be moved by.
+    Tier 3 for a narrower tensor: float32 operands in the narrow formats,
+    which a float32 result stores, computed in binary64 must equal the float64
+    reference of the same values, and must differ from the binary32 result,
+    whose 24-bit products and sums those formats were chosen to be moved by.
     """
     M, K, N = 6, 9, 7
     a, b = _operands(M, K, N, device, "narrow")
@@ -539,8 +546,8 @@ def test_binary64_carrier_on_float32_operands_matches_its_reference(
 @pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.RZ])
 def test_float64_unquantized_accumulator_is_float64_arithmetic(device, fam, fused, rounding_mode):
     """
-    accumulate_quant=False / fma_quant=False leave the running sum in the
-    carrier, which is now binary64: a split sum is float64 addition, and an
+    ``accumulate_quant=False`` / ``fma_quant=False`` leave the running sum in
+    the carrier, here binary64: a split sum is float64 addition, and an
     unquantized fused step is the float64 FMA itself.
     """
     M, K, N = 5, 9, 4
@@ -557,8 +564,8 @@ def test_float64_unquantized_accumulator_is_float64_arithmetic(device, fam, fuse
 def test_float64_identity_format_is_the_float64_sum(device):
     """
     Tier 1: a 53-bit format rounds every float64 in its normal range to
-    itself, so a GEMM with it is plain float64 arithmetic -- the products and
-    the running sums in the kernel's k-ascending order -- bit for bit.
+    itself, so a GEMM with it is plain float64 arithmetic, the products and
+    the running sums in the kernel's k-ascending order, bit for bit.
     """
     M, K, N = 17, 33, 9
     gen = torch.Generator().manual_seed(5)
@@ -607,8 +614,8 @@ def test_float64_sr_is_unbiased_with_wide_random_bits(device, fused):
     Every element of a K = 1 call rounds the same product x, each from its own
     stream, so the outputs are samples of one SR draw: each is one of x's two
     neighbours, and the fraction that went up estimates (x - lo) / (hi - lo).
-    40 random bits -- more than binary32 has below a P = 4 mantissa -- and
-    65,536 samples, so the tolerance is ~5.5 standard errors.
+    40 random bits, more than binary32 has below a P = 4 mantissa, and 65,536
+    samples, so the 0.01 tolerance is about 5.5 standard errors.
     """
     M = N = 256
     x = 1.0375  # between 1 and 1.125 on a P = 4 grid, 0.3 of the way up
@@ -627,9 +634,9 @@ def test_float64_sr_is_unbiased_with_wide_random_bits(device, fused):
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_prec_idx_rechecked_after_in_place_edit(device):
     """
-    G5: the validation memo is keyed on the map's identity *and* its version,
-    so writing an out-of-range index into a map that already passed must
-    invalidate the entry rather than ride on it.
+    The validation memo is keyed on the map's identity *and* its version
+    counter, so writing an out-of-range index into a map that already passed
+    must invalidate the entry rather than ride on it.
     """
     M, K, N = 5, 4, 6
     a = torch.randn(M, K, device=device)
@@ -651,8 +658,8 @@ def test_mixed_prec_idx_rechecked_after_in_place_edit(device):
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_prec_idx_rechecked_against_a_smaller_palette(device):
     """
-    G5: an index of 2 is in range for a 3-slot palette and out of range for a
-    2-slot one, so the memo cannot be keyed on the map alone.
+    An index of 2 is in range for a 3-slot palette and out of range for a
+    2-slot one, so the memo is keyed on the palette size as well as the map.
     """
     M, K, N = 5, 4, 6
     a = torch.randn(M, K, device=device)
@@ -667,8 +674,8 @@ def test_mixed_prec_idx_rechecked_against_a_smaller_palette(device):
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_repeated_calls_are_identical(device):
     """
-    G5: whether the check ran or was skipped must not be observable in the
-    output -- the second call through the memo has to match the first.
+    Whether the check ran or was skipped must not be observable in the
+    output: the calls served by the memo have to match the first.
     """
     M, K, N = 16, 12, 10
     a = torch.randn(M, K, device=device)
@@ -684,7 +691,7 @@ def test_mixed_repeated_calls_are_identical(device):
 @pytest.mark.parametrize("device", available_devices)
 def test_mixed_prec_idx_checked_under_inference_mode(device):
     """
-    G5: a tensor created under inference mode has no version counter to
+    A tensor created under inference mode has no version counter to
     invalidate against, so it is never memoized and takes the full check
     every time.
     """
@@ -699,7 +706,7 @@ def test_mixed_prec_idx_checked_under_inference_mode(device):
 # The raw ops, spelled out because the typed wrappers cannot reach this: they
 # take a RoundMode and pass its `.value`, so only a direct
 # torch.ops.mptorch.* call can hand the entry point an integer that names no
-# mode. One split op and one fma_mixed op are enough -- all sixteen entry
+# mode. One split op and one fma_mixed op are enough, since all sixteen entry
 # points share the single check in common/gemm_host.h's check_matmul_inputs.
 def _raw_gemm_calls(a, b, prec_idx):
     """Two GEMM ops called through torch.ops, keyed by op name.
@@ -756,10 +763,11 @@ def _raw_gemm_calls(a, b, prec_idx):
 @pytest.mark.parametrize("round_mode", [-1, len(RoundMode), 99, 2**40])
 def test_round_mode_outside_the_enum_is_rejected(device, op, round_mode):
     """
-    K3: an integer that names no RoundMode used to fall through
-    dispatch_round_mode's ``default:`` and round to nearest-even in silence.
-    2**40 is in the set because the check has to reject it before anything
-    casts it to the enum's underlying int.
+    An integer that names no RoundMode must be rejected on the host rather
+    than fall through dispatch_round_mode's ``default:`` and round to
+    nearest-even in silence. 2**40 is in the set because the check has to
+    reject it before anything casts it to the enum's underlying int, where
+    it would wrap to a valid value.
     """
     a = torch.randn(16, 12, device=device)
     b = torch.randn(10, 12, device=device)
