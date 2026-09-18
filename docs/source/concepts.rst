@@ -600,10 +600,10 @@ SuperFP: precision at the top, range below
 :class:`~mptorch.SuperFP` is the second format family the kernels implement.
 It has the same three fields as a binary float -- ``man_bits``, ``exp_bits``,
 ``bias`` -- but only the top ``normal_binades`` binades carry a mantissa. The
-encodings of the remaining :math:`2^{\text{exp_bits}} - \text{normal_binades}`
-binades, :math:`2^{\text{man_bits}}` codes each, are reinterpreted as that
+encodings of the remaining :math:`2^{\text{exp\_bits}} - \text{normal\_binades}`
+binades, :math:`2^{\text{man\_bits}}` codes each, are reinterpreted as that
 many further *powers of two* below the normal region: numbers with an
-implicit mantissa of exactly 1. Writing :math:`e_{\max} = 2^{\text{exp_bits}} - 1 - \text{bias}`,
+implicit mantissa of exactly 1. Writing :math:`e_{\max} = 2^{\text{exp\_bits}} - 1 - \text{bias}`,
 the three regions are
 
 .. math::
@@ -616,8 +616,8 @@ the three regions are
    \text{underflow:}   &\quad \text{below that}, && \text{flushed to zero}
    \end{aligned}
 
-with :math:`b = \text{normal_binades}` and
-:math:`n = (2^{\text{exp_bits}} - b)\, 2^{\text{man_bits}}`. There are no
+with :math:`b = \text{normal\_binades}` and
+:math:`n = (2^{\text{exp\_bits}} - b)\, 2^{\text{man\_bits}}`. There are no
 subnormals, and the bias has no default: it is part of the design of the
 format and must be given. Rounding in the supernormal region is rounding of
 the *exponent*: to nearest, :math:`3 = 2^{1.58}` becomes :math:`4`.

@@ -134,29 +134,48 @@ Requirements:
 - PyTorch >= 2.1
 - GCC >= 4.9 on Linux
 - CUDA >= 12.0 on Linux (only needed to build the CUDA kernels)
+- Apple clang on macOS (CPU only; OpenMP comes from the runtime bundled with PyTorch)
 
-Install MPTorch through pip (from the base directory):
+MPTorch contains a C++/CUDA extension that is compiled at install time, so the build needs `torch`, `setuptools` and `ninja` already installed in the environment you install into:
 ```
-pip3 install -e .
+pip install torch setuptools ninja
 ```
+
+Then install MPTorch from the base directory:
+```
+pip install -e . --no-build-isolation
+```
+
+Always pass `--no-build-isolation`. Without it, pip builds the extension in a temporary environment with its own freshly resolved copy of `torch`, which may not be the build installed in your environment. The compiled extension then fails at import with an `undefined symbol` error, because it was built against a different `torch` ABI than the one loading it.
 
 By default, the CUDA extension is built whenever `torch.cuda.is_available()` and `CUDA_HOME` are set. To force a CPU-only build:
 ```
-USE_CUDA=0 pip3 install -e .
+USE_CUDA=0 pip install -e . --no-build-isolation
 ```
 
 To build with debug symbols and no optimization:
 ```
-DEBUG=1 pip3 install -e .
+DEBUG=1 pip install -e . --no-build-isolation
 ```
+
+### Using uv instead of pip
+
+Every `pip install` command in this README works the same with `uv pip install` in its place; use whichever is available. A virtual environment created by `uv venv` doesn't contain `pip` at all, so there `uv pip` is the one to use:
+```
+uv venv
+uv pip install torch setuptools ninja
+uv pip install -e . --no-build-isolation
+```
+`uv pip` installs into the activated environment, or into `.venv` in the current directory if none is activated. `--no-build-isolation` is just as necessary with `uv` as with `pip`.
 
 ### Running the tests
 
-The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren't required to just use the library, so they're kept in a separate `test` extra:
+The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren't required to just use the library, so they're kept in a separate `test` extra. Install it with the same `--no-build-isolation` flag (with `uv pip install` in place of `pip3 install` if you use `uv`), then run the suite:
 ```
-pip3 install -e ".[test]"
+pip install -e ".[test]" --no-build-isolation
 pytest tests/
 ```
+On a machine without a CUDA device, the CUDA tests are skipped automatically.
 
 ## Acknowledgements
 This project is based on the same logic that is used

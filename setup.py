@@ -25,6 +25,7 @@ symbol`` error at import.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -67,10 +68,13 @@ def compiler_accepts(flag: str, source: str = "int main() { return 0; }\n") -> b
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "probe.cpp"
         src.write_text(source)
+        obj = src.with_suffix(".o")
         try:
             return (
                 subprocess.run(
-                    [cxx, *flag.split(), "-c", str(src), "-o", str(src.with_suffix(".o"))],
+                    # -Werror: clang accepts some GCC-only options, such as
+                    # --param, with only an "argument unused" warning.
+                    [cxx, "-Werror", *flag.split(), "-c", str(src), "-o", str(obj)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 ).returncode
@@ -134,12 +138,31 @@ def get_extensions():
     # pragma is ignored and every CPU kernel runs on one thread, silently.
     # Torch links GNU libgomp, the same runtime gcc's -fopenmp uses, so the
     # process still holds one OpenMP runtime and cannot oversubscribe itself.
-    extra_link_args = ["-fopenmp"]
+    #
+    # Apple clang has no -fopenmp driver flag. -Xpreprocessor hands it to the
+    # front end alone, which honours the pragmas without linking a runtime.
+    # torch's macOS wheel ships omp.h (torch/include, already on the include
+    # path) and its own libomp.dylib, and nothing is linked here: Python's
+    # LDSHARED carries -undefined dynamic_lookup, so the __kmpc_* symbols bind
+    # at import to the libomp torch has already loaded, keeping one runtime in
+    # the process. Linking a libomp would load a second one (Homebrew's), or
+    # fail to load at all (torch's copy has the install name
+    # /opt/llvm-openmp/lib/libomp.dylib, which does not exist on disk).
+    if sys.platform == "darwin":
+        openmp_compile, openmp_link = ["-Xpreprocessor", "-fopenmp"], []
+        openmp_probe = f"{' '.join(openmp_compile)} -I{Path(torch.__file__).parent / 'include'}"
+        omp_source = "#include <omp.h>\nint main() { return omp_get_max_threads(); }\n"
+        if not compiler_accepts(openmp_probe, omp_source):
+            print("OpenMP unavailable: CPU kernels will run on one thread.")
+            openmp_compile = []
+    else:
+        openmp_compile, openmp_link = ["-fopenmp"], ["-fopenmp"]
+    extra_link_args = list(openmp_link)
     extra_compile_args = {
         "cxx": [
             "-std=c++20",
             "-O3" if not debug_mode else "-O0",
-            "-fopenmp",
+            *openmp_compile,
             "-fdiagnostics-color=always",
         ],
         "nvcc": [
@@ -171,10 +194,11 @@ def get_extensions():
     #                      skip the intermediate rounding the split relies on.
     #                      It costs nothing: no code in csrc wants an implicit
     #                      FMA (gemm_policy.h asks for its FMA explicitly with
-    #                      std::fma, which the flag does not affect), and the
-    #                      baseline x86-64 target has no FMA instruction. The
-    #                      flag is insurance against a CFLAGS or -march that
-    #                      adds one.
+    #                      std::fma, which the flag does not affect). On the
+    #                      baseline x86-64 target, which has no FMA instruction,
+    #                      it is insurance against a CFLAGS or -march that adds
+    #                      one; on arm64, which has FMA and where clang contracts
+    #                      by default, it is required.
     #   FLT_EVAL_METHOD    must be 0, meaning no x87 excess precision. SSE
     #                      arithmetic is the x86-64 default, so this holds
     #                      there; the static_assert in the probe makes it a
@@ -187,7 +211,7 @@ def get_extensions():
     fp_contract = "-ffp-contract=off"
     if compiler_accepts(
         fp_contract,
-        "#include <cfloat>\nint main() { static_assert(FLT_EVAL_METHOD == 0); return 0; }\n",
+        '#include <cfloat>\nint main() { static_assert(FLT_EVAL_METHOD == 0, ""); return 0; }\n',
     ):
         extra_compile_args["cxx"].extend([fp_contract, "-DMPTORCH_FAST_CAST=1"])
     else:
