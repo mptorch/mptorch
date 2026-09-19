@@ -21,14 +21,17 @@
 // binary64, and which carrier runs is the backend's choice, made from
 // GemmShape::dt.
 
-#include "gemm_dtype.h"
 #include "gemm_policy.h"
 #include "modes.h"
+#if !defined(__METAL_VERSION__)
+#include "gemm_dtype.h"
 #include <cstdint>
+#endif
 
 namespace mptorch::gemm
 {
 
+#if !defined(__METAL_VERSION__)
   // Everything the kernel needs that is not a format: the operands as raw
   // pointers plus the shape, layout and dtype to read them with. The mixed
   // ops fill the last four fields; the single-format ops leave them null,
@@ -57,6 +60,7 @@ namespace mptorch::gemm
     const int32_t *prec_idx = nullptr;
     int64_t idx_row_stride = 0, idx_col_stride = 0, idx_batch_stride = 0;
   };
+#endif
 
   // The per-format settings a schema takes as scalars rather than per slot:
   // sign, saturation, subnormals and the stochastic-rounding bit width. A
@@ -113,26 +117,30 @@ namespace mptorch::gemm
   // constants (BinaryKParamsT / SuperfpParamsT) once here rather than per
   // multiply-accumulate step.
   template <class T, RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT<T, RM> make_mul(const BinaryKWidths &w, const BinaryKCommon &c)
+  CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT<T, RM> make_mul(const MPTORCH_THREAD BinaryKWidths &w,
+                                                             const MPTORCH_THREAD BinaryKCommon &c)
   {
     return BinaryKMultiplierT<T, RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
   }
 
   template <class T, RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE BinaryKAdderT<T, RM> make_add(const BinaryKWidths &w, const BinaryKCommon &c)
+  CUDA_HOST_DEVICE_INLINE BinaryKAdderT<T, RM> make_add(const MPTORCH_THREAD BinaryKWidths &w,
+                                                        const MPTORCH_THREAD BinaryKCommon &c)
   {
     return BinaryKAdderT<T, RM>{w.man_bits, w.exp_bits, w.bias, c.is_signed, c.sat, c.sub, c.prng_bits};
   }
 
   template <class T, RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<T, RM> make_mul(const SuperfpWidths &w, const SuperfpCommon &c)
+  CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT<T, RM> make_mul(const MPTORCH_THREAD SuperfpWidths &w,
+                                                             const MPTORCH_THREAD SuperfpCommon &c)
   {
     return SuperfpMultiplierT<T, RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
                                   c.prng_bits};
   }
 
   template <class T, RoundMode RM>
-  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<T, RM> make_add(const SuperfpWidths &w, const SuperfpCommon &c)
+  CUDA_HOST_DEVICE_INLINE SuperfpAdderT<T, RM> make_add(const MPTORCH_THREAD SuperfpWidths &w,
+                                                        const MPTORCH_THREAD SuperfpCommon &c)
   {
     return SuperfpAdderT<T, RM>{w.man_bits, w.exp_bits, w.normal_binades, w.bias, c.is_signed, c.sat,
                              c.prng_bits};
@@ -154,14 +162,14 @@ namespace mptorch::gemm
   // ----------------------------------------------------------------------
   struct BinaryKSplitArgs
   {
-    static constexpr bool mixed = false;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
     // SplitMac draws for the multiply and the accumulate independently, so
     // one output element's K-step reduction consumes two Philox values per
     // step where a FusedMac consumes one. Only RoundMode::SR draws at all;
     // this is the upper bound the driver reserves generator state against.
     // A draw is one word in binary32 and two in binary64, which the driver
     // multiplies in.
-    static constexpr uint64_t draws_per_k_step = 2;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 2;
 
     BinaryKWidths mul{};
     BinaryKCommon mul_c{};
@@ -170,7 +178,7 @@ namespace mptorch::gemm
     BinaryKCommon acc_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       auto m = make_mul<T, RM>(mul, mul_c);
       if (accumulate_quant)
@@ -188,8 +196,8 @@ namespace mptorch::gemm
 
   struct BinaryKSplitMixedArgs
   {
-    static constexpr bool mixed = true;
-    static constexpr uint64_t draws_per_k_step = 2;
+    static constexpr MPTORCH_CONSTANT bool mixed = true;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 2;
 
     int n_fmt = 0;
     BinaryKWidths mul[MAX_GEMM_FORMATS]{};
@@ -203,7 +211,7 @@ namespace mptorch::gemm
     // nothing. The prototype handed to `f` holds slot 0; the kernel replaces
     // its Mac per output element from `pal`.
     template <class T, RoundMode RM, class F>
-    void with_palette(F &&f) const
+    void with_palette(MPTORCH_THREAD F &&f) const
     {
       if (accumulate_quant)
       {
@@ -229,15 +237,15 @@ namespace mptorch::gemm
   // ----------------------------------------------------------------------
   struct BinaryKFusedArgs
   {
-    static constexpr bool mixed = false;
-    static constexpr uint64_t draws_per_k_step = 1;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 1;
 
     bool fma_quant = false;
     BinaryKWidths fma{};
     BinaryKCommon fma_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       if (fma_quant)
       {
@@ -257,15 +265,15 @@ namespace mptorch::gemm
   // point rejects it.
   struct BinaryKFusedMixedArgs
   {
-    static constexpr bool mixed = true;
-    static constexpr uint64_t draws_per_k_step = 1;
+    static constexpr MPTORCH_CONSTANT bool mixed = true;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 1;
 
     int n_fmt = 0;
     BinaryKWidths fma[MAX_GEMM_FORMATS]{};
     BinaryKCommon fma_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_palette(F &&f) const
+    void with_palette(MPTORCH_THREAD F &&f) const
     {
       using Mac = FusedMac<BinaryKAdderT<T, RM>>;
       FormatPalette<Mac> pal;
@@ -280,8 +288,8 @@ namespace mptorch::gemm
   // ----------------------------------------------------------------------
   struct SuperfpSplitArgs
   {
-    static constexpr bool mixed = false;
-    static constexpr uint64_t draws_per_k_step = 2;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 2;
 
     SuperfpWidths mul{};
     SuperfpCommon mul_c{};
@@ -290,7 +298,7 @@ namespace mptorch::gemm
     SuperfpCommon acc_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       auto m = make_mul<T, RM>(mul, mul_c);
       if (accumulate_quant)
@@ -308,8 +316,8 @@ namespace mptorch::gemm
 
   struct SuperfpSplitMixedArgs
   {
-    static constexpr bool mixed = true;
-    static constexpr uint64_t draws_per_k_step = 2;
+    static constexpr MPTORCH_CONSTANT bool mixed = true;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 2;
 
     int n_fmt = 0;
     SuperfpWidths mul[MAX_GEMM_FORMATS]{};
@@ -324,7 +332,7 @@ namespace mptorch::gemm
     // kernel needed 100 registers, and fixing the mode at compile time took
     // it to 60-64.
     template <class T, RoundMode RM, class F>
-    void with_palette(F &&f) const
+    void with_palette(MPTORCH_THREAD F &&f) const
     {
       if (accumulate_quant)
       {
@@ -350,15 +358,15 @@ namespace mptorch::gemm
   // ----------------------------------------------------------------------
   struct SuperfpFusedArgs
   {
-    static constexpr bool mixed = false;
-    static constexpr uint64_t draws_per_k_step = 1;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 1;
 
     bool fma_quant = false;
     SuperfpWidths fma{};
     SuperfpCommon fma_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       if (fma_quant)
       {
@@ -377,15 +385,15 @@ namespace mptorch::gemm
   // point rejects it.
   struct SuperfpFusedMixedArgs
   {
-    static constexpr bool mixed = true;
-    static constexpr uint64_t draws_per_k_step = 1;
+    static constexpr MPTORCH_CONSTANT bool mixed = true;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = 1;
 
     int n_fmt = 0;
     SuperfpWidths fma[MAX_GEMM_FORMATS]{};
     SuperfpCommon fma_c{};
 
     template <class T, RoundMode RM, class F>
-    void with_palette(F &&f) const
+    void with_palette(MPTORCH_THREAD F &&f) const
     {
       using Mac = FusedMac<SuperfpAdderT<T, RM>>;
       FormatPalette<Mac> pal;

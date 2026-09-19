@@ -7,6 +7,7 @@ Requirements
 - Python >= 3.12 and PyTorch >= 2.1
 - A C++ compiler (GCC >= 4.9 on Linux)
 - CUDA >= 12.0, only if the CUDA kernels are wanted
+- On macOS, nothing more: the Apple GPU (MPS) kernels are built with the rest, and compiled for the GPU when first used, so Xcode is not needed
 
 MPTorch is a C++/CUDA extension, so installing it compiles the kernels against the PyTorch you have installed.
 
@@ -29,7 +30,7 @@ if you have ``uv`` on your machine.
 
 Always pass ``--no-build-isolation``. Without it, ``pip`` builds the extension in a throw-away environment against a *freshly downloaded* PyTorch that may not be the one you run, and the result fails to import with an ``undefined symbol`` error. With it, the build uses your installed PyTorch.
 
-The CUDA kernels are built whenever ``torch.cuda.is_available()`` is true and ``CUDA_HOME`` is set. To force a CPU-only build, or a debug build:
+The CUDA kernels are built whenever ``torch.cuda.is_available()`` is true and ``CUDA_HOME`` is set, and the Apple GPU kernels on macOS whenever PyTorch was built with MPS (``USE_MPS=0`` leaves them out). To force a CPU-only build, or a debug build:
 
 .. code-block:: console
 

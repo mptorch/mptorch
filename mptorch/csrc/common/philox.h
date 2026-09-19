@@ -1,7 +1,9 @@
 #pragma once
 
 #include "bit_helper.h"
+#if !defined(__METAL_VERSION__)
 #include <cstdint>
+#endif
 
 // ---------------------------------------------------------------------------
 // Philox4x32-10, bit-identical to at::philox_engine
@@ -30,13 +32,13 @@
 // array member, the accumulator stays in registers.
 struct PhiloxEngine
 {
-    static constexpr uint32_t kPhilox10A = 0x9E3779B9;
-    static constexpr uint32_t kPhilox10B = 0xBB67AE85;
-    static constexpr uint32_t kPhiloxSA = 0xD2511F53;
-    static constexpr uint32_t kPhiloxSB = 0xCD9E8D57;
+    static constexpr MPTORCH_CONSTANT uint32_t kPhilox10A = 0x9E3779B9;
+    static constexpr MPTORCH_CONSTANT uint32_t kPhilox10B = 0xBB67AE85;
+    static constexpr MPTORCH_CONSTANT uint32_t kPhiloxSA = 0xD2511F53;
+    static constexpr MPTORCH_CONSTANT uint32_t kPhiloxSB = 0xCD9E8D57;
     // at::philox_engine's default seed, so a default-constructed engine (the
     // kernels' acc_proto prototype) starts from the same state ATen's would.
-    static constexpr uint64_t kDefaultSeed = 67280421310721;
+    static constexpr MPTORCH_CONSTANT uint64_t kDefaultSeed = 67280421310721;
 
     // Counter (c0..c3), key (k0, k1) and output cache (o0..o3) as named
     // scalars rather than arrays, for the reason above. `state` is the index
@@ -111,10 +113,13 @@ struct PhiloxEngine
 
 private:
     // The low 32 bits of a*b, with the high 32 in *result_high.
-    CUDA_HOST_DEVICE_INLINE static uint32_t mulhilo32(uint32_t a, uint32_t b, uint32_t *result_high)
+    CUDA_HOST_DEVICE_INLINE static uint32_t mulhilo32(uint32_t a, uint32_t b, MPTORCH_THREAD uint32_t *result_high)
     {
 #if defined(__CUDA_ARCH__)
         *result_high = __umulhi(a, b);
+        return a * b;
+#elif defined(__METAL_VERSION__)
+        *result_high = metal::mulhi(a, b);
         return a * b;
 #else
         const uint64_t product = static_cast<uint64_t>(a) * b;
@@ -125,7 +130,8 @@ private:
 
     // One Philox round: two 32x32 multiplies and the key mixed in, with the
     // word permutation at::philox_engine uses.
-    CUDA_HOST_DEVICE_INLINE static void single_round(uint32_t &x0, uint32_t &x1, uint32_t &x2, uint32_t &x3,
+    CUDA_HOST_DEVICE_INLINE static void single_round(MPTORCH_THREAD uint32_t &x0, MPTORCH_THREAD uint32_t &x1,
+                                                     MPTORCH_THREAD uint32_t &x2, MPTORCH_THREAD uint32_t &x3,
                                                      uint32_t key0, uint32_t key1)
     {
         uint32_t hi0 = 0, hi1 = 0;

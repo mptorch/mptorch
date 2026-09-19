@@ -134,7 +134,7 @@ Requirements:
 - PyTorch >= 2.1
 - GCC >= 4.9 on Linux
 - CUDA >= 12.0 on Linux (only needed to build the CUDA kernels)
-- Apple clang on macOS (CPU only; OpenMP comes from the runtime bundled with PyTorch)
+- Apple clang on macOS (OpenMP comes from the runtime bundled with PyTorch). The Apple GPU (MPS) kernels are built with the rest and compiled for the GPU at first use, so Xcode is not needed
 
 MPTorch contains a C++/CUDA extension that is compiled at install time, so the build needs `torch`, `setuptools` and `ninja` already installed in the environment you install into:
 ```
@@ -148,7 +148,7 @@ pip install -e . --no-build-isolation
 
 Always pass `--no-build-isolation`. Without it, pip builds the extension in a temporary environment with its own freshly resolved copy of `torch`, which may not be the build installed in your environment. The compiled extension then fails at import with an `undefined symbol` error, because it was built against a different `torch` ABI than the one loading it.
 
-By default, the CUDA extension is built whenever `torch.cuda.is_available()` and `CUDA_HOME` are set. To force a CPU-only build:
+By default, the CUDA extension is built whenever `torch.cuda.is_available()` and `CUDA_HOME` are set, and on macOS the MPS kernels whenever PyTorch was built with MPS (`USE_MPS=0` leaves them out). On an `"mps"` tensor every op returns the CPU's result bit for bit, stochastic rounding included, up to the GPU's flush of binary32 subnormals (see the documentation's "On an Apple GPU"). To force a CPU-only build:
 ```
 USE_CUDA=0 pip install -e . --no-build-isolation
 ```
@@ -175,7 +175,7 @@ The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren
 pip install -e ".[test]" --no-build-isolation
 pytest tests/
 ```
-On a machine without a CUDA device, the CUDA tests are skipped automatically.
+On a machine without a CUDA device, the CUDA tests are skipped automatically, and so are the MPS tests without an Apple GPU.
 
 ## Acknowledgements
 This project is based on the same logic that is used

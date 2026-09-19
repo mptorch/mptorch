@@ -1,14 +1,34 @@
 #pragma once
 
 #include "modes.h"
+#if !defined(__METAL_VERSION__)
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
+#endif
 
 #ifdef __CUDACC__
 #define CUDA_HOST_DEVICE_INLINE __host__ __device__ __forceinline__
 #else
 #define CUDA_HOST_DEVICE_INLINE inline
+#endif
+
+// The third compiler. The MPS backend (csrc/mps/) compiles this header, the
+// two casts and the GEMM policies as Metal Shading Language at run time
+// (mps/prelude.metal supplies what MSL lacks from the C++ library), and MSL
+// is C++ with address spaces: every reference and pointer names the one it
+// points into, and a static data member lives in `constant`. The two macros
+// below say so where it matters and are empty everywhere else, so the host
+// and CUDA see the same tokens as before them. Only what the device code
+// uses carries them. The host-only parts (the CPU GEMM's tile state in
+// gemm_policy.h) and binary64 (Metal has no double) are behind
+// `!defined(__METAL_VERSION__)` instead.
+#if defined(__METAL_VERSION__)
+#define MPTORCH_THREAD thread
+#define MPTORCH_CONSTANT constant
+#else
+#define MPTORCH_THREAD
+#define MPTORCH_CONSTANT
 #endif
 
 // MPTORCH_FAST_CAST admits the float-arithmetic fast paths of the casts in
@@ -30,7 +50,9 @@
 // macro must come from the command line: setup.py defines it together with
 // -ffp-contract=off, both or neither. It is deliberately not passed to nvcc,
 // whose host pass compiles these same headers with a host compiler that is
-// handed no such flag.
+// handed no such flag. Metal has no _rn intrinsics either, and gets the
+// macro the way the host does: mps/prelude.metal defines it next to
+// `#pragma METAL fp contract(off)`, Metal's spelling of the flag.
 #if !defined(MPTORCH_FAST_CAST) && defined(__CUDA_ARCH__)
 #define MPTORCH_FAST_CAST 1
 #endif
@@ -47,6 +69,11 @@
 // keeps the integer path for that one cast. The function itself stays defined
 // whenever MPTORCH_FAST_CAST is, so the host sweeps still verify it: it is
 // rejected on speed, not on correctness, and the two are worth telling apart.
+// The Apple GPU does not take it either, and that one is correctness: its
+// underflow test compares against fast_super_half, which for a format with
+// no underflow region is a binary32 subnormal, and the GPU flushes a
+// subnormal operand of a compare to zero (see "The Apple GPU's flush of
+// binary32 subnormals" below).
 #if defined(MPTORCH_FAST_CAST) && defined(__CUDA_ARCH__)
 #define MPTORCH_FAST_CAST_SUPERFP_RNE 1
 #endif
@@ -57,8 +84,9 @@
 // stop the build rather than quietly evaluate every intermediate in 80 bits
 // and break the identity. Contraction has no such tell: neither GCC nor Clang
 // defines a macro for -ffp-contract, which is why that half of the contract
-// is a compiler flag paired with an exhaustive sweep instead.
-#if defined(MPTORCH_FAST_CAST) && !defined(__CUDACC__)
+// is a compiler flag paired with an exhaustive sweep instead. Metal has no
+// <cfloat> and no excess precision to rule out.
+#if defined(MPTORCH_FAST_CAST) && !defined(__CUDACC__) && !defined(__METAL_VERSION__)
 #include <cfloat>
 static_assert(FLT_EVAL_METHOD == 0,
               "MPTORCH_FAST_CAST needs float expressions evaluated in float; "
@@ -126,34 +154,34 @@ struct FloatTraits<float>
     using value_t = float;
     using word_t = uint32_t;
     using sword_t = int32_t;
-    static constexpr int MAN_BITS = 23;   // significand field
-    static constexpr int EXP_BITS = 8;    // exponent field
-    static constexpr int BIAS = 127;
-    static constexpr int WORD_BITS = 32;
-    static constexpr int MAX_EXP = 127;   // the largest finite value's exponent
-    static constexpr int INF_EXP = 128;   // all-ones field, unbiased: inf/NaN
-    static constexpr int TOP_FIELD = 254; // the largest finite value's field
-    static constexpr int MIN_NORMAL_EXP = -126;
+    static constexpr MPTORCH_CONSTANT int MAN_BITS = 23;   // significand field
+    static constexpr MPTORCH_CONSTANT int EXP_BITS = 8;    // exponent field
+    static constexpr MPTORCH_CONSTANT int BIAS = 127;
+    static constexpr MPTORCH_CONSTANT int WORD_BITS = 32;
+    static constexpr MPTORCH_CONSTANT int MAX_EXP = 127;   // the largest finite value's exponent
+    static constexpr MPTORCH_CONSTANT int INF_EXP = 128;   // all-ones field, unbiased: inf/NaN
+    static constexpr MPTORCH_CONSTANT int TOP_FIELD = 254; // the largest finite value's field
+    static constexpr MPTORCH_CONSTANT int MIN_NORMAL_EXP = -126;
     // The lowest floor a format can put its smallest value at when the grid
     // there is read off the input's exponent field: every subnormal of the
     // carrier shares field 0, so a floor one binade below the carrier's
     // smallest normal cannot be told apart from the values below it.
-    static constexpr int MIN_SIMULABLE_EXP = -125;
-    static constexpr word_t FIELD_MASK = 0xFFu;
-    static constexpr word_t SIGN_MASK = 0x80000000u;
-    static constexpr word_t ABS_MASK = 0x7FFFFFFFu;
-    static constexpr word_t MAN_MASK = 0x007FFFFFu;
-    static constexpr word_t INF_BITS = 0x7F800000u;
-    static constexpr word_t TIE = 0x00400000u;       // tie to a power of two
-    static constexpr word_t BELOW_TIE = 0x003FFFFFu; // TIE - 1, just below it
-    static constexpr bool HAS_FAST_CAST = true;
+    static constexpr MPTORCH_CONSTANT int MIN_SIMULABLE_EXP = -125;
+    static constexpr MPTORCH_CONSTANT word_t FIELD_MASK = 0xFFu;
+    static constexpr MPTORCH_CONSTANT word_t SIGN_MASK = 0x80000000u;
+    static constexpr MPTORCH_CONSTANT word_t ABS_MASK = 0x7FFFFFFFu;
+    static constexpr MPTORCH_CONSTANT word_t MAN_MASK = 0x007FFFFFu;
+    static constexpr MPTORCH_CONSTANT word_t INF_BITS = 0x7F800000u;
+    static constexpr MPTORCH_CONSTANT word_t TIE = 0x00400000u;       // tie to a power of two
+    static constexpr MPTORCH_CONSTANT word_t BELOW_TIE = 0x003FFFFFu; // TIE - 1, just below it
+    static constexpr MPTORCH_CONSTANT bool HAS_FAST_CAST = true;
 
     // 2^e for e in [MIN_NORMAL_EXP, MAX_EXP], exact by construction, and
     // without pulling ldexp into a header that CUDA device code includes.
     CUDA_HOST_DEVICE_INLINE static value_t pow2(int e)
     {
         word_t bits = (word_t)(e + BIAS) << MAN_BITS;
-        return reinterpret_cast<const value_t &>(bits);
+        return reinterpret_cast<const MPTORCH_THREAD value_t &>(bits);
     }
 
     // 2^-MAN_BITS: what turns the MAN_BITS low bits of a random word into a
@@ -197,37 +225,40 @@ struct FloatTraits<float>
 #endif
 };
 
+// Metal has no double, so the binary64 carrier and everything that names
+// it are the host's and CUDA's only.
+#if !defined(__METAL_VERSION__)
 template <>
 struct FloatTraits<double>
 {
     using value_t = double;
     using word_t = uint64_t;
     using sword_t = int64_t;
-    static constexpr int MAN_BITS = 52;
-    static constexpr int EXP_BITS = 11;
-    static constexpr int BIAS = 1023;
-    static constexpr int WORD_BITS = 64;
-    static constexpr int MAX_EXP = 1023;
-    static constexpr int INF_EXP = 1024;
-    static constexpr int TOP_FIELD = 2046;
-    static constexpr int MIN_NORMAL_EXP = -1022;
-    static constexpr int MIN_SIMULABLE_EXP = -1021;
-    static constexpr word_t FIELD_MASK = 0x7FFu;
-    static constexpr word_t SIGN_MASK = 0x8000000000000000u;
-    static constexpr word_t ABS_MASK = 0x7FFFFFFFFFFFFFFFu;
-    static constexpr word_t MAN_MASK = 0x000FFFFFFFFFFFFFu;
-    static constexpr word_t INF_BITS = 0x7FF0000000000000u;
-    static constexpr word_t TIE = 0x0008000000000000u;
-    static constexpr word_t BELOW_TIE = 0x0007FFFFFFFFFFFFu;
+    static constexpr MPTORCH_CONSTANT int MAN_BITS = 52;
+    static constexpr MPTORCH_CONSTANT int EXP_BITS = 11;
+    static constexpr MPTORCH_CONSTANT int BIAS = 1023;
+    static constexpr MPTORCH_CONSTANT int WORD_BITS = 64;
+    static constexpr MPTORCH_CONSTANT int MAX_EXP = 1023;
+    static constexpr MPTORCH_CONSTANT int INF_EXP = 1024;
+    static constexpr MPTORCH_CONSTANT int TOP_FIELD = 2046;
+    static constexpr MPTORCH_CONSTANT int MIN_NORMAL_EXP = -1022;
+    static constexpr MPTORCH_CONSTANT int MIN_SIMULABLE_EXP = -1021;
+    static constexpr MPTORCH_CONSTANT word_t FIELD_MASK = 0x7FFu;
+    static constexpr MPTORCH_CONSTANT word_t SIGN_MASK = 0x8000000000000000u;
+    static constexpr MPTORCH_CONSTANT word_t ABS_MASK = 0x7FFFFFFFFFFFFFFFu;
+    static constexpr MPTORCH_CONSTANT word_t MAN_MASK = 0x000FFFFFFFFFFFFFu;
+    static constexpr MPTORCH_CONSTANT word_t INF_BITS = 0x7FF0000000000000u;
+    static constexpr MPTORCH_CONSTANT word_t TIE = 0x0008000000000000u;
+    static constexpr MPTORCH_CONSTANT word_t BELOW_TIE = 0x0007FFFFFFFFFFFFu;
     // The integer path only. A binary64 fast path would need measuring on its
     // own, since FP64 throughput is a fraction of the float rate on consumer
     // GPUs, and nothing has asked for one.
-    static constexpr bool HAS_FAST_CAST = false;
+    static constexpr MPTORCH_CONSTANT bool HAS_FAST_CAST = false;
 
     CUDA_HOST_DEVICE_INLINE static value_t pow2(int e)
     {
         word_t bits = (word_t)(e + BIAS) << MAN_BITS;
-        return reinterpret_cast<const value_t &>(bits);
+        return reinterpret_cast<const MPTORCH_THREAD value_t &>(bits);
     }
     CUDA_HOST_DEVICE_INLINE static value_t ulp_scale() { return 1.0 / 4503599627370496.0; }
 
@@ -246,6 +277,7 @@ struct FloatTraits<double>
     CUDA_HOST_DEVICE_INLINE static value_t fmax_nonneg(value_t a, value_t b) { return (a > b) ? a : b; }
 #endif
 };
+#endif // !__METAL_VERSION__
 
 // The constants above are written out, as they appear in IEEE 754, rather than
 // derived from one another; this checks each against the ones it follows from.
@@ -264,6 +296,7 @@ constexpr bool float_traits_consistent()
            F::BELOW_TIE == F::TIE - 1 && std::is_same_v<typename F::sword_t, std::make_signed_t<W>>;
 }
 static_assert(float_traits_consistent<float>(), "FloatTraits<float> disagrees with itself");
+#if !defined(__METAL_VERSION__)
 static_assert(float_traits_consistent<double>(), "FloatTraits<double> disagrees with itself");
 
 // The carrier a tensor of scalar type S rounds in: binary64 for a double, and
@@ -271,6 +304,7 @@ static_assert(float_traits_consistent<double>(), "FloatTraits<double> disagrees 
 // binary32 holds exactly and whose casts are binary32's).
 template <class S>
 using carrier_t = std::conditional_t<std::is_same_v<S, double>, double, float>;
+#endif
 
 // The carrier whose word W is. Declared for the two carriers' words only, so a
 // word of any other type (an `int`, a word of the wrong width) fails to
@@ -282,11 +316,13 @@ struct CarrierOfWord<uint32_t>
 {
     using type = float;
 };
+#if !defined(__METAL_VERSION__)
 template <>
 struct CarrierOfWord<uint64_t>
 {
     using type = double;
 };
+#endif
 template <class W>
 using WordTraits = FloatTraits<typename CarrierOfWord<W>::type>;
 
@@ -718,14 +754,27 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParamsT<T> make_normal_range_params(int exp_b
         // field is zero and the two spellings agree.
         p.min_num = ((word_t)min_exponent_store << F::MAN_BITS) +
                     (extended_normals ? (word_t(1) << (F::MAN_BITS - man)) : word_t(0));
-        // Halved as a value, not as a word: decrementing the exponent field
-        // is the same thing only while the field stays at 1 or above, and a
-        // format whose floor is the carrier's smallest normal (which the
-        // range check warns about but does not refuse) puts it one below,
-        // where the word means something else entirely.
-        T min_val = reinterpret_cast<const T &>(p.min_num);
-        T half = min_val * T(0.5);
-        p.half_num = reinterpret_cast<const word_t &>(half);
+        // Halved on the word, in two cases. Above the carrier's smallest
+        // normal, halving is decrementing the exponent field. A format whose
+        // floor *is* that smallest normal (which the range check warns about
+        // but does not refuse) has a subnormal half: the floor's significand,
+        // implicit bit included, shifted down one place into field 0, with
+        // the one bit shifted out rounded to nearest even. That bit is an
+        // exact tie when set, so the round-up happens only onto an odd
+        // result, and a carry out of the significand lands on the smallest
+        // normal, which is the right answer too. Both are what `min_val *
+        // 0.5` rounds to, which this used to be; it is not that any more
+        // because an Apple GPU flushes a subnormal product to zero, and the
+        // MPS backend builds these constants on the device (see
+        // MPTORCH_THREAD above).
+        const word_t floor_bits = p.min_num >> F::MAN_BITS;
+        if (floor_bits >= 2)
+            p.half_num = p.min_num - (word_t(1) << F::MAN_BITS);
+        else
+        {
+            const word_t sig = (p.min_num & F::MAN_MASK) | (word_t(1) << F::MAN_BITS);
+            p.half_num = (sig >> 1) + (sig & (sig >> 1) & 1u);
+        }
     }
 
     // On sword_t: a binade holds 2^52 codes in binary64, and `int` holds none
@@ -753,6 +802,133 @@ CUDA_HOST_DEVICE_INLINE NormalRangeParamsT<T> make_normal_range_params(int exp_b
         p.max_num = ((word_t)(top_exp + F::BIAS) << F::MAN_BITS) | ((word_t)top_code << (F::MAN_BITS - man));
     return p;
 }
+
+// ---------------------------------------------------------------------------
+// The Apple GPU's flush of binary32 subnormals.
+//
+// The MPS backend's GPU flushes binary32 subnormals to zero, operands and
+// results, in every arithmetic operation and every compare, under every
+// Metal math mode (safe included). The casts round on the word, so the
+// flush reaches only the few places where they do float arithmetic or
+// compare on a value that can be a subnormal of the carrier. Each is spelled
+// through one of the macros below, which on the host and CUDA expand to the
+// expression they name, so those compilers see the same tokens as before,
+// and on Metal to a spelling the flush cannot reach.
+// ---------------------------------------------------------------------------
+
+// The sign tests the casts dispatch on: `x < 0` (a negative input to an
+// unsigned format returns 0) and `x >= 0` (which magnitude helper a directed
+// mode hands |x| to). On the host and CUDA they are the float compares they
+// look like, so those compilers see exactly the tokens they always did.
+//
+// On an Apple GPU they cannot be. Its binary32 unit flushes subnormals to
+// zero, in every arithmetic operation and every compare, under every Metal
+// math mode (safe included), so there `-2^-140 < 0` is false and
+// `-2^-140 >= 0` is true. A negative subnormal would then take the
+// nonnegative arm of cast_binaryK_up: cast_absolute_up would round a word
+// with the sign bit set and return minus the smallest subnormal, a result
+// below the input under round-up. The Metal spelling therefore reads the
+// word, where the flush cannot reach, and keeps IEEE's answers for every
+// other input: a NaN is neither negative nor nonnegative, and -0.0 is
+// nonnegative. Everything else these casts do to a subnormal input is
+// already integer arithmetic on its word, except for the two float
+// operations the SR casts apply to it, which the next two helpers take
+// care of; mps/gemm.metal says what the flush can still change, which is
+// only the GEMM's arithmetic between its roundings.
+#if defined(__METAL_VERSION__)
+inline bool metal_is_negative(float x)
+{
+    const uint32_t w = as_type<uint32_t>(x);
+    return w - 0x80000001u < 0x7F800000u; // -denorm_min .. -inf
+}
+inline bool metal_is_nonnegative(float x)
+{
+    const uint32_t w = as_type<uint32_t>(x);
+    return w <= 0x7F800000u || w == 0x80000000u; // +0.0 .. +inf, and -0.0
+}
+#define MPTORCH_IS_NEGATIVE(x) metal_is_negative(x)
+#define MPTORCH_IS_NONNEGATIVE(x) metal_is_nonnegative(x)
+#else
+#define MPTORCH_IS_NEGATIVE(x) ((x) < 0)
+#define MPTORCH_IS_NONNEGATIVE(x) ((x) >= 0)
+#endif
+
+// x + p, where p is a power of two of the carrier's normal range carrying
+// x's sign and |x| < |p|: the one float operation the SR casts apply to
+// their input (the subnormal arm of cast_binaryK_stochastic and the
+// underflow arm of cast_superfp_stochastic, which move x into p's binade so
+// that one stochastic round there lands on the grid below it). On the host
+// and CUDA it is the add it looks like.
+//
+// On an Apple GPU the add flushes a binary32 subnormal x to zero first, and
+// the SR draw then rounds p itself, where every other backend rounds p + x
+// and takes the step up with probability |x| over the step; that differs
+// whenever p's ulp is fine enough to see x, which for superfp is the common
+// case (a supernormal floor of 2^-111 is binary8p4-sized). So the Metal
+// spelling adds a subnormal x on the word, as the add would round it: in
+// p's binade x's mantissa m, worth m * 2^-149, is m / 2^k of p's ulps, with
+// k one less than p's exponent field, rounded to nearest even. The sum
+// cannot carry out of the binade (m < 2^23), so it is p's word plus that.
+// Every other x, and a p outside the normal range (a format no carrier
+// holds), goes to the float unit, which is IEEE for them.
+#if defined(__METAL_VERSION__)
+inline float metal_add_to_power_of_two(float x, float p)
+{
+    const uint32_t xw = as_type<uint32_t>(x);
+    const uint32_t pw = as_type<uint32_t>(p);
+    if ((xw & 0x7F800000u) != 0 || (xw & 0x007FFFFFu) == 0 || (pw & 0x7F800000u) == 0)
+        return x + p;
+    const uint32_t k = ((pw >> 23) & 0xFFu) - 1u;
+    const uint32_t m = xw & 0x007FFFFFu;
+    uint32_t q = 0;
+    if (k == 0)
+        q = m;
+    else if (k <= 24)
+    {
+        const uint32_t rest = m & ((1u << k) - 1u);
+        const uint32_t tie = 1u << (k - 1);
+        q = (m >> k);
+        q += (rest > tie || (rest == tie && (q & 1u))) ? 1u : 0u;
+    }
+    return as_type<float>(pw + q);
+}
+#define MPTORCH_ADD_TO_POWER_OF_TWO(x, p) metal_add_to_power_of_two(x, p)
+#else
+#define MPTORCH_ADD_TO_POWER_OF_TWO(x, p) ((x) + (p))
+#endif
+
+// u * m for a draw 0 <= u < 1 and the positive normal m: the bound the SR
+// floor below compares |x| with (clip_normal_range_magnitude's STOCHASTIC
+// arm). On the host and CUDA it is the multiply it looks like. On an Apple
+// GPU a product below 2^-126 comes out as zero, where IEEE rounds it to the
+// subnormal grid; that happens once m is below 2^-103, a NORMALS or
+// EXTENDED_NORMALS floor only a bias of 105 or more puts there. The Metal
+// spelling detects the flush (both operands normal, product zero) and
+// rounds the 48-bit product of the two significands onto the 2^-149 grid
+// itself, to nearest even, which is the word of the subnormal the other
+// backends get. The product is below 2^-126, so it lies at least 24 places
+// above that grid's unit and the shift is well defined.
+#if defined(__METAL_VERSION__)
+inline float metal_mul_draw(float u, float m)
+{
+    const float p = u * m;
+    const uint32_t uw = as_type<uint32_t>(u);
+    const uint32_t mw = as_type<uint32_t>(m);
+    if (p != 0.0f || (uw & 0x7F800000u) == 0 || (mw & 0x7F800000u) == 0)
+        return p;
+    const uint64_t s = uint64_t((uw & 0x007FFFFFu) | 0x00800000u) * uint64_t((mw & 0x007FFFFFu) | 0x00800000u);
+    const uint32_t k = 151u - ((uw >> 23) & 0xFFu) - ((mw >> 23) & 0xFFu); // 2^-149 in units of s's lsb
+    if (k >= 49u)
+        return 0.0f; // s < 2^48 is below half the grid's unit
+    const uint64_t q = s >> k;
+    const uint64_t rest = s & ((uint64_t(1) << k) - 1u);
+    const uint64_t tie = uint64_t(1) << (k - 1u);
+    return as_type<float>(uint32_t(q + ((rest > tie || (rest == tie && (q & 1u))) ? 1u : 0u)));
+}
+#define MPTORCH_MUL_DRAW(u, m) metal_mul_draw(u, m)
+#else
+#define MPTORCH_MUL_DRAW(u, m) ((u) * (m))
+#endif
 
 // What a magnitude below the format's smallest value becomes, which is the
 // only thing the rounding modes differ about down there.
@@ -841,11 +1017,20 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
             // power of two (EXTENDED_NORMALS' floor is not one). The product
             // is one rounding wide, which is below the resolution `rand_bits`
             // asks for whenever that is under MAN_BITS + 1.
+            //
+            // The compare is on the words. Both sides are nonnegative and
+            // finite, where the order of the words is the order of the
+            // values, so this is `|x| > u * min_val` exactly; but |x| can be
+            // a subnormal of the carrier here, which an Apple GPU's float
+            // compare would flush to zero (see MPTORCH_IS_NEGATIVE above),
+            // taking the floor from it with probability 0 instead of
+            // |x| / min_val. MPTORCH_MUL_DRAW keeps the bound itself from
+            // flushing.
             using T = typename F::value_t;
-            T min_val = reinterpret_cast<const T &>(min_num);
-            T xf = reinterpret_cast<const T &>(ax);
+            T min_val = reinterpret_cast<const MPTORCH_THREAD T &>(min_num);
             T u = (T)(rand_prob & F::MAN_MASK) * F::ulp_scale();
-            quantized_num = (xf > u * min_val) ? min_num : W(0);
+            T bound = MPTORCH_MUL_DRAW(u, min_val);
+            quantized_num = (ax > reinterpret_cast<const MPTORCH_THREAD W &>(bound)) ? min_num : W(0);
         }
     }
     else if (quantized_num < min_num)
@@ -931,8 +1116,8 @@ template <class T>
 CUDA_HOST_DEVICE_INLINE T flip_sign(T x)
 {
     using word_t = typename FloatTraits<T>::word_t;
-    word_t w = reinterpret_cast<const word_t &>(x) ^ FloatTraits<T>::SIGN_MASK;
-    return reinterpret_cast<const T &>(w);
+    word_t w = reinterpret_cast<const MPTORCH_THREAD word_t &>(x) ^ FloatTraits<T>::SIGN_MASK;
+    return reinterpret_cast<const MPTORCH_THREAD T &>(w);
 }
 
 template <class T>
@@ -940,7 +1125,7 @@ CUDA_HOST_DEVICE_INLINE T negate_magnitude(T m)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    word_t w = reinterpret_cast<const word_t &>(m);
+    word_t w = reinterpret_cast<const MPTORCH_THREAD word_t &>(m);
     w ^= F::SIGN_MASK & -(word_t)((w << 1) != 0);
-    return reinterpret_cast<const T &>(w);
+    return reinterpret_cast<const MPTORCH_THREAD T &>(w);
 }

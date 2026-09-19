@@ -274,6 +274,44 @@ and ``sweep --dtype float16 --audit`` walks each boundary above -- with
 ``--carrier binary64`` too, through the widened operands and the narrowed
 result.
 
+.. _apple-gpu:
+
+On an Apple GPU
+~~~~~~~~~~~~~~~
+
+On macOS every op also runs on ``"mps"`` tensors, as Metal kernels compiled
+from the casts and GEMM policies the CPU runs. MPS has no float64, so there
+the carrier is always binary32: float32, float16 and bfloat16 tensors compute
+exactly as they do on the CPU, and ``carrier=torch.float64`` is refused, since
+the float64 copy of the operands it needs cannot be made on the device.
+
+The results are the CPU's, bit for bit, stochastic rounding included: an MPS
+call draws its one seed from the CPU generator, as a CPU call does, and hands
+every element the same random word, so ``torch.manual_seed`` reproduces a run
+across the two devices and not only on one. (CUDA draws from its own
+generator.) Two things the GPU's float unit does its own way, both in what a
+GEMM computes *between* its roundings rather than in the roundings:
+
+* **Subnormals.** Apple GPUs flush binary32 subnormals to zero, operands and
+  results, in every mode Metal offers. The casts round on the word and are not
+  touched by it, but a product, a running sum or a fused multiply-add whose
+  exact value is below :math:`2^{-126}` in magnitude is zero before the format
+  sees it. Under ``RZ`` that is what the CPU returns too, and under ``RNE`` and
+  ``RNA`` so it is for every format whose smallest value is at least
+  :math:`2^{-125}`. Under ``RU``, ``RD``, ``RO`` and ``SR`` the CPU can round
+  such a value to the format's smallest where the GPU gives zero, and a sum
+  left unrounded (``accumulate_quant=False``) can hold a subnormal the GPU
+  drops. The quantizers are not affected: they round every input exactly,
+  subnormal ones included, in every mode.
+* **NaN payloads.** A NaN that reaches a product or a sum comes out of the
+  GPU's float unit as its canonical NaN, where the CPU keeps the operand's
+  payload. The casts pass a NaN through whole on every device, so a
+  quantizer's NaNs keep theirs.
+
+Each format's first call compiles its kernel, which takes from about 20 ms
+to a few hundred; later calls with the same format, rounding mode and dtype
+reuse it.
+
 BinaryK: the IEEE P3109 formats
 -------------------------------
 

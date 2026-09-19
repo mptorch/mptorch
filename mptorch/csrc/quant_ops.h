@@ -1,10 +1,12 @@
 #pragma once
 
-// Declarations of every per-backend op implementation, CPU and CUDA, in the
-// same order as the schemas in quant_ops.cpp. The registration files
-// (cpu/cpu_ops.cpp, cuda/cuda_ops.cu) and the entry point files include it.
-// Both backends are declared in every build; a CPU-only build simply never
-// references the CUDA ones, since only a registration file names them.
+// Declarations of every per-backend op implementation, CPU, CUDA and MPS, in
+// the same order as the schemas in quant_ops.cpp. The registration files
+// (cpu/cpu_ops.cpp, cuda/cuda_ops.cpp, mps/mps_ops.cpp) and the entry point
+// files include it. Every backend is declared in every build; a build
+// without CUDA or MPS simply never references those, since only a
+// registration file names them. narrow_float64 has no MPS kernel: MPS has
+// no float64 tensor to narrow.
 //
 // <ATen/ATen.h> is deliberately not included: it pulls in ATen/Functions.h,
 // the declaration of every operator in ATen, which costs about 22 s per
@@ -24,11 +26,20 @@ at::Tensor binaryK_quantize_cpu(at::Tensor a, int64_t K, int64_t P,
                                 int64_t round_mode, int64_t saturation_mode,
                                 int64_t subnormals_mode);
 
+at::Tensor binaryK_quantize_mps(at::Tensor a, int64_t K, int64_t P,
+                                int64_t bias, int64_t prng_bits, bool is_signed,
+                                int64_t round_mode, int64_t saturation_mode,
+                                int64_t subnormals_mode);
+
 at::Tensor superfp_quantize_cuda(at::Tensor a, int64_t man_bits, int64_t exp_bits,
                                  int64_t normal_binades, int64_t bias, int64_t prng_bits,
                                  bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
 at::Tensor superfp_quantize_cpu(at::Tensor a, int64_t man_bits, int64_t exp_bits,
+                                int64_t normal_binades, int64_t bias, int64_t prng_bits,
+                                bool is_signed, int64_t round_mode, int64_t saturation_mode);
+
+at::Tensor superfp_quantize_mps(at::Tensor a, int64_t man_bits, int64_t exp_bits,
                                 int64_t normal_binades, int64_t bias, int64_t prng_bits,
                                 bool is_signed, int64_t round_mode, int64_t saturation_mode);
 
@@ -57,6 +68,15 @@ at::Tensor binaryK_matmul_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool tra
                               int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
                               int64_t mul_prng_bits, int64_t acc_prng_bits);
 
+at::Tensor binaryK_matmul_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                              int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                              bool accumulate_quant, int64_t acc_K, int64_t acc_P,
+                              int64_t acc_bias, bool acc_is_signed,
+                              int64_t accumulate_algorithm, int64_t round_mode,
+                              int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                              int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                              int64_t mul_prng_bits, int64_t acc_prng_bits);
+
 at::Tensor superfp_matmul_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
                                int64_t mul_bias, bool mul_is_signed,
@@ -67,6 +87,15 @@ at::Tensor superfp_matmul_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool tr
                                int64_t mul_prng_bits, int64_t acc_prng_bits);
 
 at::Tensor superfp_matmul_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                              int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                              int64_t mul_bias, bool mul_is_signed,
+                              bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
+                              int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
+                              int64_t accumulate_algorithm, int64_t round_mode,
+                              int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                              int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor superfp_matmul_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                               int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
                               int64_t mul_bias, bool mul_is_signed,
                               bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
@@ -89,6 +118,13 @@ at::Tensor binaryK_matmul_fma_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool
                                   int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
                                   int64_t fma_prng_bits);
 
+at::Tensor binaryK_matmul_fma_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                  bool fma_quant, int64_t fma_K, int64_t fma_P,
+                                  int64_t fma_bias, bool fma_is_signed,
+                                  int64_t accumulate_algorithm, int64_t round_mode,
+                                  int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                  int64_t fma_prng_bits);
+
 at::Tensor superfp_matmul_fma_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                    bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
                                    int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
@@ -96,6 +132,12 @@ at::Tensor superfp_matmul_fma_cuda(at::Tensor a, at::Tensor b, bool trans_a, boo
                                    int64_t fma_saturation_mode, int64_t fma_prng_bits);
 
 at::Tensor superfp_matmul_fma_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                  bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                  int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                  int64_t accumulate_algorithm, int64_t round_mode,
+                                  int64_t fma_saturation_mode, int64_t fma_prng_bits);
+
+at::Tensor superfp_matmul_fma_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                   bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
                                   int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
                                   int64_t accumulate_algorithm, int64_t round_mode,
@@ -113,6 +155,17 @@ at::Tensor binaryK_matmul_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec
                                      int64_t mul_prng_bits, int64_t acc_prng_bits);
 
 at::Tensor binaryK_matmul_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                    bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
+                                    c10::IntArrayRef mul_bias, bool mul_is_signed,
+                                    bool accumulate_quant, c10::IntArrayRef acc_K, c10::IntArrayRef acc_P,
+                                    c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                    int64_t accumulate_algorithm, int64_t round_mode,
+                                    int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                                    int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                                    int64_t mul_prng_bits, int64_t acc_prng_bits);
+
+at::Tensor binaryK_matmul_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
                                     bool trans_a, bool trans_b,
                                     c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
                                     c10::IntArrayRef mul_bias, bool mul_is_signed,
@@ -147,6 +200,18 @@ at::Tensor superfp_matmul_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_
                                     int64_t mul_saturation_mode, int64_t acc_saturation_mode,
                                     int64_t mul_prng_bits, int64_t acc_prng_bits);
 
+at::Tensor superfp_matmul_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                    bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
+                                    c10::IntArrayRef mul_normal_binades, c10::IntArrayRef mul_bias,
+                                    bool mul_is_signed,
+                                    bool accumulate_quant, c10::IntArrayRef acc_man_bits,
+                                    c10::IntArrayRef acc_exp_bits, c10::IntArrayRef acc_normal_binades,
+                                    c10::IntArrayRef acc_bias, bool acc_is_signed,
+                                    int64_t accumulate_algorithm, int64_t round_mode,
+                                    int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                    int64_t mul_prng_bits, int64_t acc_prng_bits);
+
 at::Tensor binaryK_matmul_fma_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
                                          bool trans_a, bool trans_b, bool fma_quant,
                                          c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
@@ -163,6 +228,14 @@ at::Tensor binaryK_matmul_fma_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor p
                                         int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
                                         int64_t fma_prng_bits);
 
+at::Tensor binaryK_matmul_fma_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                        bool trans_a, bool trans_b, bool fma_quant,
+                                        c10::IntArrayRef fma_K, c10::IntArrayRef fma_P,
+                                        c10::IntArrayRef fma_bias, bool fma_is_signed,
+                                        int64_t accumulate_algorithm, int64_t round_mode,
+                                        int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                        int64_t fma_prng_bits);
+
 at::Tensor superfp_matmul_fma_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
                                          bool trans_a, bool trans_b, bool fma_quant,
                                          c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,
@@ -172,6 +245,14 @@ at::Tensor superfp_matmul_fma_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor 
                                          int64_t fma_prng_bits);
 
 at::Tensor superfp_matmul_fma_mixed_cpu(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
+                                        bool trans_a, bool trans_b, bool fma_quant,
+                                        c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,
+                                        c10::IntArrayRef fma_normal_binades, c10::IntArrayRef fma_bias,
+                                        bool fma_is_signed, int64_t accumulate_algorithm,
+                                        int64_t round_mode, int64_t fma_saturation_mode,
+                                        int64_t fma_prng_bits);
+
+at::Tensor superfp_matmul_fma_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
                                         bool trans_a, bool trans_b, bool fma_quant,
                                         c10::IntArrayRef fma_man_bits, c10::IntArrayRef fma_exp_bits,
                                         c10::IntArrayRef fma_normal_binades, c10::IntArrayRef fma_bias,

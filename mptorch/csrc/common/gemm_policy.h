@@ -4,11 +4,13 @@
 #include "cast_superfp.h"
 #include "modes.h"
 #include "philox.h"
+#if !defined(__METAL_VERSION__)
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
 #include <vector>
+#endif
 
 // ---------------------------------------------------------------------------
 // Multiplier policies: quantize a single dot-product term a*b.
@@ -65,7 +67,7 @@ struct BinaryKMultiplierT
 
     // The product a*b, rounded once by the carrier's multiply and then cast
     // to the format under RM.
-    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         T x = a * b;
         if constexpr (RM == RoundMode::RNA)
@@ -104,7 +106,7 @@ struct SuperfpMultiplierT
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         T x = a * b;
         if constexpr (RM == RoundMode::RNA)
@@ -151,7 +153,7 @@ struct BinaryKAdderT
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         if constexpr (RM == RoundMode::RNA)
             return cast_binaryK_nearest_away(x, is_signed, subnormals_mode, params);
@@ -189,7 +191,7 @@ struct SuperfpAdderT
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         if constexpr (RM == RoundMode::RNA)
             return cast_superfp_nearest_away(x, is_signed, params);
@@ -217,7 +219,7 @@ template <class T>
 struct IdentityAdder
 {
     using value_t = T;
-    CUDA_HOST_DEVICE_INLINE T operator()(T x, PhiloxEngine & /*rng*/) const { return x; }
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine & /*rng*/) const { return x; }
 };
 
 // ---------------------------------------------------------------------------
@@ -232,17 +234,21 @@ struct IdentityAdder
 // multiply-add has no standalone product term to combine.
 
 // The carrier's fused multiply-add: a*b + c with one rounding. The device
-// intrinsic and std::fma are both correctly rounded, so the two backends
-// agree bit for bit.
+// intrinsics and std::fma are all correctly rounded, so the backends agree
+// bit for bit (on an Apple GPU, up to its flush of binary32 subnormals; see
+// mps/gemm.metal).
 CUDA_HOST_DEVICE_INLINE float fma_f32(float a, float b, float c)
 {
 #if defined(__CUDA_ARCH__)
     return fmaf(a, b, c);
+#elif defined(__METAL_VERSION__)
+    return metal::fma(a, b, c);
 #else
     return std::fma(a, b, c);
 #endif
 }
 
+#if !defined(__METAL_VERSION__)
 CUDA_HOST_DEVICE_INLINE double fma_f64(double a, double b, double c)
 {
 #if defined(__CUDA_ARCH__)
@@ -251,6 +257,7 @@ CUDA_HOST_DEVICE_INLINE double fma_f64(double a, double b, double c)
     return std::fma(a, b, c);
 #endif
 }
+#endif
 
 // Both halves of a mac compute in one carrier, the Adder's. The product and
 // the sum are rounded to the carrier's precision before the format's cast
@@ -266,7 +273,7 @@ struct SplitMac
     Multiplier mul{};
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         return add(acc + mul(a, b, rng), rng);
     }
@@ -279,7 +286,7 @@ struct FusedMac
 
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, MPTORCH_THREAD PhiloxEngine &rng) const
     {
         if constexpr (std::is_same_v<value_t, float>)
             return add(fma_f32(a, b, acc), rng);
@@ -315,6 +322,9 @@ struct FusedMac
 // tile. The K-loop must keep the base pointers in registers, which it
 // cannot do through a std::vector member that the stores in the loop body
 // might alias; `__restrict__` on plain pointers says they do not.
+//
+// This and NaiveTile are the CPU kernel's alone, so Metal never sees them.
+#if !defined(__METAL_VERSION__)
 template <class T>
 struct NaiveTileView
 {
@@ -370,6 +380,7 @@ struct NaiveTile
 
     T finalize(int64_t idx) const { return sums[static_cast<size_t>(idx)]; }
 };
+#endif // !__METAL_VERSION__
 
 // Sequential summation: sum <- mac.step(a, b, sum) for each K-step, in
 // order. The object form (mac, sum, rng) is one GPU thread's whole state;
@@ -379,7 +390,9 @@ struct NaiveAccumulator
 {
     using mac_type = Mac;
     using value_t = typename Mac::value_t;
+#if !defined(__METAL_VERSION__)
     using tile_type = NaiveTile<value_t>;
+#endif
 
     Mac mac{};
     value_t sum = value_t(0);
@@ -398,11 +411,13 @@ struct NaiveAccumulator
     // for the whole call on the single-format path and this element's
     // palette slot on the mixed one. Same expression as the object form
     // above, in the same order, so the two produce identical values.
+#if !defined(__METAL_VERSION__)
     static inline void accumulate(const NaiveTileView<value_t> &t, int64_t idx, const Mac &m,
                                   value_t a, value_t b)
     {
         t.sums[idx] = m.step(a, b, t.sums[idx], t.rng[idx]);
     }
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -429,7 +444,7 @@ struct NaiveAccumulator
 // per-column [1, N] index (0, 1) with no branching. Which path runs is the
 // kernel's MIXED template parameter, not a property of the palette: the
 // single-format instantiations do not take one at all (see PaletteArg).
-constexpr int MAX_GEMM_FORMATS = 8;
+constexpr MPTORCH_CONSTANT int MAX_GEMM_FORMATS = 8;
 static_assert((MAX_GEMM_FORMATS & (MAX_GEMM_FORMATS - 1)) == 0,
               "MAX_GEMM_FORMATS must be a power of two: slot() masks with it");
 
@@ -449,7 +464,7 @@ struct FormatPalette
     // guarantees an index outside [0, n) can only ever pick the wrong *slot*
     // and never read past the array. One AND, on a path that is compiled
     // out entirely when MIXED is false.
-    CUDA_HOST_DEVICE_INLINE const Mac &slot(int32_t idx) const
+    CUDA_HOST_DEVICE_INLINE const MPTORCH_THREAD Mac &slot(int32_t idx) const
     {
         return slots[idx & (MAX_GEMM_FORMATS - 1)];
     }

@@ -16,6 +16,11 @@ requires_cuda = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="No CUDA-capable device found."
 )
 
+# The same for an Apple GPU (the MPS backend, csrc/mps/).
+requires_mps = pytest.mark.skipif(
+    not torch.backends.mps.is_available(), reason="No MPS device found."
+)
+
 # Values for a `device` parameter: "cpu" always, and "cuda" skipped when no
 # device is available. `@pytest.mark.parametrize("device", available_devices)`
 # is the convention for a test that runs on both backends.

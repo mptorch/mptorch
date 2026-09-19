@@ -51,8 +51,10 @@ Some things to know about them:
   mantissa bits: 23 in binary32 and 52 in binary64, as the run shows.
 - Every function here also takes ``carrier``, below.
 - CPU and CUDA produce bit-identical results under every deterministic mode.
-  Under ``SR`` each device draws from its own default generator, so
-  ``torch.manual_seed`` reproduces a run *on the same device*.
+  Under ``SR`` CUDA draws from its own default generator, so
+  ``torch.manual_seed`` reproduces a CUDA run on CUDA. An Apple GPU (``"mps"``)
+  draws from the CPU's and matches it bit for bit in every mode, ``SR``
+  included (:ref:`apple-gpu` says where the two part).
 
 float64 and the carrier
 -----------------------

@@ -82,7 +82,7 @@ struct SuperfpParamsT
     SaturationMode saturation_mode;
     word_t max_num;
     // no fast path for this carrier; see BinaryKParamsT's
-    static constexpr bool fast_rne = false;
+    static constexpr MPTORCH_CONSTANT bool fast_rne = false;
 };
 
 template <>
@@ -226,11 +226,11 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
         // run on every value.
         p.fast_super_min = no_underflow ? 0.0f : F::pow2(p.supernormal_cutoff);
         const uint32_t below_tie = F::BELOW_TIE;
-        p.fast_super_half = no_underflow ? reinterpret_cast<const T &>(below_tie) : F::pow2(p.supernormal_cutoff - 1);
-        p.fast_max_finite = reinterpret_cast<const T &>(p.max_num);
+        p.fast_super_half = no_underflow ? reinterpret_cast<const MPTORCH_THREAD T &>(below_tie) : F::pow2(p.supernormal_cutoff - 1);
+        p.fast_max_finite = reinterpret_cast<const MPTORCH_THREAD T &>(p.max_num);
         p.fast_clamp_hi = 2.0f * p.fast_max_finite;
         const uint32_t inf_bits = F::INF_BITS;
-        p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? reinterpret_cast<const T &>(inf_bits) : p.fast_max_finite;
+        p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? reinterpret_cast<const MPTORCH_THREAD T &>(inf_bits) : p.fast_max_finite;
         if (!p.fast_rne)
         {
             // keep the unused constants finite so a disabled gate can never
@@ -296,12 +296,12 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // binary32's only, like the binaryK twin, and behind MPTORCH_FAST_CAST for
 // the same reason: the split's `t` must be a separately rounded value.
 #if defined(MPTORCH_FAST_CAST)
-CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const SuperfpParams &p)
+CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const MPTORCH_THREAD SuperfpParams &p)
 {
     using F = FloatTraits<float>;
     float ax = fabsf(origin_float);
     const uint32_t inf_bits = F::INF_BITS;
-    const float inf = reinterpret_cast<const float &>(inf_bits);
+    const float inf = reinterpret_cast<const MPTORCH_THREAD float &>(inf_bits);
 
     if (ax >= p.fast_normal_min)
     {
@@ -324,11 +324,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
     // supernormal region: round |x| to the nearest power of two, ties to the
     // even exponent (round_bitwise_nearest_even's zero-argument overload,
     // inlined here on a sign-cleared word).
-    uint32_t ab = reinterpret_cast<const uint32_t &>(ax);
+    uint32_t ab = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(ax);
     uint32_t q = (ab + 0x00400000u) & 0xFF800000u;
     uint32_t is_tie = (ab & 0x007FFFFFu) == 0x00400000u;
     q -= ((is_tie << 23) & ~q);
-    float spn = reinterpret_cast<const float &>(q);
+    float spn = reinterpret_cast<const MPTORCH_THREAD float &>(q);
     // The sign goes on the supernormal magnitude, which fast_super_half
     // guarantees is nonzero, and the flush arm then selects a bare +0.0 over
     // it: P3109's zero is unsigned, and so is superfp's. Signing first costs
@@ -350,11 +350,11 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const Su
 // P3109's unsigned zero where it is zero, so nothing is unsigned on the way
 // out.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
 #if defined(MPTORCH_FAST_CAST_SUPERFP_RNE)
@@ -371,7 +371,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
 #endif
 
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized{T(0)};
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -382,7 +382,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
     {
         // NaN/inf inputs: NaN passes through, inf saturates under SAT_FINITE
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
@@ -392,7 +392,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
         // it to the nearest power of two can clear the magnitude while keeping
         // the sign. Two instructions on a word already in a register.
         quantize_bits = unsigned_zero_bits(round_bitwise_nearest_even(target));
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
@@ -409,7 +409,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
             // exactly at half (mantissa all zero) ties to even = zero.
             quantize_bits = ((word_t)(p.supernormal_cutoff + F::BIAS) << F::MAN_BITS) | sign_bit;
         }
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else
     {
@@ -418,7 +418,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
                             : round_bitwise_nearest_even(target);
         quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized; // already unsigned where it is zero, see the arms above
@@ -426,15 +426,15 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
 
 // Rounds to nearest, ties away from zero.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized;
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -445,13 +445,13 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_sign
     if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
         // see cast_superfp_nearest_even's supernormal arm for the mask
         quantize_bits = unsigned_zero_bits(round_bitwise_nearest_away(target, 0));
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
@@ -464,14 +464,14 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_sign
         {
             quantize_bits = 0u; // flushed: the zero is unsigned
         }
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else
     {
         quantize_bits = round_bitwise_nearest_away(target, p.round_bypass, p.round_mask, p.round_tie);
         quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized; // already unsigned where it is zero, see the arms above
@@ -481,15 +481,15 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_sign
 // "odd" is the parity of the code's index from the bottom of the region and
 // an inexact value moves up one power of two when its index is even.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized;
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -500,7 +500,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
     if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
@@ -513,7 +513,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
             quantize_bits += (word_t(1) << F::MAN_BITS);
         // see cast_superfp_nearest_even's supernormal arm
         quantize_bits = unsigned_zero_bits(quantize_bits);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
@@ -525,7 +525,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
         {
             word_t sign_bit = target & F::SIGN_MASK;
             quantize_bits = ((word_t)(p.supernormal_cutoff + F::BIAS) << F::MAN_BITS) | sign_bit;
-            quantized = reinterpret_cast<const T &>(quantize_bits);
+            quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
         }
     }
     else
@@ -545,7 +545,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
         }
         quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized; // already unsigned where it is zero, see the arms above
@@ -554,12 +554,12 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
 // Rounds a magnitude up (away from zero), for cast_superfp_up and
 // cast_superfp_down: assumes origin_float >= 0.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized;
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -570,14 +570,14 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const Superfp
     if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
         // the mask is for the -0.0 input, which compares >= 0 and so arrives
         // here as a magnitude with a sign bit; see the RNE cast's arm
         quantize_bits = unsigned_zero_bits(round_bitwise_up(target, 0));
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
@@ -588,7 +588,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const Superfp
         else
         {
             quantize_bits = (word_t)(p.supernormal_cutoff + F::BIAS) << F::MAN_BITS;
-            quantized = reinterpret_cast<const T &>(quantize_bits);
+            quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
         }
     }
     else
@@ -598,7 +598,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const Superfp
         // signed form puts back is always the one it took off (bit_helper.h)
         quantize_bits = clip_normal_range_magnitude<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized;
@@ -607,12 +607,12 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_up(T origin_float, const Superfp
 // Rounds a magnitude down (toward zero); the other half of
 // cast_superfp_absolute_up.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized;
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -623,18 +623,18 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const Super
     if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
         // see cast_superfp_absolute_up's arm
         quantize_bits = unsigned_zero_bits(round_bitwise_down(target, 0));
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
         quantize_bits = 0u; // flushed: the zero is unsigned
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else
     {
@@ -643,7 +643,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const Super
         // signed form puts back is always the one it took off (bit_helper.h)
         quantize_bits = clip_normal_range_magnitude<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized;
@@ -652,9 +652,9 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const Super
 // The three directed modes (toward +inf, toward -inf, toward zero) in terms
 // of the two magnitude helpers above.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
     // NaN comparisons are always false, so a NaN takes the negating arm
@@ -664,29 +664,29 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, bool is_signed, const 
     // and sign. As in cast_binaryK_up, the helper gives back a magnitude, so
     // that same negation is the one way left to a -0.0, and negate_magnitude
     // leaves a zero unsigned.
-    if (origin_float >= 0)
+    if (MPTORCH_IS_NONNEGATIVE(origin_float))
         return cast_superfp_absolute_up(origin_float, p);
     else
         return negate_magnitude(cast_superfp_absolute_down(flip_sign(origin_float), p));
 }
 
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_down(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_down(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
     // see cast_superfp_up
-    if (origin_float >= 0)
+    if (MPTORCH_IS_NONNEGATIVE(origin_float))
         return cast_superfp_absolute_down(origin_float, p);
     else
         return negate_magnitude(cast_superfp_absolute_up(flip_sign(origin_float), p));
 }
 
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_zero(T origin_float, bool is_signed, const SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T cast_superfp_zero(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
-    if (origin_float >= T(0))
+    if (MPTORCH_IS_NONNEGATIVE(origin_float))
         return cast_superfp_down(origin_float, is_signed, p);
     else
         return cast_superfp_up(origin_float, is_signed, p);
@@ -700,15 +700,15 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_zero(T origin_float, bool is_signed, cons
 // probability equal to its fractional position between the two.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
-                                                  int rand_bits, bool is_signed, const SuperfpParamsT<T> &p)
+                                                  int rand_bits, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (origin_float < T(0) && !is_signed)
+    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
     word_t target, quantize_bits;
-    target = reinterpret_cast<const word_t &>(origin_float);
+    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
     T quantized;
 
     int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
@@ -721,13 +721,13 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Float
     if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (supernormal)
     {
         // see cast_superfp_nearest_even's supernormal arm
         quantize_bits = unsigned_zero_bits(round_bitwise_stochastic(target, rand_bits_raw, 0));
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
     else if (underflow)
     {
@@ -738,11 +738,11 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Float
         // smallest supernormal, with probability proportional to |x|.
         word_t sign_bit = target & F::SIGN_MASK;
         word_t shift_bits = ((word_t)(p.supernormal_cutoff + F::BIAS) << F::MAN_BITS) | sign_bit;
-        T shift_float = reinterpret_cast<const T &>(shift_bits);
-        T val = origin_float + shift_float;
-        word_t target2 = reinterpret_cast<const word_t &>(val);
+        T shift_float = reinterpret_cast<const MPTORCH_THREAD T &>(shift_bits);
+        T val = MPTORCH_ADD_TO_POWER_OF_TWO(origin_float, shift_float);
+        word_t target2 = reinterpret_cast<const MPTORCH_THREAD word_t &>(val);
         quantize_bits = round_bitwise_stochastic(target2, rand_bits_raw, 0);
-        quantized = reinterpret_cast<const T &>(quantize_bits) - shift_float;
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits) - shift_float;
     }
     else
     {
@@ -759,7 +759,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Float
         {
             if constexpr (F::HAS_FAST_CAST)
             {
-                T y = reinterpret_cast<const T &>(quantize_bits);
+                T y = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
                 return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
             }
         }
@@ -767,7 +767,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename Float
         quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(
             target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num,
             rand_prob_man);
-        quantized = reinterpret_cast<const T &>(quantize_bits);
+        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
 
     return quantized; // already unsigned where it is zero, see the arms above

@@ -2,8 +2,8 @@
 // Autograd dispatch key of every op in this extension, one boxed kernel that
 // raises.
 //
-// The ops have CPU and CUDA kernels only. With no Autograd kernel at all,
-// calling one on an operand that requires grad under grad mode still runs,
+// The ops have CPU, CUDA and MPS kernels only. With no Autograd kernel at
+// all, calling one on an operand that requires grad under grad mode still runs,
 // returns a tensor that carries a grad_fn, and leaves that operand's `.grad`
 // as None after `.backward()`, with only a call-time UserWarning ("an
 // autograd kernel was not registered to the Autograd key(s) but we are

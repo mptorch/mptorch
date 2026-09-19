@@ -1,7 +1,7 @@
 #pragma once
 
-// The host-side prologue and epilogue shared by all sixteen GEMM entry
-// points (eight ops, two backends): the input checks, the shape derivation,
+// The host-side prologue and epilogue shared by all twenty-four GEMM entry
+// points (eight ops, three backends): the input checks, the shape derivation,
 // the contiguous() copies, the output allocation, the empty early-return,
 // the precision-index validation, the dtype tag and the RNG-state draw. An
 // entry point is one schema-to-Args packing (the pack_* functions at the
@@ -18,7 +18,11 @@
 // `launch_as<T, Args>` that is only declared where this header is included:
 // the kernel headers define it and the custom_matmul_*.cu / .cpp files
 // instantiate it, one carrier per file, so this ATen-carrying header never
-// reaches nvcc and no object holds both carriers' kernels.
+// reaches nvcc and no object holds both carriers' kernels. A context may
+// also have a `bind(a, b, c, prec_idx)`, which the drivers call with the
+// tensors just before the launch (bind_tensors below); the MPS backend's
+// does, since its kernels take an MPS tensor as a buffer and a byte offset,
+// which GemmShape's raw pointers cannot carry.
 
 #include "dispatch.h"
 #include "gemm_args.h"
@@ -126,12 +130,13 @@ namespace mptorch::gemm
   // bounds check in resolve_prec_idx, so a map reused across calls is
   // checked once rather than every time.
   //
-  // The check needs the index *values* on the host, and on CUDA that means a
-  // device-to-host copy, which drains the stream before the GEMM is even
-  // launched: 0.23 ms per call on an RTX 4060 laptop, against 0.27 ms for an
-  // entire 64^3 mixed GEMM. A map is normally built once and reused, so the
-  // memo skips the copy while the same tensor comes back unchanged. A miss
-  // runs exactly the check it always ran, with the same error message.
+  // The check needs the index *values* on the host, and on a device (CUDA or
+  // MPS) that means a device-to-host copy, which drains the stream before
+  // the GEMM is even launched: 0.23 ms per call on an RTX 4060 laptop,
+  // against 0.27 ms for an entire 64^3 mixed GEMM. A map is normally built
+  // once and reused, so the memo skips the copy while the same tensor comes
+  // back unchanged. A miss runs exactly the check it always ran, with the
+  // same error message.
   //
   // The key is the TensorImpl's address plus its version counter, and the
   // entry holds a weak reference to that impl. The weak reference is what
@@ -175,13 +180,14 @@ namespace mptorch::gemm
   inline std::vector<ValidatedPrecIdx> g_prec_idx_memo;
 
   // Fills (impl address, version) and returns true if this tensor is a
-  // candidate for the memo. `on_device` says the check would run on CUDA,
-  // that is, that there is a sync worth skipping; the tensor itself must be
-  // on the device too, or the copy that puts it there makes the key useless.
+  // candidate for the memo. `on_device` says the check would run on a
+  // device, that is, that there is a sync worth skipping; the tensor itself
+  // must be on the device too, or the copy that puts it there makes the key
+  // useless.
   inline bool prec_idx_memo_key(const Tensor &prec_idx, bool on_device,
                                 const c10::TensorImpl *&raw, uint32_t &version)
   {
-    if (!on_device || !prec_idx.is_cuda())
+    if (!on_device || prec_idx.is_cpu())
       return false;
     c10::TensorImpl *impl = prec_idx.unsafeGetTensorImpl();
     if (!impl->version_counter().enabled())
@@ -281,18 +287,18 @@ namespace mptorch::gemm
     // int64 here, which only makes the check stricter: an index that would
     // wrap on the narrowing to int32 is rejected rather than silently
     // aliased.
-    const Tensor &to_check = prec_idx.is_cuda() ? pidx : prec_idx;
-    const bool memo = pidx.is_cuda();
+    const Tensor &to_check = prec_idx.is_cpu() ? prec_idx : pidx;
+    const bool memo = !pidx.is_cpu();
     if (!prec_idx_already_validated(prec_idx, memo, n_formats))
     {
       // aminmax is one reduction where min() and max() would be two. Reading
-      // the pair back differs by device on purpose: on CUDA the two scalars
-      // are stacked so the sync is one 2-element copy rather than two; on
-      // CPU there is no sync to amortize and .item() avoids the extra
-      // allocation.
+      // the pair back differs by device on purpose: on a device the two
+      // scalars are stacked so the sync is one 2-element copy rather than
+      // two; on CPU there is no sync to amortize and .item() avoids the
+      // extra allocation.
       auto mm = at::aminmax(to_check);
       int64_t lo, hi;
-      if (to_check.is_cuda())
+      if (!to_check.is_cpu())
       {
         auto bounds = at::stack({std::get<0>(mm), std::get<1>(mm)}).cpu();
         const int32_t *b = bounds.data_ptr<int32_t>();
@@ -325,6 +331,17 @@ namespace mptorch::gemm
   inline uint64_t words_per_draw(mptorch::GemmDtype dt)
   {
     return dt == mptorch::GemmDtype::Double ? 2 : 1;
+  }
+
+  // Hands the tensors to a launch context that asks for them (see the top of
+  // this file), and is a no-op for one that does not, which is the CPU's and
+  // CUDA's. `prec_idx` is null on the single-format ops.
+  template <class Ctx>
+  void bind_tensors(Ctx &ctx, const Tensor &a, const Tensor &b, const Tensor &c,
+                    const Tensor *prec_idx)
+  {
+    if constexpr (requires { ctx.bind(a, b, c, prec_idx); })
+      ctx.bind(a, b, c, prec_idx);
   }
 
   // ----------------------------------------------------------------------
@@ -379,6 +396,7 @@ namespace mptorch::gemm
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();
 
+    bind_tensors(ctx, a_c, b_c, c, nullptr);
     Backend::launch(s, args, ctx);
     return c;
   }
@@ -439,6 +457,7 @@ namespace mptorch::gemm
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();
 
+    bind_tensors(ctx, a_c, b_c, c, &pidx);
     Backend::launch(s, args, ctx);
     return c;
   }
