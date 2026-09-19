@@ -51,3 +51,47 @@ jobs:
     - name: Test with pytest
       run: |
         pytest tests
+
+  # The same on Apple silicon: Apple clang builds the CPU and MPS backends,
+  # and the suite runs on both. GitHub's macOS runners are VMs whose GPU may
+  # not run MPS (it has been reported available and then unable to allocate);
+  # tests/markers.py probes it and skips the MPS tests when it does not, and
+  # the job summary says which happened. The build itself is checked either
+  # way.
+  build-macos:
+    runs-on: macos-15
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      run: |
+        uv pip install --system setuptools
+        uv pip install --system -r requirements.txt
+    - name: Install mptorch library version to test
+      run: |
+        uv pip install --system -e ".[test]" --no-build-isolation
+    - name: Check that the MPS kernels were built
+      run: |
+        python -c "
+        import torch, mptorch
+        assert torch.backends.mps.is_built(), 'this torch was built without MPS'
+        for op in ['binaryK_quant', 'superfp_quant', 'custom_matmul_binaryK', 'custom_matmul_superfp_fma_mixed']:
+            assert torch._C._dispatch_has_kernel_for_dispatch_key('mptorch::' + op, 'MPS'), op
+        "
+    - name: Probe the Apple GPU
+      run: |
+        python -c "
+        from tests.markers import HAS_MPS
+        print('MPS runs on this runner: the MPS tests will run.' if HAS_MPS else 'MPS does not run on this runner: the MPS tests will be skipped.')
+        " | tee -a "$GITHUB_STEP_SUMMARY"
+    - name: Test with pytest
+      run: |
+        pytest tests

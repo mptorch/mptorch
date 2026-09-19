@@ -40,7 +40,7 @@ from mptorch.quant import (
     superfp_matmul_mixed,
 )
 from mptorch.quant.ops import _narrowed
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 
 DETERMINISTIC = [rm for rm in RoundMode if rm != RoundMode.SR]
 
@@ -148,7 +148,7 @@ def _gemm_calls(a, b, prec_idx, rounding_mode=RoundMode.RNE, prng_bits=0, carrie
 OP_NAMES = list(_gemm_calls(torch.empty(0), torch.empty(0), torch.empty(0)).keys())
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
 def test_float64_of_exact_arithmetic_is_the_float32_image(device, op, rounding_mode):
@@ -174,7 +174,7 @@ def test_float64_of_exact_arithmetic_is_the_float32_image(device, op, rounding_m
     assert torch.equal(out64, out32.double())
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fused", [False, True])
 def test_float64_rounds_the_product_once(device, fused):
     """
@@ -219,7 +219,7 @@ def test_operands_that_start_mid_storage(device, op, dtype):
     assert torch.equal(got, _gemm_calls(a.clone(), b.clone(), pidx.clone())[op]())
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_float64_operand_pair_must_agree(device):
     """A mismatched (float64, float32) pair is rejected, not coerced."""
     a = torch.randn(4, 3, device=device, dtype=torch.float64)
@@ -233,7 +233,7 @@ def test_float64_operand_pair_must_agree(device):
         binaryK_matmul(b.mT, a.mT, trans_a=True, mul_K=8, mul_P=4, carrier=torch.float64)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("rounding_mode", list(RoundMode))
@@ -264,7 +264,7 @@ def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, roundin
         assert not torch.equal(_gemm_calls(a, b, pidx, rounding_mode, pb)[op](), got)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_a_carrier_narrower_than_the_operands_is_refused(device, op):
     """A binary32 carrier on float64 operands would round every input before
@@ -427,7 +427,7 @@ def _operands(M, K, N, device, width, seed=11):
     return a.to(device), b.to(device)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fam", ["binaryK", "superfp"])
 @pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["single", "mixed"])
@@ -472,7 +472,7 @@ def _wrapper_gemm(fused, a, b, prec_idx, mul, acc, rm, carrier=None):
     return wrapper(a, b, prec_idx, **kw) if mixed else wrapper(a, b, **kw)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fam", ["binaryK", "superfp"])
 @pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["single", "mixed"])
@@ -505,7 +505,7 @@ def test_the_wrappers_reach_formats_past_binary32(device, fam, fused, mixed):
         )
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fam", ["binaryK", "superfp"])
 @pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["single", "mixed"])
@@ -540,7 +540,7 @@ def test_binary64_carrier_on_float32_operands_matches_its_reference(
     assert not torch.equal(own, out)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fam", ["binaryK", "superfp"])
 @pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
 @pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.RZ])
@@ -560,7 +560,7 @@ def test_float64_unquantized_accumulator_is_float64_arithmetic(device, fam, fuse
     assert torch.equal(out.cpu(), ref)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_float64_identity_format_is_the_float64_sum(device):
     """
     Tier 1: a 53-bit format rounds every float64 in its normal range to
@@ -581,7 +581,7 @@ def test_float64_identity_format_is_the_float64_sum(device):
     assert torch.equal(out.cpu(), s)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_sr_stream_is_keyed_on_the_element(device, op):
     """
@@ -607,7 +607,7 @@ def test_float64_sr_stream_is_keyed_on_the_element(device, op):
     assert not torch.equal(other, big)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("fused", [False, True], ids=["split", "fused"])
 def test_float64_sr_is_unbiased_with_wide_random_bits(device, fused):
     """

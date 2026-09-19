@@ -249,7 +249,7 @@ def test_stochastic_underflow_is_unbiased_off_the_grid(device, dtype, subnormals
     assert set(got.unique().tolist()) <= {0.0, floor}
     # 5 sigma at p = 0.5 over 400k draws is 0.004 (sigma = 0.5 / sqrt(400_000)),
     # and the double-draw bias described above is 0.03 to 0.25 for these cases
-    assert got.double().mean().item() / floor == pytest.approx(frac, abs=0.004)
+    assert got.cpu().double().mean().item() / floor == pytest.approx(frac, abs=0.004)
 
 
 @pytest.mark.parametrize("device", available_devices)

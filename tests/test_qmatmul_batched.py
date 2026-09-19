@@ -23,7 +23,7 @@ from mptorch.quant import (
     superfp_matmul,
     superfp_matmul_mixed,
 )
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 
 DETERMINISTIC_ROUND_MODES = [
     RoundMode.RNE,
@@ -225,7 +225,7 @@ def test_tier3_1d_promotion_equals_2d_call(device, dtype):
     )
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("round_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR])
 def test_tier3_binary64_formats_batched_equal_loop(device, round_mode):
     """Formats only binary64 carries, 30 and 40 bits of precision and ten

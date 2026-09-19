@@ -30,6 +30,14 @@ namespace mptorch_mps
   };
   static_assert(sizeof(GemmLaunch) == 80, "GemmLaunch must have one layout on the host and the GPU");
 
+  // The GEMM's tile (gemm.metal): a threadgroup of GEMM_TILE x GEMM_TILE
+  // threads computes that block of C, one element per thread, staging op(A)
+  // and op(B) GEMM_TILE K-steps at a time. The host sizes the grid with it.
+  enum : uint32_t
+  {
+    GEMM_TILE = 16
+  };
+
   // An elementwise quantizer over `n` contiguous elements.
   struct QuantLaunch
   {

@@ -5,10 +5,12 @@
 // cuda/gemm_backend.h. What differs is where the policies are built. The CPU
 // and CUDA backends build them here, on the host, and hand the kernel the
 // result; this one hands the kernel the Args themselves, written out as
-// Metal source (args_source below), and the kernel builds the policies with
-// the same with_accumulator / with_palette (gemm.metal). That makes every
-// format constant a compile-time constant of the kernel, at the price of one
-// compile per distinct format (metal_runtime.h).
+// Metal source (args_source below), and the kernel builds the policies from
+// them with the Args' own factories: with_accumulator, as the other backends
+// do, and on the mixed ops with_slot, one element's slot at a time, where
+// they take with_palette's whole palette (gemm.metal says why). That makes
+// every format constant a compile-time constant of the kernel, at the price
+// of one compile per distinct format (metal_runtime.h).
 //
 // binary32 only: MPS has no float64 tensors, so there is no binary64 kernel
 // to pick and no MPTORCH_NO_FP64 to honour.

@@ -54,16 +54,24 @@ namespace mptorch_mps
     KernelArg() = default;
   };
 
-  // Encodes one launch of the kernel `source` instantiated by `tail`, over a
-  // grid of (x, y, z) threads, on the current MPS stream, after whatever torch
-  // has already encoded there and before whatever comes next. Compiles the
-  // instantiation first if this process has not; a compile error is raised
-  // with the Metal compiler's message. Nothing is waited for.
+  // Encodes one launch of the kernel `source` instantiated by `tail` on the
+  // current MPS stream, after whatever torch has already encoded there and
+  // before whatever comes next. Compiles the instantiation first if this
+  // process has not; a compile error is raised with the Metal compiler's
+  // message. Nothing is waited for.
+  //
+  // `launch` runs `threads` threads, one-dimensional, in threadgroups the
+  // runtime sizes (quantize.metal). `launch_groups` runs (gx, gy, gz) whole
+  // threadgroups of tx x ty threads, for a kernel whose threadgroup shares
+  // its work and so must be complete (gemm.metal's tiles).
   void launch(KernelSource source, const std::string &tail, std::initializer_list<KernelArg> args,
-              uint64_t x, uint64_t y = 1, uint64_t z = 1);
+              uint64_t threads);
+  void launch_groups(KernelSource source, const std::string &tail,
+                     std::initializer_list<KernelArg> args, uint64_t gx, uint64_t gy, uint64_t gz,
+                     uint32_t tx, uint32_t ty);
 
-  // The Metal name of a tensor's dtype, for a tail's `mpt_storage_t`, or an
-  // error naming `op` for a dtype the kernels do not load.
+  // The Metal name of a tensor's dtype, for a tail's `mpt_storage_t`, or a
+  // NotImplementedError naming `op` for a dtype the kernels do not load.
   const char *metal_storage_type(at::ScalarType t, const char *op);
 
   // The RoundMode enumerator a mode's integer names, for a tail, spelled out

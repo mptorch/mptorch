@@ -23,7 +23,7 @@ from gfloat.formats import format_info_p3109
 
 import mptorch
 from mptorch.quant import binaryK_quantize
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 from tests.quant import bits_to_float, float_to_bits
 
 
@@ -123,7 +123,7 @@ def _wide_inputs(K: int, P: int, signed: bool) -> list[float]:
     return out + [-v for v in out] if signed else out
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(
     "K, P, signed",
     # every one inside binary64's bounds at P3109's bias, the last two of each

@@ -57,7 +57,7 @@ from mptorch.quant.ops import (
     _superfp_mixed_spec,
     _superfp_spec,
 )
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 
 # ------------------------------------------------------------------------------------
 # The equivalence claim: a mac resolves to the flat wrapper's spec.
@@ -401,7 +401,7 @@ def test_quant_equals_the_flat_quantizer(device):
     )
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_a_bias_of_zero_is_a_bias(device):
     """``bias=0`` is a format, not a request for the default.
 

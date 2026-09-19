@@ -156,6 +156,30 @@ namespace mptorch::gemm
   // to `f`, which launches the kernel. An `accumulate_quant` / `fma_quant`
   // of false substitutes IdentityAdder for the sum's cast, so the running
   // sum stays in the carrier's precision.
+  //
+  // The mixed Args also have `with_slot<T, RM>(idx, f)`, which builds only
+  // the Mac that precision index `idx` selects, from that slot's widths, and
+  // hands `f` an Accumulator holding it. The MPS kernel calls it once per
+  // output element in place of with_palette (mps/gemm.metal says why); the
+  // Mac it builds is the one with_palette puts in that slot.
+
+  // Entry `idx` of a palette's per-slot list. The index is masked as
+  // FormatPalette::slot masks it, and a masked index at or past `n_fmt`
+  // gives entry 0, a format of the op's, where FormatPalette::slot would
+  // give an empty slot; the host's check of the map rules both out. The
+  // entry is found by comparing rather than by indexing, and with_slot
+  // relies on that: a list indexed at run time has to live in memory, and
+  // the Mac built from its entry becomes a load per use.
+  template <class W>
+  CUDA_HOST_DEVICE_INLINE W palette_entry(const MPTORCH_THREAD W *list, int n_fmt, int32_t idx)
+  {
+    const int32_t s = idx & (MAX_GEMM_FORMATS - 1);
+    W w = list[0];
+    for (int k = 1; k < n_fmt; ++k)
+      if (s == k)
+        w = list[k];
+    return w;
+  }
 
   // ----------------------------------------------------------------------
   // binaryK, split mac (custom_matmul_binaryK)
@@ -230,6 +254,23 @@ namespace mptorch::gemm
         f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
     }
+
+    template <class T, RoundMode RM, class F>
+    void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
+    {
+      const auto m = make_mul<T, RM>(palette_entry(mul, n_fmt, idx), mul_c);
+      if (accumulate_quant)
+      {
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, BinaryKAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{m, make_add<T, RM>(palette_entry(acc, n_fmt, idx), acc_c)},
+                                T(0)});
+      }
+      else
+      {
+        using Mac = SplitMac<BinaryKMultiplierT<T, RM>, IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder<T>{}}, T(0)});
+      }
+    }
   };
 
   // ----------------------------------------------------------------------
@@ -280,6 +321,13 @@ namespace mptorch::gemm
       for (int i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_add<T, RM>(fma[i], fma_c)};
       f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
+    }
+
+    template <class T, RoundMode RM, class F>
+    void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
+    {
+      using Mac = FusedMac<BinaryKAdderT<T, RM>>;
+      f(NaiveAccumulator<Mac>{Mac{make_add<T, RM>(palette_entry(fma, n_fmt, idx), fma_c)}, T(0)});
     }
   };
 
@@ -351,6 +399,23 @@ namespace mptorch::gemm
         f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
       }
     }
+
+    template <class T, RoundMode RM, class F>
+    void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
+    {
+      const auto m = make_mul<T, RM>(palette_entry(mul, n_fmt, idx), mul_c);
+      if (accumulate_quant)
+      {
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, SuperfpAdderT<T, RM>>;
+        f(NaiveAccumulator<Mac>{Mac{m, make_add<T, RM>(palette_entry(acc, n_fmt, idx), acc_c)},
+                                T(0)});
+      }
+      else
+      {
+        using Mac = SplitMac<SuperfpMultiplierT<T, RM>, IdentityAdder<T>>;
+        f(NaiveAccumulator<Mac>{Mac{m, IdentityAdder<T>{}}, T(0)});
+      }
+    }
   };
 
   // ----------------------------------------------------------------------
@@ -400,6 +465,13 @@ namespace mptorch::gemm
       for (int i = 0; i < n_fmt; ++i)
         pal.slots[i] = Mac{make_add<T, RM>(fma[i], fma_c)};
       f(NaiveAccumulator<Mac>{pal.slots[0], T(0)}, pal);
+    }
+
+    template <class T, RoundMode RM, class F>
+    void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
+    {
+      using Mac = FusedMac<SuperfpAdderT<T, RM>>;
+      f(NaiveAccumulator<Mac>{Mac{make_add<T, RM>(palette_entry(fma, n_fmt, idx), fma_c)}, T(0)});
     }
   };
 

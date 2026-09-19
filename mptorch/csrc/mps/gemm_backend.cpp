@@ -195,10 +195,14 @@ namespace mptorch::gemm_mps
                                  const LaunchContext &ctx)
   {
     TORCH_INTERNAL_ASSERT(ctx.a && ctx.b && ctx.c, "mptorch: the MPS GEMM was not bound its tensors");
+    // The kernel counts in 32 bits, and a tile's indices run up to
+    // GEMM_TILE past the edge of C and of K.
     constexpr int64_t most = std::numeric_limits<uint32_t>::max();
-    TORCH_CHECK(s.M <= most && s.K <= most && s.N <= most && s.batch <= most,
-                "mptorch: an MPS GEMM's M, K, N and batch must each fit in 32 bits, got ", s.M,
-                ", ", s.K, ", ", s.N, " and ", s.batch);
+    constexpr int64_t most_mkn = most - mptorch_mps::GEMM_TILE;
+    TORCH_CHECK(s.M <= most_mkn && s.K <= most_mkn && s.N <= most_mkn && s.batch <= most,
+                "mptorch: an MPS GEMM's M, K and N must each be at most 2^32 - 17, and its batch "
+                "at most 2^32 - 1, got ",
+                s.M, ", ", s.K, ", ", s.N, " and ", s.batch);
 
     const std::string tail = std::string("using mpt_storage_t = ") +
                              mptorch_mps::metal_storage_type(ctx.a->scalar_type(), "mptorch GEMM") +
@@ -223,10 +227,12 @@ namespace mptorch::gemm_mps
     // gemm.metal binds a precision map at index 4 on every op and reads it
     // on the mixed ones only; the others bind C there, which is never read.
     const at::Tensor &idx = ctx.prec_idx ? *ctx.prec_idx : *ctx.c;
-    mptorch_mps::launch(mptorch_mps::KernelSource::Gemm, tail,
-                        {*ctx.a, *ctx.b, *ctx.c, mptorch_mps::KernelArg::params(g), idx},
-                        static_cast<uint64_t>(s.N), static_cast<uint64_t>(s.M),
-                        static_cast<uint64_t>(s.batch));
+    constexpr uint64_t tile = mptorch_mps::GEMM_TILE;
+    mptorch_mps::launch_groups(mptorch_mps::KernelSource::Gemm, tail,
+                               {*ctx.a, *ctx.b, *ctx.c, mptorch_mps::KernelArg::params(g), idx},
+                               (static_cast<uint64_t>(s.N) + tile - 1) / tile,
+                               (static_cast<uint64_t>(s.M) + tile - 1) / tile,
+                               static_cast<uint64_t>(s.batch), tile, tile);
   }
 
 } // namespace mptorch::gemm_mps

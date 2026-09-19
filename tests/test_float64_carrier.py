@@ -50,7 +50,7 @@ from torch import nn
 
 from mptorch import BinaryK, FormatRangeWarning, RoundMode, SaturationMode
 from mptorch.quant import FusedMac, QLinear, Quant, SplitMac, binaryK_gemm_formats, qmatmul
-from tests.markers import available_devices
+from tests.markers import float64_devices
 from tests.test_binaryk_p3109 import _project
 
 F32, F64 = torch.float32, torch.float64
@@ -79,7 +79,7 @@ def _silent(call):
 # --- Tier 1 -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("mac", ["split", "fused"])
 def test_tier1_53_bit_gemm_is_float64_arithmetic(device, mac):
     """``qmatmul`` in a 53-bit format is plain float64 arithmetic, bit for bit.
@@ -115,7 +115,7 @@ def test_tier1_53_bit_gemm_is_float64_arithmetic(device, mac):
         assert torch.equal(b.grad, _seq_matmul(ad.mT, g))
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_tier1_53_bit_qlinear_is_float64_arithmetic(device):
     """A float64 ``QLinear`` over the 53-bit GEMM factory is float64 arithmetic.
 
@@ -138,7 +138,7 @@ def test_tier1_53_bit_qlinear_is_float64_arithmetic(device):
 # --- Tier 2 -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_tier2_wide_layer_holds_its_precision(device):
     """A 30-bit float64 layer is as close to ``nn.Linear`` as 30 bits allow.
 
@@ -221,7 +221,7 @@ def _fused_reference(a: torch.Tensor, b: torch.Tensor, rm: RoundMode) -> torch.T
     return s.to(a.device)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.RD, RoundMode.RO])
 @pytest.mark.parametrize("mac", ["split", "fused"])
 def test_tier3_wide_macs_match_the_manual_baseline(device, rm, mac):
@@ -252,7 +252,7 @@ def test_tier3_wide_macs_match_the_manual_baseline(device, rm, mac):
 # --- binary64's edges ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(
     "K,P,bias",
     [
@@ -418,7 +418,7 @@ def _every_field(dtype: torch.dtype, per_field: int, gen: torch.Generator) -> to
     return torch.cat([x, x | (-(1 << 63))]).view(F64)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_narrowing_a_binary64_result_rounds_once(device, dtype):
     """``_narrowed`` rounds a float64 onto float16 or bfloat16 once, correctly.
@@ -439,7 +439,7 @@ def test_narrowing_a_binary64_result_rounds_once(device, dtype):
     assert not torch.equal(x.to(dtype), want)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 def test_narrow_op_against_an_independent_spelling(device, dtype):
     """``narrow_float64`` agrees with a second spelling over every exponent field.
@@ -466,7 +466,7 @@ def test_narrow_op_against_an_independent_spelling(device, dtype):
         assert torch.equal(got.cpu().view(bits), op(x, dtype).view(bits))
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_narrow_op_contract(device):
     """The op's entry point: layouts, shape, the empty tensor and its refusals."""
     op = torch.ops.mptorch.narrow_float64.default
@@ -486,7 +486,7 @@ def test_narrow_op_contract(device):
         op(x.clone().requires_grad_(True), torch.float16)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_float32_layer_in_binary64_is_the_float64_layer_narrowed(device):
     """A float32 ``QLinear`` naming binary64 is the float64 layer, narrowed.
 

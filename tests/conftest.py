@@ -18,3 +18,17 @@ def seed(request):
     torch.cuda.manual_seed(value)
     torch.backends.cudnn.deterministic = True
     return value
+
+
+@pytest.fixture(autouse=True)
+def _no_float64_on_mps(request):
+    """Skip the MPS cases of a test parametrized over a device and a float64
+    dtype or the binary64 carrier (a parameter that is ``torch.float64`` or
+    the string ``"binary64"``): MPS has no float64 tensors, so there is
+    nothing to run. A test that needs float64 on its device whatever its
+    parameters takes ``tests.markers.float64_devices`` instead."""
+    params = getattr(getattr(request.node, "callspec", None), "params", {})
+    if params.get("device") == "mps" and any(
+        v is torch.float64 or v == "binary64" for v in params.values()
+    ):
+        pytest.skip("MPS has no float64 tensors.")

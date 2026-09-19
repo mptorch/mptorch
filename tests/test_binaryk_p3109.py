@@ -46,7 +46,7 @@ import torch
 
 from mptorch.number import RoundMode, SaturationMode
 from mptorch.quant import binaryK_quantize
-from tests.markers import available_devices
+from tests.markers import available_devices, has_float64
 
 DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
 
@@ -396,6 +396,8 @@ def test_stochastic_rounding_saturates_like_its_neighbours(device, signed, satur
         (60, 50, "binary64"),
     ]:
         wide = carrier == "binary64"
+        if wide and not has_float64(device):
+            continue
         x = _inputs64(K, P, signed) if wide else _inputs(K, P, signed)
         xd = x.double()
         toward = _project(xd, K, P, signed, RoundMode.RZ, saturation_mode)
@@ -469,6 +471,8 @@ def test_nan_passes_through_whole(device, signed, saturation_mode):
         ((40, 30), nans64),
         ((63, 53), nans64),
     ]:
+        if nans.dtype is torch.int64 and not has_float64(device):
+            continue
         x = nans.view(torch.float32 if nans.dtype is torch.int32 else torch.float64).to(device)
         for mode in DETERMINISTIC + [RoundMode.SR]:
             got = binaryK_quantize(

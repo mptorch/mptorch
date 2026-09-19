@@ -53,7 +53,7 @@ import torch
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize, superfp_quantize
 from mptorch.quant.ops import _narrowed
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 from tests.test_binaryk_p3109 import _project
 
 # 100_003 is prime, so no vector width (4 floats, 2 doubles) divides it and the
@@ -113,7 +113,7 @@ def _assert_same_words(a, b, ctx=""):
 # --- the binary32 image -------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("round_mode", DETERMINISTIC)
 def test_float64_of_float32_values_matches_float32(device, op, round_mode):
@@ -129,7 +129,7 @@ def test_float64_of_float32_values_matches_float32(device, op, round_mode):
     _assert_same_words(out64, out32.double(), f"{op} {round_mode.name}")
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("saturation_mode", SATURATION_MODES)
 def test_float64_of_float32_values_across_saturation_modes(device, op, saturation_mode):
@@ -144,7 +144,7 @@ def test_float64_of_float32_values_across_saturation_modes(device, op, saturatio
     _assert_same_words(out64, out32.double(), f"{op} {saturation_mode.name}")
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
 def test_float64_of_float32_values_across_subnormals_modes(device, subnormals_mode):
     """The binary32 image holds in every subnormals mode, below its floor too.
@@ -166,7 +166,7 @@ def test_float64_of_float32_values_across_subnormals_modes(device, subnormals_mo
 # --- rounding once -------------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(
     ("round_mode", "x", "via_float32", "direct"),
     [
@@ -192,7 +192,7 @@ def test_float64_is_rounded_once(device, round_mode, x, via_float32, direct):
     assert binaryK_quantize(t.float(), K=8, P=4, rounding_mode=round_mode).item() == via_float32
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_float64_is_rounded_once_superfp(device):
     """The superfp kernel rounds a float64 input once as well.
 
@@ -262,7 +262,7 @@ def _raw_binaryK(x, K, P, bias, signed, round_mode, saturation, prng_bits=0):
     )
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 @pytest.mark.parametrize("saturation", SATURATION_MODES)
 def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, saturation):
@@ -278,7 +278,7 @@ def test_float64_reaches_formats_past_binary32(device, K, P, bias, signed, satur
         _assert_same_words(got, want, ctx)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 def test_the_wrapper_holds_float64_to_binary64s_bounds(device, K, P, bias, signed):
     """The wrapper checks a float64 tensor's format against binary64's bounds.
@@ -321,7 +321,7 @@ WITNESSES = [
 NARROW = [torch.float32, torch.float16, torch.bfloat16]
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 @pytest.mark.parametrize("dtype", NARROW)
 @pytest.mark.parametrize("round_mode", list(RoundMode))
@@ -347,7 +347,7 @@ def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_m
     assert torch.equal(own, got) is (round_mode is not RoundMode.SR)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_binary64_carrier_of_a_strided_tensor(device, op):
     """A non-contiguous float32 tensor is widened by its strides, not its storage."""
@@ -369,7 +369,7 @@ def test_a_carrier_a_dtype_already_has_changes_nothing(device, op, dtype):
     _assert_same_words(got, _quant_calls(x)[op](), f"{op} {dtype}")
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_a_carrier_narrower_than_the_tensor_is_refused(device):
     """A carrier below the tensor's dtype, or one that is not a carrier, raises.
 
@@ -420,7 +420,7 @@ def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode)
 # --- stochastic rounding ------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize(("K", "P", "bias", "signed"), WIDE_FORMATS)
 def test_float64_sr_lands_on_a_neighbour(device, K, P, bias, signed):
     """SR in binary64 returns the RD or the RU projection of each input.
@@ -440,7 +440,7 @@ def test_float64_sr_lands_on_a_neighbour(device, K, P, bias, signed):
     assert not bool(torch.signbit(got[got == 0]).any()), "P3109's zero is unsigned"
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_sr_draw_is_keyed_on_the_element_index(device, op):
     """A float64 element's draw depends on its index alone.
@@ -460,7 +460,7 @@ def test_float64_sr_draw_is_keyed_on_the_element_index(device, op):
     _assert_same_words(call(x)[:n], call(x[:n].clone()), op)
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_float64_sr_is_unbiased(device):
     """SR's mean is the input, for a value float32 cannot hold.
 
@@ -478,7 +478,7 @@ def test_float64_sr_is_unbiased(device):
 # --- the rest of the entry point ----------------------------------------------
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_empty_tensor_keeps_its_dtype(device, op):
     """The empty early return allocates float64, not the kernel's default dtype."""
@@ -488,7 +488,7 @@ def test_float64_empty_tensor_keeps_its_dtype(device, op):
     assert out.numel() == 0
 
 
-@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("op", OP_NAMES)
 def test_float64_non_contiguous_input(device, op):
     """A strided float64 tensor quantizes as its contiguous copy does."""

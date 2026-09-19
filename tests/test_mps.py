@@ -210,8 +210,10 @@ def test_sr_keeps_the_generator_in_step():
 
 
 def test_quantize_rejects_what_mps_cannot_hold():
+    """An integer tensor raises the NotImplementedError AT_DISPATCH raises on
+    the other backends, and a float64 carrier cannot be had on MPS at all."""
     x = torch.zeros(4, dtype=torch.int32, device="mps")
-    with pytest.raises(RuntimeError, match="float32, float16 or bfloat16"):
+    with pytest.raises(NotImplementedError, match="not implemented for 'Int'"):
         torch.ops.mptorch.binaryK_quant(x, 8, 4, 8, 0, True, 0, 2, 0)
     with pytest.raises((TypeError, RuntimeError), match="float64"):
         binaryK_quantize(torch.randn(4, device="mps"), 8, 4, carrier=torch.float64)
@@ -329,6 +331,45 @@ def test_gemm_shapes(shapes, trans):
         b = b.transpose(-1, -2).contiguous()
     ref, got = _on_both(
         lambda x, y: binaryK_matmul(x, y, trans_a=ta, trans_b=tb, rounding_mode=RoundMode.SR, **_B),
+        a,
+        b,
+    )
+    _assert_same_words(ref, got)
+
+
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        ((16, 16), (16, 16)),  # one whole tile
+        ((17, 33), (33, 15)),  # a partial tile on every side, and a partial last K-step
+        ((31, 16), (16, 33)),
+        ((1, 48), (48, 1)),  # three whole K-steps into one element
+        ((3, 17, 33), (3, 33, 18)),  # batched
+        ((3, 17, 33), (33, 18)),  # a shared weight
+    ],
+    ids=str,
+)
+@pytest.mark.parametrize(
+    "trans", [(False, False), (True, False), (False, True), (True, True)], ids=str
+)
+def test_gemm_tile_edges(shapes, trans, rounding_mode):
+    """Shapes on and off gemm.metal's 16 x 16 tiles and 16-step K stages, in
+    both of its K-loops: RNE takes the fixed-length loop for whole stages and
+    a shorter one for the last, SR the one variable-length loop."""
+    sa, sb = shapes
+    ta, tb = trans
+    g = torch.Generator().manual_seed(3)
+    a = torch.randn(*sa, generator=g)
+    b = torch.randn(*sb, generator=g)
+    if ta:
+        a = a.transpose(-1, -2).contiguous()
+    if tb:
+        b = b.transpose(-1, -2).contiguous()
+    ref, got = _on_both(
+        lambda x, y: binaryK_matmul(
+            x, y, trans_a=ta, trans_b=tb, rounding_mode=rounding_mode, **_B
+        ),
         a,
         b,
     )

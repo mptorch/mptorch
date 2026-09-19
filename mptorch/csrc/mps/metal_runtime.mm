@@ -119,44 +119,59 @@ namespace mptorch_mps
       return static_cast<NSUInteger>(t.storage_offset() * t.element_size());
     }
 
+    // Encodes one dispatch of `pipeline` on torch's current MPS stream:
+    // `size` threads in threadgroups of `group`, or, with `size_in_groups`,
+    // `size` whole threadgroups of `group` threads.
+    void encode(id<MTLComputePipelineState> pipeline, std::initializer_list<KernelArg> args,
+                MTLSize size, MTLSize group, bool size_in_groups)
+    {
+      for (const KernelArg &a : args)
+        TORCH_INTERNAL_ASSERT(a.tensor == nullptr || a.tensor->is_mps(),
+                              "mptorch: an MPS kernel was handed a tensor on ", a.tensor->device());
+      const std::vector<KernelArg> bound(args);
+      at::mps::MPSStream *stream = at::mps::getCurrentMPSStream();
+      dispatch_sync(stream->queue(), ^() {
+        @autoreleasepool
+        {
+          id<MTLComputeCommandEncoder> encoder = stream->commandEncoder();
+          [encoder setComputePipelineState:pipeline];
+          for (NSUInteger i = 0; i < bound.size(); ++i)
+          {
+            const KernelArg &a = bound[i];
+            if (a.tensor != nullptr)
+              [encoder setBuffer:buffer_of(*a.tensor) offset:offset_of(*a.tensor) atIndex:i];
+            else
+              [encoder setBytes:a.bytes length:a.size atIndex:i];
+          }
+          if (size_in_groups)
+            [encoder dispatchThreadgroups:size threadsPerThreadgroup:group];
+          else
+            [encoder dispatchThreads:size threadsPerThreadgroup:group];
+        }
+      });
+    }
+
   } // namespace
 
   void launch(KernelSource source, const std::string &tail, std::initializer_list<KernelArg> args,
-              uint64_t x, uint64_t y, uint64_t z)
+              uint64_t threads)
   {
-    for (const KernelArg &a : args)
-      TORCH_INTERNAL_ASSERT(a.tensor == nullptr || a.tensor->is_mps(),
-                            "mptorch: an MPS kernel was handed a tensor on ", a.tensor->device());
     id<MTLComputePipelineState> pipeline = pipeline_for(source, tail);
+    const uint64_t group = std::min<uint64_t>(threads, pipeline.maxTotalThreadsPerThreadgroup);
+    encode(pipeline, args, MTLSizeMake(threads, 1, 1), MTLSizeMake(group, 1, 1), false);
+  }
 
-    // The threadgroup: one SIMD group wide along x, where a GEMM's adjacent
-    // threads read adjacent columns of B, and as tall as the pipeline allows
-    // up to 8 rows, which is 256 threads, never wider than the grid.
-    const uint64_t width = pipeline.threadExecutionWidth;
-    const uint64_t most = pipeline.maxTotalThreadsPerThreadgroup;
-    const uint64_t tx = std::min<uint64_t>(x, source == KernelSource::Gemm ? width : most);
-    const uint64_t ty = std::min<uint64_t>({y, std::max<uint64_t>(most / tx, 1), 8});
-    const MTLSize grid = MTLSizeMake(x, y, z);
-    const MTLSize group = MTLSizeMake(tx, ty, 1);
-    const std::vector<KernelArg> bound(args);
-
-    at::mps::MPSStream *stream = at::mps::getCurrentMPSStream();
-    dispatch_sync(stream->queue(), ^() {
-      @autoreleasepool
-      {
-        id<MTLComputeCommandEncoder> encoder = stream->commandEncoder();
-        [encoder setComputePipelineState:pipeline];
-        for (NSUInteger i = 0; i < bound.size(); ++i)
-        {
-          const KernelArg &a = bound[i];
-          if (a.tensor != nullptr)
-            [encoder setBuffer:buffer_of(*a.tensor) offset:offset_of(*a.tensor) atIndex:i];
-          else
-            [encoder setBytes:a.bytes length:a.size atIndex:i];
-        }
-        [encoder dispatchThreads:grid threadsPerThreadgroup:group];
-      }
-    });
+  void launch_groups(KernelSource source, const std::string &tail,
+                     std::initializer_list<KernelArg> args, uint64_t gx, uint64_t gy, uint64_t gz,
+                     uint32_t tx, uint32_t ty)
+  {
+    id<MTLComputePipelineState> pipeline = pipeline_for(source, tail);
+    // The kernel's [[max_total_threads_per_threadgroup]] makes this hold.
+    TORCH_INTERNAL_ASSERT(uint64_t{tx} * ty <= pipeline.maxTotalThreadsPerThreadgroup,
+                          "mptorch: the pipeline takes at most ",
+                          pipeline.maxTotalThreadsPerThreadgroup, " threads per threadgroup, not ",
+                          tx * ty);
+    encode(pipeline, args, MTLSizeMake(gx, gy, gz), MTLSizeMake(tx, ty, 1), true);
   }
 
   const char *metal_storage_type(at::ScalarType t, const char *op)
@@ -170,8 +185,10 @@ namespace mptorch_mps
     case at::kBFloat16:
       return "bfloat";
     default:
-      TORCH_CHECK(false, op, ": expected a float32, float16 or bfloat16 tensor on MPS, got ", t,
-                  " (MPS has no float64, so a binary64 carrier is the CPU's and CUDA's only)");
+      // Worded as AT_DISPATCH words it on the other backends, so that an
+      // integer tensor raises the same NotImplementedError everywhere. (MPS
+      // has no float64 tensor to get here with.)
+      TORCH_CHECK_NOT_IMPLEMENTED(false, "\"", op, "\" not implemented for '", t, "'");
     }
   }
 
