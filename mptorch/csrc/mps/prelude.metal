@@ -18,6 +18,13 @@
 #pragma METAL fp contract(off)
 #define MPTORCH_FAST_CAST 1
 
+// The library is compiled as MSL 3.1 (metal_runtime.mm says why), which is
+// C++14. The headers use two C++17 features, `if constexpr` and nested
+// namespace definitions, which the compiler takes in C++14 as extensions
+// with the C++17 meaning, and warns about at every use; the warnings would
+// bury a real error in a failed compile's message.
+#pragma clang diagnostic ignored "-Wc++17-extensions"
+
 #ifndef INT32_MIN
 #define INT32_MIN (-2147483647 - 1)
 #endif

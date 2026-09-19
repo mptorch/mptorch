@@ -53,11 +53,11 @@ jobs:
         pytest tests
 
   # The same on Apple silicon: Apple clang builds the CPU and MPS backends,
-  # and the suite runs on both. GitHub's macOS runners are VMs whose GPU may
-  # not run MPS (it has been reported available and then unable to allocate);
-  # tests/markers.py probes it and skips the MPS tests when it does not, and
-  # the job summary says which happened. The build itself is checked either
-  # way.
+  # and the suite runs on both. GitHub's macOS runners are VMs. macos-15's
+  # GPU does run MPS, but a VM's GPU has been reported available and then
+  # unable to allocate, so tests/markers.py probes it with an allocation and
+  # skips the MPS tests when it fails, and the job summary says which
+  # happened. The build itself is checked either way.
   build-macos:
     runs-on: macos-15
 

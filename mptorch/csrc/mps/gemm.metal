@@ -173,6 +173,29 @@ inline void gemm_tile(Acc acc, Element e, constant GemmLaunch &g, device const m
         C[e.out] = from_carrier<mpt_storage_t>(acc.finalize());
 }
 
+// gemm_tile with everything but the policy bound, for the Args' factories
+// to call with the policy they build. A struct rather than a lambda because
+// the library is MSL 3.1 (metal_runtime.mm), and Metal has lambdas only
+// from 3.2.
+struct TileRunner
+{
+    Element e;
+    constant GemmLaunch *g;
+    device const mpt_storage_t *A;
+    device const mpt_storage_t *B;
+    device mpt_storage_t *C;
+    threadgroup float *As;
+    threadgroup float *Bs;
+    uint3 group;
+    uint2 l;
+
+    template <class Acc>
+    void operator()(Acc acc) const
+    {
+        gemm_tile(acc, e, *g, A, B, C, As, Bs, group, l);
+    }
+};
+
 // Builds the element's policy from the op's Args and runs its tile. A
 // template only so that `if constexpr` discards the branch the Args type
 // has no member for.
@@ -188,17 +211,16 @@ inline void gemm(const thread Args &args, constant GemmLaunch &g, device const m
     e.bt = group.z;
     e.inside = e.i < g.M && e.j < g.N;
     e.out = ((uint64_t)e.bt * g.M + e.i) * g.N + e.j;
+    TileRunner run{e, &g, A, B, C, As, Bs, group, l};
     if constexpr (Args::mixed)
     {
         const int32_t idx = e.inside ? prec_idx[e.bt * g.idx_batch_stride + e.i * g.idx_row_stride +
                                                 e.j * g.idx_col_stride]
                                      : 0;
-        args.template with_slot<float, MPT_ROUND_MODE>(
-            idx, [&](auto acc) { gemm_tile(acc, e, g, A, B, C, As, Bs, group, l); });
+        args.template with_slot<float, MPT_ROUND_MODE>(idx, run);
     }
     else
-        args.template with_accumulator<float, MPT_ROUND_MODE>(
-            [&](auto acc) { gemm_tile(acc, e, g, A, B, C, As, Bs, group, l); });
+        args.template with_accumulator<float, MPT_ROUND_MODE>(run);
 }
 
 } // namespace mptorch_mps
