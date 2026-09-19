@@ -45,10 +45,27 @@ namespace mptorch_mps
       {
         id<MTLDevice> device = at::mps::MPSDevice::getInstance()->device();
         MTLCompileOptions *options = [[MTLCompileOptions new] autorelease];
+        // The language version is pinned, because Metal's default is not the
+        // OS's newest but the newest the SDK the *process* was linked against
+        // knew: MSL 4.0 under a Python built with the macOS 26 SDK, and a
+        // version from before bfloat under python.org's, which is what
+        // GitHub's setup-python installs (every kernel then failed to
+        // compile). 3.1 is bfloat's first version and is on every macOS
+        // torch's MPS backend runs on (14.4 and later). It is C++14 without
+        // lambdas: the headers' `if constexpr` and nested namespaces are the
+        // extensions prelude.metal says they are, and gemm.metal hands the
+        // Args' factories a function object (TileRunner). 3.1 and 4.0 time
+        // the same.
+        if (@available(macOS 14.0, *))
+          options.languageVersion = MTLLanguageVersion3_1;
+        else
+        {
+          error = "the MPS backend needs macOS 14 or later (Metal 3.1)";
+          return nil;
+        }
         // Safe math, as prelude.metal's pragmas also ask: the fast casts'
         // Veltkamp split is exact only if nothing reassociates or contracts
-        // it (bit_helper.h, MPTORCH_FAST_CAST). The language version is left
-        // at the newest the OS has; the headers need C++17's `if constexpr`.
+        // it (bit_helper.h, MPTORCH_FAST_CAST).
         if (@available(macOS 15.0, *))
         {
           options.mathMode = MTLMathModeSafe;
