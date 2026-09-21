@@ -10,6 +10,12 @@
 // backends' checks, error messages and observable ordering from drifting
 // apart.
 //
+// KAHAN, BLOCK and TREE (common/gemm_accumulate.h) are four more ops, the
+// *_accumulated twins of the single-format ones. They go through the same
+// driver, on an AccumulateArgs wrapped around their twin's Args
+// (run_custom_matmul_accumulated); the eight NAIVE ops go through it on their
+// own Args, as they always have.
+//
 // A Backend supplies three things. `LaunchContext` is whatever its kernel
 // needs beyond the shape: an RNG state, a stream. `make_context(use_rng,
 // draws)` draws that state on the host, where `draws` is the most Philox
@@ -25,6 +31,7 @@
 // which GemmShape's raw pointers cannot carry.
 
 #include "dispatch.h"
+#include "gemm_accumulate.h"
 #include "gemm_args.h"
 #include "gemm_policy.h"
 #include <ATen/core/Tensor.h>
@@ -45,7 +52,9 @@ namespace mptorch::gemm
   // dispatch_round_mode never sees a value it would have to guess at: an
   // integer naming no mode would otherwise fall through its `default:` arm
   // and round to nearest-even, invisibly from Python. The enum members
-  // themselves are enumerated in gemm_dtype.h's is_round_mode.
+  // themselves are enumerated in gemm_dtype.h's is_round_mode and
+  // is_accumulate_algorithm. Whether the op being called *implements* the
+  // algorithm is check_accumulate_algorithm's question, below.
   inline void check_matmul_inputs(const Tensor &a, const Tensor &b, const char *op_name,
                                   int64_t round_mode, int64_t accumulate_algorithm)
   {
@@ -54,8 +63,82 @@ namespace mptorch::gemm
                 "D (1D promotion and rank>3 broadcasting live in mptorch.quant.qmatmul)");
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
                 " is not a RoundMode");
+    TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
+                accumulate_algorithm, " is not an AccumulateAlgorithm");
+  }
+
+  // What an Args type makes of the call's accumulate_algorithm. A plain Args
+  // is a NAIVE reduction and nothing else. The other algorithms are the four
+  // *_accumulated ops', which hand the driver an AccumulateArgs (below); the
+  // palette ops have none, since theirs would need a palette of outer
+  // formats, a design of its own.
+  inline void check_naive_only(const char *op_name, int64_t accumulate_algorithm)
+  {
     TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) == AccumulateAlgorithm::NAIVE,
-                op_name, ": only AccumulateAlgorithm.NAIVE is supported in this build");
+                op_name, ": this op implements AccumulateAlgorithm.NAIVE only; KAHAN, BLOCK and "
+                         "TREE are the single-format ops' *_accumulated twins (the palette ops "
+                         "have none)");
+  }
+
+  template <class Args>
+  void check_accumulate_algorithm(const Args &, const char *op_name, int64_t accumulate_algorithm)
+  {
+    check_naive_only(op_name, accumulate_algorithm);
+  }
+
+  // An AccumulateArgs carries its algorithm, which is the schema's: this is
+  // the rule for block_size, and the refusal of a tree over a fused mac,
+  // which has no product term to build one of.
+  template <class Base>
+  void check_accumulate_algorithm(const AccumulateArgs<Base> &args, const char *op_name,
+                                  int64_t /*accumulate_algorithm*/)
+  {
+    const int64_t bs = args.block_size;
+    switch (args.alg)
+    {
+    case AccumulateAlgorithm::KAHAN:
+      TORCH_CHECK(bs == 0 && !args.outer_quant, op_name,
+                  ": AccumulateAlgorithm.KAHAN takes no block_size and no outer format");
+      break;
+    case AccumulateAlgorithm::BLOCK:
+      TORCH_CHECK(bs >= 1 && bs <= (int64_t(1) << 30) && (16 % bs == 0 || bs % 16 == 0), op_name,
+                  ": AccumulateAlgorithm.BLOCK needs a block_size that divides 16 or is a "
+                  "multiple of 16, got ", bs);
+      break;
+    case AccumulateAlgorithm::TREE:
+      TORCH_CHECK(AccumulateArgs<Base>::has_product, op_name,
+                  ": AccumulateAlgorithm.TREE sums products pairwise, and a fused "
+                  "multiply-add has no product term; use the split op");
+      TORCH_CHECK(bs >= 2 && bs <= 256 && (bs & (bs - 1)) == 0, op_name,
+                  ": AccumulateAlgorithm.TREE needs a block_size that is a power of two in "
+                  "[2, 256], got ", bs);
+      break;
+    default:
+      TORCH_CHECK(false, op_name, ": an AccumulateArgs is never a NAIVE reduction");
+    }
+  }
+
+  // The most Philox values one K-step of this Args may draw under
+  // RoundMode::SR: a constant of the type for a NAIVE reduction, a function
+  // of the algorithm for the others.
+  template <class Args>
+  uint64_t draws_per_k_step_of(const Args &) { return Args::draws_per_k_step; }
+
+  template <class Base>
+  uint64_t draws_per_k_step_of(const AccumulateArgs<Base> &args) { return args.draws_per_k_step(); }
+
+  // The carriers an Args has kernels in. KAHAN, BLOCK and TREE are
+  // instantiated in binary32 only so far.
+  template <class Args>
+  void check_carrier(const Args &, const char *, mptorch::GemmDtype) {}
+
+  template <class Base>
+  void check_carrier(const AccumulateArgs<Base> &, const char *op_name, mptorch::GemmDtype dt)
+  {
+    TORCH_CHECK(dt != mptorch::GemmDtype::Double, op_name,
+                ": AccumulateAlgorithm KAHAN, BLOCK and TREE have binary32 kernels only so far, "
+                "and float64 operands round in binary64 (dev/continuation_plan.md, phase G); "
+                "use float32 operands, or AccumulateAlgorithm.NAIVE");
   }
 
   // Derives (M, K, N), the batch size, the two operand batch strides and
@@ -364,6 +447,7 @@ namespace mptorch::gemm
   {
     static_assert(!Args::mixed, "use run_custom_matmul_mixed for a palette op");
     check_matmul_inputs(a, b, op_name, round_mode, accumulate_algorithm);
+    check_accumulate_algorithm(args, op_name, accumulate_algorithm);
 
     int64_t M, K, N, batch, stride_a, stride_b;
     bool batched;
@@ -389,8 +473,9 @@ namespace mptorch::gemm
     s.use_rng = (s.rm == RoundMode::SR);
 
     s.dt = mptorch::gemm_dtype_of(a_c, b_c, op_name);
+    check_carrier(args, op_name, s.dt);
     typename Backend::LaunchContext ctx = Backend::make_context(
-        s.use_rng, Args::draws_per_k_step * words_per_draw(s.dt) * static_cast<uint64_t>(K));
+        s.use_rng, draws_per_k_step_of(args) * words_per_draw(s.dt) * static_cast<uint64_t>(K));
 
     s.a = a_c.data_ptr();
     s.b = b_c.data_ptr();
@@ -417,6 +502,7 @@ namespace mptorch::gemm
     using Args = decltype(make_args());
     static_assert(Args::mixed, "use run_custom_matmul for a single-format op");
     check_matmul_inputs(a, b, op_name, round_mode, accumulate_algorithm);
+    check_naive_only(op_name, accumulate_algorithm);
     precheck();
 
     int64_t M, K, N, batch, stride_a, stride_b;
@@ -460,6 +546,46 @@ namespace mptorch::gemm
     bind_tensors(ctx, a_c, b_c, c, &pidx);
     Backend::launch(s, args, ctx);
     return c;
+  }
+
+  // What an *_accumulated schema says about the accumulation besides the
+  // algorithm: the block size, and the outer format BLOCK and TREE fold their
+  // blocks with.
+  template <class Widths, class Common>
+  struct AccumulateTail
+  {
+    int64_t block_size = 0;
+    bool outer_quant = false;
+    Widths outer{};
+    Common outer_c{};
+  };
+
+  // Runs an *_accumulated op: its twin's Args wrapped, with the accumulation,
+  // in an AccumulateArgs, which the backend launches in the instantiation its
+  // algorithm selects. NAIVE is refused rather than forwarded: it is the twin
+  // op's, whose schema, entry point, Args and launch are untouched by these
+  // ops' existence, and one path per op is what keeps it so.
+  template <class Backend, class Base, class Widths, class Common>
+  Tensor run_custom_matmul_accumulated(const char *op_name, const Base &base,
+                                       const AccumulateTail<Widths, Common> &tail, Tensor a,
+                                       Tensor b, bool trans_a, bool trans_b,
+                                       int64_t accumulate_algorithm, int64_t round_mode)
+  {
+    TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
+                accumulate_algorithm, " is not an AccumulateAlgorithm");
+    TORCH_CHECK(static_cast<AccumulateAlgorithm>(accumulate_algorithm) != AccumulateAlgorithm::NAIVE,
+                op_name, ": AccumulateAlgorithm.NAIVE is the op without the _accumulated suffix");
+    TORCH_CHECK(tail.block_size >= 0 && tail.block_size <= (int64_t(1) << 30), op_name,
+                ": block_size ", tail.block_size, " is out of range");
+    AccumulateArgs<Base> args;
+    args.base = base;
+    args.alg = static_cast<AccumulateAlgorithm>(accumulate_algorithm);
+    args.block_size = static_cast<int>(tail.block_size);
+    args.outer_quant = tail.outer_quant;
+    args.outer = tail.outer;
+    args.outer_c = tail.outer_c;
+    return run_custom_matmul<Backend>(op_name, args, a, b, trans_a, trans_b,
+                                      accumulate_algorithm, round_mode);
   }
 
 
@@ -643,6 +769,37 @@ namespace mptorch::gemm
       args.fma[i] = superfp_widths(fma_man_bits[i], fma_exp_bits[i], fma_normal_binades[i],
                                    fma_bias[i]);
     return args;
+  }
+
+  // The accumulation arguments of a binaryK *_accumulated schema, packed.
+  inline AccumulateTail<BinaryKWidths, BinaryKCommon> pack_binaryK_outer(
+      int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias,
+      bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode,
+      int64_t outer_prng_bits)
+  {
+    AccumulateTail<BinaryKWidths, BinaryKCommon> tail;
+    tail.block_size = block_size;
+    tail.outer_quant = outer_quant;
+    tail.outer = binaryK_widths(outer_K, outer_P, outer_bias, outer_is_signed);
+    tail.outer_c = BinaryKCommon{outer_is_signed, static_cast<SaturationMode>(outer_saturation_mode),
+                                 static_cast<SubnormalsMode>(outer_subnormals_mode),
+                                 static_cast<int>(outer_prng_bits)};
+    return tail;
+  }
+
+  // And a superfp schema's.
+  inline AccumulateTail<SuperfpWidths, SuperfpCommon> pack_superfp_outer(
+      int64_t block_size, bool outer_quant, int64_t outer_man_bits, int64_t outer_exp_bits,
+      int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed,
+      int64_t outer_saturation_mode, int64_t outer_prng_bits)
+  {
+    AccumulateTail<SuperfpWidths, SuperfpCommon> tail;
+    tail.block_size = block_size;
+    tail.outer_quant = outer_quant;
+    tail.outer = superfp_widths(outer_man_bits, outer_exp_bits, outer_normal_binades, outer_bias);
+    tail.outer_c = SuperfpCommon{outer_is_signed, static_cast<SaturationMode>(outer_saturation_mode),
+                                 static_cast<int>(outer_prng_bits)};
+    return tail;
   }
 
 } // namespace mptorch::gemm

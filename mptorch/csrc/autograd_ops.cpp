@@ -50,7 +50,7 @@ namespace
   }
 
   // The boxed Autograd kernel. Boxed (arguments on the stack, one kernel for
-  // every schema) so the same function serves all thirteen ops. It raises when
+  // every schema) so the same function serves all seventeen ops. It raises when
   // a gradient would be expected, with a message specific to what the op is
   // (a GEMM, the narrowing store, or an elementwise quantizer), and
   // otherwise redispatches to the backend kernel below the autograd keys,
@@ -103,6 +103,10 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_superfp_mixed", kernel());
   m.impl("custom_matmul_binaryK_fma_mixed", kernel());
   m.impl("custom_matmul_superfp_fma_mixed", kernel());
+  m.impl("custom_matmul_binaryK_accumulated", kernel());
+  m.impl("custom_matmul_superfp_accumulated", kernel());
+  m.impl("custom_matmul_binaryK_fma_accumulated", kernel());
+  m.impl("custom_matmul_superfp_fma_accumulated", kernel());
 }
 
 // The two in-place quantizers also need the ADInplaceOrView key, which is

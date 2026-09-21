@@ -12,6 +12,7 @@
 // also keeps at::Tensor out of the .cu files, which is what makes them
 // cheap to compile through nvcc.
 
+#include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "utils.h" // draw_cpu_seed
 #include <cstdint>
@@ -59,6 +60,42 @@ namespace mptorch::gemm_cpu
         return launch_as<double>(s, args, ctx);
 #endif
       launch_as<float>(s, args, ctx);
+    }
+
+    // KAHAN, BLOCK and TREE (common/gemm_accumulate.h). The algorithm is a
+    // template parameter of the launch, as the round mode is of the policies,
+    // and for the same reason: each is its own accumulate step, and a switch
+    // between them inside the K-loop would keep all of them live in it. It
+    // is resolved here, on the host, once per call. Defined in the kernel
+    // header next to launch_as and instantiated, in binary32 only so far
+    // (the driver has refused float64 operands by now), by the six
+    // custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cpp
+    // files, one per family and algorithm, so that the eight NAIVE files
+    // compile what they always compiled.
+    template <class T, AccumulateAlgorithm ALG, class Base>
+    static void launch_accumulated_as(const mptorch::gemm::GemmShape &s,
+                                      const mptorch::gemm::AccumulateArgs<Base> &args,
+                                      const LaunchContext &ctx);
+
+    template <class Base>
+    static void launch(const mptorch::gemm::GemmShape &s,
+                       const mptorch::gemm::AccumulateArgs<Base> &args, const LaunchContext &ctx)
+    {
+      switch (args.alg)
+      {
+      case AccumulateAlgorithm::KAHAN:
+        return launch_accumulated_as<float, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+      case AccumulateAlgorithm::BLOCK:
+        return launch_accumulated_as<float, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+      case AccumulateAlgorithm::TREE:
+        // A fused mac has no tree (no product term): check_accumulate_algorithm
+        // has refused it, and no such kernel is instantiated to call.
+        if constexpr (mptorch::gemm::AccumulateArgs<Base>::has_product)
+          return launch_accumulated_as<float, AccumulateAlgorithm::TREE>(s, args, ctx);
+        return;
+      case AccumulateAlgorithm::NAIVE:
+        return; // refused by run_custom_matmul_accumulated: NAIVE is the twin op's
+      }
     }
   };
 

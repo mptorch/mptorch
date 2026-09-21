@@ -20,7 +20,16 @@ copy: `q @ k.mT` against `q @ k.mT.contiguous()`, which is the same values
 either way (tests/test_qmatmul_batched.py) and should now be the same time as
 well, minus the copy.
 
-Run: python3 dev/benchmarks/benchmark_qmatmul.py [--device cuda]
+The second table is R-2's: the accumulate algorithms past NAIVE (KAHAN, BLOCK,
+TREE; `csrc/common/gemm_accumulate.h`) against NAIVE on the same formats, at
+one square GEMM and on the attention shapes, for a split and a fused mac and
+under round-to-nearest and stochastic rounding. What an algorithm costs is its
+roundings per step, so the ratios are the thing to read: KAHAN's step is five
+roundings to NAIVE's two (four to one fused), BLOCK adds a fold per block, and
+TREE replaces the running sum's rounding by a little under one merge per
+product.
+
+Run: python3 dev/benchmarks/benchmark_qmatmul.py [--device cuda] [--n 1024]
 """
 
 import argparse
@@ -29,8 +38,8 @@ from typing import Any
 
 import torch
 
-from mptorch import BinaryK
-from mptorch.quant import SplitMac, binaryK_matmul, qmatmul
+from mptorch import AccumulateAlgorithm, BinaryK, RoundMode, SuperFP
+from mptorch.quant import FusedMac, SplitMac, binaryK_matmul, qmatmul
 
 BK: dict[str, Any] = dict(mul_K=8, mul_P=4, acc_K=8, acc_P=4)
 MAC = SplitMac(BinaryK(8, 4), BinaryK(8, 4))
@@ -81,9 +90,68 @@ def loop_2d(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.stack(out).reshape(*a.shape[:-1], out[0].shape[-1])
 
 
+def accumulate_macs(family: str, rounding: RoundMode) -> dict[str, SplitMac | FusedMac]:
+    """One mac per (kind, algorithm) column of the accumulate-algorithm table.
+
+    Narrow products into a wider sum, with that wider format as the outer one
+    too, so every rounding an algorithm has is a real cast.
+    """
+    prng = 8 if rounding is RoundMode.SR else 0
+    if family == "binaryK":
+        mul, acc = BinaryK(8, 4, prng_bits=prng), BinaryK(16, 11, prng_bits=prng)
+    else:
+        mul = SuperFP(3, 4, 8, 7, prng_bits=prng)
+        acc = SuperFP(8, 6, 32, 31, prng_bits=prng)
+    alg = AccumulateAlgorithm
+
+    def split(**kw) -> SplitMac:
+        return SplitMac(mul, acc, rounding=rounding, **kw)
+
+    def fused(**kw) -> FusedMac:
+        return FusedMac(acc, rounding=rounding, **kw)
+
+    return {
+        "naive": split(),
+        "kahan": split(accumulate_algorithm=alg.KAHAN),
+        "block 8": split(accumulate_algorithm=alg.BLOCK, block_size=8, outer=acc),
+        "block 64": split(accumulate_algorithm=alg.BLOCK, block_size=64, outer=acc),
+        "tree 16": split(accumulate_algorithm=alg.TREE, block_size=16, outer=acc),
+        "tree 256": split(accumulate_algorithm=alg.TREE, block_size=256, outer=acc),
+        "fma naive": fused(),
+        "fma kahan": fused(accumulate_algorithm=alg.KAHAN),
+        "fma block 8": fused(accumulate_algorithm=alg.BLOCK, block_size=8, outer=acc),
+    }
+
+
+def accumulate_table(dev: str, n: int) -> None:
+    """Every accumulate algorithm against NAIVE: ms per call, then the ratio."""
+    shapes: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = [(f"square {n}^3", (n, n), (n, n))]
+    shapes += [s for s in (SHAPES if dev == "cuda" else SHAPES_CPU) if s[0].startswith("attention")]
+    names = list(accumulate_macs("binaryK", RoundMode.RNE))
+    print("\naccumulate algorithms, ms/call (min of 5) and the ratio to their NAIVE\n")
+    for label, sa, sb in shapes:
+        a = torch.randn(*sa, device=dev)
+        b = torch.randn(*sb, device=dev)
+        print(label)
+        print(f"  {'':<14}" + "".join(f"{name:>13}" for name in names))
+        for family in ("binaryK", "superfp"):
+            for rounding in (RoundMode.RNE, RoundMode.SR):
+                macs = accumulate_macs(family, rounding)
+                ms = {
+                    k: timed(lambda m=m, x=a, y=b: qmatmul(x, y, m), device=dev)
+                    for k, m in macs.items()
+                }
+                row = f"{family} {rounding.name}"
+                print(f"  {row:<14}" + "".join(f"{ms[name]:>13.2f}" for name in names))
+                base = {k: "fma naive" if k.startswith("fma") else "naive" for k in names}
+                ratios = [ms[k] / ms[base[k]] for k in names]
+                print(f"  {'':<14}" + "".join(f"{r:>12.2f}x" for r in ratios))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
+    ap.add_argument("--n", type=int, default=None, help="side of the square GEMM")
     args = ap.parse_args()
     dev = args.device
 
@@ -120,6 +188,8 @@ def main() -> None:
         f"{timed(lambda: qmatmul(a.detach(), b.detach(), MAC), device=dev):>10.2f}"
         f"{timed(fwd_bwd, device=dev):>12.2f}"
     )
+
+    accumulate_table(dev, args.n or (1024 if dev == "cuda" else 256))
 
 
 if __name__ == "__main__":

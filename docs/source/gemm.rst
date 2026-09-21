@@ -100,6 +100,78 @@ its keep when the increments are systematically below half a spacing, which
 is the accumulator case shown in :doc:`concepts` and the weight-update case
 in the :doc:`tutorial`.
 
+Summing differently: KAHAN, BLOCK and TREE
+------------------------------------------
+
+What the table above charges a narrow accumulator for is the *order* of the
+sum as much as its width: one running sum, rounded :math:`K` times, each time
+against a total that has grown far past the term being added.
+``accumulate_algorithm`` changes the order and keeps the formats. With
+:math:`p_k = Q_{\text{mul}}(a_k b_k)`, :math:`Q_{\text{acc}}` the accumulate
+rounding and :math:`Q_{\text{out}}` a third one, the mac's ``outer`` format
+(each the identity when its format is ``None``):
+
+:attr:`~mptorch.AccumulateAlgorithm.NAIVE`
+   :math:`s \leftarrow Q_{\text{acc}}(s + p_k)`, the recurrence above.
+:attr:`~mptorch.AccumulateAlgorithm.KAHAN`
+   Kahan's compensated sum, with the compensation :math:`c` held in the
+   accumulate format like the sum:
+   :math:`y = Q_{\text{acc}}(p_k - c)`, :math:`t = Q_{\text{acc}}(s + y)`,
+   :math:`c \leftarrow Q_{\text{acc}}(Q_{\text{acc}}(t - s) - y)`,
+   :math:`s \leftarrow t`. Four accumulate roundings a step where ``NAIVE``
+   has one.
+:attr:`~mptorch.AccumulateAlgorithm.BLOCK`
+   Two levels. The ``NAIVE`` recurrence runs on a block's sum; after every
+   ``block_size`` products, and after the last, the block is folded into a
+   total, :math:`T \leftarrow Q_{\text{out}}(T + s)`, and restarted from
+   zero. A block's sum stays small, so a narrow ``acc`` loses little in it,
+   and ``outer`` -- wider, or ``None`` for the carrier -- is rounded once per
+   block rather than once per product. ``block_size`` divides 16 or is a
+   multiple of it.
+:attr:`~mptorch.AccumulateAlgorithm.TREE`
+   The products of a block of ``block_size`` :math:`= 2^L` (up to 256, 16 by
+   default) are summed pairwise,
+   :math:`Q_{\text{acc}}(Q_{\text{acc}}(p_0 + p_1) + Q_{\text{acc}}(p_2 + p_3))`
+   and so on up, so that every addition is of two terms of like size, and the
+   block's root is folded into the total as in ``BLOCK``. ``SplitMac`` only:
+   a fused multiply-add has no product term to pair.
+
+A fused mac's step, :math:`Q_{\text{fma}}(s + a_k b_k)`, stands in for the split
+one in ``KAHAN`` and ``BLOCK``. A last partial block is folded like a whole
+one, nothing is padded, and the CPU and CUDA kernels return the same bits in
+every deterministic mode; the result holds the values of the last rounding
+applied, which is ``outer``'s when there is one.
+:class:`~mptorch.AccumulateAlgorithm` states each algorithm to the step,
+``RoundMode.SR``'s draws included.
+
+.. literalinclude:: ../snippets/gemm_kahan_block_tree.py
+   :language: python
+   :caption: docs/snippets/gemm_kahan_block_tree.py
+
+.. literalinclude:: ../snippets/gemm_kahan_block_tree.out
+   :language: text
+   :caption: output
+
+In float32 the three are what they are in any numerical library: ``KAHAN``
+recovers about a digit and a half over a 4096-term sum, and blocking about
+half of that. With formats, the second table is the one to read. An
+accumulator of eight bits of precision costs ``NAIVE`` three times the error
+the E4M3 products already carry; every other row is back at the products'
+own error, which no summation can go below. The third table is the narrowest
+case, sums in E4M3 itself, where ``NAIVE`` is useless and the other three are
+within a factor of two of the products' error -- while an ``outer`` format
+*narrower* than the carrier costs a little, as it should: it is one more
+rounding, and what it buys is that the total is a value of a format you
+chose.
+
+The price is kernel time, in proportion to the roundings per step: on an RTX
+4060 laptop GPU a 1024\ :sup:`3` split-mac GEMM takes 1.2 times ``NAIVE``'s
+time under ``BLOCK``, 1.3 under ``TREE`` and 2.2 under ``KAHAN``
+(``dev/gemm_roadmap.md``, R-2). The three are implemented for the
+single-format ops, on the CPU and CUDA: a palette, an ``"mps"`` tensor,
+float64 operands and ``carrier=torch.float64`` raise, the last two because
+the binary64 kernels are not built yet (next section).
+
 float64 and the carrier
 -----------------------
 
@@ -137,6 +209,11 @@ measures it. The carrier is never narrower than the operands:
 ``carrier=torch.float32`` on float64 operands raises, and a float32 and a
 float64 operand cannot be mixed in one call with either.
 
+One thing binary64 does not have yet is ``KAHAN``, ``BLOCK`` and ``TREE``:
+their kernels are binary32's only, so a mac that names one of them refuses
+float64 operands and ``carrier=torch.float64``, with an error that says so,
+rather than quietly summing in the order it was not asked for.
+
 .. literalinclude:: ../snippets/gemm_float64.py
    :language: python
    :caption: docs/snippets/gemm_float64.py
@@ -158,22 +235,25 @@ Saying which arithmetic
 Three value types name an arithmetic. All are frozen: build them once and
 hold them, and the library memoizes their resolution.
 
-:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None)``
+:class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None)``
    ``mul`` and ``acc`` are each a format, a sequence of formats (a palette,
    see below), or -- for ``acc`` -- ``None``. Both must belong to the same
    family (BinaryK with BinaryK, SuperFP with SuperFP). ``carrier`` is
    ``None`` (the operands' own), ``torch.float32`` (binary32) or
    ``torch.float64`` (binary64).
-:class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None)``
+:class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None)``
    ``fma`` is a format, a palette, or ``None``.
 :class:`~mptorch.quant.Palette` ``(formats)``
    Up to eight formats of one family, selected per output element. A plain
    list works anywhere a ``Palette`` does; the class exists to validate.
 
 ``accumulate_algorithm`` selects how partial products are folded into the
-sum. Only :attr:`~mptorch.AccumulateAlgorithm.NAIVE` -- the sequential
-recurrence above -- is implemented; Kahan, blocked and tree summation are
-declared for the future.
+sum: :attr:`~mptorch.AccumulateAlgorithm.NAIVE`, the sequential recurrence,
+or ``KAHAN``, ``BLOCK`` or ``TREE`` (`Summing differently: KAHAN, BLOCK and
+TREE`_). ``block_size`` is ``BLOCK``'s and ``TREE``'s, and ``outer`` is the
+one format, of the mac's family, that they round the total to; ``None``
+leaves it in the carrier's precision. A mac that names an algorithm other
+than ``NAIVE`` holds one format per slot, not a palette.
 
 qmatmul, qmm and qbmm
 ---------------------
@@ -352,7 +432,12 @@ operand without copying it; ``*_prng_bits`` set the stochastic bits per
 format; ``carrier`` chooses the arithmetic, as on a ``SplitMac``; the
 ``_mixed`` variants take sequences for the width arguments, a scalar for
 anything shared by the palette, and ``prec_idx`` as the third positional
-argument. Callers holding one format across many calls should use
+argument. The four single-format functions also take
+``accumulate_algorithm``'s ``block_size`` and the outer format, spelled
+``outer_*`` the way the family spells a format; naming an algorithm other
+than ``NAIVE`` routes the call to the kernel's ``*_accumulated`` twin, a
+separate operator, so that a ``NAIVE`` call is exactly the call it was before
+the other three existed. Callers holding one format across many calls should use
 the factories or ``qmatmul`` instead: these functions re-derive the format's
 defaults on every call, which the resolved objects avoid.
 

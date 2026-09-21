@@ -25,4 +25,8 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("custom_matmul_superfp_mixed", TORCH_FN(superfp_matmul_mixed_cpu));
   m.impl("custom_matmul_binaryK_fma_mixed", TORCH_FN(binaryK_matmul_fma_mixed_cpu));
   m.impl("custom_matmul_superfp_fma_mixed", TORCH_FN(superfp_matmul_fma_mixed_cpu));
+  m.impl("custom_matmul_binaryK_accumulated", TORCH_FN(binaryK_matmul_accumulated_cpu));
+  m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_cpu));
+  m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_cpu));
+  m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_cpu));
 }

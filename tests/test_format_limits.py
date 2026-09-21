@@ -50,7 +50,14 @@ from typing import Any
 import pytest
 import torch
 
-from mptorch import BinaryK, RoundMode, SaturationMode, SubnormalsMode, SuperFP
+from mptorch import (
+    AccumulateAlgorithm,
+    BinaryK,
+    RoundMode,
+    SaturationMode,
+    SubnormalsMode,
+    SuperFP,
+)
 from mptorch.number import FormatRangeWarning, _binaryK_findings, _superfp_findings
 from mptorch.quant import (
     FusedMac,
@@ -940,6 +947,46 @@ def test_only_the_last_rounding_of_a_gemm_is_stored():
     # nothing to check against the dtype
     _silent(lambda: binaryK_matmul(a, b, mul_K=16, mul_P=12, mul_bias=8, accumulate_quant=False))
     _silent(lambda: binaryK_matmul_fma(a, b, fma_K=16, fma_P=12, fma_bias=8, fma_quant=False))
+
+
+def test_an_outer_format_is_the_last_rounding():
+    """Under BLOCK and TREE the total is what the result holds.
+
+    The outer format rounds it, so the outer format is the one held against
+    the dtype, in place of the accumulate format; with no outer format the
+    total is a carrier sum and nothing is. KAHAN's result is its sum, the
+    accumulate format's, as under NAIVE.
+    """
+    a, b = torch.ones(2, 3, dtype=F16), torch.ones(3, 2, dtype=F16)
+    narrow: dict[str, Any] = dict(mul_K=8, mul_P=4)
+    # a 12-bit format, one bit past float16's 11
+    wide_acc: dict[str, Any] = dict(acc_K=16, acc_P=12, acc_bias=8)
+    wide_outer: dict[str, Any] = dict(outer_K=16, outer_P=12, outer_bias=8)
+    for algorithm in (AccumulateAlgorithm.BLOCK, AccumulateAlgorithm.TREE):
+        blocked: dict[str, Any] = dict(accumulate_algorithm=algorithm, block_size=4)
+        with pytest.raises(ValueError, match="float16 result holds 11"):
+            binaryK_matmul(a, b, **narrow, **wide_outer, **blocked)
+        # the accumulate format is an intermediate now, whatever its width
+        _silent(lambda kw=blocked: binaryK_matmul(a, b, **narrow, **wide_acc, **kw))
+        _silent(
+            lambda kw=blocked: binaryK_matmul(
+                a, b, **narrow, **wide_acc, outer_K=8, outer_P=4, **kw
+            )
+        )
+    with pytest.raises(ValueError, match="float16 result holds 11"):
+        binaryK_matmul(a, b, **narrow, **wide_acc, accumulate_algorithm=AccumulateAlgorithm.KAHAN)
+    # the carrier's findings cover the outer format like any other it rounds with
+    with pytest.raises(ValueError, match="binary32"):
+        binaryK_matmul(
+            a.float(),
+            b.float(),
+            **narrow,
+            outer_K=40,
+            outer_P=30,
+            outer_bias=512,
+            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+            block_size=4,
+        )
 
 
 def test_every_palette_entry_is_held_against_the_dtype():

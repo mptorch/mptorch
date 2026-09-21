@@ -30,18 +30,29 @@ kinds of value, and the two backends are held to the same words.
 """
 
 import itertools
+from typing import Any
 
 import pytest
 import torch
 
-from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
+from mptorch.number import (
+    AccumulateAlgorithm,
+    BinaryK,
+    RoundMode,
+    SaturationMode,
+    SubnormalsMode,
+    SuperFP,
+)
 from mptorch.quant import (
+    FusedMac,
+    SplitMac,
     binaryK_matmul,
     binaryK_matmul_fma,
     binaryK_matmul_fma_mixed,
     binaryK_matmul_mixed,
     binaryK_quantize,
     binaryK_quantize_,
+    qmm,
     superfp_matmul,
     superfp_matmul_fma,
     superfp_matmul_fma_mixed,
@@ -49,7 +60,7 @@ from mptorch.quant import (
     superfp_quantize,
     superfp_quantize_,
 )
-from tests.markers import available_devices, requires_cuda
+from tests.markers import available_devices, float64_devices, requires_cuda
 
 # (K, P, bias) and (man_bits, exp_bits, normal_binades, bias): formats on both
 # sides of the gates that admit the float-arithmetic fast paths of
@@ -433,4 +444,107 @@ def test_gemm_backends_agree_on_zero(op, dtype):
         gpu = _gemm(op, *_operands(op, K, "cuda", dtype), mode, subnormals_mode).cpu()
         if not torch.equal(cpu.view(words), gpu.view(words)):
             failures.append(f"{mode.name} {subnormals_mode.name} K={K}")
+    assert not failures, "\n".join(failures)
+
+
+# --- the accumulate algorithms past NAIVE ------------------------------------------
+#
+# KAHAN's `t - s` and its compensation, BLOCK's and TREE's fold into an
+# unrounded total: carrier arithmetic with, in some configurations, no cast
+# after it, which is where T2 found the NAIVE GEMM's leak. The argument that
+# none of them can return -0.0 (every sum starts from +0.0, no cast returns
+# -0.0, and x + y is -0.0 only when both are) is in
+# csrc/common/gemm_accumulate.h; this is the check.
+
+ALGORITHMS = [
+    (AccumulateAlgorithm.KAHAN, None),
+    (AccumulateAlgorithm.BLOCK, 2),
+    (AccumulateAlgorithm.BLOCK, 16),
+    (AccumulateAlgorithm.TREE, 2),
+    (AccumulateAlgorithm.TREE, 32),
+]
+MAC_KINDS = ["split", "split exact sum", "fused", "fused unrounded"]
+
+
+def _accumulated_mac(family: str, kind: str, algorithm, block_size, mode: RoundMode, outer: bool):
+    """`_gemm`'s formats as a mac under `algorithm`: a multiply format that
+    holds the products and an accumulate format they cancel below."""
+    prng = 4 if mode is RoundMode.SR else 0
+    if family == "binaryK":
+        mul, acc = BinaryK(16, 13, prng_bits=prng), BinaryK(8, 4, prng_bits=prng)
+    else:
+        mul = SuperFP(12, 8, 254, 127, prng_bits=prng)
+        acc = SuperFP(3, 4, 1, 7, prng_bits=prng)
+    extra: dict[str, Any] = dict(
+        rounding=mode,
+        accumulate_algorithm=algorithm,
+        block_size=block_size,
+        outer=acc if outer and algorithm is not AccumulateAlgorithm.KAHAN else None,
+    )
+    if kind == "split":
+        return SplitMac(mul, acc, **extra)
+    if kind == "split exact sum":
+        return SplitMac(mul, None, **extra)
+    if kind == "fused":
+        return FusedMac(acc, **extra)
+    return FusedMac(None, **extra)
+
+
+def _zero_operands(family: str, K: int, device):
+    """`_operands`' cancelling dot products, then all-zero ones, then ones
+    whose every product is -0.0 (a negative times +0.0)."""
+    op = f"{family} split"
+    yield "cancelling", _operands(op, K, device)
+    yield "all zero", (torch.zeros(M, K, device=device), torch.zeros(K, N, device=device))
+    yield (
+        "negative zero products",
+        (
+            torch.full((M, K), -1.0, device=device),
+            torch.zeros(K, N, device=device),
+        ),
+    )
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("family", ["binaryK", "superfp"])
+@pytest.mark.parametrize("kind", MAC_KINDS)
+@pytest.mark.parametrize("algorithm,block_size", ALGORITHMS, ids=lambda v: getattr(v, "name", v))
+def test_accumulate_algorithms(device, family, kind, algorithm, block_size):
+    """No accumulate algorithm returns -0.0: in every rounding mode, with and
+    without an outer format, on cancelling, all-zero and negative-zero dot
+    products, at K ragged against and aligned with the 16-step slab. The
+    all-zero and negative-zero results are zeros, so their sign is all there
+    is to check."""
+    if algorithm is AccumulateAlgorithm.TREE and kind.startswith("fused"):
+        pytest.skip("a fused mac has no tree")
+    failures = []
+    for mode, K, outer in itertools.product(RoundMode, K_VALUES, [False, True]):
+        mac = _accumulated_mac(family, kind, algorithm, block_size, mode, outer)
+        for name, (a, b) in _zero_operands(family, K, device):
+            out = qmm(a, b, mac).cpu()
+            if name != "cancelling":
+                assert (out == 0).all(), (name, mode.name, K)
+            if _negative_zeros(out).any():
+                failures.append(f"{name} {mode.name} K={K} outer={outer}")
+    assert not failures, "\n".join(failures)
+
+
+@requires_cuda
+@pytest.mark.parametrize("family", ["binaryK", "superfp"])
+@pytest.mark.parametrize("kind", MAC_KINDS)
+@pytest.mark.parametrize("algorithm,block_size", ALGORITHMS, ids=lambda v: getattr(v, "name", v))
+def test_accumulate_algorithms_backends_agree_on_zero(family, kind, algorithm, block_size):
+    """CPU and CUDA return the same words, sign of zero included. Neither
+    pads the last slab for these algorithms, so unlike NAIVE's there is no
+    padding to tell them apart, only the order of the steps."""
+    if algorithm is AccumulateAlgorithm.TREE and kind.startswith("fused"):
+        pytest.skip("a fused mac has no tree")
+    failures = []
+    for mode, K, outer in itertools.product(DETERMINISTIC, K_VALUES, [False, True]):
+        mac = _accumulated_mac(family, kind, algorithm, block_size, mode, outer)
+        for name, (a, b) in _zero_operands(family, K, "cpu"):
+            cpu = qmm(a, b, mac)
+            gpu = qmm(a.cuda(), b.cuda(), mac).cpu()
+            if not torch.equal(cpu.view(torch.int32), gpu.view(torch.int32)):
+                failures.append(f"{name} {mode.name} K={K} outer={outer}")
     assert not failures, "\n".join(failures)

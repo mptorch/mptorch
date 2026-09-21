@@ -131,7 +131,7 @@ binary64's in parentheses:
   both placed on their grid *by* that field, so their smallest value must be
   at least :math:`2^{-125}` (:math:`2^{-1021}`), a binade clear of it:
   :math:`\text{bias} + P \le 127` (1023) for the first, and
-  :math:`\text{normal\_cutoff} - (2^{\text{exp\_bits}} - b)\,2^{\text{man\_bits}} + 1 \ge -125`
+  :math:`\text{normal_cutoff} - (2^{\text{exp_bits}} - b)\,2^{\text{man_bits}} + 1 \ge -125`
   (:math:`-1021`) for the second. The two non-P3109 subnormal modes decide
   their bottom by comparing magnitudes instead, which reads no field, so
   ``NORMALS`` and ``EXTENDED_NORMALS`` are exact down to the smallest normal

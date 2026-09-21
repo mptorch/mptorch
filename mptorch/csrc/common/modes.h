@@ -105,26 +105,27 @@ enum class RoundMode
 };
 
 /*
-How a GEMM's dot product is accumulated.
+How a GEMM's dot product is accumulated. gemm_accumulate.h states the three
+past NAIVE step by step, and holds their policies; they are implemented for
+the single-format ops, in binary32, on the CPU and CUDA.
 
 NAIVE:
 The running sum is quantized (to the accumulate format) after every addition.
 
 KAHAN:
 Kahan-compensated summation of the (quantized) partial products, with the
-compensation term itself tracked in the accumulate format. Not yet
-implemented.
+compensation term itself tracked in the accumulate format.
 
 BLOCK:
 Two-level (FABSum-style) block summation: partial products are locally
 summed in blocks (inner precision) before each block sum is folded (and
 quantized, at a possibly different, outer precision) into the running
-total. Not yet implemented.
+total.
 
 TREE:
 Partial products are locally combined pairwise (tree reduction) within a
 block before the block's reduced value is folded into the running total.
-Not yet implemented.
+Split macs only: a fused multiply-add has no product term.
 */
 enum class AccumulateAlgorithm
 {

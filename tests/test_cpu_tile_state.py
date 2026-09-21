@@ -15,6 +15,12 @@ wrong with that shape, and each has a test here:
   the slot is a pointer resolved per tile rather than a copy the element
   owns.
 
+KAHAN, BLOCK and TREE keep more per element than a sum (a compensation, a
+block's sum and a total, a tree's levels; ``StateTile`` in
+``csrc/common/gemm_accumulate.h``), reset and indexed the same way, so the
+first two failure modes are theirs too and the tests of those run them. The
+third is not: they have no palette form.
+
 The checks are bit-exact, raw words rather than tolerances, because none of
 this is allowed to move a value.
 """
@@ -24,7 +30,7 @@ from typing import TypedDict
 import pytest
 import torch
 
-from mptorch.number import RoundMode
+from mptorch.number import AccumulateAlgorithm, RoundMode
 from mptorch.quant import (
     binaryK_matmul,
     binaryK_matmul_fma,
@@ -134,6 +140,62 @@ def ops(a, b, mode):
                 fma_prng_bits=pb,
             )
         ),
+        # The accumulators with more state than a sum. A block of 8 folds
+        # inside a 16-step slab and one of 48 across slabs; a tree of 64 keeps
+        # levels on both sides of that line.
+        "binaryK split kahan": seeded(
+            lambda: binaryK_matmul(
+                a,
+                b,
+                **BK,
+                rounding_mode=mode,
+                mul_prng_bits=pb,
+                acc_prng_bits=pb,
+                accumulate_algorithm=AccumulateAlgorithm.KAHAN,
+            )
+        ),
+        "binaryK fma block 8": seeded(
+            lambda: binaryK_matmul_fma(
+                a,
+                b,
+                fma_K=8,
+                fma_P=4,
+                rounding_mode=mode,
+                fma_prng_bits=pb,
+                accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+                block_size=8,
+                outer_K=16,
+                outer_P=11,
+                outer_prng_bits=pb,
+            )
+        ),
+        "superfp split block 48": seeded(
+            lambda: superfp_matmul(
+                a,
+                b,
+                **SFP,
+                rounding_mode=mode,
+                mul_prng_bits=pb,
+                acc_prng_bits=pb,
+                accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+                block_size=48,
+            )
+        ),
+        "binaryK split tree 64": seeded(
+            lambda: binaryK_matmul(
+                a,
+                b,
+                **BK,
+                rounding_mode=mode,
+                mul_prng_bits=pb,
+                acc_prng_bits=pb,
+                accumulate_algorithm=AccumulateAlgorithm.TREE,
+                block_size=64,
+                outer_K=16,
+                outer_P=11,
+                outer_prng_bits=pb,
+            )
+        ),
     }
 
 
@@ -209,19 +271,37 @@ def test_mixed_palette_binds_the_right_slot_per_row(shape, mode):
 
 
 @pytest.mark.parametrize("mode", DETERMINISTIC)
-def test_a_tall_output_reuses_its_buffers_cleanly(mode, restore_threads):
+@pytest.mark.parametrize(
+    "algorithm,block_size",
+    [
+        (AccumulateAlgorithm.NAIVE, None),
+        (AccumulateAlgorithm.KAHAN, None),
+        (AccumulateAlgorithm.BLOCK, 4),
+        (AccumulateAlgorithm.TREE, 4),
+    ],
+    ids=lambda v: getattr(v, "name", v),
+)
+def test_a_tall_output_reuses_its_buffers_cleanly(mode, algorithm, block_size, restore_threads):
     """Many tiles per worker task is the case where buffer reuse actually
     happens: one thread, an output several tile-rows tall, so every tile after
-    the first runs on state the previous tile left behind."""
+    the first runs on state the previous tile left behind. K = 7 leaves a
+    KAHAN compensation, a partial BLOCK and a partial TREE behind in every
+    element of it."""
     torch.set_num_threads(1)
-    m, k, n = 160, 8, 160  # 5x5 tiles, all taken by the one worker
+    m, k, n = 160, 7, 160  # 5x5 tiles, all taken by the one worker
     torch.manual_seed(1234)
     a, b = torch.randn(m, k), torch.randn(k, n)
 
-    full = binaryK_matmul(a, b, **BK, rounding_mode=mode)
-    for i in (0, 33, 64, m - 1):  # first tile, second tile-row, third, last
-        same(
-            full[i : i + 1],
-            binaryK_matmul(a[i : i + 1], b, **BK, rounding_mode=mode),
-            f"row {i} {mode.name}",
+    def run(rows):
+        return binaryK_matmul(
+            rows,
+            b,
+            **BK,
+            rounding_mode=mode,
+            accumulate_algorithm=algorithm,
+            block_size=block_size,
         )
+
+    full = run(a)
+    for i in (0, 33, 64, m - 1):  # first tile, second tile-row, third, last
+        same(full[i : i + 1], run(a[i : i + 1]), f"row {i} {mode.name}")

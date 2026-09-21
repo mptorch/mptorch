@@ -10,8 +10,11 @@
 // about 31 s and ninja compiles them side by side. The entry points live in
 // cpu/custom_matmul_entry.cpp, which sees only cpu/gemm_backend.h and so
 // instantiates no kernel. cuda/custom_matmul_kernel.cuh is split the same
-// way.
+// way. Six more files, custom_matmul_*_{kahan,block,tree}.cpp, instantiate
+// launch_accumulated_as for the accumulate algorithms past NAIVE
+// (common/gemm_accumulate.h), in binary32.
 
+#include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
@@ -251,6 +254,15 @@ namespace mptorch::gemm_cpu
       // slower on the split macs, since the compiler could not keep the
       // policy's fields in registers across the loop.
       const Mac mac_single = acc_proto.mac;
+      // A positional accumulator (KAHAN, BLOCK, TREE;
+      // common/gemm_accumulate.h) is configured by more than its Mac, a block
+      // size and an outer format, so its tile functions take the prototype
+      // itself. Every use of it is behind `if constexpr`, and it is read
+      // through the caller's acc_proto rather than through a second local:
+      // even an empty local of a NaiveAccumulator's moved the register
+      // allocation of two of that kernel's existing instantiations, and the
+      // NAIVE objects are held byte-identical (dev/gemm_roadmap.md, R-2).
+      constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
       const Mac *slot_of[MIXED ? TI * TJ : 1]; // the mixed path's per-element slots
 
       // Packed operand tiles and the finalized output tile, one set per
@@ -312,11 +324,27 @@ namespace mptorch::gemm_cpu
             {
               const T aVal = a_pack[i * tk + k];
               const T *__restrict__ b_row = b_pack + k * tj;
-              for (int64_t j = 0; j < tj; ++j)
+              if constexpr (POSITIONAL)
               {
-                const int64_t idx = i * tj + j;
-                Accumulator::accumulate(tv, idx, MIXED ? *slot_of[MIXED ? idx : 0] : mac_single,
-                                        aVal, b_row[j]);
+                // The position in the 16-step slab the algorithms count in
+                // (the device's tile depth, which is theirs on every
+                // backend), and the slab's end after step 15 or the last.
+                const int64_t k_end = k0 + k + 1;
+                const int pos = static_cast<int>((k0 + k) & 15);
+                for (int64_t j = 0; j < tj; ++j)
+                  Accumulator::accumulate(tv, i * tj + j, acc_proto, aVal, b_row[j], pos);
+                if ((k_end & 15) == 0 || k_end == K)
+                  for (int64_t j = 0; j < tj; ++j)
+                    Accumulator::end_slab(tv, i * tj + j, acc_proto, k_end, K);
+              }
+              else
+              {
+                for (int64_t j = 0; j < tj; ++j)
+                {
+                  const int64_t idx = i * tj + j;
+                  Accumulator::accumulate(tv, idx, MIXED ? *slot_of[MIXED ? idx : 0] : mac_single,
+                                          aVal, b_row[j]);
+                }
               }
             }
           }
@@ -360,6 +388,25 @@ namespace mptorch::gemm_cpu
                                  s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
         });
       }
+    });
+  }
+
+  // The same body for KAHAN, BLOCK and TREE, whose Args also names the
+  // algorithm its accumulator is built for. Instantiated by the six
+  // custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cpp files.
+  template <class T, AccumulateAlgorithm ALG, class Base>
+  void CpuBackend::launch_accumulated_as(const GemmShape &s,
+                                         const mptorch::gemm::AccumulateArgs<Base> &args,
+                                         const LaunchContext &ctx)
+  {
+    mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+    {
+      constexpr RoundMode RM = decltype(rm_c)::value;
+      args.template with_accumulator<T, RM, ALG>([&](auto acc)
+      {
+        matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                               s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
+      });
     });
   }
 } // namespace mptorch::gemm_cpu

@@ -158,13 +158,38 @@ class AccumulateAlgorithm(Enum):
     """How the partial products of a dot product are folded into its sum.
 
     Mirrors ``AccumulateAlgorithm`` in ``csrc/common/modes.h``, by name and
-    value. It selects the reduction order inside a custom-arithmetic GEMM
-    (see :mod:`mptorch.quant.gemm`). Only :attr:`NAIVE` is implemented: the
-    running sum is quantized to the accumulate format after every step, which
-    is what a hardware accumulator of that format does. The other three name
-    compensated, blocked and pairwise reductions the kernels do not provide
-    yet; the enum reserves their values so the Python and C++ sides keep
-    matching when they arrive.
+    value, and selects the reduction inside a custom-arithmetic GEMM
+    (:class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac`, the
+    flat ``*_matmul`` wrappers). Below, ``mul`` and ``add`` are the mac's two
+    roundings (``add`` is the identity with no accumulate format, and a fused
+    mac's step is ``add(fma(a, b, s))`` in place of ``add(s + mul(a * b))``),
+    ``outer`` is the rounding of the mac's ``outer`` format (the identity
+    without one), and the products are taken in order, ``k = 0 .. K - 1``:
+
+    * :attr:`NAIVE`: ``s = add(s + mul(a * b))``, which is what a hardware
+      accumulator of the accumulate format does. The result is ``s``.
+    * :attr:`KAHAN`: a compensation ``c`` is carried alongside the sum, in
+      the accumulate format like it: ``y = add(mul(a * b) - c)``,
+      ``t = add(s + y)``, ``c = add(add(t - s) - y)``, ``s = t``. The result
+      is ``s``. With no accumulate format this is Kahan's summation in the
+      carrier.
+    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum, and after every
+      ``block_size`` products, and after the last, the block is folded into a
+      total, ``tot = outer(tot + blk)``, and restarted from zero. Two levels
+      of precision: a narrow accumulate format inside a block, a wider outer
+      format across them. The result is ``tot``.
+    * :attr:`TREE`: the products of a block of ``block_size = 2**L`` are
+      summed pairwise, ``add(add(p0 + p1) + add(p2 + p3))`` and so on up,
+      in the order they arrive, and the block's root is folded as in
+      ``BLOCK``. A last, partial block merges the subtrees it has, smallest
+      first. It needs a product term, so a fused mac refuses it.
+
+    Under :attr:`RoundMode.SR` every rounding that is not an identity draws
+    once, in the order written. Nothing is padded, so a result does not
+    depend on how a backend tiles ``K``; the CPU and CUDA kernels agree to the
+    bit in every deterministic mode. The three past ``NAIVE`` are implemented
+    for the single-format ops, in binary32: float64 operands,
+    ``carrier=torch.float64``, a palette and an MPS tensor raise.
 
     Example::
 
@@ -174,9 +199,9 @@ class AccumulateAlgorithm(Enum):
     """
 
     NAIVE = 0  #: Quantize the running sum after every accumulation step.
-    KAHAN = 1  #: Kahan-compensated summation (not yet implemented).
-    BLOCK = 2  #: Two-level (FABSum-style) block summation (not yet implemented).
-    TREE = 3  #: Pairwise tree-reduction summation (not yet implemented).
+    KAHAN = 1  #: Kahan-compensated summation, the compensation in the accumulate format.
+    BLOCK = 2  #: Two-level (FABSum-style) block summation with an outer format.
+    TREE = 3  #: Pairwise summation within a block, folded with an outer format.
 
 
 # --- what a carrier can hold -------------------------------------------------

@@ -12,7 +12,9 @@
 // and fails with its message rather than the dispatcher's. The two in-place
 // quantizers have no Metal kernel yet and are bound to functions that raise
 // (quantize.cpp), for the same reason: an op with no MPS registration fails
-// at dispatch with a message that names nothing a caller can act on.
+// at dispatch with a message that names nothing a caller can act on. So are
+// the four *_accumulated GEMMs (custom_matmul_accumulated_entry.cpp): KAHAN,
+// BLOCK and TREE have no Metal kernel yet either.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>
@@ -41,4 +43,8 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_matmul_superfp_mixed", TORCH_FN(superfp_matmul_mixed_mps));
   m.impl("custom_matmul_binaryK_fma_mixed", TORCH_FN(binaryK_matmul_fma_mixed_mps));
   m.impl("custom_matmul_superfp_fma_mixed", TORCH_FN(superfp_matmul_fma_mixed_mps));
+  m.impl("custom_matmul_binaryK_accumulated", TORCH_FN(binaryK_matmul_accumulated_mps));
+  m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_mps));
+  m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_mps));
+  m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_mps));
 }

@@ -40,6 +40,15 @@ extern "C"
 // the return, which is the same tensor. The annotation is what lets the
 // dispatcher's ADInplaceOrView kernel (autograd_ops.cpp) bump the tensor's
 // version counter, and what torch.compile's functionalization reads.
+//
+// The four *_accumulated ops are the single-format GEMMs under an accumulate
+// algorithm other than NAIVE (common/gemm_accumulate.h): their twin's
+// arguments, then a block size and an outer format, spelled as the family
+// spells a format. They are ops of their own, rather than nine more arguments
+// on the four they extend, because an argument costs every call that does not
+// use it: with them appended and defaulted a NAIVE call measured 1.0-1.4 us
+// slower through torch.ops, a tenth of the whole call (dev/gemm_roadmap.md,
+// R-2). The four *_mixed ops are NAIVE only.
 TORCH_LIBRARY(mptorch, m)
 {
   m.def("binaryK_quant(Tensor a, int K, int P, "
@@ -78,6 +87,41 @@ TORCH_LIBRARY(mptorch, m)
         "int fma_bias, bool fma_is_signed, "
         "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
         "int fma_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_accumulated(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int mul_subnormals_mode, "
+        "int acc_saturation_mode, int acc_subnormals_mode, "
+        "int mul_prng_bits, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_accumulated(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_man_bits, int mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_man_bits, int acc_exp_bits, int acc_normal_binades, "
+        "int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int acc_saturation_mode, "
+        "int mul_prng_bits, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, "
+        "int outer_normal_binades, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_fma_accumulated(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_K, int fma_P, int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_subnormals_mode, int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_fma_accumulated(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_man_bits, int fma_exp_bits, int fma_normal_binades, "
+        "int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, "
+        "int outer_normal_binades, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_prng_bits) -> Tensor");
   m.def("custom_matmul_binaryK_mixed(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b, "
         "int[] mul_K, int[] mul_P, int[] mul_bias, bool mul_is_signed, "
         "bool accumulate_quant, int[] acc_K, int[] acc_P, int[] acc_bias, bool acc_is_signed, "

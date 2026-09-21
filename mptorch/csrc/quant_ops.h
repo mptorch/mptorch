@@ -176,6 +176,141 @@ at::Tensor superfp_matmul_fma_mps(at::Tensor a, at::Tensor b, bool trans_a, bool
                                   int64_t accumulate_algorithm, int64_t round_mode,
                                   int64_t fma_saturation_mode, int64_t fma_prng_bits);
 
+// The four single-format GEMMs under an accumulate algorithm other than NAIVE
+// (KAHAN, BLOCK, TREE; common/gemm_accumulate.h): their twin's arguments, then
+// a block size and an outer format. Ops of their own rather than more
+// arguments on the four above, so that a NAIVE call goes through the schema,
+// the argument parsing and the entry point it always went through. On MPS
+// they are bound to functions that raise (dev/continuation_plan.md, phase H).
+at::Tensor binaryK_matmul_accumulated_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                           int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                                           bool accumulate_quant, int64_t acc_K, int64_t acc_P,
+                                           int64_t acc_bias, bool acc_is_signed,
+                                           int64_t accumulate_algorithm, int64_t round_mode,
+                                           int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                                           int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                                           int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                           int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                           int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                           int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor binaryK_matmul_accumulated_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_K, int64_t acc_P,
+                                          int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                                          int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                          int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                          int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor binaryK_matmul_accumulated_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_K, int64_t acc_P,
+                                          int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t mul_subnormals_mode,
+                                          int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                          int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                          int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_accumulated_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                           int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                                           int64_t mul_bias, bool mul_is_signed,
+                                           bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
+                                           int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
+                                           int64_t accumulate_algorithm, int64_t round_mode,
+                                           int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                           int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                           int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                           int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                           bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_accumulated_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                                          int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
+                                          int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                          int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                          bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_accumulated_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                          int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades,
+                                          int64_t mul_bias, bool mul_is_signed,
+                                          bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits,
+                                          int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed,
+                                          int64_t accumulate_algorithm, int64_t round_mode,
+                                          int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                          int64_t mul_prng_bits, int64_t acc_prng_bits,
+                                          int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                          int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                          bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
+at::Tensor binaryK_matmul_fma_accumulated_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                               bool fma_quant, int64_t fma_K, int64_t fma_P,
+                                               int64_t fma_bias, bool fma_is_signed,
+                                               int64_t accumulate_algorithm, int64_t round_mode,
+                                               int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                               int64_t fma_prng_bits,
+                                               int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                               int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                               int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor binaryK_matmul_fma_accumulated_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_K, int64_t fma_P,
+                                              int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                              int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                              int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                              int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor binaryK_matmul_fma_accumulated_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_K, int64_t fma_P,
+                                              int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
+                                              int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P,
+                                              int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode,
+                                              int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_fma_accumulated_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                               bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                               int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                               int64_t accumulate_algorithm, int64_t round_mode,
+                                               int64_t fma_saturation_mode, int64_t fma_prng_bits,
+                                               int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                               int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                               bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_fma_accumulated_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                              int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                              int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                              bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
+at::Tensor superfp_matmul_fma_accumulated_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
+                                              bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits,
+                                              int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed,
+                                              int64_t accumulate_algorithm, int64_t round_mode,
+                                              int64_t fma_saturation_mode, int64_t fma_prng_bits,
+                                              int64_t block_size, bool outer_quant, int64_t outer_man_bits,
+                                              int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias,
+                                              bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits);
+
 at::Tensor binaryK_matmul_mixed_cuda(at::Tensor a, at::Tensor b, at::Tensor prec_idx,
                                      bool trans_a, bool trans_b,
                                      c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,

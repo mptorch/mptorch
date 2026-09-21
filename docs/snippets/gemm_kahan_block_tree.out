@@ -1,0 +1,25 @@
+float32 products and sums                   rel. error   max |err|
+  NAIVE                                       1.13e-06    3.99e-05
+  KAHAN                                       3.64e-08    6.72e-07
+  BLOCK, 64 per block                         2.05e-07    3.67e-06
+
+E4M3 products, 8-bit-precision sums         rel. error   max |err|
+  NAIVE                                       7.64e-02    1.83e+00
+  KAHAN                                       2.66e-02    3.77e-01
+  BLOCK, 16 per block                         2.67e-02    3.89e-01
+  BLOCK, 64 per block                         2.79e-02    4.02e-01
+  BLOCK, 64 per block, outer=bf16             2.97e-02    4.11e-01
+  TREE, 16 per block                          2.66e-02    3.86e-01
+  TREE, 256 per block                         2.68e-02    3.81e-01
+  TREE, 256 per block, outer=bf16             2.72e-02    3.77e-01
+  the products' own error (acc=None)          2.65e-02    3.93e-01
+
+E4M3 products, E4M3 sums                    rel. error   max |err|
+  NAIVE                                       6.56e-01    1.00e+01
+  KAHAN                                       5.66e-02    9.91e-01
+  BLOCK, 4 per block                          4.94e-02    7.34e-01
+  BLOCK, 4 per block, outer=bf16              6.23e-02    1.40e+00
+  TREE, 4 per block                           4.83e-02    7.53e-01
+  TREE, 4 per block, outer=bf16               6.05e-02    1.19e+00
+
+float64 operands: AccumulateAlgorithm.KAHAN, BLOCK and TREE have binary32 kernels only so far

@@ -50,6 +50,26 @@ namespace mptorch
     return false;
   }
 
+  // The same question about an AccumulateAlgorithm, for the same reasons and
+  // built the same way. The backends switch on the validated value to pick
+  // an instantiation (their `launch` over a gemm::AccumulateArgs).
+  inline bool is_accumulate_algorithm(int64_t alg)
+  {
+    using U = std::underlying_type_t<AccumulateAlgorithm>;
+    if (alg < static_cast<int64_t>(std::numeric_limits<U>::min()) ||
+        alg > static_cast<int64_t>(std::numeric_limits<U>::max()))
+      return false;
+    switch (static_cast<AccumulateAlgorithm>(alg))
+    {
+    case AccumulateAlgorithm::NAIVE:
+    case AccumulateAlgorithm::KAHAN:
+    case AccumulateAlgorithm::BLOCK:
+    case AccumulateAlgorithm::TREE:
+      return true;
+    }
+    return false;
+  }
+
   // Turns a runtime RoundMode into a compile-time one: `f` is called with an
   // std::integral_constant naming the mode, so the policies it builds carry
   // a single cast body instead of a seven-way switch.

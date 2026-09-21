@@ -1,8 +1,10 @@
 #pragma once
 
-// The CUDA GEMM kernel and its launcher, shared by the eight
+// The CUDA GEMM kernel and its launcher, shared by the eight NAIVE
 // custom_matmul_*.cu translation units, each of which explicitly instantiates
-// CudaBackend::launch_as (declared in gemm_backend.h) for its two ops.
+// CudaBackend::launch_as (declared in gemm_backend.h) for its two ops, and by
+// the six custom_matmul_*_{kahan,block,tree}.cu, which instantiate
+// launch_accumulated_as for the other accumulate algorithms.
 //
 // This header includes no ATen tensor headers, on purpose. Under nvcc a
 // translation unit that includes <ATen/core/Tensor.h> pays about 25 s of
@@ -25,6 +27,7 @@
 // objects. The *_f64 files are separate so that MPTORCH_NO_FP64=1 can leave
 // the binary64 kernels out of the build. Splitting further would only repeat
 // the ~3 s fixed cost per file with nothing left to parallelize.
+#include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "gemm_backend.h"
 #include <ATen/cuda/PhiloxUtils.cuh>
@@ -48,6 +51,18 @@ namespace mptorch::gemm_cuda
     // benchmarked against a register-blocked variant (several outputs per
     // thread) in dev/cuda/custom_matmul.cu and came out slightly faster here.
     constexpr int BLOCKSIZE = 16;
+
+    // The K-loop's unroll factor for a single-format binary32 kernel: a
+    // positional accumulator's own, and 16 for a NaiveAccumulator (see the
+    // loop for the measurements).
+    template <class Accumulator>
+    constexpr int unroll_of()
+    {
+        if constexpr (is_positional_accumulator_v<Accumulator>)
+            return Accumulator::unroll;
+        else
+            return 16;
+    }
 
     // Element load and store by storage dtype. The dtype is a kernel
     // argument (mptorch::GemmDtype, common/gemm_dtype.h), not a template
@@ -251,11 +266,51 @@ namespace mptorch::gemm_cuda
             // than by instruction fetch, so their unroll is flat within 1%
             // from 2 to 8; 2 has the fewest spills and the smallest binary.
             // Measured with dev/benchmarks/gemm_unroll_sweep.cu.
-            constexpr int UNROLL = std::is_same_v<T, double> ? 2 : (MIXED ? 4 : 16);
-#pragma unroll UNROLL
-            for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
+            //
+            // A positional accumulator (KAHAN, BLOCK, TREE;
+            // common/gemm_accumulate.h) names its own factor, takes the
+            // step's position in the slab, does not run the steps past K
+            // that the zero lanes pad the last slab with (they are free for
+            // a NAIVE sum and not for a compensated one, and a draw spent on
+            // one would part the device from the CPU's order under SR), and
+            // is told when a slab ends. All of it is behind `if constexpr`,
+            // so a NaiveAccumulator's kernel is the code it was: every one
+            // of the 230 device functions that existed before compiles to
+            // the same bytes (dev/gemm_roadmap.md, R-2).
+            constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
+            constexpr int UNROLL = std::is_same_v<T, double> ? 2
+                                   : MIXED                   ? 4
+                                                             : unroll_of<Accumulator>();
+            if constexpr (POSITIONAL)
             {
-                acc.accumulate(curAs[threadRow * BLOCKSIZE + dotIdx], curBs[dotIdx * BLOCKSIZE + threadCol]);
+                // A whole slab runs the unrolled loop, with no test per step;
+                // the last, partial one a plain loop over the steps it has. A
+                // `k < K` guard inside one loop instead cost 5-15% on every
+                // kernel (dev/gemm_roadmap.md, R-2).
+                const int64_t left = K - t * BLOCKSIZE;
+                if (left >= BLOCKSIZE)
+                {
+#pragma unroll UNROLL
+                    for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
+                        acc.accumulate(curAs[threadRow * BLOCKSIZE + dotIdx],
+                                       curBs[dotIdx * BLOCKSIZE + threadCol], dotIdx);
+                }
+                else
+                {
+#pragma unroll 1
+                    for (int dotIdx = 0; dotIdx < static_cast<int>(left); ++dotIdx)
+                        acc.accumulate(curAs[threadRow * BLOCKSIZE + dotIdx],
+                                       curBs[dotIdx * BLOCKSIZE + threadCol], dotIdx);
+                }
+                acc.end_slab(left >= BLOCKSIZE ? (t + 1) * BLOCKSIZE : K, K);
+            }
+            else
+            {
+#pragma unroll UNROLL
+                for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx)
+                {
+                    acc.accumulate(curAs[threadRow * BLOCKSIZE + dotIdx], curBs[dotIdx * BLOCKSIZE + threadCol]);
+                }
             }
 
             // Prefetch the next K-tile into the other buffer; the barrier
@@ -349,6 +404,26 @@ namespace mptorch::gemm_cuda
                                          acc, s.use_rng, ctx.rng, ctx.stream);
                 });
             }
+        });
+    }
+
+    // The same body for KAHAN, BLOCK and TREE, whose Args also names the
+    // algorithm its accumulator is built for. Instantiated by the six
+    // custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cu files.
+    template <class T, AccumulateAlgorithm ALG, class Base>
+    void CudaBackend::launch_accumulated_as(const GemmShape &s,
+                                            const mptorch::gemm::AccumulateArgs<Base> &args,
+                                            const LaunchContext &ctx)
+    {
+        mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+        {
+            constexpr RoundMode RM = decltype(rm_c)::value;
+            args.template with_accumulator<T, RM, ALG>([&](auto acc)
+            {
+                launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
+                                     s.batch, s.stride_a, s.stride_b,
+                                     acc, s.use_rng, ctx.rng, ctx.stream);
+            });
         });
     }
 } // namespace mptorch::gemm_cuda

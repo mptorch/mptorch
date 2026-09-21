@@ -21,4 +21,8 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     m.impl("custom_matmul_superfp_mixed", TORCH_FN(superfp_matmul_mixed_cuda));
     m.impl("custom_matmul_binaryK_fma_mixed", TORCH_FN(binaryK_matmul_fma_mixed_cuda));
     m.impl("custom_matmul_superfp_fma_mixed", TORCH_FN(superfp_matmul_fma_mixed_cuda));
+    m.impl("custom_matmul_binaryK_accumulated", TORCH_FN(binaryK_matmul_accumulated_cuda));
+    m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_cuda));
+    m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_cuda));
+    m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_cuda));
 }

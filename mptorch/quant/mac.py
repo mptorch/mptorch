@@ -51,12 +51,17 @@ from mptorch.number import (
 )
 
 from .ops import (
+    _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_spec,
     _binaryK_fma_mixed_spec,
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
     _binaryK_spec,
+    _checked_block_size,
     _checked_carrier,
     _GemmSpec,
+    _superfp_accumulated_spec,
+    _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_spec,
     _superfp_fma_spec,
     _superfp_mixed_spec,
@@ -287,6 +292,40 @@ class Quant:
 # --- the two reduction policies ----------------------------------------------
 
 
+def _checked_accumulation(
+    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...], has_product: bool
+) -> None:
+    """Validate a mac's ``accumulate_algorithm``, ``block_size`` and ``outer``.
+
+    ``slots`` is the mac's normalized format slots, the last of them the one
+    whose family ``outer`` must share (the accumulate format, else the
+    multiply's; a fused mac's one format). The block-size rule is the flat
+    wrappers' (:func:`mptorch.quant.ops._checked_block_size`), so the two
+    tiers raise the same errors.
+    """
+    outer = mac.outer
+    if outer is not None and not isinstance(outer, GemmFormat):
+        raise TypeError(
+            f"outer must be one BinaryK or SuperFP format or None, got {type(outer).__name__}: "
+            "a palette of outer formats is not implemented"
+        )
+    _checked_block_size(mac.accumulate_algorithm, mac.block_size, outer is not None, has_product)
+    if mac.accumulate_algorithm is AccumulateAlgorithm.NAIVE:
+        return
+    if any(_varies(slot) for slot in slots):
+        raise ValueError(
+            f"AccumulateAlgorithm.{mac.accumulate_algorithm.name} is implemented for a single "
+            "format per slot: the palette ops accumulate with NAIVE only (a palette of "
+            "accumulators is a follow-up of dev/continuation_plan.md's phase B)"
+        )
+    family = next((slot[0] for slot in reversed(slots) if slot is not None), None)
+    if outer is not None and family is not None and type(outer) is not type(family):
+        raise TypeError(
+            f"outer must be of the mac's format family: got {type(outer).__name__} over "
+            f"{type(family).__name__}. Mixing families is roadmap item R-1"
+        )
+
+
 @dataclass(frozen=True)
 class SplitMac:
     """Quantize the product and the running sum separately: two roundings.
@@ -315,9 +354,17 @@ class SplitMac:
             unrounded. Default: ``None``
         rounding (RoundMode): rounding mode of both halves.
             Default: ``RoundMode.RNE``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation;
-            only ``NAIVE`` is implemented.
-            Default: ``AccumulateAlgorithm.NAIVE``
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries a
+            compensation term in the ``acc`` format alongside the sum.
+            ``BLOCK`` runs the step above over blocks of ``block_size``
+            products and folds each block's sum into a total with a third
+            rounding, ``outer``. ``TREE`` sums each block's products
+            pairwise, rounding every pair's sum to ``acc``, and folds the
+            block's root the same way. :class:`mptorch.AccumulateAlgorithm`
+            states each precisely. The three are binary32-only so far:
+            float64 operands and ``carrier=torch.float64`` raise, and so does
+            a palette in any slot. Default: ``AccumulateAlgorithm.NAIVE``
         carrier (torch.dtype, optional): the float arithmetic both halves and
             everything between them are computed in,
             :func:`mptorch.quant.binaryK_matmul`'s argument of that name.
@@ -326,12 +373,23 @@ class SplitMac:
             and narrows the result back to their dtype; ``torch.float32``
             refuses float64 operands. Every call holds the formats to that
             carrier. Default: ``None``
+        block_size (int, optional): products per block. ``BLOCK`` requires
+            one, which must divide 16 or be a multiple of 16; ``TREE`` takes a
+            power of two in [2, 256] and defaults to 16; ``NAIVE`` and
+            ``KAHAN`` take none. Default: ``None``
+        outer (Number, optional): the format ``BLOCK`` and ``TREE`` round the
+            total to after each block is folded in, of the mac's family.
+            ``None`` leaves the total in the carrier's precision, as
+            ``acc=None`` leaves the sum. When given, it is the format the
+            result holds. Default: ``None``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
-            different lengths, or if ``carrier`` names no carrier.
-        TypeError: if ``mul`` and ``acc`` are of different families, or
-            ``carrier`` is not a ``torch.dtype``.
+            different lengths, if ``carrier`` names no carrier, or if
+            ``block_size`` or ``outer`` does not fit the algorithm.
+        TypeError: if ``mul`` and ``acc`` are of different families, ``outer``
+            is of another family or not a single format, or ``carrier`` is not
+            a ``torch.dtype``.
 
     Example::
 
@@ -343,6 +401,11 @@ class SplitMac:
         >>> qmm(torch.randn(4, 8), torch.randn(8, 3), mac).shape
         torch.Size([4, 3])
         >>> exact_sum = SplitMac(e4m3, None)   # products rounded, sum exact
+        >>> from mptorch import AccumulateAlgorithm
+        >>> blocked = SplitMac(e4m3, e4m3, accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+        ...                    block_size=8, outer=BinaryK(16, 11))
+        >>> qmm(torch.randn(4, 64), torch.randn(64, 3), blocked).shape
+        torch.Size([4, 3])
     """
 
     mul: "Number | Sequence[Number] | Palette"
@@ -351,6 +414,8 @@ class SplitMac:
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
     carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: Number | None = None
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
@@ -369,6 +434,7 @@ class SplitMac:
                     "a SplitMac's multiply and accumulate palettes must have the same length, "
                     f"got {len(mul)} and {len(acc)}"
                 )
+        _checked_accumulation(self, (mul, acc), has_product=True)
         object.__setattr__(self, "mul", mul)
         object.__setattr__(self, "acc", acc)
 
@@ -388,14 +454,21 @@ class FusedMac:
             fused step is rounded to, a palette of them, or ``None``.
         rounding (RoundMode): rounding mode of the fused step.
             Default: ``RoundMode.RNE``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation.
-            Default: ``AccumulateAlgorithm.NAIVE``
+        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`,
+            with the fused step in place of the split one, except ``TREE``,
+            which raises: a fused multiply-add has no product term to sum
+            pairwise. Default: ``AccumulateAlgorithm.NAIVE``
         carrier (torch.dtype, optional): as for :class:`SplitMac`.
             Default: ``None``
+        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
+        outer (Number, optional): as for :class:`SplitMac`; with ``fma=None``
+            it may be of either family. Default: ``None``
 
     Raises:
-        ValueError: if ``carrier`` names no carrier, or a palette is invalid.
-        TypeError: if ``carrier`` is not a ``torch.dtype``.
+        ValueError: if ``carrier`` names no carrier, a palette is invalid, or
+            ``block_size`` or ``outer`` does not fit the algorithm.
+        TypeError: if ``carrier`` is not a ``torch.dtype``, or ``outer`` is of
+            another family or not a single format.
 
     Example::
 
@@ -412,10 +485,14 @@ class FusedMac:
     rounding: RoundMode = RoundMode.RNE
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
     carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: Number | None = None
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
-        object.__setattr__(self, "fma", _as_palette(self.fma))
+        fma = _as_palette(self.fma)
+        _checked_accumulation(self, (fma,), has_product=False)
+        object.__setattr__(self, "fma", fma)
 
 
 Mac = SplitMac | FusedMac
@@ -476,6 +553,31 @@ def _slot_fields(pal: Palette, prefix: str, n: int) -> dict[str, Any]:
     return fields
 
 
+def _outer_fields(outer: Number | None) -> dict[str, Any]:
+    """A mac's outer format as the schema arguments that name it; none for ``None``."""
+    if outer is None:
+        return {}
+    # `_checked_accumulation` has held it to the two families the ops take.
+    assert isinstance(outer, GemmFormat), f"mac.outer was not validated: {outer!r}"
+    fields: dict[str, Any] = {
+        "outer_bias": outer.bias,
+        "outer_is_signed": outer.is_signed,
+        "outer_prng_bits": outer.prng_bits,
+        "outer_saturation_mode": outer.saturation,
+    }
+    if isinstance(outer, BinaryK):
+        return fields | {
+            "outer_K": outer.K,
+            "outer_P": outer.P,
+            "outer_subnormals_mode": outer.subnormals,
+        }
+    return fields | {
+        "outer_man_bits": outer.man_bits,
+        "outer_exp_bits": outer.exp_bits,
+        "outer_normal_binades": outer.normal_binades,
+    }
+
+
 @lru_cache(maxsize=256)
 def spec_for_mac(mac: Mac) -> _GemmSpec:
     """The resolved GEMM this mac names, as a ``_GemmSpec``.
@@ -495,12 +597,31 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         "rounding_mode": mac.rounding,
         "carrier": mac.carrier,
     }
+    # A NAIVE mac resolves through the builders it always resolved through.
+    # Any other algorithm is single-format (`_checked_accumulation`) and goes
+    # through the builder of its family's `*_accumulated` op, which also takes
+    # the block size and the outer format.
+    naive = mac.accumulate_algorithm is AccumulateAlgorithm.NAIVE
+    if not naive:
+        fields |= {"block_size": mac.block_size} | _outer_fields(mac.outer)
 
     if isinstance(mac, FusedMac):
         if mac.fma is None:
-            # Nothing is rounded, so no cast reads the widths and the family
-            # does not matter; binaryK's op is as good as superfp's.
-            return _binaryK_fma_spec(fma_K=2, fma_P=1, fma_quant=False, **fields)
+            # Nothing is rounded per step, so no cast reads the widths and the
+            # family is the outer format's, if there is one; without one it
+            # does not matter, and binaryK's op is as good as superfp's.
+            if naive:
+                return _binaryK_fma_spec(fma_K=2, fma_P=1, fma_quant=False, **fields)
+            if isinstance(mac.outer, SuperFP):
+                return _superfp_fma_accumulated_spec(
+                    fma_man_bits=1,
+                    fma_exp_bits=2,
+                    fma_normal_binades=1,
+                    fma_bias=1,
+                    fma_quant=False,
+                    **fields,
+                )
+            return _binaryK_fma_accumulated_spec(fma_K=2, fma_P=1, fma_quant=False, **fields)
         fma = _resolved(mac.fma)
         fma_0 = fma[0]
         binaryK = isinstance(fma_0, BinaryK)
@@ -511,7 +632,10 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         if _varies(fma):
             build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
             return build(**fields)
-        build = _binaryK_fma_spec if binaryK else _superfp_fma_spec
+        if naive:
+            build = _binaryK_fma_spec if binaryK else _superfp_fma_spec
+        else:
+            build = _binaryK_fma_accumulated_spec if binaryK else _superfp_fma_accumulated_spec
         return build(fma_quant=True, **fields)
 
     mul = _resolved(mac.mul)
@@ -535,5 +659,8 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
     if n > 1:
         build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
         return build(**fields)
-    build = _binaryK_spec if binaryK else _superfp_spec
+    if naive:
+        build = _binaryK_spec if binaryK else _superfp_spec
+    else:
+        build = _binaryK_accumulated_spec if binaryK else _superfp_accumulated_spec
     return build(**fields)

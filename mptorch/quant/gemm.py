@@ -39,13 +39,13 @@ from mptorch.number import AccumulateAlgorithm, RoundMode, SaturationMode, Subno
 from .mac import Mac, spec_for_mac
 from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
-    _binaryK_fma_spec,
-    _binaryK_spec,
+    _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_spec,
     _gemm_mixed_nd,
     _gemm_nd,
     _run_gemm,
-    _superfp_fma_spec,
-    _superfp_spec,
+    _superfp_accumulated_spec,
+    _superfp_fma_accumulated_spec,
 )
 
 __all__ = [
@@ -129,6 +129,14 @@ def binaryK_gemm_formats(
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
+    block_size: int | None = None,
+    outer_K: int | None = None,
+    outer_P: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
+    outer_subnormals_mode: SubnormalsMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """Build a ``QAffineFormats`` whose dot products run in a binaryK GEMM.
@@ -170,8 +178,10 @@ def binaryK_gemm_formats(
             ``None`` takes ``mul_is_signed``. Default: ``None``
         acc_prng_bits (int): random bits per stochastic rounding of a partial
             sum. Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation.
-            Only ``NAIVE`` (sequential over K) is implemented.
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
+            the three past ``NAIVE`` in binary32 only so far.
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding for both formats; one mode for
             both because the kernels take it as a template parameter.
@@ -186,6 +196,15 @@ def binaryK_gemm_formats(
         acc_subnormals_mode (SubnormalsMode, optional): subnormal handling of
             the accumulate format. ``None`` takes ``subnormals_mode``.
             Default: ``None``
+        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
+            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_K (int, optional): width of the outer format ``BLOCK`` and
+            ``TREE`` round their total to, as for
+            :func:`mptorch.quant.binaryK_matmul`, which documents it and the
+            rest of its spelling: ``outer_P``, ``outer_bias``,
+            ``outer_is_signed``, ``outer_prng_bits``,
+            ``outer_saturation_mode`` and ``outer_subnormals_mode``.
+            Default: ``None``, an unrounded total.
         carrier (torch.dtype, optional): the float arithmetic the GEMM rounds
             in. ``None`` takes the layer's (binary64 for float64, binary32 for
             the rest); ``torch.float64`` runs a float32 or half-precision
@@ -213,7 +232,7 @@ def binaryK_gemm_formats(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
-    spec = _binaryK_spec(
+    spec = _binaryK_accumulated_spec(
         mul_K=mul_K,
         mul_P=mul_P,
         mul_bias=mul_bias,
@@ -231,6 +250,14 @@ def binaryK_gemm_formats(
         subnormals_mode=subnormals_mode,
         acc_saturation_mode=acc_saturation_mode,
         acc_subnormals_mode=acc_subnormals_mode,
+        block_size=block_size,
+        outer_K=outer_K,
+        outer_P=outer_P,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
+        outer_subnormals_mode=outer_subnormals_mode,
         carrier=carrier,
     )
     return _gemm_formats(partial(_run_gemm, spec))
@@ -248,6 +275,14 @@ def binaryK_gemm_formats_fma(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    block_size: int | None = None,
+    outer_K: int | None = None,
+    outer_P: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
+    outer_subnormals_mode: SubnormalsMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """Fused-multiply-add analog of :func:`binaryK_gemm_formats`.
@@ -271,7 +306,10 @@ def binaryK_gemm_formats_fma(
             Default: ``True``
         fma_prng_bits (int): random bits per stochastic rounding; only read
             when ``rounding_mode`` is ``RoundMode.SR``. Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation.
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
+            the three past ``NAIVE`` in binary32 only so far.
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
@@ -279,6 +317,15 @@ def binaryK_gemm_formats_fma(
             Default: ``SaturationMode.OVF_INF``
         subnormals_mode (SubnormalsMode): subnormal handling.
             Default: ``SubnormalsMode.SUBNORMALS``
+        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
+            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_K (int, optional): width of the outer format ``BLOCK`` and
+            ``TREE`` round their total to, as for
+            :func:`mptorch.quant.binaryK_matmul`, which documents it and the
+            rest of its spelling: ``outer_P``, ``outer_bias``,
+            ``outer_is_signed``, ``outer_prng_bits``,
+            ``outer_saturation_mode`` and ``outer_subnormals_mode``.
+            Default: ``None``, an unrounded total.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
 
@@ -296,7 +343,7 @@ def binaryK_gemm_formats_fma(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
-    spec = _binaryK_fma_spec(
+    spec = _binaryK_fma_accumulated_spec(
         fma_K=fma_K,
         fma_P=fma_P,
         fma_bias=fma_bias,
@@ -307,6 +354,14 @@ def binaryK_gemm_formats_fma(
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
         subnormals_mode=subnormals_mode,
+        block_size=block_size,
+        outer_K=outer_K,
+        outer_P=outer_P,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
+        outer_subnormals_mode=outer_subnormals_mode,
         carrier=carrier,
     )
     return _gemm_formats(partial(_run_gemm, spec))
@@ -331,6 +386,14 @@ def superfp_gemm_formats(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
     acc_saturation_mode: SaturationMode | None = None,
+    block_size: int | None = None,
+    outer_man_bits: int | None = None,
+    outer_exp_bits: int | None = None,
+    outer_normal_binades: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats`.
@@ -367,7 +430,10 @@ def superfp_gemm_formats(
             Default: ``None``
         acc_prng_bits (int): random bits per stochastic rounding of a partial
             sum. Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation.
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
+            the three past ``NAIVE`` in binary32 only so far.
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding for both formats.
             Default: ``RoundMode.RNE``
@@ -375,6 +441,15 @@ def superfp_gemm_formats(
             format. Default: ``SaturationMode.OVF_INF``
         acc_saturation_mode (SaturationMode, optional): ``None`` takes
             ``saturation_mode``. Default: ``None``
+        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
+            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_man_bits (int, optional): mantissa bits of the outer format
+            ``BLOCK`` and ``TREE`` round their total to, as for
+            :func:`mptorch.quant.superfp_matmul`, which documents it and the
+            rest of its spelling: ``outer_exp_bits``,
+            ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,
+            ``outer_prng_bits`` and ``outer_saturation_mode``.
+            Default: ``None``, an unrounded total.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
 
@@ -395,7 +470,7 @@ def superfp_gemm_formats(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
-    spec = _superfp_spec(
+    spec = _superfp_accumulated_spec(
         mul_man_bits=mul_man_bits,
         mul_exp_bits=mul_exp_bits,
         mul_normal_binades=mul_normal_binades,
@@ -413,6 +488,14 @@ def superfp_gemm_formats(
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
         acc_saturation_mode=acc_saturation_mode,
+        block_size=block_size,
+        outer_man_bits=outer_man_bits,
+        outer_exp_bits=outer_exp_bits,
+        outer_normal_binades=outer_normal_binades,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
         carrier=carrier,
     )
     return _gemm_formats(partial(_run_gemm, spec))
@@ -430,6 +513,14 @@ def superfp_gemm_formats_fma(
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    block_size: int | None = None,
+    outer_man_bits: int | None = None,
+    outer_exp_bits: int | None = None,
+    outer_normal_binades: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats_fma`.
@@ -451,12 +542,24 @@ def superfp_gemm_formats_fma(
             Default: ``True``
         fma_prng_bits (int): random bits per stochastic rounding.
             Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): order of the summation.
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
+            the three past ``NAIVE`` in binary32 only so far.
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): overflow behaviour.
             Default: ``SaturationMode.OVF_INF``
+        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
+            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_man_bits (int, optional): mantissa bits of the outer format
+            ``BLOCK`` and ``TREE`` round their total to, as for
+            :func:`mptorch.quant.superfp_matmul`, which documents it and the
+            rest of its spelling: ``outer_exp_bits``,
+            ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,
+            ``outer_prng_bits`` and ``outer_saturation_mode``.
+            Default: ``None``, an unrounded total.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
 
@@ -475,7 +578,7 @@ def superfp_gemm_formats_fma(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
-    spec = _superfp_fma_spec(
+    spec = _superfp_fma_accumulated_spec(
         fma_man_bits=fma_man_bits,
         fma_exp_bits=fma_exp_bits,
         fma_normal_binades=fma_normal_binades,
@@ -486,6 +589,14 @@ def superfp_gemm_formats_fma(
         accumulate_algorithm=accumulate_algorithm,
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
+        block_size=block_size,
+        outer_man_bits=outer_man_bits,
+        outer_exp_bits=outer_exp_bits,
+        outer_normal_binades=outer_normal_binades,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
         carrier=carrier,
     )
     return _gemm_formats(partial(_run_gemm, spec))

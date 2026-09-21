@@ -19,11 +19,13 @@ the autograd guard on the raw ops, and the gradients of ``qmatmul``.
 """
 
 import itertools
+from typing import Any
 
 import pytest
 import torch
 
 from mptorch import (
+    AccumulateAlgorithm,
     BinaryK,
     RoundMode,
     SaturationMode,
@@ -48,10 +50,13 @@ from mptorch.quant import (
 )
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import (
+    _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_spec,
     _binaryK_fma_mixed_spec,
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
     _binaryK_spec,
+    _superfp_accumulated_spec,
     _superfp_fma_mixed_spec,
     _superfp_fma_spec,
     _superfp_mixed_spec,
@@ -229,6 +234,107 @@ def test_carrier_resolves_to_the_flat_spec(carrier):
         mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=22, carrier=carrier
     )
     assert spec_for_mac(SplitMac(fmt, wide, carrier=carrier)).carrier == carrier
+
+
+@pytest.mark.parametrize("carrier", [None, torch.float32])
+@pytest.mark.parametrize(
+    "algorithm,block_size",
+    [
+        (AccumulateAlgorithm.KAHAN, None),
+        (AccumulateAlgorithm.BLOCK, 4),
+        (AccumulateAlgorithm.BLOCK, 48),
+        (AccumulateAlgorithm.TREE, None),
+        (AccumulateAlgorithm.TREE, 64),
+    ],
+)
+@pytest.mark.parametrize("with_outer", [False, True])
+def test_accumulate_algorithms_resolve_to_the_flat_spec(carrier, algorithm, block_size, with_outer):
+    """KAHAN, BLOCK and TREE: the block size, the outer format and what the
+    result stores are resolved by the flat builder for both tiers."""
+    kahan = algorithm is AccumulateAlgorithm.KAHAN
+    tree = algorithm is AccumulateAlgorithm.TREE
+    if kahan and with_outer:
+        pytest.skip("KAHAN takes no outer format")
+    fmt, wide = BinaryK(8, 4), BinaryK(16, 11, saturation=SaturationMode.SAT_FINITE)
+    common: dict[str, Any] = dict(
+        accumulate_algorithm=algorithm, block_size=block_size, carrier=carrier
+    )
+    flat_outer: dict[str, Any] = (
+        dict(outer_K=16, outer_P=11, outer_saturation_mode=SaturationMode.SAT_FINITE)
+        if with_outer
+        else {}
+    )
+    spec = spec_for_mac(SplitMac(fmt, fmt, outer=wide if with_outer else None, **common))
+    assert spec == _binaryK_accumulated_spec(mul_K=8, mul_P=4, **flat_outer, **common)
+    # The arguments the *_accumulated op takes after its twin's: the block
+    # size (TREE's default is 16), whether there is an outer format, the format.
+    assert spec.args[-9:-7] == (0 if kahan else block_size or 16, with_outer)
+    # The result holds the last rounding: KAHAN's sum is the accumulate
+    # format's, a total is the outer format's, or nobody's.
+    stored = [fmt_args[:2] for _, fmt_args in spec.stored]
+    assert stored == ([(8, 4)] if kahan else [(16, 11)] if with_outer else [])
+    # binary64 has no kernels for them yet, and says so before anything else.
+    assert spec.findings[1][0][0] is not None
+    assert "phase G" in spec.findings[1][0][0]
+    assert spec.findings[0] == ()
+
+    if not tree:
+        assert spec_for_mac(
+            FusedMac(fmt, outer=wide if with_outer else None, **common)
+        ) == _binaryK_fma_accumulated_spec(fma_K=8, fma_P=4, **flat_outer, **common)
+    sfp, swide = SuperFP(3, 4, 8, 7), SuperFP(8, 6, 32, 31)
+    sflat_outer: dict[str, Any] = (
+        dict(outer_man_bits=8, outer_exp_bits=6, outer_normal_binades=32, outer_bias=31)
+        if with_outer
+        else {}
+    )
+    assert spec_for_mac(
+        SplitMac(sfp, None, outer=swide if with_outer else None, **common)
+    ) == _superfp_accumulated_spec(
+        mul_man_bits=3,
+        mul_exp_bits=4,
+        mul_normal_binades=8,
+        mul_bias=7,
+        accumulate_quant=False,
+        **sflat_outer,
+        **common,
+    )
+    if not tree:
+        # An unrounded fused step has no family of its own: the outer format's.
+        unrounded = spec_for_mac(FusedMac(None, outer=swide if with_outer else None, **common))
+        family = "superfp" if with_outer else "binaryK"
+        op = getattr(torch.ops.mptorch, f"custom_matmul_{family}_fma_accumulated")
+        assert unrounded.op is op.default
+
+
+def test_a_naive_spec_is_what_it_was_before_the_other_algorithms():
+    """KAHAN, BLOCK and TREE are ops of their own, so a NAIVE spec names the
+    op and the arguments it named before they existed, and calling it costs
+    what it did."""
+    ops = torch.ops.mptorch
+    sfp = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+    sfp_mul: dict[str, Any] = {f"mul_{k}": v for k, v in sfp.items()}
+    sfp_fma: dict[str, Any] = {f"fma_{k}": v for k, v in sfp.items()}
+    for spec, op, n_args in (
+        (_binaryK_spec(mul_K=8, mul_P=4), ops.custom_matmul_binaryK, 17),
+        (_superfp_spec(**sfp_mul), ops.custom_matmul_superfp, 17),
+        (_binaryK_fma_spec(fma_K=8, fma_P=4), ops.custom_matmul_binaryK_fma, 10),
+        (
+            _superfp_fma_spec(**sfp_fma),
+            ops.custom_matmul_superfp_fma,
+            10,
+        ),
+    ):
+        assert spec.op is op.default
+        assert len(spec.args) == n_args
+        assert len(op.default._schema.arguments) == 4 + n_args
+    kahan = _binaryK_accumulated_spec(
+        mul_K=8, mul_P=4, accumulate_algorithm=AccumulateAlgorithm.KAHAN
+    )
+    # and the accumulated builder, asked for NAIVE, is the NAIVE builder
+    assert _binaryK_accumulated_spec(mul_K=8, mul_P=4) == _binaryK_spec(mul_K=8, mul_P=4)
+    assert kahan.op is ops.custom_matmul_binaryK_accumulated.default
+    assert len(kahan.args) == 17 + 9
 
 
 def test_a_spec_holds_what_each_carrier_says_about_its_formats():
