@@ -53,6 +53,12 @@ inline at::PhiloxCudaState quant_rng_engine_inputs()
 // anywhere in its storage. The entry points therefore pass their input
 // through mptorch::vector_loadable (vector_load.h), which copies such a
 // view; the output is a fresh allocation and is aligned by construction.
+// The in-place ops check their tensor instead (check_vector_loadable_in_place).
+//
+// `a` and `o` may be the same pointer, which is what the in-place ops pass,
+// so neither carries __restrict__. That is value-safe because a thread reads
+// vector i (or tail element i) whole before it writes it, and no thread
+// touches another's.
 //
 // Indices are 64-bit because `size` comes straight from Tensor::numel(),
 // which an int would truncate past 2^31 elements. The kernel is memory bound
@@ -61,7 +67,7 @@ inline at::PhiloxCudaState quant_rng_engine_inputs()
 // so there is no separate narrow-index path.
 template <typename scalar_t, class Quant>
 __global__ __launch_bounds__(256, 2)
-void quant_kernel_all(const scalar_t *__restrict__ a,
+void quant_kernel_all(const scalar_t *a,
                       scalar_t *o,
                       int64_t size,
                       Quant quant)
@@ -110,7 +116,7 @@ void quant_kernel_all(const scalar_t *__restrict__ a,
 // elements that share a block, which is one vector's worth of lanes.
 template <typename scalar_t, class Quant>
 __global__ __launch_bounds__(256, 2)
-void quant_kernel_all_sr(const scalar_t *__restrict__ a,
+void quant_kernel_all_sr(const scalar_t *a,
                          scalar_t *o,
                          int64_t size,
                          Quant quant,

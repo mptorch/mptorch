@@ -22,7 +22,9 @@ from mptorch.number import (
 
 __all__ = [
     "binaryK_quantize",
+    "binaryK_quantize_",
     "superfp_quantize",
+    "superfp_quantize_",
     "binaryK_matmul",
     "superfp_matmul",
     "binaryK_matmul_fma",
@@ -784,6 +786,120 @@ def _quantizer_operand(x: torch.Tensor, widen: bool) -> torch.Tensor:
     return x.contiguous()
 
 
+def _refuse_widening_in_place(op: str, dtype: torch.dtype) -> None:
+    """Raise for an in-place quantizer whose carrier is wider than its tensor.
+
+    ``carrier=torch.float64`` on a float32, float16 or bfloat16 tensor rounds
+    a float64 copy of it and narrows the result back, which takes a buffer of
+    another dtype and so cannot be done in place.
+    """
+    raise ValueError(
+        f"{op}_ cannot round a {dtype} tensor in carrier=torch.float64 in place: that carrier "
+        f"needs a float64 copy of the tensor and a narrowed result, which is what an in-place "
+        f"op exists to avoid -- use {op}(x, ..., carrier=torch.float64) and keep its result, "
+        f"or leave carrier unset to round in the tensor's own carrier"
+    )
+
+
+def binaryK_quantize_(
+    x: torch.Tensor,
+    K: int,
+    P: int,
+    bias: int | None = None,
+    prng_bits: int = 0,
+    is_signed: bool = True,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    *,
+    carrier: torch.dtype | None = None,
+) -> torch.Tensor:
+    """Round every element of ``x`` to a binaryK format, in place.
+
+    The in-place spelling of :func:`binaryK_quantize`: the same arguments, the
+    same per-call format checks and, element for element, the same result
+    (under ``RoundMode.SR`` and one seed too, since each element's random word
+    is keyed on its index), written over ``x``. There is no output allocation
+    and no output-sized footprint, so peak memory is one tensor instead of
+    two; the time is the same, since the kernel reads and writes the same
+    bytes either way. It is for a caller that owns ``x``: a weight quantized
+    once at load, an activation nothing else will read.
+
+    What :func:`binaryK_quantize` handles by copying, this refuses, because a
+    copy is what the kernel would then write, leaving ``x`` as it was:
+
+    * a tensor that is not contiguous;
+    * on CUDA, a view that does not start on a 16-byte boundary (``x[1:]``),
+      which the kernel's vector loads cannot address;
+    * ``carrier=torch.float64`` on a float32, float16 or bfloat16 tensor,
+      which rounds a float64 copy and narrows the result. A float64 tensor
+      rounds in binary64 in place like any other dtype in its carrier.
+
+    It has no MPS kernel yet and raises on an MPS tensor.
+
+    Args:
+        x (Tensor): the tensor to round and overwrite; float32, float64,
+            float16 or bfloat16, contiguous. The format and mode arguments
+            between it and ``carrier`` are :func:`binaryK_quantize`'s.
+        carrier (torch.dtype, optional): ``None`` or the carrier ``x`` already
+            has (``torch.float32`` for float32, float16 and bfloat16,
+            ``torch.float64`` for float64). Default: ``None``
+
+    Returns:
+        Tensor: ``x`` itself, holding the rounded values.
+
+    Raises:
+        ValueError: as for :func:`binaryK_quantize`, and if ``carrier`` is
+            wider than ``x``.
+        TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
+        RuntimeError: if ``x`` requires grad under grad mode, is not
+            contiguous, is a CUDA view off a 16-byte boundary, or is on MPS.
+
+    Warns:
+        FormatRangeWarning: as for :func:`binaryK_quantize`.
+
+    Example::
+
+        >>> x = torch.tensor([1.0, 1.1, 0.5])
+        >>> binaryK_quantize_(x, K=8, P=4) is x
+        True
+        >>> x
+        tensor([1.0000, 1.1250, 0.5000])
+    """
+    if bias is None:
+        bias = _binaryK_bias(K, P, is_signed)
+    dtype = x.dtype
+    wide, widen = _call_carrier(carrier, dtype)
+    check_binaryK_carrier(
+        K, P, bias, is_signed, saturation_mode, subnormals_mode, prng_bits, carrier=_CARRIER[wide]
+    )
+    if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
+        check_binaryK_storage(
+            K,
+            P,
+            bias,
+            is_signed,
+            saturation_mode,
+            subnormals_mode,
+            storage=dtype,
+            elementwise=True,
+        )
+    if widen:
+        _refuse_widening_in_place("binaryK_quantize", dtype)
+
+    return torch.ops.mptorch.binaryK_quant_.default(
+        x,
+        K,
+        P,
+        bias,
+        prng_bits,
+        is_signed,
+        rounding_mode.value,
+        saturation_mode.value,
+        subnormals_mode.value,
+    )
+
+
 def superfp_quantize(
     x: torch.Tensor,
     man_bits: int,
@@ -884,6 +1000,86 @@ def superfp_quantize(
         saturation_mode.value,
     )
     return _narrowed(out, dtype) if widen else out
+
+
+def superfp_quantize_(
+    x: torch.Tensor,
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    prng_bits: int = 0,
+    is_signed: bool = True,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    *,
+    carrier: torch.dtype | None = None,
+) -> torch.Tensor:
+    """Round every element of ``x`` to a superfp format, in place.
+
+    The in-place spelling of :func:`superfp_quantize`: the same arguments,
+    checks and result, written over ``x``, with no output allocation. What it
+    is for and what it refuses (a tensor that is not contiguous, a CUDA view
+    off a 16-byte boundary, a ``carrier`` wider than ``x``, an MPS tensor) are
+    as for :func:`binaryK_quantize_`.
+
+    Args:
+        x (Tensor): the tensor to round and overwrite; float32, float64,
+            float16 or bfloat16, contiguous. The format and mode arguments
+            between it and ``carrier`` are :func:`superfp_quantize`'s.
+        carrier (torch.dtype, optional): ``None`` or the carrier ``x`` already
+            has. Default: ``None``
+
+    Returns:
+        Tensor: ``x`` itself, holding the rounded values.
+
+    Raises:
+        ValueError: as for :func:`superfp_quantize`, and if ``carrier`` is
+            wider than ``x``.
+        TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
+        RuntimeError: if ``x`` requires grad under grad mode, is not
+            contiguous, is a CUDA view off a 16-byte boundary, or is on MPS.
+
+    Warns:
+        FormatRangeWarning: as for :func:`superfp_quantize`.
+
+    Example::
+
+        >>> x = torch.tensor([1.1, 3.3, 0.05])
+        >>> superfp_quantize_(x, man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+        tensor([1.0000, 3.2500, 0.0625])
+        >>> x
+        tensor([1.0000, 3.2500, 0.0625])
+    """
+    dtype = x.dtype
+    wide, widen = _call_carrier(carrier, dtype)
+    check_superfp_carrier(
+        man_bits, exp_bits, normal_binades, bias, saturation_mode, prng_bits, carrier=_CARRIER[wide]
+    )
+    if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
+        check_superfp_storage(
+            man_bits,
+            exp_bits,
+            normal_binades,
+            bias,
+            saturation_mode,
+            storage=dtype,
+            elementwise=True,
+        )
+    if widen:
+        _refuse_widening_in_place("superfp_quantize", dtype)
+
+    return torch.ops.mptorch.superfp_quant_.default(
+        x,
+        man_bits,
+        exp_bits,
+        normal_binades,
+        bias,
+        prng_bits,
+        is_signed,
+        rounding_mode.value,
+        saturation_mode.value,
+    )
 
 
 # --- single-format GEMMs -----------------------------------------------------

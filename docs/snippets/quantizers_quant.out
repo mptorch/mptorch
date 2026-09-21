@@ -1,4 +1,4 @@
-Quant(fmt=BinaryK(K=8, P=4, bias=8, is_signed=True, prng_bits=0, saturation=<SaturationMode.OVF_INF: 2>, subnormals=<SubnormalsMode.SUBNORMALS: 0>), rounding=<RoundMode.RNE: 0>, carrier=None)
+Quant(fmt=BinaryK(K=8, P=4, bias=8, is_signed=True, prng_bits=0, saturation=<SaturationMode.OVF_INF: 2>, subnormals=<SubnormalsMode.SUBNORMALS: 0>), rounding=<RoundMode.RNE: 0>, carrier=None, inplace=False)
 tensor([[-1.1250, -1.1250, -0.2500, -0.4375],
         [ 0.8750,  0.6875, -0.3125, -2.0000],
         [ 0.3125, -1.2500,  0.3438,  0.3125],

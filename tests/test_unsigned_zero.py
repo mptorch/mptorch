@@ -41,11 +41,13 @@ from mptorch.quant import (
     binaryK_matmul_fma_mixed,
     binaryK_matmul_mixed,
     binaryK_quantize,
+    binaryK_quantize_,
     superfp_matmul,
     superfp_matmul_fma,
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
     superfp_quantize,
+    superfp_quantize_,
 )
 from tests.markers import available_devices, requires_cuda
 
@@ -129,13 +131,24 @@ def _describe(x: torch.Tensor, out: torch.Tensor) -> str:
 # --- elementwise ----------------------------------------------------------------
 
 
+def _skip_in_place_on_mps(device: str, inplace: bool) -> None:
+    """The in-place quantizers have no MPS kernel yet (they raise, which
+    ``tests/test_quantize_inplace.py`` checks), so there are no zeros to look at."""
+    if inplace and device == "mps":
+        pytest.skip("The in-place quantizers have no MPS kernel yet.")
+
+
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
-def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
+@pytest.mark.parametrize("inplace", [False, True], ids=["out_of_place", "in_place"])
+def test_binaryK_quantize(device, inplace, carrier, signed, subnormals_mode):
     """No binaryK format, saturation mode and rounding mode returns a -0.0 for
-    any probe value, in either carrier."""
+    any probe value, in either carrier, from the op or from its in-place twin
+    (which is handed a copy: on the CPU ``.to(device)`` is the probe itself)."""
+    _skip_in_place_on_mps(device, inplace)
+    quantize = binaryK_quantize_ if inplace else binaryK_quantize
     wide = carrier == "binary64"
     x = _probe64() if wide else _probe()
     failures = []
@@ -143,8 +156,8 @@ def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
         BINARYK_FORMATS64 if wide else BINARYK_FORMATS, SaturationMode, RoundMode
     ):
         xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
-        out = binaryK_quantize(
-            xs.to(device),
+        out = quantize(
+            xs.to(device, copy=inplace),
             K,
             P,
             bias=bias,
@@ -164,9 +177,12 @@ def test_binaryK_quantize(device, carrier, signed, subnormals_mode):
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
 @pytest.mark.parametrize("carrier", ["binary32", "binary64"])
-def test_superfp_quantize(device, carrier, signed):
+@pytest.mark.parametrize("inplace", [False, True], ids=["out_of_place", "in_place"])
+def test_superfp_quantize(device, inplace, carrier, signed):
     """The same for superfp, whose underflow region flushes to a zero of its
     own making."""
+    _skip_in_place_on_mps(device, inplace)
+    quantize = superfp_quantize_ if inplace else superfp_quantize
     wide = carrier == "binary64"
     x = _probe64() if wide else _probe()
     failures = []
@@ -174,8 +190,8 @@ def test_superfp_quantize(device, carrier, signed):
         SUPERFP_FORMATS64 if wide else SUPERFP_FORMATS, SaturationMode, RoundMode
     ):
         xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
-        out = superfp_quantize(
-            xs.to(device),
+        out = quantize(
+            xs.to(device, copy=inplace),
             man_bits,
             exp_bits,
             normal_binades,

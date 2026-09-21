@@ -21,6 +21,7 @@ formats.
 """
 
 import math
+from typing import Any
 
 import pytest
 import torch
@@ -224,22 +225,28 @@ def test_quantize_rejects_what_mps_cannot_hold():
 # --------------------------------------------------------------------------
 
 # One call per op, each with its own formats; `rm` is the rounding mode.
-_B = dict(mul_K=8, mul_P=4, acc_K=12, acc_P=6, mul_prng_bits=8, acc_prng_bits=8)
-_S = dict(
+_B: dict[str, Any] = dict(mul_K=8, mul_P=4, acc_K=12, acc_P=6, mul_prng_bits=8, acc_prng_bits=8)
+_S: dict[str, Any] = dict(
     mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=7,
     acc_man_bits=5, acc_exp_bits=5, acc_normal_binades=2, acc_bias=15,
     mul_prng_bits=8, acc_prng_bits=8,
 )  # fmt: skip
-_BF = dict(fma_K=10, fma_P=5, fma_prng_bits=8)
-_SF = dict(fma_man_bits=4, fma_exp_bits=5, fma_normal_binades=1, fma_bias=15, fma_prng_bits=8)
-_BM = dict(mul_K=[8, 8, 6], mul_P=[4, 3, 3], acc_K=[12, 10, 8], acc_P=[6, 5, 4], mul_prng_bits=8)
-_SM = dict(
+_BF: dict[str, Any] = dict(fma_K=10, fma_P=5, fma_prng_bits=8)
+_SF: dict[str, Any] = dict(
+    fma_man_bits=4, fma_exp_bits=5, fma_normal_binades=1, fma_bias=15, fma_prng_bits=8
+)
+_BM: dict[str, Any] = dict(
+    mul_K=[8, 8, 6], mul_P=[4, 3, 3], acc_K=[12, 10, 8], acc_P=[6, 5, 4], mul_prng_bits=8
+)
+_SM: dict[str, Any] = dict(
     mul_man_bits=[3, 2, 1], mul_exp_bits=[4, 5, 4], mul_normal_binades=1, mul_bias=[7, 15, 7],
     acc_man_bits=[5, 4, 3], acc_exp_bits=[5, 5, 5], acc_normal_binades=2, acc_bias=[15, 15, 15],
     mul_prng_bits=8,
 )  # fmt: skip
-_BFM = dict(fma_K=[10, 8], fma_P=[5, 4], fma_prng_bits=8)
-_SFM = dict(fma_man_bits=[4, 2], fma_exp_bits=[5, 5], fma_normal_binades=1, fma_bias=[15, 15])
+_BFM: dict[str, Any] = dict(fma_K=[10, 8], fma_P=[5, 4], fma_prng_bits=8)
+_SFM: dict[str, Any] = dict(
+    fma_man_bits=[4, 2], fma_exp_bits=[5, 5], fma_normal_binades=1, fma_bias=[15, 15]
+)
 
 GEMMS = {
     "binaryK": lambda a, b, p, rm, **kw: binaryK_matmul(a, b, rounding_mode=rm, **_B, **kw),
@@ -450,7 +457,9 @@ def test_qlinear_trains_on_mps():
     out.square().sum().backward()
 
     _assert_same_words(cpu(x_cpu).detach(), out.detach())
+    assert x_cpu.grad is not None and x_mps.grad is not None
     _assert_same_words(x_cpu.grad, x_mps.grad)
+    assert cpu.weight.grad is not None and mps.weight.grad is not None
     _assert_same_words(cpu.weight.grad, mps.weight.grad)
 
 

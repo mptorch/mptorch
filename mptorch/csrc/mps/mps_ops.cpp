@@ -9,7 +9,10 @@
 // binary32 subnormals. The one exception is narrow_float64, whose input is a
 // float64 tensor, which MPS cannot hold: it keeps torch's boxed CPU
 // fallback, so that a call on an MPS tensor reaches the op's own dtype check
-// and fails with its message rather than the dispatcher's.
+// and fails with its message rather than the dispatcher's. The two in-place
+// quantizers have no Metal kernel yet and are bound to functions that raise
+// (quantize.cpp), for the same reason: an op with no MPS registration fails
+// at dispatch with a message that names nothing a caller can act on.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>
@@ -27,6 +30,8 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
 {
   m.impl("binaryK_quant", TORCH_FN(binaryK_quantize_mps));
   m.impl("superfp_quant", TORCH_FN(superfp_quantize_mps));
+  m.impl("binaryK_quant_", TORCH_FN(binaryK_quantize_mps_));
+  m.impl("superfp_quant_", TORCH_FN(superfp_quantize_mps_));
   m.impl("narrow_float64", torch::CppFunction::makeFromBoxedFunction<&mps_via_cpu>());
   m.impl("custom_matmul_binaryK", TORCH_FN(binaryK_matmul_mps));
   m.impl("custom_matmul_superfp", TORCH_FN(superfp_matmul_mps));

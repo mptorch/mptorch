@@ -22,6 +22,10 @@ Elementwise quantization
 
 .. autofunction:: mptorch.quant.superfp_quantize
 
+.. autofunction:: mptorch.quant.binaryK_quantize_
+
+.. autofunction:: mptorch.quant.superfp_quantize_
+
 .. autoclass:: mptorch.quant.Quant
    :members: __call__
 

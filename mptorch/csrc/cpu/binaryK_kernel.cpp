@@ -143,14 +143,62 @@ namespace
                     });
   }
 
+  // The body of both entry points: every element of the contiguous `a`
+  // rounded into `o`, which is `a` itself for the in-place op. The drivers
+  // (utils.h) compute o[i] from a[i] alone and carry no restrict, so a == o
+  // is value-safe. Dispatches once on the storage dtype and once on the
+  // sign, and draws one seed only when the round mode is SR.
+  void binaryK_quantize_into(const Tensor &a, Tensor &o, int64_t K, int64_t P, int64_t bias,
+                             int64_t prng_bits, bool is_signed, int64_t round_mode,
+                             int64_t saturation_mode, int64_t subnormals_mode)
+  {
+    const int64_t size = a.numel(); // int would truncate past 2^31 elements
+    RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
+    SubnormalsMode subnormals_mode_ =
+        static_cast<SubnormalsMode>(subnormals_mode);
+    SaturationMode saturation_mode_ =
+        static_cast<SaturationMode>(saturation_mode);
+
+    const int K_ = static_cast<int>(K);
+    const int P_ = static_cast<int>(P);
+    const int bias_ = static_cast<int>(bias);
+    const int prng_bits_ = static_cast<int>(prng_bits);
+
+    if (round_mode_ != RoundMode::SR)
+    {
+      MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_quantize_cpu", [&]
+                                      {
+        const scalar_t *p_a = a.data_ptr<scalar_t>();
+        scalar_t *p_o = o.data_ptr<scalar_t>();
+        if (is_signed)
+          binaryK_kernel_impl<scalar_t, true>(p_a, p_o, size, K_, P_, bias_, round_mode_,
+                         saturation_mode_, subnormals_mode_);
+        else
+          binaryK_kernel_impl<scalar_t, false>(p_a, p_o, size, K_, P_, bias_, round_mode_,
+                         saturation_mode_, subnormals_mode_); });
+    }
+    else
+    {
+      const uint64_t seed = draw_cpu_seed();
+      MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "binaryK_quantize_cpu_sr", [&]
+                                      {
+        const scalar_t *p_a = a.data_ptr<scalar_t>();
+        scalar_t *p_o = o.data_ptr<scalar_t>();
+        if (is_signed)
+          binaryK_kernel_sr_impl<scalar_t, true>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
+                         saturation_mode_, subnormals_mode_);
+        else
+          binaryK_kernel_sr_impl<scalar_t, false>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
+                         saturation_mode_, subnormals_mode_); });
+    }
+  }
+
 } // namespace
 
 // The CPU kernel behind mptorch::binaryK_quant: a new tensor of a's shape and
 // dtype, every element rounded to the binaryK format (K, P, bias, is_signed)
 // in the given round, saturation and subnormals modes (the int64_t arguments
-// are the enum values of common/modes.h). Dispatches once on the storage
-// dtype and once on the sign, and draws one seed only when the round mode
-// is SR.
+// are the enum values of common/modes.h).
 Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
                             int64_t prng_bits, bool is_signed,
                             int64_t round_mode, int64_t saturation_mode,
@@ -162,45 +210,24 @@ Tensor binaryK_quantize_cpu(Tensor a, int64_t K, int64_t P, int64_t bias,
   // not, so the copy is made (or skipped, for a contiguous input) here.
   auto a_c = a.contiguous();
   auto o = empty_like(a_c);
-  const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
-  RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
-  SubnormalsMode subnormals_mode_ =
-      static_cast<SubnormalsMode>(subnormals_mode);
-  SaturationMode saturation_mode_ =
-      static_cast<SaturationMode>(saturation_mode);
-
-  const int K_ = static_cast<int>(K);
-  const int P_ = static_cast<int>(P);
-  const int bias_ = static_cast<int>(bias);
-  const int prng_bits_ = static_cast<int>(prng_bits);
-
-  if (round_mode_ != RoundMode::SR)
-  {
-    MPTORCH_DISPATCH_QUANT_TYPES(a_c.scalar_type(), "binaryK_quantize_cpu", [&]
-                                    {
-      const scalar_t *p_a = a_c.data_ptr<scalar_t>();
-      scalar_t *p_o = o.data_ptr<scalar_t>();
-      if (is_signed)
-        binaryK_kernel_impl<scalar_t, true>(p_a, p_o, size, K_, P_, bias_, round_mode_,
-                       saturation_mode_, subnormals_mode_);
-      else
-        binaryK_kernel_impl<scalar_t, false>(p_a, p_o, size, K_, P_, bias_, round_mode_,
-                       saturation_mode_, subnormals_mode_); });
-  }
-  else
-  {
-    const uint64_t seed = draw_cpu_seed();
-    MPTORCH_DISPATCH_QUANT_TYPES(a_c.scalar_type(), "binaryK_quantize_cpu_sr", [&]
-                                    {
-      const scalar_t *p_a = a_c.data_ptr<scalar_t>();
-      scalar_t *p_o = o.data_ptr<scalar_t>();
-      if (is_signed)
-        binaryK_kernel_sr_impl<scalar_t, true>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
-                       saturation_mode_, subnormals_mode_);
-      else
-        binaryK_kernel_sr_impl<scalar_t, false>(p_a, p_o, size, K_, P_, bias_, prng_bits_, seed,
-                       saturation_mode_, subnormals_mode_); });
-  }
-
+  binaryK_quantize_into(a_c, o, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
+                        subnormals_mode);
   return o;
+}
+
+// The CPU kernel behind mptorch::binaryK_quant_: the same rounding written
+// over `a`, with no output allocation. The copy the out-of-place op makes of
+// a strided input would defeat it (the kernel would write the copy and leave
+// the caller's tensor as it was), so a strided tensor is refused instead.
+Tensor &binaryK_quantize_cpu_(Tensor &a, int64_t K, int64_t P, int64_t bias,
+                              int64_t prng_bits, bool is_signed,
+                              int64_t round_mode, int64_t saturation_mode,
+                              int64_t subnormals_mode)
+{
+  TORCH_CHECK(a.is_contiguous(), "binaryK_quant_ writes its argument in place and needs a "
+              "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
+              ": use binaryK_quant, which copies a strided input");
+  binaryK_quantize_into(a, a, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
+                        subnormals_mode);
+  return a;
 }

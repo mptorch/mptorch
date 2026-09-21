@@ -97,3 +97,25 @@ Tensor superfp_quantize_mps(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
       std::to_string(saturation_mode) + "));\n}\n";
   return quantize("superfp_quantize_mps", a, round_mode, is_signed, prng_bits, format);
 }
+
+// mptorch::binaryK_quant_ and mptorch::superfp_quant_ on an MPS tensor: not
+// yet. The Metal kernel is small (mpt_quantize reads x[i] before it writes
+// y[i], so binding one buffer twice is value-safe) and is the first item of
+// dev/continuation_plan.md's phase H; until then the ops say so rather than
+// fail at dispatch. (The return is never reached; it is there so that no
+// compiler has to prove that to accept the function.)
+Tensor &binaryK_quantize_mps_(Tensor &a, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
+                              int64_t, int64_t)
+{
+  TORCH_CHECK(false, "binaryK_quant_ has no MPS kernel yet (dev/continuation_plan.md, phase H): "
+                     "use binaryK_quant, the out-of-place op, on an MPS tensor");
+  return a;
+}
+
+Tensor &superfp_quantize_mps_(Tensor &a, int64_t, int64_t, int64_t, int64_t, int64_t, bool,
+                              int64_t, int64_t)
+{
+  TORCH_CHECK(false, "superfp_quant_ has no MPS kernel yet (dev/continuation_plan.md, phase H): "
+                     "use superfp_quant, the out-of-place op, on an MPS tensor");
+  return a;
+}

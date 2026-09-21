@@ -1,0 +1,14 @@
+returns its argument: True | equals the out-of-place result: True
+superfp, SR, same seed: True
+float64: [1.125]  float32: [1.0]
+
+a transposed view: binaryK_quant_ writes its argument in place and needs a contiguous tensor, got strides [1, 4] for sizes [4, 4]
+a wider carrier: binaryK_quantize_ cannot round a torch.float16 tensor in carrier=torch.float64 in place
+a CUDA view off a 16-byte boundary: the tensor must start on a 16-byte boundary
+g[16:] is rounded, g[:16] is not: True
+
+backward after the write: one of the variables needed for gradient computation has been modified by an inplace operation
+
+Quant(..., inplace=True): True True False
+
+peak above a 64 MiB float32 input: 64 MiB, in place 0 MiB

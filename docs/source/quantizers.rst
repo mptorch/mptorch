@@ -42,7 +42,9 @@ Some things to know about them:
   only an edge of the format's range can miss, and the call warns when one
   can -- the run shows E5M2's top meeting float16's. :doc:`concepts` gives
   the rule, and the stricter one a GEMM's result is held to.
-- The result is a fresh tensor; the input is never modified.
+- The result is a fresh tensor; the input is never modified. The in-place
+  twins, ``binaryK_quantize_`` and ``superfp_quantize_``, are the exception,
+  and have `a section of their own <In place_>`_.
 - NaN passes through with its payload. An infinity passes through too,
   except under ``SaturationMode.SAT_FINITE``, which clamps it to the largest
   finite value like any other overflow.
@@ -117,6 +119,54 @@ in from the format -- the run checks the two are equal to the bit.
 Formats and Quants are frozen dataclasses: they compare and hash by value,
 which is what lets a layer resolve its format once and the library memoize
 on it. Build them once and hold them, rather than constructing one per call.
+
+In place
+--------
+
+:func:`~mptorch.quant.binaryK_quantize_` and
+:func:`~mptorch.quant.superfp_quantize_` take the arguments of the functions
+above and write the result over the tensor, which they return. They run the
+same kernels with the output pointer set to the input's, so the result is the
+out-of-place one bit for bit, under ``RoundMode.SR`` and one seed as well; what
+changes is that no result is allocated. They are for a tensor the caller
+owns -- a weight rounded once when a model is loaded, an activation nothing
+else will read -- and ``Quant(fmt, rounding, inplace=True)`` is the same thing
+as a value.
+
+What the out-of-place functions handle by making a copy, these refuse,
+because the kernel would round the copy and the caller's tensor would come
+back as it was:
+
+- a tensor that is not contiguous;
+- on CUDA, a contiguous view that does not start on a 16-byte boundary
+  (``x[1:]``): the kernel moves 16 bytes at a time and cannot address one;
+- ``carrier=torch.float64`` on a float32, float16 or bfloat16 tensor, which
+  rounds a float64 copy of it and narrows the result. A float64 tensor rounds
+  in binary64 in place, since that is its own carrier.
+
+Each error names the out-of-place function, which takes all three. The ops
+are no more differentiable than their twins, and raise the same way on a
+tensor that requires grad; on one that does not, the write bumps the tensor's
+version counter like any in-place op of PyTorch's own, so autograd notices a
+tensor it had saved being rounded under it. That is also why a layer's
+``*_quant`` slots should never hold an in-place ``Quant``: a layer's input
+belongs to the graph of whatever produced it. There is no Apple GPU kernel
+yet, and the ops say so on an ``"mps"`` tensor.
+
+.. literalinclude:: ../snippets/quantizers_inplace.py
+   :language: python
+   :caption: docs/snippets/quantizers_inplace.py
+
+.. literalinclude:: ../snippets/quantizers_inplace.out
+   :language: text
+   :caption: output
+
+The saving is memory rather than time, since the kernel reads and writes the
+same bytes either way. On CUDA the two take the same time at every size
+measured. On the CPU they do too while the allocator recycles the result's
+block, but a result large enough to be mapped fresh from the system on every
+call pays for its pages on first touch, which can cost more than the rounding
+(``dev/benchmarks/cpu_quantize_elementwise.py`` pairs the two).
 
 Quantizer: a straight-through estimator
 ---------------------------------------

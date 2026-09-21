@@ -62,7 +62,9 @@ from .ops import (
     _superfp_mixed_spec,
     _superfp_spec,
     binaryK_quantize,
+    binaryK_quantize_,
     superfp_quantize,
+    superfp_quantize_,
 )
 
 __all__ = ["Quant", "Palette", "SplitMac", "FusedMac"]
@@ -204,6 +206,15 @@ class Quant:
             float64 ones); ``torch.float64`` rounds in binary64 whatever the
             tensor; ``torch.float32`` rounds in binary32 and refuses a float64
             tensor. Default: ``None``
+        inplace (bool): round the tensor in place and return it, through
+            :func:`mptorch.quant.binaryK_quantize_` /
+            :func:`mptorch.quant.superfp_quantize_`, instead of allocating a
+            result. For a tensor the caller owns (a weight quantized once at
+            load); never for a ``*_quant`` slot of a layer's formats, whose
+            input belongs to the graph of whatever produced it. The call then
+            refuses what the in-place ops refuse: a tensor that is not
+            contiguous, a CUDA view off a 16-byte boundary, a ``carrier``
+            wider than the tensor, an MPS tensor. Default: ``False``
 
     Raises:
         TypeError: for a format with no elementwise quantizer, or a
@@ -226,14 +237,16 @@ class Quant:
     rounding: RoundMode = RoundMode.RNE
     _: KW_ONLY
     carrier: torch.dtype | None = None
+    inplace: bool = False
     _call: Callable[[torch.Tensor], torch.Tensor] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         fmt, rm, carrier = self.fmt, self.rounding, _checked_carrier(self.carrier)
         if isinstance(fmt, BinaryK):
+            binaryK = binaryK_quantize_ if self.inplace else binaryK_quantize
 
             def call(x: torch.Tensor) -> torch.Tensor:
-                return binaryK_quantize(
+                return binaryK(
                     x,
                     K=fmt.K,
                     P=fmt.P,
@@ -247,9 +260,10 @@ class Quant:
                 )
 
         elif isinstance(fmt, SuperFP):
+            superfp = superfp_quantize_ if self.inplace else superfp_quantize
 
             def call(x: torch.Tensor) -> torch.Tensor:
-                return superfp_quantize(
+                return superfp(
                     x,
                     man_bits=fmt.man_bits,
                     exp_bits=fmt.exp_bits,

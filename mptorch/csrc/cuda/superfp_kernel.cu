@@ -77,7 +77,7 @@ namespace
     // max(vector count, remainder count) threads because the kernel serves
     // the vector body and the scalar tail from the same thread index.
     template <typename scalar_t>
-    void superfp_kernel_impl(const scalar_t *__restrict__ a, scalar_t *o, int64_t size,
+    void superfp_kernel_impl(const scalar_t *a, scalar_t *o, int64_t size,
                              int man_bits, int exp_bits, int normal_binades, int bias,
                              bool is_signed, RoundMode round_mode,
                              SaturationMode saturation_mode)
@@ -126,7 +126,7 @@ namespace
     // pair drawn from ATen's generator; the kernel derives each element's
     // random word from that pair and the element's own index.
     template <typename scalar_t>
-    void superfp_kernel_sr_impl(const scalar_t *__restrict__ a,
+    void superfp_kernel_sr_impl(const scalar_t *a,
                                 scalar_t *o, int64_t size,
                                 int man_bits, int exp_bits, int normal_binades, int bias, int prng_bits,
                                 bool is_signed, SaturationMode saturation_mode)
@@ -148,6 +148,43 @@ namespace
         quant_kernel_all_sr<<<grid, BLOCK_SIZE, 0, stream>>>(a, o, size, quantizer, rng_args);
     }
 
+    // The body of both entry points, as binaryK_quantize_into is (binaryK_kernel.cu):
+    // `o` is `a` itself for the in-place op.
+    void superfp_quantize_into(const Tensor &a, Tensor &o, int64_t man_bits, int64_t exp_bits,
+                               int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed,
+                               int64_t round_mode, int64_t saturation_mode)
+    {
+        const int64_t size = a.numel(); // int would truncate past 2^31 elements
+        if (size == 0)
+            return;
+        RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
+        SaturationMode saturation_mode_ = static_cast<SaturationMode>(saturation_mode);
+
+        const int man_bits_ = static_cast<int>(man_bits);
+        const int exp_bits_ = static_cast<int>(exp_bits);
+        const int normal_binades_ = static_cast<int>(normal_binades);
+        const int bias_ = static_cast<int>(bias);
+        const int prng_bits_ = static_cast<int>(prng_bits);
+
+        MPTORCH_DISPATCH_QUANT_TYPES(a.scalar_type(), "superfp_quantize_cuda", [&]
+                                        {
+            const scalar_t *p_a = a.data_ptr<scalar_t>();
+            scalar_t *p_o = o.data_ptr<scalar_t>();
+
+            if (round_mode_ != RoundMode::SR)
+            {
+                superfp_kernel_impl<scalar_t>(
+                    p_a, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, is_signed,
+                    round_mode_, saturation_mode_);
+            }
+            else
+            {
+                superfp_kernel_sr_impl<scalar_t>(
+                    p_a, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, prng_bits_,
+                    is_signed, saturation_mode_);
+            } });
+    }
+
 } // namespace
 
 Tensor superfp_quantize_cuda(
@@ -158,35 +195,19 @@ Tensor superfp_quantize_cuda(
     // vector loads, for the reasons given in binaryK_quantize_cuda.
     auto a_c = mptorch::vector_loadable(a);
     auto o = empty_like(a_c);
-    const int64_t size = a_c.numel(); // int would truncate past 2^31 elements
-    if (size == 0)
-        return o;
-    RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
-    SaturationMode saturation_mode_ = static_cast<SaturationMode>(saturation_mode);
-
-    const int man_bits_ = static_cast<int>(man_bits);
-    const int exp_bits_ = static_cast<int>(exp_bits);
-    const int normal_binades_ = static_cast<int>(normal_binades);
-    const int bias_ = static_cast<int>(bias);
-    const int prng_bits_ = static_cast<int>(prng_bits);
-
-    MPTORCH_DISPATCH_QUANT_TYPES(a_c.scalar_type(), "superfp_quantize_cuda", [&]
-                                    {
-        const scalar_t *p_a = a_c.data_ptr<scalar_t>();
-        scalar_t *p_o = o.data_ptr<scalar_t>();
-
-        if (round_mode_ != RoundMode::SR)
-        {
-            superfp_kernel_impl<scalar_t>(
-                p_a, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, is_signed,
-                round_mode_, saturation_mode_);
-        }
-        else
-        {
-            superfp_kernel_sr_impl<scalar_t>(
-                p_a, p_o, size, man_bits_, exp_bits_, normal_binades_, bias_, prng_bits_,
-                is_signed, saturation_mode_);
-        } });
-
+    superfp_quantize_into(a_c, o, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
+                          round_mode, saturation_mode);
     return o;
+}
+
+// mptorch::superfp_quant_: the same rounding written over `a`, which is
+// checked rather than copied, as in binaryK_quantize_cuda_.
+Tensor &superfp_quantize_cuda_(
+    Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
+    int64_t prng_bits, bool is_signed, int64_t round_mode, int64_t saturation_mode)
+{
+    mptorch::check_vector_loadable_in_place(a, "superfp_quant_", "superfp_quant");
+    superfp_quantize_into(a, a, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
+                          round_mode, saturation_mode);
+    return a;
 }
