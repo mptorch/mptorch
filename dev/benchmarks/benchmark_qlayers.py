@@ -1,9 +1,36 @@
+"""Layer timings: QLinear and QConv2d, and the conv passes on the GEMM core.
+
+``python dev/benchmarks/benchmark_qlayers.py`` times the two layers with
+elementwise quantizers (the default, ``layers``). ``conv-gemm`` times each
+pass of a convolution three ways, with the peak memory each allocates beyond
+its inputs: the gathered conv ops (``mptorch.quant.conv_formats``), the same
+arithmetic over an explicit ``unfold`` (the forward and the weight gradient as
+one batched GEMM over the unfolded input, the input gradient as a GEMM into
+the column space followed by ``F.fold``, whose sum is float32 and outside the
+simulated arithmetic), and cuDNN in float32. Min of ``--rounds`` rounds of
+``--iters`` calls each, the three alternating (``dev/gemm_roadmap.md``,
+*Timing on this machine*).
+"""
+
+import argparse
 import time
 
 import torch
+import torch.nn.functional as F
+import torch.nn.grad as grad
 
+from mptorch import BinaryK
 from mptorch.number import RoundMode
-from mptorch.quant import QAffineFormats, QConv2d, QLinear, binaryK_quantize
+from mptorch.quant import (
+    QAffineFormats,
+    QConv2d,
+    QLinear,
+    SplitMac,
+    binaryK_quantize,
+    conv_formats,
+)
+from mptorch.quant.mac import spec_for_mac
+from mptorch.quant.ops import _run_gemm
 
 
 def benchmark_layer(layer_fn, input_shape, dtype, device="cuda", num_iters=100, warmup_iters=20):
@@ -104,5 +131,125 @@ def run_benchmarks():
             print(f"{dtype!s:<15} | {t_ms:<15.4f} | {mem_mb:<15.2f}")
 
 
+# (batch, in channels, out channels, spatial, kernel, stride, padding)
+CONV_SHAPES = [
+    (32, 64, 64, 56, 3, 1, 1),
+    (32, 64, 128, 56, 3, 2, 1),
+    (32, 128, 128, 28, 3, 1, 1),
+    (32, 256, 256, 14, 3, 1, 1),
+    (32, 256, 64, 14, 1, 1, 0),
+]
+
+
+def _unfold_passes(mac):
+    """The three passes as explicit unfolds plus the flat GEMM op."""
+    spec = spec_for_mac(mac)
+
+    def fwd(x, w, s, p):
+        B, _, H, W = x.shape
+        cout, k = w.shape[0], w.shape[2]
+        cols = F.unfold(x, k, padding=p, stride=s)  # [B, C*k*k, L]
+        a = w.reshape(1, cout, -1).expand(B, -1, -1)
+        y = _run_gemm(spec, a.contiguous(), cols, False, False)
+        oh = (H + 2 * p - k) // s + 1
+        return y.reshape(B, cout, oh, -1)
+
+    def igrad(gy, w, size, s, p):
+        B, cout = gy.shape[:2]
+        k = w.shape[2]
+        wt = w.reshape(1, cout, -1).expand(B, -1, -1)
+        cols = _run_gemm(spec, wt.contiguous(), gy.reshape(B, cout, -1), True, False)
+        return F.fold(cols, size[2:], k, padding=p, stride=s)
+
+    def wgrad(gy, x, k, s, p):
+        B, cout = gy.shape[:2]
+        cols = F.unfold(x, k, padding=p, stride=s)  # [B, C*k*k, L]
+        a = gy.reshape(B, cout, -1).permute(1, 0, 2).reshape(cout, -1)
+        b = cols.permute(0, 2, 1).reshape(-1, cols.shape[1])
+        return _run_gemm(spec, a, b, False, False).reshape(cout, x.shape[1], k, k)
+
+    return fwd, igrad, wgrad
+
+
+def _time(fn, iters):
+    """ms per call over `iters` calls, and the peak allocation beyond the start."""
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    base = torch.cuda.memory_allocated()
+    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(iters):
+        out = fn()
+        del out
+    end.record()
+    torch.cuda.synchronize()
+    return start.elapsed_time(end) / iters, (torch.cuda.max_memory_allocated() - base) / 2**20
+
+
+def _conv_runs(passes, x, w, gy, k, s, p):
+    """The three implementations of each pass, as thunks over one shape."""
+    (gfwd, gigrad, gwgrad), (ufwd, uigrad, uwgrad) = passes
+    geo = dict(stride=s, padding=p, dilation=1, groups=1, nd=2)
+    return {
+        "fwd": (
+            lambda: gfwd(x, w, None, **geo),
+            lambda: ufwd(x, w, s, p),
+            lambda: F.conv2d(x, w, None, s, p),
+        ),
+        "igrad": (
+            lambda: gigrad(gy, w, input_size=x.shape, **geo),
+            lambda: uigrad(gy, w, x.shape, s, p),
+            lambda: grad.conv2d_input(x.shape, w, gy, s, p),
+        ),
+        "wgrad": (
+            lambda: gwgrad(gy, x, weight_size=w.shape, **geo),
+            lambda: uwgrad(gy, x, k, s, p),
+            lambda: grad.conv2d_weight(x, w.shape, gy, s, p),
+        ),
+    }
+
+
+def run_conv_gemm(rounds: int, iters: int, mode: RoundMode):
+    if not torch.cuda.is_available():
+        print("conv-gemm needs a CUDA device")
+        return
+    mac = SplitMac(BinaryK(8, 4), BinaryK(12, 7), rounding=mode)
+    f = conv_formats(mac)
+    passes = ((f.fwd_math, f.bwd_igrad_math, f.bwd_wgrad_math), _unfold_passes(mac))
+    print(f"conv passes, {mac}, min of {rounds} rounds x {iters} calls: ms / peak MB")
+    head = f"{'shape':<34} {'pass':<6} {'gathered':>16} {'unfold':>16} {'cuDNN fp32':>16}"
+    print(head)
+    print("-" * len(head))
+    for B, C, Cout, S, k, s, p in CONV_SHAPES:
+        x = torch.randn(B, C, S, S, device="cuda")
+        w = torch.randn(Cout, C, k, k, device="cuda")
+        o = (S + 2 * p - k) // s + 1
+        gy = torch.randn(B, Cout, o, o, device="cuda")
+        runs = _conv_runs(passes, x, w, gy, k, s, p)
+        label = f"{B}x{C}x{S}x{S} -> {Cout}, {k}x{k} s{s}"
+        for name, fns in runs.items():
+            for f in fns:  # warm up, and compile the cuDNN plan
+                f()
+            best = [(float("inf"), 0.0)] * 3
+            for _ in range(rounds):
+                for i, f in enumerate(fns):
+                    t, m = _time(f, iters)
+                    best[i] = (min(best[i][0], t), max(best[i][1], m))
+            cells = " ".join(f"{t:8.2f} /{m:6.0f}" for t, m in best)
+            print(f"{label:<34} {name:<6} {cells}")
+            label = ""
+        del x, w, gy
+        torch.cuda.empty_cache()
+
+
 if __name__ == "__main__":
-    run_benchmarks()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("what", nargs="?", default="layers", choices=["layers", "conv-gemm"])
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--iters", type=int, default=5)
+    parser.add_argument("--mode", default="RNE", choices=[m.name for m in RoundMode])
+    args = parser.parse_args()
+    if args.what == "layers":
+        run_benchmarks()
+    else:
+        run_conv_gemm(args.rounds, args.iters, RoundMode[args.mode])

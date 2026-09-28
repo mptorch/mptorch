@@ -16,6 +16,7 @@
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_gather.h"
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
 #include "gemm_backend.h"
@@ -133,6 +134,74 @@ namespace mptorch::gemm_cpu
 #define MPTORCH_STORE_TILE(S) store_tile_impl<S, T>(C, src, N, i0, j0, ti, tj, off)
     MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_STORE_TILE)
 #undef MPTORCH_STORE_TILE
+  }
+
+  // The gathered packs of the conv ops (common/gemm_gather.h): the same
+  // tiles, read through the convolution's geometry. Each decomposes the K
+  // indices and the rows or columns of its tile once, into the arrays below,
+  // and pays only additions and the padding test per element. The tile is
+  // at most GATHER_TILE on a side (the kernel's TK and TJ).
+  constexpr int64_t GATHER_TILE = 32;
+
+  template <typename scalar_t, class T>
+  void pack_gather_a_impl(const void *A, T *__restrict__ dst, const mptorch::gemm::ConvGeom &g,
+                          int64_t bId, int64_t i0, int64_t k0, int64_t ti, int64_t tk)
+  {
+    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(A);
+    int64_t b;
+    int32_t grp;
+    mptorch::gemm::conv_batch(g, bId, b, grp);
+    int64_t k_part[GATHER_TILE];
+    for (int64_t k = 0; k < tk; ++k)
+      k_part[k] = mptorch::gemm::conv_a_k(g, static_cast<int32_t>(k0 + k));
+    for (int64_t i = 0; i < ti; ++i)
+    {
+      const int64_t row = mptorch::gemm::conv_a_row(g, grp, i0 + i);
+      for (int64_t k = 0; k < tk; ++k)
+        dst[i * tk + k] = static_cast<T>(src[row + k_part[k]]);
+    }
+  }
+
+  template <typename scalar_t, class T>
+  void pack_gather_b_impl(const void *B, T *__restrict__ dst, const mptorch::gemm::ConvGeom &g,
+                          int64_t bId, int64_t k0, int64_t j0, int64_t tk, int64_t tj)
+  {
+    const scalar_t *__restrict__ src = static_cast<const scalar_t *>(B);
+    int64_t b;
+    int32_t grp;
+    mptorch::gemm::conv_batch(g, bId, b, grp);
+    mptorch::gemm::ConvCol cols[GATHER_TILE];
+    for (int64_t j = 0; j < tj; ++j)
+      cols[j] = mptorch::gemm::conv_b_col(g, b, grp, static_cast<int32_t>(j0 + j));
+    for (int64_t k = 0; k < tk; ++k)
+    {
+      const mptorch::gemm::ConvK kk = mptorch::gemm::conv_b_k(g, static_cast<int32_t>(k0 + k));
+      for (int64_t j = 0; j < tj; ++j)
+      {
+        const int64_t off = mptorch::gemm::conv_b_offset(g, cols[j], kk);
+        dst[k * tj + j] = off < 0 ? T(0) : static_cast<T>(src[off]);
+      }
+    }
+  }
+
+  template <class T>
+  inline void pack_gather_a(const void *A, mptorch::GemmDtype dt, T *dst,
+                            const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t i0, int64_t k0,
+                            int64_t ti, int64_t tk)
+  {
+#define MPTORCH_PACK_GATHER_A(S) pack_gather_a_impl<S, T>(A, dst, g, bId, i0, k0, ti, tk)
+    MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_GATHER_A)
+#undef MPTORCH_PACK_GATHER_A
+  }
+
+  template <class T>
+  inline void pack_gather_b(const void *B, mptorch::GemmDtype dt, T *dst,
+                            const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t k0, int64_t j0,
+                            int64_t tk, int64_t tj)
+  {
+#define MPTORCH_PACK_GATHER_B(S) pack_gather_b_impl<S, T>(B, dst, g, bId, k0, j0, tk, tj)
+    MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_PACK_GATHER_B)
+#undef MPTORCH_PACK_GATHER_B
   }
 
 #undef MPTORCH_GEMM_BY_DTYPE
@@ -306,18 +375,56 @@ namespace mptorch::gemm_cpu
         // mid-reduction, so a copy would only cost frame space.
         if constexpr (MIXED)
         {
-          for (int64_t i = 0; i < ti; ++i)
-            for (int64_t j = 0; j < tj; ++j)
-              slot_of[i * tj + j] =
-                  &pal.slot(prec_idx[bId * idx_batch_stride + (i0 + i) * idx_row_stride +
-                                     (j0 + j) * idx_col_stride]);
+          // The dense branch first, here and at the packs below: the
+          // parallel_for lambda captures by reference, and GCC lays its
+          // closure out in the order the body first names each variable,
+          // discarded branches included, so a gathered branch ahead of the
+          // dense one reorders the captures and moves every existing
+          // instantiation's stack slots.
+          if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+          {
+            for (int64_t i = 0; i < ti; ++i)
+              for (int64_t j = 0; j < tj; ++j)
+                slot_of[i * tj + j] =
+                    &pal.slot(prec_idx[bId * idx_batch_stride + (i0 + i) * idx_row_stride +
+                                       (j0 + j) * idx_col_stride]);
+          }
+          else
+          {
+            // A gathered policy's map is indexed by the result tensor's
+            // (sample, channel, position), of which this tile's rows are
+            // one group's slice (common/gemm_gather.h).
+            int64_t b;
+            int32_t grp;
+            mptorch::gemm::conv_batch(acc_proto.geom, bId, b, grp);
+            for (int64_t i = 0; i < ti; ++i)
+              for (int64_t j = 0; j < tj; ++j)
+                slot_of[i * tj + j] =
+                    &pal.slot(prec_idx[b * idx_batch_stride +
+                                       mptorch::gemm::conv_result_row(grp, M, i0 + i) * idx_row_stride +
+                                       (j0 + j) * idx_col_stride]);
+          }
         }
 
         for (int64_t k0 = 0; k0 < K; k0 += TK)
         {
           int64_t tk = std::min<int64_t>(TK, K - k0);
-          pack_a(A, dt, a_pack, M, K, trans_a, i0, k0, ti, tk, a_off);
-          pack_b(B, dt, b_pack, K, N, trans_b, k0, j0, tk, tj, b_off);
+          // A gathered policy (the conv ops) packs the same tiles through
+          // its geometry; nothing else about the loop changes for it, and
+          // every other policy compiles to the code it did
+          // (dev/gemm_roadmap.md, R-4; the branch order is the mixed
+          // map's, above).
+          if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+          {
+            pack_a(A, dt, a_pack, M, K, trans_a, i0, k0, ti, tk, a_off);
+            pack_b(B, dt, b_pack, K, N, trans_b, k0, j0, tk, tj, b_off);
+          }
+          else
+          {
+            static_assert(TK <= GATHER_TILE && TJ <= GATHER_TILE);
+            pack_gather_a(A, dt, a_pack, acc_proto.geom, bId, i0, k0, ti, tk);
+            pack_gather_b(B, dt, b_pack, acc_proto.geom, bId, k0, j0, tk, tj);
+          }
           for (int64_t i = 0; i < ti; ++i)
           {
             for (int64_t k = 0; k < tk; ++k)
@@ -407,6 +514,48 @@ namespace mptorch::gemm_cpu
         matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b,
                                s.batch, s.stride_a, s.stride_b, acc, s.use_rng, ctx.seed);
       });
+    });
+  }
+
+  // The conv ops (common/gemm_gather.h): the policy `Inner` builds, as its
+  // GEMM op builds it, wrapped in a Gathered that carries the geometry, and
+  // run over the pass's [batch, M, N] with no transposes and no batch
+  // strides (the gathered packs address the operands themselves).
+  // Instantiated by the ten custom_conv_*.cpp files.
+  template <class T, AccumulateAlgorithm ALG, class Inner>
+  void CpuBackend::launch_conv_as(const GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
+                                  const LaunchContext &ctx)
+  {
+    using mptorch::gemm::Gathered;
+    mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+    {
+      constexpr RoundMode RM = decltype(rm_c)::value;
+      if constexpr (Inner::mixed)
+      {
+        args.inner.template with_palette<T, RM>([&](auto acc, const auto &pal)
+        {
+          matmul_cpu_kernel_impl<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
+                                       Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.seed,
+                                       pal, s.prec_idx, s.idx_row_stride, s.idx_col_stride,
+                                       s.idx_batch_stride);
+        });
+      }
+      else if constexpr (ALG == AccumulateAlgorithm::NAIVE)
+      {
+        args.inner.template with_accumulator<T, RM>([&](auto acc)
+        {
+          matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
+                                 Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.seed);
+        });
+      }
+      else
+      {
+        args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
+        {
+          matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
+                                 Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.seed);
+        });
+      }
     });
   }
 } // namespace mptorch::gemm_cpu

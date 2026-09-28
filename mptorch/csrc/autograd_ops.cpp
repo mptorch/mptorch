@@ -50,7 +50,7 @@ namespace
   }
 
   // The boxed Autograd kernel. Boxed (arguments on the stack, one kernel for
-  // every schema) so the same function serves all seventeen ops. It raises when
+  // every schema) so the same function serves all twenty-five ops. It raises when
   // a gradient would be expected, with a message specific to what the op is
   // (a GEMM, the narrowing store, or an elementwise quantizer), and
   // otherwise redispatches to the backend kernel below the autograd keys,
@@ -62,6 +62,7 @@ namespace
     {
       const std::string &name = op.schema().operator_name().name;
       const bool matmul = name.find("custom_matmul") != std::string::npos;
+      const bool conv = name.find("custom_conv") != std::string::npos;
       const bool narrow = name.find("narrow_float64") != std::string::npos;
       TORCH_CHECK(
           false, name, " is not differentiable: ",
@@ -69,6 +70,9 @@ namespace
                    "gradient pass runs in is a choice rather than a derivative. Use "
                    "mptorch.quant.qmatmul (or QMatmul), which computes each gradient in the "
                    "format its own hook names"
+          : conv ? "it is one pass of a convolution in simulated arithmetic, and the other two "
+                   "passes are ops of their own. Use mptorch.quant.QConv1d/2d/3d with "
+                   "mptorch.quant.conv_formats, which runs all three"
           : narrow ? "it is the store of a result mptorch.quant computed in binary64, which "
                      "its own entry points call where no gradient flows. Use Tensor.to for a "
                      "differentiable conversion"
@@ -107,6 +111,14 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_superfp_accumulated", kernel());
   m.impl("custom_matmul_binaryK_fma_accumulated", kernel());
   m.impl("custom_matmul_superfp_fma_accumulated", kernel());
+  m.impl("custom_conv_binaryK", kernel());
+  m.impl("custom_conv_binaryK_mixed", kernel());
+  m.impl("custom_conv_binaryK_fma", kernel());
+  m.impl("custom_conv_binaryK_fma_mixed", kernel());
+  m.impl("custom_conv_superfp", kernel());
+  m.impl("custom_conv_superfp_mixed", kernel());
+  m.impl("custom_conv_superfp_fma", kernel());
+  m.impl("custom_conv_superfp_fma_mixed", kernel());
 }
 
 // The two in-place quantizers also need the ADInplaceOrView key, which is

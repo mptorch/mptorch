@@ -98,3 +98,5 @@ Layer arithmetic factories
 .. autofunction:: mptorch.quant.superfp_gemm_formats
 
 .. autofunction:: mptorch.quant.superfp_gemm_formats_fma
+
+.. autofunction:: mptorch.quant.conv_formats

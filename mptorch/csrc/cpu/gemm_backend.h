@@ -14,6 +14,7 @@
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_gather.h"
 #include "utils.h" // draw_cpu_seed
 #include <cstdint>
 
@@ -95,6 +96,44 @@ namespace mptorch::gemm_cpu
         return;
       case AccumulateAlgorithm::NAIVE:
         return; // refused by run_custom_matmul_accumulated: NAIVE is the twin op's
+      }
+    }
+
+    // The conv ops (common/gemm_gather.h): the same kernel over a Gathered
+    // policy, built from `Inner`, the Args of the GEMM op a conv op runs the
+    // arithmetic of (a single-format op's, its AccumulateArgs, or a palette
+    // op's). ALG is NAIVE except for an AccumulateArgs. Defined in the kernel
+    // header next to launch_as and instantiated, in binary32 only so far
+    // (the conv driver has refused float64 operands by now), by the ten
+    // custom_conv_*.cpp files, so that no file that compiled a kernel before
+    // the conv ops existed compiles anything new.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    static void launch_conv_as(const mptorch::gemm::GemmShape &s,
+                               const mptorch::gemm::ConvArgs<Inner> &args, const LaunchContext &ctx);
+
+    template <class Inner>
+    static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
+                       const LaunchContext &ctx)
+    {
+      if constexpr (requires { args.inner.alg; })
+      {
+        switch (args.inner.alg)
+        {
+        case AccumulateAlgorithm::KAHAN:
+          return launch_conv_as<float, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+        case AccumulateAlgorithm::BLOCK:
+          return launch_conv_as<float, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+        case AccumulateAlgorithm::TREE:
+          if constexpr (Inner::has_product)
+            return launch_conv_as<float, AccumulateAlgorithm::TREE>(s, args, ctx);
+          return;
+        case AccumulateAlgorithm::NAIVE:
+          return; // a NAIVE conv call runs on the twin's own Args
+        }
+      }
+      else
+      {
+        launch_conv_as<float, AccumulateAlgorithm::NAIVE>(s, args, ctx);
       }
     }
   };

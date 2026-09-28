@@ -24,8 +24,8 @@ out = conv(x)
 out.sum().backward()
 print("output", tuple(out.shape), "weight grad", tuple(conv.weight.grad.shape))
 
-# The convolution is torch's own (there is no custom conv arithmetic), so
-# with the operands rounded by hand it is reproduced exactly.
+# With the math hooks unset the convolution is torch's own, so with the
+# operands rounded by hand it is reproduced exactly.
 with torch.no_grad():
     y = torch.nn.functional.conv2d(Quant(e4m3)(x), Quant(e4m3)(conv.weight), conv.bias, padding=1)
 print("forward == conv2d(Q(x), Q(W)) + b:", torch.equal(out, y))

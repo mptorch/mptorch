@@ -29,6 +29,7 @@
 // the ~3 s fixed cost per file with nothing left to parallelize.
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_gather.h"
 #include "gemm_backend.h"
 #include <ATen/cuda/PhiloxUtils.cuh>
 #include <c10/util/BFloat16.h>
@@ -143,6 +144,61 @@ namespace mptorch::gemm_cuda
         return load_elem<T>(B, off + (trans_b ? col * K + row : row * N + col), dt);
     }
 
+    // What a gathered policy's thread keeps across the K-loop
+    // (common/gemm_gather.h): its batch element as (sample, group), its
+    // output row's part of A's offsets and its output column's part of B's.
+    // A policy that is not gathered keeps nothing (NoConvThread).
+    struct ConvThread
+    {
+        int64_t b;
+        int32_t grp;
+        int64_t a_row;
+        mptorch::gemm::ConvCol col;
+    };
+
+    struct NoConvThread
+    {
+    };
+
+    template <bool GATHERED, class Accumulator>
+    __device__ __forceinline__ std::conditional_t<GATHERED, ConvThread, NoConvThread>
+    conv_thread(const Accumulator &acc_proto, int64_t bId, int64_t rId, int64_t cId)
+    {
+        if constexpr (!GATHERED)
+        {
+            return NoConvThread{};
+        }
+        else
+        {
+            const mptorch::gemm::ConvGeom &g = acc_proto.geom;
+            ConvThread ct;
+            mptorch::gemm::conv_batch(g, bId, ct.b, ct.grp);
+            ct.a_row = mptorch::gemm::conv_a_row(g, ct.grp, rId);
+            ct.col = mptorch::gemm::conv_b_col(g, ct.b, ct.grp, static_cast<int32_t>(cId));
+            return ct;
+        }
+    }
+
+    // A gathered policy's element (row, k) of A and (k, col) of B, the second
+    // zero where it falls in the convolution's padding.
+    template <class T>
+    __device__ __forceinline__ T gather_a(const void *A, mptorch::GemmDtype dt,
+                                          const mptorch::gemm::ConvGeom &g, const ConvThread &ct,
+                                          int64_t k)
+    {
+        return load_elem<T>(A, ct.a_row + mptorch::gemm::conv_a_k(g, static_cast<int32_t>(k)), dt);
+    }
+
+    template <class T>
+    __device__ __forceinline__ T gather_b(const void *B, mptorch::GemmDtype dt,
+                                          const mptorch::gemm::ConvGeom &g, const ConvThread &ct,
+                                          int64_t k)
+    {
+        const int64_t off = mptorch::gemm::conv_b_offset(
+            g, ct.col, mptorch::gemm::conv_b_k(g, static_cast<int32_t>(k)));
+        return off < 0 ? T(0) : load_elem<T>(B, off, dt);
+    }
+
     // The kernel. A is logically [M, K] and B [K, N] (trans_* says the
     // storage is the transpose); C is written densely as [batch, M, N]. The
     // batch element is batch_base + blockIdx.z, and stride_a / stride_b are
@@ -209,6 +265,16 @@ namespace mptorch::gemm_cuda
         const int64_t aOff = bId * stride_a;
         const int64_t bOff = bId * stride_b;
 
+        // A gathered policy (common/gemm_gather.h; the conv ops) reads its
+        // operands through the convolution's geometry instead of the two
+        // offsets above, which it is launched with at stride 0, and keeps its
+        // thread's part of the addresses here. Every use is behind
+        // `if constexpr`, and for any other policy this is an empty object:
+        // the 230 device functions the other ops run compile to the bytes
+        // they did before (dev/gemm_roadmap.md, R-4).
+        constexpr bool GATHERED = mptorch::gemm::is_gathered_v<Accumulator>;
+        [[maybe_unused]] const auto ct = conv_thread<GATHERED>(acc_proto, bId, rId, cId);
+
         Accumulator acc = acc_proto;
 
         // RoundMode::SR: seed this output element's Philox stream once,
@@ -235,16 +301,40 @@ namespace mptorch::gemm_cuda
         // MIXED implies a populated palette.
         if constexpr (MIXED)
         {
-            if (rId < M && cId < N)
-                acc.mac = pal.slot(prec_idx[bId * idx_batch_stride + rId * idx_row_stride +
-                                            cId * idx_col_stride]);
+            if constexpr (!GATHERED)
+            {
+                if (rId < M && cId < N)
+                    acc.mac = pal.slot(prec_idx[bId * idx_batch_stride + rId * idx_row_stride +
+                                                cId * idx_col_stride]);
+            }
+            else
+            {
+                // A gathered policy's map is indexed by the result tensor's
+                // (sample, channel, position), of which this thread's row is
+                // one group's slice.
+                if (rId < M && cId < N)
+                    acc.mac = pal.slot(prec_idx[ct.b * idx_batch_stride +
+                                                mptorch::gemm::conv_result_row(ct.grp, M, rId) * idx_row_stride +
+                                                cId * idx_col_stride]);
+            }
         }
 
         // Stage the first K-tile in buffer 0; out-of-range lanes read 0.
-        As[0][threadRow * BLOCKSIZE + threadCol] =
-            (rId < M && threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
-        Bs[0][threadRow * BLOCKSIZE + threadCol] =
-            (threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
+        if constexpr (!GATHERED)
+        {
+            As[0][threadRow * BLOCKSIZE + threadCol] =
+                (rId < M && threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
+            Bs[0][threadRow * BLOCKSIZE + threadCol] =
+                (threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
+        }
+        else
+        {
+            const mptorch::gemm::ConvGeom &g = acc_proto.geom;
+            As[0][threadRow * BLOCKSIZE + threadCol] =
+                (rId < M && threadCol < K) ? gather_a<T>(A, dt, g, ct, threadCol) : T(0);
+            Bs[0][threadRow * BLOCKSIZE + threadCol] =
+                (threadRow < K && cId < N) ? gather_b<T>(B, dt, g, ct, threadRow) : T(0);
+        }
 
         for (int64_t t = 0; t < numTiles; ++t)
         {
@@ -318,10 +408,21 @@ namespace mptorch::gemm_cuda
             if (t + 1 < numTiles)
             {
                 int64_t nextK = (t + 1) * BLOCKSIZE;
-                As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (rId < M && nextK + threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
-                Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
-                    (nextK + threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
+                if constexpr (!GATHERED)
+                {
+                    As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (rId < M && nextK + threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
+                    Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (nextK + threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
+                }
+                else
+                {
+                    const mptorch::gemm::ConvGeom &g = acc_proto.geom;
+                    As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (rId < M && nextK + threadCol < K) ? gather_a<T>(A, dt, g, ct, nextK + threadCol) : T(0);
+                    Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (nextK + threadRow < K && cId < N) ? gather_b<T>(B, dt, g, ct, nextK + threadRow) : T(0);
+                }
             }
             __syncthreads();
         }
@@ -424,6 +525,50 @@ namespace mptorch::gemm_cuda
                                      s.batch, s.stride_a, s.stride_b,
                                      acc, s.use_rng, ctx.rng, ctx.stream);
             });
+        });
+    }
+
+    // The conv ops (common/gemm_gather.h): the policy `Inner` builds, as its
+    // GEMM op builds it, wrapped in a Gathered that carries the geometry, and
+    // launched over the pass's [batch, M, N] with no transposes and no batch
+    // strides (the gathers address the operands themselves). Instantiated by
+    // the ten custom_conv_*.cu files.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    void CudaBackend::launch_conv_as(const GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
+                                     const LaunchContext &ctx)
+    {
+        using mptorch::gemm::Gathered;
+        mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+        {
+            constexpr RoundMode RM = decltype(rm_c)::value;
+            if constexpr (Inner::mixed)
+            {
+                args.inner.template with_palette<T, RM>([&](auto acc, const auto &pal)
+                {
+                    launch_custom_matmul<true>(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false,
+                                               s.batch, 0, 0, Gathered<decltype(acc)>{acc, args.geom},
+                                               s.use_rng, ctx.rng, ctx.stream, pal, s.prec_idx,
+                                               s.idx_row_stride, s.idx_col_stride, s.idx_batch_stride);
+                });
+            }
+            else if constexpr (ALG == AccumulateAlgorithm::NAIVE)
+            {
+                args.inner.template with_accumulator<T, RM>([&](auto acc)
+                {
+                    launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
+                                         Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.rng,
+                                         ctx.stream);
+                });
+            }
+            else
+            {
+                args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
+                {
+                    launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
+                                         Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.rng,
+                                         ctx.stream);
+                });
+            }
         });
     }
 } // namespace mptorch::gemm_cuda

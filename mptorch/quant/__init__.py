@@ -1,3 +1,4 @@
+from .conv import conv_formats
 from .gemm import (
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
@@ -70,4 +71,5 @@ __all__ = [
     "binaryK_gemm_formats_fma",
     "superfp_gemm_formats_fma",
     "matmul_formats",
+    "conv_formats",
 ]

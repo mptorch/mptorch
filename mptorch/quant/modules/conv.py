@@ -229,8 +229,13 @@ class CustomArithConvNd(torch.autograd.Function):
 
             # The bias gradient sums over the batch and the spatial
             # dimensions, everything but the channel dimension 1:
-            # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4].
-            dims_to_sum = [0] + list(range(2, nd + 2))
+            # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4]. An
+            # unbatched input's gradient has no batch dimension, and its
+            # channels are dimension 0.
+            if q_bgrad_output.dim() == nd + 1:
+                dims_to_sum = list(range(1, nd + 1))
+            else:
+                dims_to_sum = [0] + list(range(2, nd + 2))
             grad_bias = q_bgrad_output.sum(dim=dims_to_sum)
 
         return grad_input, grad_weight, grad_bias, None, None, None, None, None, None

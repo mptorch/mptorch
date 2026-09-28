@@ -29,4 +29,12 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_cpu));
   m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_cpu));
   m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_cpu));
+  m.impl("custom_conv_binaryK", TORCH_FN(binaryK_conv_cpu));
+  m.impl("custom_conv_binaryK_mixed", TORCH_FN(binaryK_conv_mixed_cpu));
+  m.impl("custom_conv_binaryK_fma", TORCH_FN(binaryK_conv_fma_cpu));
+  m.impl("custom_conv_binaryK_fma_mixed", TORCH_FN(binaryK_conv_fma_mixed_cpu));
+  m.impl("custom_conv_superfp", TORCH_FN(superfp_conv_cpu));
+  m.impl("custom_conv_superfp_mixed", TORCH_FN(superfp_conv_mixed_cpu));
+  m.impl("custom_conv_superfp_fma", TORCH_FN(superfp_conv_fma_cpu));
+  m.impl("custom_conv_superfp_fma_mixed", TORCH_FN(superfp_conv_fma_mixed_cpu));
 }

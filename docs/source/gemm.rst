@@ -439,7 +439,12 @@ than ``NAIVE`` routes the call to the kernel's ``*_accumulated`` twin, a
 separate operator, so that a ``NAIVE`` call is exactly the call it was before
 the other three existed. Callers holding one format across many calls should use
 the factories or ``qmatmul`` instead: these functions re-derive the format's
-defaults on every call, which the resolved objects avoid.
+defaults on every call, which the resolved objects avoid. The convolutions
+have eight operators of their own, ``custom_conv_*``, one per GEMM operator
+family, which take the geometry in place of the transpose flags; they have no
+functions at this tier and are reached through
+:func:`~mptorch.quant.conv_formats` (:doc:`layers`, "Custom arithmetic in the
+convolutions").
 
 Performance notes
 -----------------

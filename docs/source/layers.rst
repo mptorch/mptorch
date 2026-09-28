@@ -128,16 +128,48 @@ its quantizers to the same signals; the equations are the convolution
 analogues of the linear ones, with :math:`G^{\top} x` becoming the
 weight-gradient convolution and :math:`GW` the input-gradient (transposed)
 convolution. Their math hooks receive the convolution's geometry as keyword
-arguments (``stride``, ``padding``, ``dilation``, ``groups``, ``nd``). No
-custom-arithmetic convolution kernel ships, so the hooks are yours to write
-if you need one; with them unset the convolution is PyTorch's own on the
-quantized operands.
+arguments (``stride``, ``padding``, ``dilation``, ``groups``, ``nd``); with
+them unset the convolution is PyTorch's own on the quantized operands.
 
 .. literalinclude:: ../snippets/layers_conv.py
    :language: python
    :caption: docs/snippets/layers_conv.py
 
 .. literalinclude:: ../snippets/layers_conv.out
+   :language: text
+   :caption: output
+
+Custom arithmetic in the convolutions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`~mptorch.quant.conv_formats` fills the three hooks with the
+convolution's passes -- the forward, the input gradient and the weight
+gradient -- each run as one GEMM in the arithmetic of a mac, exactly as
+:func:`~mptorch.quant.matmul_formats` does for a matmul. Each pass is the
+GEMM of that mac over the operands ``F.unfold`` would build, bit for bit,
+zeros and all, but nothing is unfolded: the kernel reads each operand element
+from the convolution's tensors when it loads its tile, so a pass allocates its
+result and nothing more, where the unfolded input of a 3x3 convolution is nine
+times the input. Every format, rounding mode and accumulate algorithm of
+:doc:`gemm` applies, and so does any stride, padding (``"same"`` included),
+dilation and ``groups``; a palette mac takes one ``prec_idx`` map per pass,
+each shaped like that pass's result with the spatial dimensions flattened
+(``[Cout, 1]`` is one format per output channel). As with the matmul
+factories, the operand quantizers are assigned afterwards.
+
+Two costs to know about. The groups of a grouped convolution share one launch,
+but a depthwise one (one channel per group) fills a sixteenth of the kernel's
+tile. And the input gradient of a strided convolution sums over every kernel
+tap, including the ``1 - 1/stride**nd`` share of them the stride leaves zero,
+because that is the sum the unfolded reference computes (a zero term is not
+free under stochastic rounding or a compensated sum): at stride 2 in 2D it
+takes four times the forward's time.
+
+.. literalinclude:: ../snippets/layers_conv_gemm.py
+   :language: python
+   :caption: docs/snippets/layers_conv_gemm.py
+
+.. literalinclude:: ../snippets/layers_conv_gemm.out
    :language: text
    :caption: output
 
@@ -173,6 +205,8 @@ binary64 and narrows its result back, so its signals stay float32 and are held
 to what float32 can store. The other direction is not a carrier: a float64
 model computes the float32 way as a float32 model, which on a GPU is also the
 faster arithmetic for the matrix products (:doc:`gemm`, "Performance notes").
+The convolutions of :func:`~mptorch.quant.conv_formats` are binary32 only so
+far: a float64 model, or a mac with ``carrier=torch.float64``, raises there.
 
 The run puts one float64 reference against a float64 layer in a 30-bit
 arithmetic only binary64 can hold, and against a float32 layer in each
@@ -204,8 +238,9 @@ they are written down:
 1. Choose the format of each **signal** -- a ``Quant`` (or ``Quantizer``, or
    a scaled quantizer of your own) for ``input_quant``, ``weight_quant``,
    ``bias_quant``, and for the three gradient paths.
-2. Choose the **arithmetic** of each matrix product -- a factory from
-   :doc:`gemm` for the ``*_math`` hooks, or leave them PyTorch's own.
+2. Choose the **arithmetic** of each matrix product and convolution -- a
+   factory from :doc:`gemm` or :func:`~mptorch.quant.conv_formats` for the
+   ``*_math`` hooks, or leave them PyTorch's own.
 3. Share one ``QAffineFormats`` across layers that should behave the same,
    or give each layer its own.
 4. Round anything else with a ``Quantizer``.

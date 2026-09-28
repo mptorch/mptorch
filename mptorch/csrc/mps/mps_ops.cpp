@@ -14,7 +14,8 @@
 // (quantize.cpp), for the same reason: an op with no MPS registration fails
 // at dispatch with a message that names nothing a caller can act on. So are
 // the four *_accumulated GEMMs (custom_matmul_accumulated_entry.cpp): KAHAN,
-// BLOCK and TREE have no Metal kernel yet either.
+// BLOCK and TREE have no Metal kernel yet either; and so are the eight conv
+// ops (custom_conv_entry.cpp), whose gathered tile loads Metal does not have.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>
@@ -47,4 +48,12 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_mps));
   m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_mps));
   m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_mps));
+  m.impl("custom_conv_binaryK", TORCH_FN(binaryK_conv_mps));
+  m.impl("custom_conv_binaryK_mixed", TORCH_FN(binaryK_conv_mixed_mps));
+  m.impl("custom_conv_binaryK_fma", TORCH_FN(binaryK_conv_fma_mps));
+  m.impl("custom_conv_binaryK_fma_mixed", TORCH_FN(binaryK_conv_fma_mixed_mps));
+  m.impl("custom_conv_superfp", TORCH_FN(superfp_conv_mps));
+  m.impl("custom_conv_superfp_mixed", TORCH_FN(superfp_conv_mixed_mps));
+  m.impl("custom_conv_superfp_fma", TORCH_FN(superfp_conv_fma_mps));
+  m.impl("custom_conv_superfp_fma_mixed", TORCH_FN(superfp_conv_fma_mixed_mps));
 }
