@@ -6,38 +6,54 @@
 // geometry below and read it in place, or read zero where the element is
 // padding. The K-loop, the Mac and Accumulator policies and the SR keying are
 // the GEMM's own, so every format, accumulate algorithm and rounding mode
-// applies, and each pass is bit-identical to the GEMM over the operands
-// `unfold` would have built, zeros included, in the same K order and with the
-// same [batch, M, N] output index.
+// applies, and each pass is bit-identical to a GEMM over explicitly gathered
+// operands, in the same K order and with the same [batch, M, N] output index
+// (tests/test_qconv_gemm.py builds those operands and calls the GEMM op).
 //
 // The passes, for a convolution of x [B, G*Cg, *in] with W [G*Coutg, Cg, *k]
 // into y [B, G*Coutg, *out] (spatial extents flattened: IN, OUT and KK
 // elements; nd = 1, 2 or 3 spatial dimensions, padded here to three with
 // leading extents of 1):
 //
-//   pass   result             M      K         N         batch  A[m, k]        B[k, n]
-//   FWD    y [B, G, Coutg, OUT]  Coutg  Cg*KK     OUT       B*G    W, dense       im2col(x)
-//   IGRAD  dx [B, G, Cg, IN]     Cg     Coutg*KK  IN        B*G    W^T, flipped   col2im(dy)
-//   WGRAD  dW [G, Coutg, Cg*KK]  Coutg  B*OUT     Cg*KK     G      dy rows        im2col(x)^T
+//   pass   result                M      K            N        batch  A[m, k]      B[k, n]
+//   FWD    y [B, G, Coutg, OUT]  Coutg  Cg*KK        OUT      B*G    W, dense     im2col(x)
+//   IGRAD  dx [B, G, Cg, IN_r]   Cg     Coutg*KK_r   IN_r     B*G    W, the taps  dy at the
+//          (one GEMM per class r)                                    of class r   taps' outputs
+//   WGRAD  dW [G, Coutg, Cg*KK]  Coutg  B*OUT        Cg*KK    G      dy rows      im2col(x)^T
 //
 // The groups ride on the kernels' batch dimension, as batch element b*G + g
-// (or g), so each result is written densely in its natural layout, one launch
-// serves every group, and the SR key of an element, its index into the
-// kernel's [batch, M, N], is its index into the result tensor.
+// (or g), so each result is written in its natural layout, one launch serves
+// every group, and the SR key of an element is its index into the kernel's
+// [batch, M, N].
 //
-// The K orders are those of the reference each pass is held to
-// (tests/test_qconv_gemm.py): FWD's (c, i) is F.unfold's; WGRAD's (b, o) is
-// dy.permute(1, 0, 2)'s rows; IGRAD's (co, j') runs over the *flipped*
-// kernel, j = k - 1 - j' per dimension, which is the order of the
-// transposed-convolution-as-convolution reference (zero-insert dy by the
-// stride, pad it by d(k-1) - p, correlate with the flipped kernel), and a
-// flip of every dimension at once is a reversal of the flattened index.
+// The input gradient is one GEMM per *residue class* of the stride. An input
+// position h (per dimension) receives a term from kernel tap j exactly when
+// t = h + p - j*d is a multiple of s and t/s is an output position. Whether
+// s divides t depends only on r = (h + p) mod s and on j, so the positions of
+// one class r (h = h0 + m*s) all take the same taps: those with j*d = r
+// (mod s), an arithmetic progression of step e = s / gcd(d, s). Summing a
+// class over its own taps leaves out the terms a stride makes zero (a share
+// 1 - 1/s^nd of the transposed convolution's), which are free for a plain sum
+// under a deterministic rounding and nothing else: under SR each spends a
+// draw, and under KAHAN each applies the pending compensation. What is left is
+// the sum over the terms that exist, and for s = 1 it is the whole sum, one
+// class, the transposed convolution itself. The output position of tap j is
+// then o = m + (h0 + p - j*d)/s, an exact division the host does once per
+// tap, so the device divides nothing. Within a class the K order is (co, j)
+// with the taps in *descending* j, which is the order of the
+// transposed-convolution-as-convolution reference (correlate with the flipped
+// kernel): for s = 1 the result is that reference's. The classes are separate
+// GEMMs, launched in row-major order of r with an RNG draw each, as separate
+// GEMM calls would be; each writes its positions of dx through a strided
+// store (conv_result_col), and the palette maps read the result's columns.
 //
 // The padding is zeros, and not only the padding the caller names: an output
 // position o reads input position o*s - p + i*d along each dimension and a
 // position outside [0, in) reads zero, so the right-hand padding is whatever
 // the output extent implies. That is what lets padding="same" with an even
-// kernel, whose padding is asymmetric, run with no copy of the input.
+// kernel, whose padding is asymmetric, run with no copy of the input. The
+// input gradient's terms at the border (an output position outside [0, out))
+// are zeros of the same kind, and stay in its sum.
 //
 // No division runs per element. Everything that is split into coordinates
 // (a K index, an output column, the batch element) is divided by one of the
@@ -131,11 +147,33 @@ namespace mptorch::gemm
     int32_t KK = 1;  // k[0] * k[1] * k[2]
     int64_t IN = 1;  // in[0] * in[1] * in[2]
     int64_t OUT = 1; // out[0] * out[1] * out[2]
-    // The divisors: the groups, the kernel's flattened extent and its two
-    // trailing partial products, the same for the output and the input, and
-    // the three strides.
-    FastDivmod by_G, by_KK, by_k12, by_k2, by_OUT, by_out12, by_out2, by_in12, by_in2;
-    FastDivmod by_s[3];
+    // The divisors: the kernel's flattened extent and its two trailing
+    // partial products, and the same for the output.
+    FastDivmod by_KK, by_k12, by_k2, by_OUT, by_out12, by_out2;
+
+    // The input gradient's residue class (IGRAD only; see the top of the
+    // file). Per dimension: the class's first input position and its number
+    // of positions, its number of taps, the flattened offset in W of each
+    // tap step (a tap step is e = s/gcd(d, s) kernel positions, taken
+    // downwards from the class's last tap), and the output position of tap
+    // step 0 at class position 0, (h0 + p - j_last*d)/s, with the output
+    // step per tap step, e*d/s. Then the class's flattened tap count and the
+    // flat index in W of its last tap, and the divisors that split a class K
+    // index into (co, tap steps) and a class column into positions.
+    int32_t cls_h0[3] = {0, 0, 0};
+    int32_t cls_n[3] = {1, 1, 1};
+    int32_t cls_c[3] = {1, 1, 1};
+    int32_t cls_wstep[3] = {0, 0, 0};
+    int32_t cls_o0[3] = {0, 0, 0};
+    int32_t cls_ostep[3] = {0, 0, 0};
+    int32_t cls_KK = 1;
+    int32_t cls_jlast = 0;
+    FastDivmod by_cKK, by_c12, by_c2, by_n12, by_n2;
+
+    // The column extent of the result the kernel stores into: IN for the
+    // input gradient, whose class columns are a strided subset of it, and the
+    // GEMM's own N otherwise.
+    int64_t res_N = 1;
   };
 
   // The coordinates a flat index into a [e0, e1, e2] extent names, from the
@@ -162,9 +200,8 @@ namespace mptorch::gemm
     }
     else
     {
-      // bId < B * G, which can pass 2^31 where the quotient's extent cannot
-      // be what the FastDivmod bound is about: the division is by G and runs
-      // on the 64-bit value.
+      // bId < B * G, which can pass 2^31, so this one division is the
+      // 64-bit one; it runs once per thread (or per CPU tile).
       b = bId / g.G;
       grp = static_cast<int32_t>(bId - b * g.G);
     }
@@ -194,9 +231,16 @@ namespace mptorch::gemm
     int32_t q, r;
     switch (g.pass)
     {
-    case ConvPass::IGRAD: // k = (co, j') over the flipped kernel: tap = KK - 1 - j'
-      g.by_KK.divmod(k, q, r);
-      return static_cast<int64_t>(q) * g.Cg * g.KK + (g.KK - 1 - r);
+    case ConvPass::IGRAD:
+    {
+      // k = (co, t): the class's tap steps t, the taps descending from its
+      // last one.
+      int32_t t3[3];
+      g.by_cKK.divmod(k, q, r);
+      conv_unflatten(r, g.by_c12, g.by_c2, t3);
+      return static_cast<int64_t>(q) * g.Cg * g.KK + g.cls_jlast -
+             (t3[0] * g.cls_wstep[0] + t3[1] * g.cls_wstep[1] + t3[2] * g.cls_wstep[2]);
+    }
     case ConvPass::WGRAD: // k = (b, o)
       g.by_OUT.divmod(k, q, r);
       return static_cast<int64_t>(q) * g.G * g.Coutg * g.OUT + r;
@@ -208,10 +252,10 @@ namespace mptorch::gemm
   // --- operand B ------------------------------------------------------------
   //
   // B's element is the result tensor's neighbour along the convolution: an
-  // input position (FWD, WGRAD) or an output position (IGRAD) made of a part
-  // fixed per output column and a part fixed per K index, which may fall in
-  // the padding. The column part and the K part are each a base offset (the
-  // channel and sample) and three spatial coordinates.
+  // input position (FWD, WGRAD) or an output position (IGRAD), at u + v in
+  // each dimension, of which u is fixed per output column and v per K index,
+  // and which may fall in the padding. The column part and the K part are
+  // each a base offset (the channel and sample) and three coordinates.
 
   struct ConvCol
   {
@@ -233,12 +277,12 @@ namespace mptorch::gemm
     switch (g.pass)
     {
     case ConvPass::IGRAD:
-      // n is an input position h; dy's channel base, and h + p, from which
-      // the output position is (h + p - j*d) / s where that divides.
+      // n is the class's position m, whose output position under tap step t
+      // is m + o0 + t*ostep; dy's channel base.
       col.base = (b * g.G + grp) * g.Coutg * g.OUT;
-      conv_unflatten(n, g.by_in12, g.by_in2, c3);
+      conv_unflatten(n, g.by_n12, g.by_n2, c3);
       for (int i = 0; i < 3; ++i)
-        col.u[i] = c3[i] + g.p[i];
+        col.u[i] = c3[i];
       break;
     case ConvPass::WGRAD:
     {
@@ -270,13 +314,12 @@ namespace mptorch::gemm
     switch (g.pass)
     {
     case ConvPass::IGRAD:
-      // k = (co, j'); the tap is j = KK - 1 - j' flattened, and v its
-      // dilated offset.
-      g.by_KK.divmod(k, q, r);
+      // k = (co, t): the output channel, and the tap steps' output offset.
+      g.by_cKK.divmod(k, q, r);
       kk.base = static_cast<int64_t>(q) * g.OUT;
-      conv_unflatten(g.KK - 1 - r, g.by_k12, g.by_k2, c3);
+      conv_unflatten(r, g.by_c12, g.by_c2, c3);
       for (int i = 0; i < 3; ++i)
-        kk.v[i] = c3[i] * g.d[i];
+        kk.v[i] = g.cls_o0[i] + c3[i] * g.cls_ostep[i];
       break;
     case ConvPass::WGRAD:
       // k = (b, o): the sample, and o*s - p.
@@ -300,34 +343,35 @@ namespace mptorch::gemm
   }
 
   // The offset of B's element (k, n) in its tensor, or -1 where it is
-  // padding (zero). FWD and WGRAD read the input at u + v; IGRAD reads dy at
-  // (u - v) / s, where that is whole and inside the output.
+  // padding (zero): position u + v in x (FWD, WGRAD) or in dy (IGRAD).
   CUDA_HOST_DEVICE_INLINE int64_t conv_b_offset(const MPTORCH_THREAD ConvGeom &g,
                                                 const MPTORCH_THREAD ConvCol &col,
                                                 const MPTORCH_THREAD ConvK &kk)
   {
+    const MPTORCH_THREAD int32_t *lim = g.pass == ConvPass::IGRAD ? g.out : g.in;
     int32_t c3[3];
-    if (g.pass == ConvPass::IGRAD)
-    {
-      for (int i = 0; i < 3; ++i)
-      {
-        const int32_t t = col.u[i] - kk.v[i];
-        if (t < 0)
-          return -1;
-        int32_t r;
-        g.by_s[i].divmod(t, c3[i], r);
-        if (r != 0 || c3[i] >= g.out[i])
-          return -1;
-      }
-      return col.base + kk.base + (static_cast<int64_t>(c3[0]) * g.out[1] + c3[1]) * g.out[2] + c3[2];
-    }
     for (int i = 0; i < 3; ++i)
     {
       c3[i] = col.u[i] + kk.v[i];
-      if (c3[i] < 0 || c3[i] >= g.in[i])
+      if (c3[i] < 0 || c3[i] >= lim[i])
         return -1;
     }
-    return col.base + kk.base + (static_cast<int64_t>(c3[0]) * g.in[1] + c3[1]) * g.in[2] + c3[2];
+    return col.base + kk.base + (static_cast<int64_t>(c3[0]) * lim[1] + c3[1]) * lim[2] + c3[2];
+  }
+
+  // The column of the result tensor the GEMM's column n is: n itself, except
+  // for the input gradient, whose class position m is input position
+  // h0 + m*s.
+  CUDA_HOST_DEVICE_INLINE int64_t conv_result_col(const MPTORCH_THREAD ConvGeom &g, int32_t n)
+  {
+    if (g.pass != ConvPass::IGRAD)
+      return n;
+    int32_t m3[3];
+    conv_unflatten(n, g.by_n12, g.by_n2, m3);
+    int64_t h[3];
+    for (int i = 0; i < 3; ++i)
+      h[i] = g.cls_h0[i] + static_cast<int64_t>(m3[i]) * g.s[i];
+    return (h[0] * g.in[1] + h[1]) * g.in[2] + h[2];
   }
 
   // The row of the caller's precision-index map an output row is, for the

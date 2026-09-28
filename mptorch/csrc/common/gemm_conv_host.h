@@ -178,17 +178,12 @@ namespace mptorch::gemm
     // A divisor of 0 only arises when the extent it divides is empty too, and
     // an empty call returns before the kernels run.
     auto div = [](int64_t d) { return make_fast_divmod(static_cast<int32_t>(std::max<int64_t>(d, 1))); };
-    g.by_G = div(groups);
     g.by_KK = div(KK);
     g.by_k12 = div(int64_t(g.k[1]) * g.k[2]);
     g.by_k2 = div(g.k[2]);
     g.by_OUT = div(OUT);
     g.by_out12 = div(int64_t(g.out[1]) * g.out[2]);
     g.by_out2 = div(g.out[2]);
-    g.by_in12 = div(int64_t(g.in[1]) * g.in[2]);
-    g.by_in2 = div(g.in[2]);
-    for (int i = 0; i < 3; ++i)
-      g.by_s[i] = div(g.s[i]);
 
     switch (pass)
     {
@@ -222,7 +217,106 @@ namespace mptorch::gemm
     }
     TORCH_CHECK(cs.K <= LIM && cs.N <= LIM, op_name, ": the pass's GEMM has K = ", cs.K,
                 " and N = ", cs.N, "; both must be below 2^31");
+    g.res_N = cs.N;
     return cs;
+  }
+
+  // One GEMM of the input gradient: the geometry of one residue class of the
+  // stride (common/gemm_gather.h), and its K and N.
+  struct ConvClass
+  {
+    ConvGeom geom;
+    int64_t K = 0, N = 0;
+  };
+
+  // The input gradient's residue classes, in row-major order of the residue
+  // (r0, r1, r2), leaving out any with no input positions. Per dimension, the
+  // positions h of class r are those with (h + p) mod s = r, from
+  // h0 = (r - p) mod s in steps of s, and its taps the j in [0, k) with
+  // j*d = r (mod s): none unless gcd(d, s) divides r, and otherwise every
+  // e = s/gcd(d, s)-th from the first. A class with positions and no taps
+  // still runs, with K = 0: its positions are empty sums, zeros, which the
+  // kernel writes. At s = 1 there is one class: every position, every tap.
+  inline std::vector<ConvClass> conv_igrad_classes(const ConvGeom &g)
+  {
+    struct Dim
+    {
+      int32_t h0, n, c, jlast, e, o0, ostep;
+    };
+    std::vector<Dim> per[3];
+    for (int i = 0; i < 3; ++i)
+    {
+      const int64_t s = g.s[i], d = g.d[i], p = g.p[i], k = g.k[i], in = g.in[i];
+      int64_t gcd = s, b = d % s;
+      while (b != 0)
+      {
+        const int64_t t = gcd % b;
+        gcd = b;
+        b = t;
+      }
+      const int64_t e = s / gcd;
+      for (int64_t r = 0; r < s; ++r)
+      {
+        Dim dm{};
+        dm.h0 = static_cast<int32_t>(((r - p) % s + s) % s);
+        dm.n = dm.h0 < in ? static_cast<int32_t>((in - 1 - dm.h0) / s + 1) : 0;
+        int64_t first = -1;
+        for (int64_t j = 0; j < k && j < s; ++j)
+          if ((j * d) % s == r)
+          {
+            first = j;
+            break;
+          }
+        dm.c = first < 0 ? 0 : static_cast<int32_t>((k - 1 - first) / e + 1);
+        dm.e = static_cast<int32_t>(e);
+        if (dm.c > 0)
+        {
+          dm.jlast = static_cast<int32_t>(first + (dm.c - 1) * e);
+          dm.o0 = static_cast<int32_t>((dm.h0 + p - dm.jlast * d) / s); // exact
+          dm.ostep = static_cast<int32_t>(e * d / s);                     // exact
+        }
+        per[i].push_back(dm);
+      }
+    }
+    auto div = [](int64_t d) { return make_fast_divmod(static_cast<int32_t>(std::max<int64_t>(d, 1))); };
+    const int64_t kstride[3] = {int64_t(g.k[1]) * g.k[2], g.k[2], 1};
+    std::vector<ConvClass> classes;
+    for (const Dim &a : per[0])
+      for (const Dim &b : per[1])
+        for (const Dim &c : per[2])
+        {
+          const Dim *dm[3] = {&a, &b, &c};
+          ConvClass cl;
+          cl.geom = g;
+          ConvGeom &cg = cl.geom;
+          int64_t n = 1, taps = 1, jlast = 0;
+          for (int i = 0; i < 3; ++i)
+          {
+            cg.cls_h0[i] = dm[i]->h0;
+            cg.cls_n[i] = dm[i]->n;
+            cg.cls_c[i] = dm[i]->c;
+            cg.cls_wstep[i] = static_cast<int32_t>(dm[i]->e * kstride[i]);
+            cg.cls_o0[i] = dm[i]->o0;
+            cg.cls_ostep[i] = dm[i]->ostep;
+            n *= dm[i]->n;
+            taps *= dm[i]->c;
+            jlast += dm[i]->jlast * kstride[i];
+          }
+          if (n == 0)
+            continue;
+          cg.cls_KK = static_cast<int32_t>(taps);
+          cg.cls_jlast = static_cast<int32_t>(jlast);
+          cg.by_cKK = div(taps);
+          cg.by_c12 = div(int64_t(cg.cls_c[1]) * cg.cls_c[2]);
+          cg.by_c2 = div(cg.cls_c[2]);
+          cg.by_n12 = div(int64_t(cg.cls_n[1]) * cg.cls_n[2]);
+          cg.by_n2 = div(cg.cls_n[2]);
+          cg.res_N = g.IN;
+          cl.K = int64_t(g.Coutg) * taps;
+          cl.N = n;
+          classes.push_back(cl);
+        }
+    return classes;
   }
 
   // Runs a conv op on an Args its GEMM twin would run on (the single-format
@@ -267,18 +361,34 @@ namespace mptorch::gemm
                 ": the conv ops have binary32 kernels only so far, and float64 operands round in "
                 "binary64 (dev/continuation_plan.md, phase G); use float32, float16 or bfloat16 "
                 "operands");
-    typename Backend::LaunchContext ctx = Backend::make_context(
-        s.use_rng, draws_per_k_step_of(inner) * words_per_draw(s.dt) * static_cast<uint64_t>(s.K));
-
     s.a = a_c.data_ptr();
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();
 
-    bind_tensors(ctx, a_c, b_c, c, Inner::mixed ? &pidx : nullptr);
     ConvArgs<Inner> args;
     args.inner = inner;
-    args.geom = cs.geom;
-    Backend::launch(s, args, ctx);
+    const uint64_t draws = draws_per_k_step_of(inner) * words_per_draw(s.dt);
+    if (cs.geom.pass != ConvPass::IGRAD)
+    {
+      typename Backend::LaunchContext ctx =
+          Backend::make_context(s.use_rng, draws * static_cast<uint64_t>(s.K));
+      bind_tensors(ctx, a_c, b_c, c, Inner::mixed ? &pidx : nullptr);
+      args.geom = cs.geom;
+      Backend::launch(s, args, ctx);
+      return c;
+    }
+    // The input gradient: one GEMM per residue class of the stride, each a
+    // GEMM call of its own, RNG draw included (common/gemm_gather.h).
+    for (const ConvClass &cl : conv_igrad_classes(cs.geom))
+    {
+      s.K = cl.K;
+      s.N = cl.N;
+      typename Backend::LaunchContext ctx =
+          Backend::make_context(s.use_rng, draws * static_cast<uint64_t>(s.K));
+      bind_tensors(ctx, a_c, b_c, c, Inner::mixed ? &pidx : nullptr);
+      args.geom = cl.geom;
+      Backend::launch(s, args, ctx);
+    }
     return c;
   }
 

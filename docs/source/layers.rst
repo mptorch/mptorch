@@ -157,13 +157,14 @@ each shaped like that pass's result with the spatial dimensions flattened
 (``[Cout, 1]`` is one format per output channel). As with the matmul
 factories, the operand quantizers are assigned afterwards.
 
-Two costs to know about. The groups of a grouped convolution share one launch,
-but a depthwise one (one channel per group) fills a sixteenth of the kernel's
-tile. And the input gradient of a strided convolution sums over every kernel
-tap, including the ``1 - 1/stride**nd`` share of them the stride leaves zero,
-because that is the sum the unfolded reference computes (a zero term is not
-free under stochastic rounding or a compensated sum): at stride 2 in 2D it
-takes four times the forward's time.
+The groups of a grouped convolution share one launch, but a depthwise one
+(one channel per group) fills a sixteenth of the kernel's tile. The input
+gradient of a strided convolution runs as one GEMM per residue class of the
+stride, each over only the kernel taps that reach its positions, so it skips
+the zeros a transposed convolution would insert and costs what the forward
+costs. :doc:`convolutions` has the equations: which dot product each pass is,
+in which order its terms are summed, and why skipping those zeros leaves a
+``NAIVE`` result bit for bit unchanged.
 
 .. literalinclude:: ../snippets/layers_conv_gemm.py
    :language: python

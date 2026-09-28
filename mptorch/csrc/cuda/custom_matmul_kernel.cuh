@@ -146,14 +146,17 @@ namespace mptorch::gemm_cuda
 
     // What a gathered policy's thread keeps across the K-loop
     // (common/gemm_gather.h): its batch element as (sample, group), its
-    // output row's part of A's offsets and its output column's part of B's.
-    // A policy that is not gathered keeps nothing (NoConvThread).
+    // output row's part of A's offsets, its output column's part of B's, and
+    // the column of the result it stores into (not its own column in the
+    // input gradient, whose GEMMs each cover one residue class of the
+    // stride). A policy that is not gathered keeps nothing (NoConvThread).
     struct ConvThread
     {
         int64_t b;
         int32_t grp;
         int64_t a_row;
         mptorch::gemm::ConvCol col;
+        int64_t res_col;
     };
 
     struct NoConvThread
@@ -175,6 +178,7 @@ namespace mptorch::gemm_cuda
             mptorch::gemm::conv_batch(g, bId, ct.b, ct.grp);
             ct.a_row = mptorch::gemm::conv_a_row(g, ct.grp, rId);
             ct.col = mptorch::gemm::conv_b_col(g, ct.b, ct.grp, static_cast<int32_t>(cId));
+            ct.res_col = mptorch::gemm::conv_result_col(g, static_cast<int32_t>(cId));
             return ct;
         }
     }
@@ -315,7 +319,7 @@ namespace mptorch::gemm_cuda
                 if (rId < M && cId < N)
                     acc.mac = pal.slot(prec_idx[ct.b * idx_batch_stride +
                                                 mptorch::gemm::conv_result_row(ct.grp, M, rId) * idx_row_stride +
-                                                cId * idx_col_stride]);
+                                                ct.res_col * idx_col_stride]);
             }
         }
 
@@ -427,9 +431,21 @@ namespace mptorch::gemm_cuda
             __syncthreads();
         }
 
-        // C is dense [batch, M, N], so its own stride needs no argument.
-        if (rId < M && cId < N)
-            store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+        // C is dense [batch, M, N], so its own stride needs no argument. A
+        // gathered policy's result is [batch, M, res_N], of whose columns
+        // this GEMM's are all (res_N = N) or one class of the input
+        // gradient's.
+        if constexpr (!GATHERED)
+        {
+            if (rId < M && cId < N)
+                store_elem<T>(C, (bId * M + rId) * N + cId, dt, acc.finalize());
+        }
+        else
+        {
+            if (rId < M && cId < N)
+                store_elem<T>(C, (bId * M + rId) * acc_proto.geom.res_N + ct.res_col, dt,
+                              acc.finalize());
+        }
     }
 
     // Launches the kernel over a grid of [M, N] tiles per batch element. The

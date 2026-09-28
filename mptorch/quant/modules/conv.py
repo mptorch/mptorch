@@ -275,8 +275,10 @@ class QConv1d(nn.Conv1d):
             ``"circular"``. Default: ``"zeros"``
         device: as for ``nn.Conv1d``. Default: ``None``
         dtype: as for ``nn.Conv1d``. Default: ``None``
-        formats (QAffineFormats, optional): the quantizers and math hooks.
-            ``None`` builds an empty ``QAffineFormats()``. Default: ``None``
+        formats (QAffineFormats, optional): the quantizers and math hooks;
+            :func:`mptorch.quant.conv_formats` builds hooks that run the three
+            convolutions in a custom arithmetic. ``None`` builds an empty
+            ``QAffineFormats()``. Default: ``None``
 
     Shape:
         - Input: ``(N, C_in, L_in)`` or ``(C_in, L_in)``.

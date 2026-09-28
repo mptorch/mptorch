@@ -25,6 +25,7 @@ Features
    quantizers
    gemm
    layers
+   convolutions
    tutorial
    api
 

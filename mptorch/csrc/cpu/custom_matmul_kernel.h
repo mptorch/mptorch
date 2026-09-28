@@ -184,6 +184,35 @@ namespace mptorch::gemm_cpu
     }
   }
 
+  // The result tile of a gathered policy: row i0 + i of batch element bId
+  // goes to [bId, i0 + i] of a [batch, M, res_N] result, column j0 + j to its
+  // result column (itself, except in the input gradient's class GEMMs).
+  template <typename scalar_t, class T>
+  void store_gather_tile_impl(void *C, const T *__restrict__ src, const mptorch::gemm::ConvGeom &g,
+                              int64_t bId, int64_t M, int64_t i0, int64_t j0, int64_t ti, int64_t tj)
+  {
+    scalar_t *__restrict__ dst = static_cast<scalar_t *>(C);
+    int64_t cols[GATHER_TILE];
+    for (int64_t j = 0; j < tj; ++j)
+      cols[j] = mptorch::gemm::conv_result_col(g, static_cast<int32_t>(j0 + j));
+    for (int64_t i = 0; i < ti; ++i)
+    {
+      scalar_t *__restrict__ row = dst + (bId * M + i0 + i) * g.res_N;
+      for (int64_t j = 0; j < tj; ++j)
+        row[cols[j]] = static_cast<scalar_t>(src[i * tj + j]);
+    }
+  }
+
+  template <class T>
+  inline void store_gather_tile(void *C, mptorch::GemmDtype dt, const T *src,
+                                const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t M,
+                                int64_t i0, int64_t j0, int64_t ti, int64_t tj)
+  {
+#define MPTORCH_STORE_GATHER_TILE(S) store_gather_tile_impl<S, T>(C, src, g, bId, M, i0, j0, ti, tj)
+    MPTORCH_GEMM_BY_DTYPE(dt, MPTORCH_STORE_GATHER_TILE)
+#undef MPTORCH_STORE_GATHER_TILE
+  }
+
   template <class T>
   inline void pack_gather_a(const void *A, mptorch::GemmDtype dt, T *dst,
                             const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t i0, int64_t k0,
@@ -402,7 +431,9 @@ namespace mptorch::gemm_cpu
                 slot_of[i * tj + j] =
                     &pal.slot(prec_idx[b * idx_batch_stride +
                                        mptorch::gemm::conv_result_row(grp, M, i0 + i) * idx_row_stride +
-                                       (j0 + j) * idx_col_stride]);
+                                       mptorch::gemm::conv_result_col(acc_proto.geom,
+                                                                      static_cast<int32_t>(j0 + j)) *
+                                           idx_col_stride]);
           }
         }
 
@@ -460,7 +491,10 @@ namespace mptorch::gemm_cpu
         for (int64_t i = 0; i < ti; ++i)
           for (int64_t j = 0; j < tj; ++j)
             c_pack[i * tj + j] = tile.finalize(i * tj + j);
-        store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+        if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+          store_tile(C, dt, c_pack, N, i0, j0, ti, tj, c_off);
+        else
+          store_gather_tile(C, dt, c_pack, acc_proto.geom, bId, M, i0, j0, ti, tj);
       }
     });
   }

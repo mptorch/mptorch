@@ -7,9 +7,13 @@ named after, with the gather in the kernel's tile load
 (``mptorch/csrc/common/gemm_gather.h``), so no ``unfold`` buffer is ever
 built: the forward of a 3x3 convolution would otherwise materialize nine times
 its input. Every format, accumulate algorithm and rounding mode of the GEMM
-applies, and each pass is bit for bit the GEMM over the operands ``unfold``
-would have built, zeros included, in the same order; ``tests/test_qconv_gemm.py``
-holds all three to that reference.
+applies. The forward and the weight gradient are bit for bit the GEMM over the
+operands ``unfold`` would have built, zeros included, in the same order; the
+input gradient is one GEMM per residue class of the stride, over only the
+kernel taps that reach the class's positions, which leaves out the zeros a
+transposed convolution inserts. ``tests/test_qconv_gemm.py`` holds all three
+to references built that way, and ``docs/source/convolutions.rst`` states the
+sums.
 
 ``conv_formats(mac)`` resolves a mac once, as ``matmul_formats`` does, and
 returns a ``QAffineFormats`` whose three math hooks are the three passes, in
@@ -273,19 +277,24 @@ def conv_formats(
     """Build a ``QAffineFormats`` whose three convolution passes run in ``mac``'s arithmetic.
 
     The forward convolution, the input gradient and the weight gradient of a
-    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run as one GEMM in the
-    arithmetic ``mac`` names, with the operands gathered from the
+    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in the arithmetic ``mac``
+    names -- every product and every addition of every dot product rounded as
+    a GEMM of that mac rounds them -- with the operands gathered from the
     convolution's tensors inside the kernel instead of unfolded, so none of
-    the three allocates more than its result. Each pass is bit-identical to
-    the GEMM of the same mac over ``F.unfold``'s operands. Any stride,
-    padding (``"same"`` and ``"valid"`` included), dilation and ``groups``
-    works; groups share one launch, and a depthwise convolution (one channel
-    per group) runs at a sixteenth of the kernel's tile width, which is
-    correct but not fast. The input gradient sums over every kernel tap,
-    including the ``1 - 1/stride**nd`` share of them that a stride leaves
-    zero, because that is the sum the reference computes, and a zero term is
-    not free for every accumulate algorithm. Like :func:`matmul_formats`,
-    this sets only the math hooks; operand quantization (``weight_quant``,
+    the three allocates more than its result. The forward and the weight
+    gradient are each one GEMM, bit-identical to the GEMM of the same mac
+    over ``F.unfold``'s operands. The input gradient is one GEMM per residue
+    class of the stride, each over the kernel taps that reach its positions,
+    so a strided convolution's gradient costs what its forward does rather
+    than the ``stride**nd`` times more of a transposed convolution that sums
+    the zeros it inserts; under a ``NAIVE`` sum and a deterministic rounding
+    the two are bit-identical, since adding a zero changes nothing there
+    (:doc:`/convolutions` has the equations and what differs otherwise).
+    Any stride, padding (``"same"`` and ``"valid"`` included), dilation and
+    ``groups`` works; groups share one launch, and a depthwise convolution
+    (one channel per group) runs at a sixteenth of the kernel's tile width,
+    which is correct but not fast. Like :func:`matmul_formats`, this sets
+    only the math hooks; operand quantization (``weight_quant``,
     ``input_quant`` and the other ``*_quant`` slots) is layered on by the
     caller.
 
@@ -306,9 +315,11 @@ def conv_formats(
             optionally with a leading batch dimension. Required by, and only
             by, a palette ``mac``. Default: ``None``
         igrad_prec_idx (Tensor, optional): the input gradient's map, shaped
-            the same way over ``[Cin, H*W...]``. Default: ``None``
+            the same way over ``[Cin, H*W...]``; the classes of a strided
+            gradient read it at their own positions. Default: ``None``
         wgrad_prec_idx (Tensor, optional): the weight gradient's map, over the
-            weight as ``[Cout, Cin/groups * prod(kernel)]``. Default: ``None``
+            weight as ``[Cout, Cin/groups * prod(kernel)]``, or ``[Cout, 1]``.
+            Default: ``None``
 
     Returns:
         QAffineFormats: with ``fwd_math``, ``bwd_igrad_math`` and
@@ -318,15 +329,46 @@ def conv_formats(
         ValueError: for a palette ``mac`` without ``prec_idx``, a map given
             to a ``mac`` without a palette, or ``carrier=torch.float64``.
 
-    Example::
+    Example:
 
-        >>> import torch
-        >>> from mptorch import BinaryK
-        >>> from mptorch.quant import QConv2d, SplitMac, conv_formats
-        >>> fmt = BinaryK(8, 4)
-        >>> conv = QConv2d(3, 8, 3, padding=1, formats=conv_formats(SplitMac(fmt, fmt)))
-        >>> conv(torch.randn(2, 3, 16, 16)).shape
-        torch.Size([2, 8, 16, 16])
+        E4M3 products summed in a 12-bit accumulator, with the operands rounded
+        to E4M3 too, for a strided layer; the backward runs both gradients in
+        the same arithmetic::
+
+            >>> import torch
+            >>> from mptorch import AccumulateAlgorithm, BinaryK, RoundMode
+            >>> from mptorch.quant import FusedMac, QConv1d, QConv2d, Quant, SplitMac
+            >>> from mptorch.quant import conv_formats
+            >>> e4m3 = BinaryK(8, 4)
+            >>> formats = conv_formats(SplitMac(e4m3, BinaryK(12, 7)))
+            >>> formats.input_quant = formats.weight_quant = Quant(e4m3)
+            >>> conv = QConv2d(3, 8, 3, stride=2, padding=1, formats=formats)
+            >>> x = torch.randn(2, 3, 16, 16, requires_grad=True)
+            >>> conv(x).sum().backward()
+            >>> x.grad.shape, conv.weight.grad.shape
+            (torch.Size([2, 3, 16, 16]), torch.Size([8, 3, 3, 3]))
+
+        Any mac: a fused multiply-add with Kahan summation under stochastic
+        rounding, on a grouped, dilated 1D convolution::
+
+            >>> fma = FusedMac(BinaryK(12, 7, prng_bits=8), rounding=RoundMode.SR,
+            ...                accumulate_algorithm=AccumulateAlgorithm.KAHAN)
+            >>> conv1d = QConv1d(4, 8, 3, dilation=2, groups=2, formats=conv_formats(fma))
+            >>> conv1d(torch.randn(1, 4, 20)).shape
+            torch.Size([1, 8, 16])
+
+        A palette, here one format per output channel of the forward (a
+        ``[Cout, 1]`` map), and one per pass for the two gradients::
+
+            >>> pal = SplitMac([e4m3, BinaryK(8, 5)], BinaryK(12, 7))
+            >>> per_channel = conv_formats(
+            ...     pal,
+            ...     prec_idx=torch.tensor([[0], [1]] * 4),
+            ...     igrad_prec_idx=torch.zeros(3, 1, dtype=torch.int64),
+            ...     wgrad_prec_idx=torch.zeros(8, 1, dtype=torch.int64),
+            ... )
+            >>> QConv2d(3, 8, 3, padding=1, formats=per_channel)(torch.randn(1, 3, 6, 6)).shape
+            torch.Size([1, 8, 6, 6])
     """
     if isinstance(mac, Number):
         mac = SplitMac(mac, mac)
