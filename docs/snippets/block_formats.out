@@ -1,0 +1,7 @@
+MXFP8_E4M3  data (4, 64) scales (4, 2)  1.031 B/elem  max error 0.2007
+MXFP4_E2M1  data (4, 32) scales (4, 2)  0.531 B/elem  max error 0.4507
+NVFP4       data (4, 32) scales (4, 4)  0.562 B/elem  max error 0.3108
+
+scale code 127  first bytes ['0xa1', '0x74']
+decoded     [0.5, -1.0, 2.0, 6.0]
+fused equal: True

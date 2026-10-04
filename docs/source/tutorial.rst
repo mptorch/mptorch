@@ -109,7 +109,7 @@ the product of two 4-bit significands has 8 bits, which anything wider than
 E4M3 holds -- and adds the product to a running sum kept in a wider format.
 On Hopper that accumulator is nominally float32, though it has been measured
 to keep only about 14 mantissa bits for FP8 inputs; on other hardware it may
-be float16 or bfloat16. In MPTorch's vocabulary (:doc:`gemm`) that is a
+be float16 or bfloat16. In MPTorch's vocabulary (:doc:`kernels/arithmetic`) that is a
 ``SplitMac`` whose ``mul`` is any format wide enough to hold the product
 exactly and whose ``acc`` is the accumulator under study:
 
@@ -251,8 +251,15 @@ Where to go from here
 
 - **Attention.** The two matrix products of an attention head are
   :class:`~mptorch.quant.QMatmul` modules over a ``QMatmulFormats``
-  (:doc:`gemm` shows one), which puts the same recipe -- and the
+  (:doc:`kernels/calling` shows one), which puts the same recipe -- and the
   ``q @ k.mT`` shape, with no copy -- inside a transformer block.
+- **Convolutions.** ``QConv2d`` takes the same formats, and
+  :func:`~mptorch.quant.conv_formats` runs its three passes in the recipe's
+  arithmetic (:doc:`layers`, "Convolutions").
+- **Block formats.** The next generation of the recipe shares a scale per
+  block of 32 or 16 elements -- OCP's MXFP8 and MXFP4, NVIDIA's NVFP4 -- and
+  :func:`~mptorch.quant.block_gemm_formats` trains the same network in them
+  (:ref:`block-formats`, :doc:`kernels/block`).
 - **Per-element formats.** A ``Palette`` lets the first rows of a product
   run in E5M2 and the rest in E4M3, or any assignment a ``prec_idx`` map
   describes.

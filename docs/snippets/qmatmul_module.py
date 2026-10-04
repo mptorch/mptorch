@@ -10,7 +10,7 @@ torch.manual_seed(0)
 
 
 class QAttention(nn.Module):
-    """One attention head with both matmuls in E4M3 arithmetic."""
+    """One attention head with both matmuls in Binary8p4 arithmetic."""
 
     def __init__(self, dim: int, formats: QMatmulFormats):
         super().__init__()
@@ -24,11 +24,11 @@ class QAttention(nn.Module):
         return self.pv(p, v)
 
 
-e4m3 = BinaryK(8, 4)
-formats = matmul_formats(SplitMac(e4m3, None))  # E4M3 products, float32 sums
-formats.a_quant = Quant(e4m3)  # round both operands to E4M3 on the way in
-formats.b_quant = Quant(e4m3)
-formats.agrad_quant = Quantizer(BinaryK(8, 3, prng_bits=8))  # stochastic E5M2 on the gradient
+binary8p4 = BinaryK(8, 4)
+formats = matmul_formats(SplitMac(binary8p4, None))  # Binary8p4 products, float32 sums
+formats.a_quant = Quant(binary8p4)  # round both operands to Binary8p4 on the way in
+formats.b_quant = Quant(binary8p4)
+formats.agrad_quant = Quantizer(BinaryK(8, 3, prng_bits=8))  # stochastic Binary8p3 on the gradient
 formats.bgrad_quant = formats.agrad_quant
 
 head = QAttention(64, formats)

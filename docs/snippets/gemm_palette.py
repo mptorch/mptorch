@@ -18,16 +18,17 @@ b = torch.randn(K, N)
 # that small.
 warnings.simplefilter("ignore", FormatRangeWarning)
 
-e4m3, e5m2, bf16 = BinaryK(8, 4), BinaryK(8, 3), BinaryK(16, 8)
-palette = Palette([e4m3, e5m2, bf16])
+binary8p4, binary8p3, binary16p8 = BinaryK(8, 4), BinaryK(8, 3), BinaryK(16, 8)
+palette = Palette([binary8p4, binary8p3, binary16p8])
 mac = SplitMac(palette, palette)  # entry i: multiply and accumulate in format i
 
-# One map entry per output row: rows 0-1 in E4M3, 2-3 in E5M2, 4-5 in bf16.
+# One map entry per output row: rows 0-1 in Binary8p4, 2-3 in Binary8p3, 4-5 in
+# Binary16p8.
 prec_idx = torch.tensor([[0], [0], [1], [1], [2], [2]])
 out = qmatmul(a, b, mac, prec_idx=prec_idx)
 
 # Each row equals the same row computed with that single format.
-for fmt, rows in ((e4m3, [0, 1]), (e5m2, [2, 3]), (bf16, [4, 5])):
+for fmt, rows in ((binary8p4, [0, 1]), (binary8p3, [2, 3]), (binary16p8, [4, 5])):
     single = qmatmul(a, b, SplitMac(fmt, fmt))
     print(
         f"rows {rows} == {fmt.K}/{fmt.P} single-format rows:", torch.equal(out[rows], single[rows])

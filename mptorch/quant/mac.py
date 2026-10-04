@@ -35,6 +35,7 @@ object API that resolved per call would be slower than the flat wrappers it
 sits over.
 """
 
+import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import KW_ONLY, dataclass, field
 from functools import lru_cache
@@ -45,11 +46,20 @@ import torch
 from mptorch.number import (
     AccumulateAlgorithm,
     BinaryK,
+    BlockFormat,
     Number,
     RoundMode,
     SuperFP,
 )
 
+from .block import (
+    BlockPacked,
+    _block_gemm_spec,
+    _BlockGemmSpec,
+    block_pack,
+    block_quantize,
+    block_quantize_,
+)
 from .ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
@@ -72,7 +82,7 @@ from .ops import (
     superfp_quantize_,
 )
 
-__all__ = ["Quant", "Palette", "SplitMac", "FusedMac"]
+__all__ = ["Quant", "Palette", "SplitMac", "FusedMac", "BlockQuant", "BlockMac"]
 
 
 # The formats a GEMM kernel exists for. `Number` is the wider vocabulary, the
@@ -201,8 +211,10 @@ class Quant:
     memoization key like the mac objects.
 
     Args:
-        fmt (Number): the format to round to, a :class:`mptorch.BinaryK` or
-            :class:`mptorch.SuperFP`.
+        fmt (Number): the format to round to, a :class:`mptorch.BinaryK`, a
+            :class:`mptorch.SuperFP`, or a :class:`mptorch.BlockFormat`, whose
+            blocks run along the last axis (:class:`BlockQuant` names another
+            axis and a tensor scale).
         rounding (RoundMode): the rounding mode. Default: ``RoundMode.RNE``
         carrier (torch.dtype, optional): the float arithmetic the cast rounds
             in, :func:`mptorch.quant.binaryK_quantize`'s argument of that
@@ -281,12 +293,209 @@ class Quant:
                     carrier=carrier,
                 )
 
+        elif isinstance(fmt, BlockFormat):
+            block = block_quantize_ if self.inplace else block_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return block(x, fmt, -1, rounding=rm, carrier=carrier)
+
         else:
             raise TypeError(f"no elementwise quantizer for {type(fmt).__name__}")
         object.__setattr__(self, "_call", call)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         return self._call(x)
+
+
+# --- a block format ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BlockQuant:
+    """A block format plus a rounding mode: a fake quantizer, and a packer.
+
+    Calling it is :func:`mptorch.quant.block_quantize` along ``axis``: the
+    decoded values, of the tensor's shape and dtype, which is what a
+    ``*_quant`` slot of a layer's formats or a :class:`mptorch.quant.Quantizer`
+    takes. :meth:`pack` is :func:`mptorch.quant.block_pack` instead, the codes
+    themselves, which :func:`mptorch.quant.block_gemm_formats` and
+    :func:`mptorch.quant.block_matmul_formats` multiply without decoding them
+    first. Use ``BlockQuant(fmt, axis=1).pack`` as a ``QLinear``'s
+    ``weight_quant`` to pack its weight once rather than in every hook: the
+    packing is memoized on the tensor and its version counter, so it is redone
+    after each optimizer step (which writes the weight in place) and not
+    otherwise. A write the version counter does not see (through ``.data``)
+    is invisible to the memo too.
+
+    Args:
+        fmt (BlockFormat): the format.
+        rounding (RoundMode): the elements' rounding mode. Default:
+            ``RoundMode.RNE``
+        axis (int): the axis the blocks run along. Default: ``-1``
+        tensor_scale (float, optional): a static per-tensor scale for a format
+            that has one (NVFP4); ``None`` derives it per call. Default:
+            ``None``
+        carrier (torch.dtype, optional): as for
+            :func:`mptorch.quant.block_quantize`. Default: ``None``
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import MXFP8_E4M3
+        >>> from mptorch.quant import BlockQuant
+        >>> q = BlockQuant(MXFP8_E4M3)
+        >>> q(torch.tensor([[1.0, 0.1, -3.3, 100.0]]))
+        tensor([[ 1.0000,  0.1016, -3.2500, 96.0000]])
+        >>> w = torch.randn(16, 64)
+        >>> q.pack(w, axis=1) is q.pack(w, axis=1)
+        True
+    """
+
+    fmt: BlockFormat
+    rounding: RoundMode = RoundMode.RNE
+    _: KW_ONLY
+    axis: int = -1
+    tensor_scale: float | None = None
+    carrier: torch.dtype | None = None
+    # The last packing, as (tensor, its version, axis, result): one entry,
+    # since a BlockQuant packs one weight.
+    _memo: list = field(default_factory=lambda: [None], init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fmt, BlockFormat):
+            raise TypeError(f"BlockQuant takes a BlockFormat, got {type(self.fmt).__name__}")
+        _checked_carrier(self.carrier)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return block_quantize(
+            x,
+            self.fmt,
+            self.axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+
+    def pack(self, x: torch.Tensor, axis: int | None = None) -> BlockPacked:
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis`` (default:
+        this quantizer's), memoized on ``x`` and its version."""
+        axis = self.axis if axis is None else axis
+        memo = self._memo[0]
+        if memo is not None:
+            ref, version, memo_axis, packed = memo
+            if ref() is x and x._version == version and memo_axis == axis:
+                return packed
+        packed = block_pack(
+            x,
+            self.fmt,
+            axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+        self._memo[0] = (weakref.ref(x), x._version, axis, packed)
+        return packed
+
+    def pack_fresh(self, x: torch.Tensor, axis: int) -> BlockPacked:
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, not memoized:
+        for an activation or a gradient, a new tensor every call."""
+        return block_pack(
+            x,
+            self.fmt,
+            axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+
+
+def _as_block_quant(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+    """A block operand slot as a ``BlockQuant``: a bare format packs to nearest even."""
+    if isinstance(slot, BlockQuant):
+        return slot
+    if isinstance(slot, BlockFormat):
+        return BlockQuant(slot)
+    raise TypeError(f"{name} is a BlockFormat or a BlockQuant, got {type(slot).__name__}")
+
+
+@dataclass(frozen=True)
+class BlockMac:
+    """The block GEMM: two block-format operands and the arithmetic of their product.
+
+    ``a`` and ``b`` are the formats the left and right operand are packed in
+    (a :class:`mptorch.BlockFormat`, packed to nearest even, or a
+    :class:`BlockQuant`, which names the rounding and a tensor scale); ``b``
+    defaults to ``a``. The product decodes both operands in binary32 and sums
+    their products as :func:`mptorch.quant.block_matmul` states: each product
+    rounded to binary32 and the sum to ``acc`` (a split mac), or each fused
+    multiply-add rounded to ``acc`` (``fused=True``), ``acc=None`` leaving the
+    sum in binary32. The accumulate algorithms are :class:`SplitMac`'s.
+    :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` take one
+    (:func:`mptorch.quant.block_matmul_formats` builds their formats), and so
+    does a bare ``BlockFormat``, as ``BlockMac(fmt)``.
+
+    Args:
+        a (BlockFormat or BlockQuant): the left operand's format.
+        b (BlockFormat or BlockQuant, optional): the right operand's. Default:
+            ``None``, ``a``'s.
+        acc (BinaryK, optional): the accumulate format. Default: ``None``
+        fused (bool): a fused multiply-add per step. Default: ``False``
+        rounding (RoundMode): the sum's rounding mode. Default:
+            ``RoundMode.RNE``
+        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`
+            (``TREE`` needs ``fused=False``). Default: ``AccumulateAlgorithm.NAIVE``
+        carrier (torch.dtype, optional): ``None`` or ``torch.float32``; block
+            formats have binary32 kernels only so far. Default: ``None``
+        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
+        outer (BinaryK, optional): as for :class:`SplitMac`. Default: ``None``
+        tensor_scale_epilogue (bool): apply the operands' per-tensor scales
+            once, to the result, as NVIDIA's NVFP4 GEMMs do, rather than in
+            each decoded element (:func:`mptorch.quant.block_matmul`).
+            Default: ``False``
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK, MXFP8_E4M3, MXFP4_E2M1
+        >>> from mptorch.quant import BlockMac, qmm
+        >>> mac = BlockMac(MXFP8_E4M3, MXFP4_E2M1, BinaryK(16, 11))
+        >>> qmm(torch.randn(4, 64), torch.randn(64, 8), mac).shape
+        torch.Size([4, 8])
+    """
+
+    a: "BlockFormat | BlockQuant"
+    b: "BlockFormat | BlockQuant | None" = None
+    acc: BinaryK | None = None
+    _: KW_ONLY
+    fused: bool = False
+    rounding: RoundMode = RoundMode.RNE
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: BinaryK | None = None
+    tensor_scale_epilogue: bool = False
+
+    def __post_init__(self) -> None:
+        a = _as_block_quant(self.a, "BlockMac's a")
+        b = a if self.b is None else _as_block_quant(self.b, "BlockMac's b")
+        object.__setattr__(self, "a", a)
+        object.__setattr__(self, "b", b)
+        spec_for_block_mac(self)  # every error the arithmetic can raise, raised now
+
+
+@lru_cache(maxsize=256)
+def spec_for_block_mac(mac: BlockMac) -> _BlockGemmSpec:
+    """The resolved block GEMM a ``BlockMac`` names, memoized on the value."""
+    return _block_gemm_spec(
+        mac.acc,
+        mac.fused,
+        mac.rounding,
+        mac.accumulate_algorithm,
+        mac.block_size,
+        mac.outer,
+        mac.carrier,
+        mac.tensor_scale_epilogue,
+    )
 
 
 # --- the two reduction policies ----------------------------------------------
@@ -396,14 +605,14 @@ class SplitMac:
         >>> import torch
         >>> from mptorch import BinaryK
         >>> from mptorch.quant import SplitMac, qmm
-        >>> e4m3 = BinaryK(8, 4)
-        >>> mac = SplitMac(e4m3, BinaryK(16, 11))   # E4M3 products, 11-bit sums
+        >>> binary8p4 = BinaryK(8, 4)
+        >>> mac = SplitMac(binary8p4, BinaryK(16, 11))   # Binary8p4 products, 11-bit sums
         >>> qmm(torch.randn(4, 8), torch.randn(8, 3), mac).shape
         torch.Size([4, 3])
-        >>> exact_sum = SplitMac(e4m3, None)   # products rounded, sum exact
+        >>> exact_sum = SplitMac(binary8p4, None)   # products rounded, sum exact
         >>> from mptorch import AccumulateAlgorithm
-        >>> blocked = SplitMac(e4m3, e4m3, accumulate_algorithm=AccumulateAlgorithm.BLOCK,
-        ...                    block_size=8, outer=BinaryK(16, 11))
+        >>> blocked = SplitMac(binary8p4, binary8p4, block_size=8, outer=BinaryK(16, 11),
+        ...                    accumulate_algorithm=AccumulateAlgorithm.BLOCK)
         >>> qmm(torch.randn(4, 64), torch.randn(64, 3), blocked).shape
         torch.Size([4, 3])
     """

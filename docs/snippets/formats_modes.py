@@ -7,7 +7,7 @@ from mptorch.quant import Quant
 
 torch.set_printoptions(precision=6, sci_mode=False)
 
-# Small values, E4M3 with bias 7: the smallest normal is 2**-6. Under
+# Small values, in E4M3's layout (bias 7): the smallest normal is 2**-6. Under
 # EXTENDED_NORMALS the binade below it holds normals as well, but its
 # mantissa-zero code is still the zero -- so 2**-7 is not one of them, and
 # that binade starts at 1.125 * 2**-7.
@@ -17,7 +17,8 @@ for mode in SubnormalsMode:
     q = Quant(BinaryK(8, 4, bias=7, subnormals=mode))
     print(f"{mode.name:<16}", q(small).tolist())
 
-# Large values, E4M3 with bias 7: the largest finite value is 480.
+# Large values, same layout: the top code, 480, is a number in the finite
+# domain and infinity in the extended one, whose largest finite value is 448.
 large = torch.tensor([448.0, 480.0, 500.0, 1e6, float("inf"), -float("inf"), float("nan")])
 print("\ninput           ", large.tolist())
 for mode in SaturationMode:

@@ -11,7 +11,10 @@ taking a format object instead of twenty integers and carrying a gradient.
   arithmetic wants;
 * a ``Number`` (``BinaryK(8, 4)``): shorthand for
   ``SplitMac(mul=fmt, acc=fmt)``, the common case where one format is used
-  for both halves of the dot product;
+  for both halves of the dot product, and for a ``BlockFormat``,
+  ``BlockMac(fmt)``: both operands packed in it, the sum in binary32;
+* a ``BlockMac``: two packed block-format operands and the arithmetic of
+  their product (:func:`mptorch.quant.block_matmul_formats`);
 * a ``SplitMac`` / ``FusedMac``: the dot-product arithmetic, with a palette
   in any slot selecting the per-output-element op and requiring ``prec_idx``,
   and a ``carrier`` choosing the float arithmetic it is computed in (binary64
@@ -28,10 +31,10 @@ from typing import Any
 
 import torch
 
-from mptorch.number import Number
+from mptorch.number import BlockFormat, Number
 
-from .gemm import matmul_formats
-from .mac import FusedMac, Mac, SplitMac
+from .gemm import block_matmul_formats, matmul_formats
+from .mac import BlockMac, FusedMac, Mac, SplitMac
 from .modules.format import QMatmulFormats
 from .modules.matmul import CustomArithMatmul
 
@@ -39,7 +42,7 @@ __all__ = ["qmm", "qbmm", "qmatmul", "as_matmul_formats"]
 
 
 @lru_cache(maxsize=128)
-def _formats_for(spelling: "Number | Mac", prec_idx: Any = None) -> QMatmulFormats:
+def _formats_for(spelling: "Number | Mac | BlockMac", prec_idx: Any = None) -> QMatmulFormats:
     """One ``QMatmulFormats`` per (format spelling, prec_idx), built once.
 
     Memoized for the same reason ``spec_for_mac`` is: an ad-hoc
@@ -52,8 +55,15 @@ def _formats_for(spelling: "Number | Mac", prec_idx: Any = None) -> QMatmulForma
     key: a map rebuilt per call defeats this cache and the C++ side's memo of
     the map's bounds check alike, while a map held and reused hits both.
     """
-    if isinstance(spelling, Number):
+    if isinstance(spelling, BlockFormat):
+        spelling = BlockMac(spelling)
+    elif isinstance(spelling, Number):
         spelling = SplitMac(spelling, spelling)
+    if isinstance(spelling, BlockMac):
+        if prec_idx is not None:
+            raise ValueError("prec_idx selects a palette entry, and a block format has none")
+        return block_matmul_formats(spelling)
+    assert isinstance(spelling, SplitMac | FusedMac)
     return matmul_formats(spelling, prec_idx=prec_idx)
 
 
@@ -91,9 +101,9 @@ def as_matmul_formats(formats: Any, prec_idx: torch.Tensor | None = None) -> QMa
                 "factory that built it (mptorch.quant.matmul_formats) rather than to the call"
             )
         return formats
-    if not isinstance(formats, Number | SplitMac | FusedMac):
+    if not isinstance(formats, Number | SplitMac | FusedMac | BlockMac):
         raise TypeError(
-            "formats must be None, a Number, a SplitMac/FusedMac or a QMatmulFormats, "
+            "formats must be None, a Number, a SplitMac/FusedMac/BlockMac or a QMatmulFormats, "
             f"got {type(formats).__name__}"
         )
     return _formats_for(formats, prec_idx)

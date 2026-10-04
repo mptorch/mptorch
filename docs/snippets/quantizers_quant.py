@@ -22,5 +22,5 @@ print(q_sr(x))
 
 # Formats and Quants are frozen values: equal by value, and usable as keys.
 assert BinaryK(8, 4) == BinaryK(8, 4, bias=8)
-cache = {BinaryK(8, 4): "E4M3", BinaryK(8, 3): "E5M2"}
+cache = {BinaryK(8, 4): "Binary8p4", BinaryK(8, 3): "Binary8p3"}
 print(cache[BinaryK(8, 4)], cache[BinaryK(8, 3)])

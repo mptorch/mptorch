@@ -824,3 +824,213 @@ def test_quantizer_with_no_formats_is_the_identity(device):
     g = torch.randn_like(out)
     out.backward(g)
     assert x.grad is not None and torch.equal(x.grad, g)
+
+
+# --- block formats: BlockMac, BlockQuant and the layer factories ------------------
+
+
+def test_scale_rounding_resolves_and_compares_by_the_rule():
+    """A BlockFormat's scale rule defaults to its scale's own (OCP for a power
+    of two, NEAREST for E4M3, SELECTIVE for a superfp), is resolved again when
+    the format is rebuilt with another scale, and is what formats compare and
+    hash by, so the default and its spelled-out value are one format."""
+    import dataclasses
+
+    from mptorch import E2M1, E4M3, E8M0, MXFP4_E2M1, MXFP8_E4M3, NVFP4, BlockFormat
+    from mptorch import ScaleRounding as R
+
+    sfp = SuperFP(3, 4, 2, 7)
+    assert MXFP8_E4M3.scale_rule is R.OCP and NVFP4.scale_rule is R.NEAREST
+    assert BlockFormat(E2M1, sfp, 16).scale_rule is R.SELECTIVE
+    assert BlockFormat(E4M3, None, 32).scale_rule is None
+    ocp = BlockFormat(E2M1, E8M0, 32, scale_rounding=R.OCP)
+    assert ocp == MXFP4_E2M1 and hash(ocp) == hash(MXFP4_E2M1)
+    assert dataclasses.replace(MXFP4_E2M1, scale_rounding=R.UP) != MXFP4_E2M1
+    assert dataclasses.replace(NVFP4, scale=sfp).scale_rule is R.SELECTIVE
+    assert dataclasses.replace(MXFP8_E4M3, scale=E4M3).scale_rule is R.NEAREST
+    up = dataclasses.replace(NVFP4, scale_rounding=R.UP)
+    assert dataclasses.replace(up, scale=sfp).scale_rule is R.UP  # named, so kept
+
+
+def test_block_mac_resolves_to_the_flat_spec():
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockMac
+    from mptorch.quant.block import _block_gemm_spec
+    from mptorch.quant.mac import spec_for_block_mac
+
+    for acc, fused, rm, alg, bs, outer, epilogue in itertools.product(
+        (None, BinaryK(16, 11)),
+        (False, True),
+        (RoundMode.RNE, RoundMode.SR),
+        (AccumulateAlgorithm.NAIVE, AccumulateAlgorithm.BLOCK),
+        (None,),
+        (None,),
+        (False, True),
+    ):
+        block = 8 if alg is AccumulateAlgorithm.BLOCK else bs
+        mac = BlockMac(
+            MXFP8_E4M3,
+            acc=acc,
+            fused=fused,
+            rounding=rm,
+            accumulate_algorithm=alg,
+            block_size=block,
+            outer=outer,
+            tensor_scale_epilogue=epilogue,
+        )
+        want = _block_gemm_spec(acc, fused, rm, alg, block, outer, None, epilogue)
+        assert spec_for_block_mac(mac) == want
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+@pytest.mark.parametrize("square", [False, True])
+def test_qmatmul_with_a_block_mac(device, square):
+    import dataclasses
+
+    from mptorch import MXFP8_E4M3, NVFP4
+    from mptorch.quant import BlockMac, block_matmul, block_pack
+
+    fa = dataclasses.replace(MXFP8_E4M3, block_rows=32) if square else MXFP8_E4M3
+    fb = dataclasses.replace(NVFP4, block_rows=16) if square else NVFP4
+    mac = BlockMac(fa, fb, BinaryK(16, 11))
+    a = torch.randn(3, 20, 64, device=device, requires_grad=True)
+    b = torch.randn(64, 12, device=device, requires_grad=True)
+    y = qmatmul(a, b, mac)
+    assert y.shape == (3, 20, 12)
+    assert torch.equal(
+        y,
+        block_matmul(
+            block_pack(a.detach(), fa), block_pack(b.detach(), fb, 0), acc=BinaryK(16, 11)
+        ),
+    )
+    g = torch.randn_like(y)
+    y.backward(g)
+    # a's gradient is g @ b^T in the block GEMM: g packed along its last
+    # dimension in a's format, b along its last in b's; b's is a^T @ g
+    ga = block_matmul(block_pack(g, fa), block_pack(b.detach(), fb, -1).mT, acc=BinaryK(16, 11))
+    assert a.grad is not None and b.grad is not None
+    assert torch.equal(a.grad, ga)
+    gb = block_matmul(block_pack(a.detach(), fa, -2).mT, block_pack(g, fb, -2), acc=BinaryK(16, 11))
+    assert torch.equal(b.grad, gb.sum(0))
+    # the module, and the bare BlockFormat spelling
+    assert torch.equal(QMatmul(mac)(a, b), y)
+    assert qmatmul(a.detach(), b.detach(), fa).shape == y.shape
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+def test_block_gemm_formats_on_qlinear(device):
+    import dataclasses
+
+    from mptorch import MXFP8_E4M3, NVFP4
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats, block_matmul, block_pack
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    acc = BinaryK(16, 11)
+    layer = QLinear(64, 24, formats=block_gemm_formats(NVFP4, w16, MXFP8_E4M3, acc=acc)).to(device)
+    x = torch.randn(5, 7, 64, device=device, requires_grad=True)
+    y = layer(x)
+    w, bias = layer.weight.detach(), layer.bias.detach()
+    xp = block_pack(x.detach().reshape(-1, 64), NVFP4)
+    want = block_matmul(xp, block_pack(w, w16, 1).mT, acc=acc).reshape(5, 7, 24) + bias
+    assert torch.equal(y, want)
+    g = torch.randn_like(y)
+    y.backward(g)
+    gp = g.reshape(-1, 24)
+    assert x.grad is not None and layer.weight.grad is not None
+    assert torch.equal(
+        x.grad,
+        block_matmul(block_pack(gp, MXFP8_E4M3), block_pack(w, w16, 0), acc=acc).reshape(5, 7, 64),
+    )
+    assert torch.equal(
+        layer.weight.grad,
+        block_matmul(
+            block_pack(gp, MXFP8_E4M3, 0).mT,
+            block_pack(x.detach().reshape(-1, 64), NVFP4, 0),
+            acc=acc,
+        ),
+    )
+
+    # A square-tiled weight packed once by weight_quant: the same forward, and
+    # the input gradient read from that packing equals re-packing along 0.
+    packed = block_gemm_formats(NVFP4, w16, MXFP8_E4M3, acc=acc)
+    calls = []
+    q = BlockQuant(w16, axis=1)
+
+    def counting(t):
+        calls.append(t._version)
+        return q.pack(t)
+
+    packed.weight_quant = counting
+    layer2 = QLinear(64, 24, formats=packed).to(device)
+    layer2.load_state_dict(layer.state_dict())
+    x2 = x.detach().clone().requires_grad_()
+    y2 = layer2(x2)
+    y2.backward(g)
+    assert x2.grad is not None and x.grad is not None
+    assert layer2.weight.grad is not None and layer.weight.grad is not None
+    assert (
+        torch.equal(y2, y)
+        and torch.equal(x2.grad, x.grad)
+        and torch.equal(layer2.weight.grad, layer.weight.grad)
+    )
+    # one packing per optimizer step: the memo sees the step's in-place write
+    opt = torch.optim.SGD(layer2.parameters(), lr=0.1)
+    with torch.no_grad():
+        first = q.pack(layer2.weight)
+        layer2(x2.detach())
+        assert q.pack(layer2.weight) is first
+        opt.step()
+        assert q.pack(layer2.weight) is not first
+
+
+def test_a_packed_1d_weight_refuses_the_input_gradient():
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats
+
+    f = block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3)
+    f.weight_quant = BlockQuant(MXFP8_E4M3, axis=1).pack
+    layer = QLinear(64, 8, formats=f)
+    y = layer(torch.randn(4, 64, requires_grad=True))  # inference is fine
+    with pytest.raises(ValueError, match="block_rows=32"):
+        y.sum().backward()
+    with torch.no_grad():
+        assert layer(torch.randn(4, 64)).shape == (4, 8)
+
+
+def test_qmatmul_with_superfp_block_formats():
+    """A BlockMac over superfp elements and a superfp scale runs the forward and
+    both gradients, and its forward is the block GEMM of the packed operands."""
+    import dataclasses
+
+    from mptorch import E8M0, BlockFormat
+    from mptorch.quant import BlockMac, block_matmul, block_pack
+
+    fa = BlockFormat(SuperFP(3, 4, 2, 7), E8M0, 32, elem_max=448.0, nan_code=0x7F)
+    fb = dataclasses.replace(
+        BlockFormat(SuperFP(2, 3, 2, 3), SuperFP(3, 4, 2, 7), 16), block_rows=16
+    )
+    a = torch.randn(6, 64, requires_grad=True)
+    b = torch.randn(64, 16, requires_grad=True)
+    y = qmatmul(a, b, BlockMac(fa, fb, BinaryK(16, 11)))
+    want = block_matmul(
+        block_pack(a.detach(), fa), block_pack(b.detach(), fb, 0), acc=BinaryK(16, 11)
+    )
+    assert torch.equal(y, want)
+    y.sum().backward()
+    assert a.grad is not None and b.grad is not None

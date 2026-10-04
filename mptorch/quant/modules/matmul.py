@@ -94,10 +94,20 @@ class CustomArithMatmul(torch.autograd.Function):
         # Save only what backward reads, as CustomArithLinear does: q_b feeds
         # a's gradient and q_a feeds b's, so a call that needs one gradient
         # does not pin a quantized copy of both operands.
-        ctx.save_for_backward(
-            q_a if ctx.needs_input_grad[1] else None,
-            q_b if ctx.needs_input_grad[0] else None,
-        )
+        saved_a = q_a if ctx.needs_input_grad[1] else None
+        saved_b = q_b if ctx.needs_input_grad[0] else None
+        # save_for_backward takes tensors only; a quantizer that returns some
+        # other structure (a packed block format, which block_matmul_formats'
+        # square-tiled slots return) goes on ctx directly, as in
+        # CustomArithLinear.
+        if (saved_a is None or isinstance(saved_a, torch.Tensor)) and (
+            saved_b is None or isinstance(saved_b, torch.Tensor)
+        ):
+            ctx.save_for_backward(saved_a, saved_b)
+            ctx.saved_structs = None
+        else:
+            ctx.save_for_backward()
+            ctx.saved_structs = (saved_a, saved_b)
         ctx.promotion = (a.dim() == 1, b.dim() == 1)
         ctx.shapes = (a.shape, b.shape)
         return output
@@ -105,7 +115,7 @@ class CustomArithMatmul(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         formats = ctx.formats
-        q_a, q_b = ctx.saved_tensors
+        q_a, q_b = ctx.saved_tensors if ctx.saved_structs is None else ctx.saved_structs
         a_1d, b_1d = ctx.promotion
         a_shape, b_shape = ctx.shapes
         grad_a = grad_b = None

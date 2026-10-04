@@ -16,7 +16,7 @@ from mptorch.quant import (
 torch.manual_seed(0)
 
 # The factory sets the three math hooks -- forward, input-gradient and
-# weight-gradient GEMMs -- to a binaryK core: E4M3 products, float32 sums.
+# weight-gradient GEMMs -- to a binaryK core: Binary8p4 products, float32 sums.
 formats = binaryK_gemm_formats(mul_K=8, mul_P=4, accumulate_quant=False)
 print(
     "hooks set:",

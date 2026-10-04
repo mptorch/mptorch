@@ -3,20 +3,29 @@
 API reference
 =============
 
-The public surface, by module. Everything documented here is importable
-from the two packages ``mptorch`` (formats and enums) and ``mptorch.quant``
-(quantizers, matrix products, layers).
+The public surface, grouped as the guides are: formats, quantizers, kernels
+and layers. Everything documented here is importable from the two packages
+``mptorch`` (formats and enums) and ``mptorch.quant`` (quantizers, kernels,
+layers).
 
 Number formats and modes
 ------------------------
 
+See :doc:`concepts`. The presets are importable from ``mptorch``: the element
+and scale formats ``E8M0``, ``E4M3``, ``E5M2``, ``E2M1``, ``E2M3`` and
+``E3M2`` (each a :class:`~mptorch.BinaryK`), and the block formats
+``MXFP8_E4M3``, ``MXFP8_E5M2``, ``MXFP6_E2M3``, ``MXFP6_E3M2``,
+``MXFP4_E2M1`` and ``NVFP4`` (each a :class:`~mptorch.BlockFormat`).
+
 .. automodule:: mptorch.number
-   :members: RoundMode, SaturationMode, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, FormatRangeWarning
+   :members: RoundMode, SaturationMode, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, BlockFormat, ScaleRounding, FormatRangeWarning
    :undoc-members:
    :member-order: bysource
 
-Elementwise quantization
-------------------------
+Quantizers
+----------
+
+See :doc:`quantizers`.
 
 .. autofunction:: mptorch.quant.binaryK_quantize
 
@@ -32,15 +41,37 @@ Elementwise quantization
 .. autoclass:: mptorch.quant.Quantizer
    :members: forward
 
-Dot-product arithmetic
-----------------------
+Block quantizers
+~~~~~~~~~~~~~~~~
+
+.. autofunction:: mptorch.quant.block_quantize
+
+.. autofunction:: mptorch.quant.block_quantize_
+
+.. autofunction:: mptorch.quant.block_pack
+
+.. autofunction:: mptorch.quant.block_unpack
+
+.. autoclass:: mptorch.quant.BlockPacked
+   :members: mT, unpack, to, nbytes, cols, device
+
+.. autoclass:: mptorch.quant.BlockQuant
+   :members: __call__, pack, pack_fresh
+
+Kernels
+-------
+
+See :doc:`kernels/index`.
+
+The arithmetic of a dot product
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: mptorch.quant.mac
-   :members: SplitMac, FusedMac, Palette
+   :members: SplitMac, FusedMac, Palette, BlockMac
    :no-undoc-members:
 
 Matrix products
----------------
+~~~~~~~~~~~~~~~
 
 .. automodule:: mptorch.quant.matmul
    :members: qmatmul, qmm, qbmm, as_matmul_formats
@@ -52,11 +83,16 @@ Matrix products
 
 .. autofunction:: mptorch.quant.matmul_formats
 
+.. autofunction:: mptorch.quant.block_matmul
+
+.. autofunction:: mptorch.quant.block_matmul_formats
+
 The schema tier
 ~~~~~~~~~~~~~~~
 
 One function per kernel, with every schema argument spelled out and no
-autograd. See :doc:`gemm` for when to use these instead of ``qmatmul``.
+autograd. See :doc:`kernels/calling` for when to use these instead of
+``qmatmul``.
 
 .. autofunction:: mptorch.quant.binaryK_matmul
 
@@ -76,6 +112,8 @@ autograd. See :doc:`gemm` for when to use these instead of ``qmatmul``.
 
 Layers
 ------
+
+See :doc:`layers`.
 
 .. autoclass:: mptorch.quant.QAffineFormats
 
@@ -100,3 +138,5 @@ Layer arithmetic factories
 .. autofunction:: mptorch.quant.superfp_gemm_formats_fma
 
 .. autofunction:: mptorch.quant.conv_formats
+
+.. autofunction:: mptorch.quant.block_gemm_formats

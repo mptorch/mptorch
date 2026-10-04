@@ -1,4 +1,4 @@
-float32 torch.matmul : -0.526053
-SplitMac(E4M3, E4M3) : -0.562500
-FusedMac(E4M3)       : -0.500000   by hand equal: True
-FusedMac(None)       : -0.526053
+float32 torch.matmul           : -0.526053
+SplitMac(Binary8p4, Binary8p4) : -0.562500
+FusedMac(Binary8p4)            : -0.500000   by hand equal: True
+FusedMac(None)                 : -0.526053

@@ -7,14 +7,14 @@ from mptorch import AccumulateAlgorithm, BinaryK, RoundMode
 from mptorch.quant import FusedMac, QConv2d, Quant, SplitMac, conv_formats, qmatmul
 
 torch.manual_seed(0)
-e4m3 = BinaryK(8, 4)
+binary8p4 = BinaryK(8, 4)
 
-# E4M3 products summed in a 12-bit accumulator, for the forward convolution
+# Binary8p4 products summed in a 12-bit accumulator, for the forward convolution
 # and both gradients; operand quantizers are layered on as for QLinear.
-mac = SplitMac(e4m3, BinaryK(12, 7))
+mac = SplitMac(binary8p4, BinaryK(12, 7))
 formats = conv_formats(mac)
-formats.input_quant = Quant(e4m3)
-formats.weight_quant = Quant(e4m3)
+formats.input_quant = Quant(binary8p4)
+formats.weight_quant = Quant(binary8p4)
 
 conv = QConv2d(3, 8, kernel_size=3, stride=2, padding=1, formats=formats)
 x = torch.randn(4, 3, 16, 16, requires_grad=True)
@@ -25,7 +25,7 @@ print("output", tuple(out.shape), "input grad", tuple(x.grad.shape))
 # The forward is the GEMM of the same mac over the unfolded input, bit for
 # bit, although no unfolded input (9x the input here) was ever built.
 with torch.no_grad():
-    qx, qw = Quant(e4m3)(x), Quant(e4m3)(conv.weight)
+    qx, qw = Quant(binary8p4)(x), Quant(binary8p4)(conv.weight)
     cols = F.unfold(qx, 3, padding=1, stride=2)  # [4, 27, 64]
     ref = qmatmul(qw.reshape(8, -1), cols, mac).reshape(out.shape) + conv.bias.view(1, 8, 1, 1)
 print("forward == qmatmul(Q(W), unfold(Q(x))) + b:", torch.equal(out, ref))
@@ -41,7 +41,7 @@ print("grouped, dilated, KAHAN under SR:", tuple(y.shape))
 
 # A palette picks a format per output element; a [Cout, 1] map is one per
 # output channel. Each pass has its own map, shaped like its own result.
-pal = SplitMac([e4m3, BinaryK(8, 5)], BinaryK(12, 7))
+pal = SplitMac([binary8p4, BinaryK(8, 5)], BinaryK(12, 7))
 per_channel = conv_formats(
     pal,
     prec_idx=torch.tensor([[0], [1]] * 4),  # the forward's 8 output channels

@@ -206,4 +206,32 @@ TORCH_LIBRARY(mptorch, m)
         "bool fma_quant, int[] fma_man_bits, int[] fma_exp_bits, int[] fma_normal_binades, "
         "int[] fma_bias, bool fma_is_signed, int accumulate_algorithm, int round_mode, "
         "int fma_saturation_mode, int fma_prng_bits) -> Tensor");
+  // The block-format ops (common/block_decode.h; mptorch.number.BlockFormat).
+  // `fmt` is the format's descriptor, an int list in BlockFmtField's order,
+  // and the three floats are its largest element, its largest scale and the
+  // per-tensor scale (1 for a format without one). block_pack writes uint8
+  // codes and scales; block_unpack reads them back as `dtype`, of whose
+  // packed axis `cols` is the unpadded length; block_quant is the two fused,
+  // with no packed intermediate. custom_matmul_block multiplies two packed
+  // operands, A [M, K] and B [N, K] (or stored with K as their rows), in the
+  // binaryK accumulate format given, under any AccumulateAlgorithm: the
+  // accumulation tail is the *_accumulated ops'.
+  m.def("block_pack(Tensor x, int[] fmt, float elem_max, float scale_max, float tensor_scale, "
+        "int round_mode) -> (Tensor, Tensor)");
+  m.def("block_unpack(Tensor data, Tensor scales, int cols, int[] fmt, float elem_max, "
+        "float scale_max, float tensor_scale, ScalarType dtype) -> Tensor");
+  m.def("block_quant(Tensor x, int[] fmt, float elem_max, float scale_max, float tensor_scale, "
+        "int round_mode) -> Tensor");
+  m.def("block_quant_(Tensor(a!) x, int[] fmt, float elem_max, float scale_max, "
+        "float tensor_scale, int round_mode) -> Tensor(a!)");
+  m.def("custom_matmul_block(Tensor a_data, Tensor a_scales, int a_cols, bool trans_a, "
+        "Tensor b_data, Tensor b_scales, int b_cols, bool trans_b, "
+        "int[] a_fmt, float a_elem_max, float a_scale_max, float a_tensor_scale, "
+        "int[] b_fmt, float b_elem_max, float b_scale_max, float b_tensor_scale, "
+        "bool fused, bool accumulate_quant, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, int acc_saturation_mode, "
+        "int acc_subnormals_mode, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
+        "int outer_prng_bits) -> Tensor");
 }

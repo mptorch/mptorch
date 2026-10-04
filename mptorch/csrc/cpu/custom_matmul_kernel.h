@@ -16,6 +16,7 @@
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_block.h"
 #include "../common/gemm_gather.h"
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
@@ -235,6 +236,27 @@ namespace mptorch::gemm_cpu
 
 #undef MPTORCH_GEMM_BY_DTYPE
 
+  // The block GEMM's packs (common/gemm_block.h): the same tiles, decoded
+  // from a packed operand, once per tile as every pack converts once per
+  // tile. `off` is the batch element's offset into the data, in bytes.
+  template <class T>
+  void pack_block_a(const void *A, T *__restrict__ dst, const mptorch::gemm::BlockOperand &o,
+                    int64_t bId, int64_t off, int64_t i0, int64_t k0, int64_t ti, int64_t tk)
+  {
+    for (int64_t i = 0; i < ti; ++i)
+      for (int64_t k = 0; k < tk; ++k)
+        dst[i * tk + k] = mptorch::gemm::block_load<T>(A, o, bId, off, i0 + i, k0 + k);
+  }
+
+  template <class T>
+  void pack_block_b(const void *B, T *__restrict__ dst, const mptorch::gemm::BlockOperand &o,
+                    int64_t bId, int64_t off, int64_t k0, int64_t j0, int64_t tk, int64_t tj)
+  {
+    for (int64_t k = 0; k < tk; ++k)
+      for (int64_t j = 0; j < tj; ++j)
+        dst[k * tj + j] = mptorch::gemm::block_load<T>(B, o, bId, off, j0 + j, k0 + k);
+  }
+
   template <>
   inline void pack_a<double>(const void *A, mptorch::GemmDtype, double *dst, int64_t M, int64_t K,
                              bool trans_a, int64_t i0, int64_t k0, int64_t ti, int64_t tk,
@@ -445,16 +467,24 @@ namespace mptorch::gemm_cpu
           // every other policy compiles to the code it did
           // (dev/gemm_roadmap.md, R-4; the branch order is the mixed
           // map's, above).
-          if constexpr (!mptorch::gemm::is_gathered_v<Accumulator>)
+          if constexpr (!mptorch::gemm::is_gathered_v<Accumulator> &&
+                        !mptorch::gemm::is_blocked_v<Accumulator>)
           {
             pack_a(A, dt, a_pack, M, K, trans_a, i0, k0, ti, tk, a_off);
             pack_b(B, dt, b_pack, K, N, trans_b, k0, j0, tk, tj, b_off);
           }
-          else
+          else if constexpr (mptorch::gemm::is_gathered_v<Accumulator>)
           {
             static_assert(TK <= GATHER_TILE && TJ <= GATHER_TILE);
             pack_gather_a(A, dt, a_pack, acc_proto.geom, bId, i0, k0, ti, tk);
             pack_gather_b(B, dt, b_pack, acc_proto.geom, bId, k0, j0, tk, tj);
+          }
+          else
+          {
+            // A blocked policy (the block GEMM) decodes its packed operands;
+            // a_off and b_off are in bytes for it.
+            pack_block_a(A, a_pack, acc_proto.block_a, bId, a_off, i0, k0, ti, tk);
+            pack_block_b(B, b_pack, acc_proto.block_b, bId, b_off, k0, j0, tk, tj);
           }
           for (int64_t i = 0; i < ti; ++i)
           {
@@ -588,6 +618,39 @@ namespace mptorch::gemm_cpu
         {
           matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
                                  Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.seed);
+        });
+      }
+    });
+  }
+
+  // The block GEMM (common/gemm_block.h): the policy `Inner` builds, wrapped
+  // in a Blocked that carries the two packed operands, and run over
+  // [batch, M, N] with the operands' own trans flags and their data's batch
+  // strides in bytes. Instantiated by the four custom_matmul_block*.cpp files.
+  template <class T, AccumulateAlgorithm ALG, class Inner>
+  void CpuBackend::launch_block_as(const GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
+                                   const LaunchContext &ctx)
+  {
+    using mptorch::gemm::Blocked;
+    mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+    {
+      constexpr RoundMode RM = decltype(rm_c)::value;
+      if constexpr (ALG == AccumulateAlgorithm::NAIVE)
+      {
+        args.inner.template with_accumulator<T, RM>([&](auto acc)
+        {
+          matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
+                                 s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                 s.use_rng, ctx.seed);
+        });
+      }
+      else
+      {
+        args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
+        {
+          matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
+                                 s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                 s.use_rng, ctx.seed);
         });
       }
     });

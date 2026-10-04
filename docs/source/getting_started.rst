@@ -71,7 +71,7 @@ Two objects carry most of the library: a *format*, which is a plain value, and a
    :language: text
    :caption: output
 
-``BinaryK(8, 4)`` is ``Binary8p4se`` from IEEE P3109, the upcoming standard for machine-learning number formats: an 8-bit float with 4 bits of precision (one of them implicit), in the E4M3 layout. ``1.541`` becomes ``1.5`` because the values representable between 1 and 2 are spaced ``1/8`` apart. :doc:`concepts` explains the formats and the rounding; the guides take it from there.
+``BinaryK(8, 4)`` is ``Binary8p4se`` from IEEE P3109, the upcoming standard for machine-learning number formats: an 8-bit float with a sign bit, 4 exponent bits and 4 bits of precision (one of them implicit). Those are the field widths of the OCP format E4M3, whose exponent bias is one less. ``1.541`` becomes ``1.5`` because the values representable between 1 and 2 are spaced ``1/8`` apart. :doc:`concepts` explains the formats and the rounding; the guides take it from there.
 
 Vocabulary
 ----------
@@ -79,14 +79,20 @@ Vocabulary
 A few words are used throughout, with a fixed meaning:
 
 format
-   A description of which numbers can be represented: :class:`~mptorch.BinaryK` (the IEEE P3109 binary formats) or :class:`~mptorch.SuperFP`. Frozen, hashable, comparable by value.
+   A description of which numbers can be represented: :class:`~mptorch.BinaryK` (the IEEE P3109 binary formats) or :class:`~mptorch.SuperFP`, for example. Frozen, hashable, comparable by value.
 rounding mode
    How a number that is *not* representable is mapped to one that is: :class:`~mptorch.RoundMode`. A property of an operation, not of a format.
 quantize / quantizer
    To round every element of a tensor to a format; the function that does it. In MPTorch this is always "compute in the carrier, round the result".
 carrier
-   The IEEE 754 float value a simulation computes and rounds in: by default binary32 for binary32, binary16 and bfloat16 tensors,binary64 for binary64 ones. It bounds which formats can be simulated whole. The carrier format, ``torch.float32`` or ``torch.float64``, must always be at least as large as the dtype the input tensor is stored in. The output tensor keeps the same underlying storage dtype as the input tensor (:doc:`concepts`).
+   The IEEE 754 format a simulation computes and rounds in: by default binary32 for float32, float16 and bfloat16 tensors, and binary64 for float64 ones. It bounds which formats can be simulated whole. A carrier, named ``torch.float32`` or ``torch.float64``, is never narrower than the dtype of the tensor it computes, and the result keeps the tensor's dtype (see :doc:`concepts`).
 signal
    One of the tensors flowing through a layer: its input, weight, bias, the gradient arriving from above, and the gradients it produces.
 arithmetic
    What happens *inside* a matrix product: which format each partial product and each running sum is rounded to. This is the part a plain quantizer cannot express, and the part MPTorch's kernels exist for.
+MAC
+   Multiply-accumulate. The arithmetic of one step of a dot product, as a value: :class:`~mptorch.quant.SplitMac` (the product and the sum rounded separately) or :class:`~mptorch.quant.FusedMac` (one fused multiply-add rounded once), with an *accumulate algorithm* saying in what order the terms are summed (see :doc:`kernels/arithmetic`).
+block format
+   Narrow element codes that share one scale per *block* of consecutive elements, or per *tile* of rows of blocks: :class:`~mptorch.BlockFormat`, which covers OCP's MX formats and NVIDIA's NVFP4 (see :ref:`block-formats`). A tensor in one is *packed* in the format's own bytes.
+pass
+   One of the matrix products of a training step: the forward, and the two gradient products of the backward pass. Each runs in the arithmetic of its own hook, and each is a product of the one core routine (see :doc:`kernels/index`).

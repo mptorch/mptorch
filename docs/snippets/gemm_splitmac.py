@@ -10,10 +10,10 @@ K = 8
 a = torch.randn(1, K)
 b = torch.randn(K, 1)
 fmt = BinaryK(8, 4)
-q = Quant(fmt)  # round to E4M3
+q = Quant(fmt)  # round to Binary8p4
 
-# The op: every product rounded to E4M3, and the running sum rounded to
-# E4M3 after every addition. The *operands* are read as they are.
+# The op: every product rounded to Binary8p4, and the running sum rounded to
+# Binary8p4 after every addition. The *operands* are read as they are.
 out = binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=8, acc_P=4)
 
 # The same thing by hand, in the same order.
@@ -32,4 +32,4 @@ s32 = torch.zeros(1)
 for k in range(K):
     s32 = s32 + q(a[0, k] * b[k, 0])
 same = torch.equal(out32.flatten(), s32)
-print(f"\nE4M3 products, fp32 sum : {out32.item():.6f}   by hand equal: {same}")
+print(f"\nBinary8p4 products, fp32 sum : {out32.item():.6f}   by hand equal: {same}")

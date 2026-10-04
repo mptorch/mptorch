@@ -11,23 +11,23 @@ from mptorch.quant import Quant, SplitMac, qmatmul
 F32, F64 = torch.float32, torch.float64
 
 # The carrier is the tensor's unless a call names one: binary64 for float64,
-# binary32 for the rest. 1.0625 is the tie between 1.0 and 1.125 on E4M3's
+# binary32 for the rest. 1.0625 is the tie between 1.0 and 1.125 on Binary8p4's
 # grid, and 1.1875 the tie between 1.125 and 1.25; 2**-30 either side of them is
 # a bit float32 does not have, so the float32 value *is* the tie, and
 # round-to-nearest-even takes over -- in either carrier, since binary64 cannot
 # give a float32 tensor back bits it never had.
 x = torch.tensor([1.0625 + 2**-30, 1.1875 - 2**-30], dtype=F64)
-e4m3 = BinaryK(8, 4)
+binary8p4 = BinaryK(8, 4)
 print("input                              ", x.tolist())
-print("float64, rounded in binary64       ", Quant(e4m3)(x).tolist())
-print("float32, rounded in binary32       ", Quant(e4m3)(x.float()).tolist())
-print("float32, carrier=torch.float64     ", Quant(e4m3, carrier=F64)(x.float()).tolist())
+print("float64, rounded in binary64       ", Quant(binary8p4)(x).tolist())
+print("float32, rounded in binary32       ", Quant(binary8p4)(x.float()).tolist())
+print("float32, carrier=torch.float64     ", Quant(binary8p4, carrier=F64)(x.float()).tolist())
 
 # What each carrier makes of a format is checked when a tensor meets it, not
 # when the format is built: here by a float32 tensor in each carrier, and a
 # float64 one.
 formats = [
-    BinaryK(8, 4),  # E4M3: well inside both
+    BinaryK(8, 4),  # Binary8p4: well inside both
     BinaryK(16, 8),  # smallest value 2**-134, below binary32's floor
     BinaryK(40, 30),  # 30 bits of precision, ten exponent bits
     BinaryK(64, 53),  # eleven exponent bits: past binary64 at the bottom too
@@ -80,6 +80,6 @@ for carrier in (None, F64):
 # A carrier is never narrower than the tensor: rounding a float64 one in
 # binary32 would round every input once before the format does.
 try:
-    Quant(e4m3, carrier=F32)(x)
+    Quant(binary8p4, carrier=F32)(x)
 except ValueError as e:
     print("\ncarrier=torch.float32 on float64:", str(e).split(";")[0])

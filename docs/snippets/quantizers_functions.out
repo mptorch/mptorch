@@ -1,13 +1,13 @@
-x            tensor([ 1.54100, -0.29343, -2.17879,  0.56843, -1.08452, -1.39860])
-E4M3, RNE    tensor([ 1.50000, -0.28125, -2.25000,  0.56250, -1.12500, -1.37500])
-E4M3, RZ     tensor([ 1.50000, -0.28125, -2.00000,  0.56250, -1.00000, -1.37500])
-E5M2, RNE    tensor([ 1.50000, -0.31250, -2.00000,  0.62500, -1.00000, -1.50000])
-superfp      tensor([ 2.00000, -0.25000, -2.00000,  0.50000, -1.00000, -1.00000])
+x               tensor([ 1.54100, -0.29343, -2.17879,  0.56843, -1.08452, -1.39860])
+Binary8p4, RNE  tensor([ 1.50000, -0.28125, -2.25000,  0.56250, -1.12500, -1.37500])
+Binary8p4, RZ   tensor([ 1.50000, -0.28125, -2.00000,  0.56250, -1.00000, -1.37500])
+Binary8p3, RNE  tensor([ 1.50000, -0.31250, -2.00000,  0.62500, -1.00000, -1.50000])
+superfp         tensor([ 2.00000, -0.25000, -2.00000,  0.50000, -1.00000, -1.00000])
 torch.float64  torch.float64 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 
-E5M2, RU, of 60000: 65536.0 in float32, inf in float16
+E5M2's layout, RU, of 60000: 65536.0 in float32, inf in float16
 FormatRangeWarning: BinaryK(K=8, P=3, bias=15) reaches past float16's largest finite value, which is not on the format's grid: a float16 input near it rounds up out of float16's range and is stored as infinity, whatever the saturation mode
 
 float64, 3 + 21 bits: [1.5, -0.28125, -2.0, 0.5625, -1.125, -1.375]

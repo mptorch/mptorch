@@ -12,7 +12,7 @@ operands ``unfold`` would have built, zeros included, in the same order; the
 input gradient is one GEMM per residue class of the stride, over only the
 kernel taps that reach the class's positions, which leaves out the zeros a
 transposed convolution inserts. ``tests/test_qconv_gemm.py`` holds all three
-to references built that way, and ``docs/source/convolutions.rst`` states the
+to references built that way, and ``docs/source/kernels/convolutions.rst`` states the
 sums.
 
 ``conv_formats(mac)`` resolves a mac once, as ``matmul_formats`` does, and
@@ -289,7 +289,7 @@ def conv_formats(
     than the ``stride**nd`` times more of a transposed convolution that sums
     the zeros it inserts; under a ``NAIVE`` sum and a deterministic rounding
     the two are bit-identical, since adding a zero changes nothing there
-    (:doc:`/convolutions` has the equations and what differs otherwise).
+    (:doc:`/kernels/convolutions` has the equations and what differs otherwise).
     Any stride, padding (``"same"`` and ``"valid"`` included), dilation and
     ``groups`` works; groups share one launch, and a depthwise convolution
     (one channel per group) runs at a sixteenth of the kernel's tile width,
@@ -331,17 +331,17 @@ def conv_formats(
 
     Example:
 
-        E4M3 products summed in a 12-bit accumulator, with the operands rounded
-        to E4M3 too, for a strided layer; the backward runs both gradients in
+        Binary8p4 products summed in a 12-bit accumulator, with the operands
+        rounded to Binary8p4 too, for a strided layer; the backward runs both gradients in
         the same arithmetic::
 
             >>> import torch
             >>> from mptorch import AccumulateAlgorithm, BinaryK, RoundMode
             >>> from mptorch.quant import FusedMac, QConv1d, QConv2d, Quant, SplitMac
             >>> from mptorch.quant import conv_formats
-            >>> e4m3 = BinaryK(8, 4)
-            >>> formats = conv_formats(SplitMac(e4m3, BinaryK(12, 7)))
-            >>> formats.input_quant = formats.weight_quant = Quant(e4m3)
+            >>> binary8p4 = BinaryK(8, 4)
+            >>> formats = conv_formats(SplitMac(binary8p4, BinaryK(12, 7)))
+            >>> formats.input_quant = formats.weight_quant = Quant(binary8p4)
             >>> conv = QConv2d(3, 8, 3, stride=2, padding=1, formats=formats)
             >>> x = torch.randn(2, 3, 16, 16, requires_grad=True)
             >>> conv(x).sum().backward()
@@ -360,7 +360,7 @@ def conv_formats(
         A palette, here one format per output channel of the forward (a
         ``[Cout, 1]`` map), and one per pass for the two gradients::
 
-            >>> pal = SplitMac([e4m3, BinaryK(8, 5)], BinaryK(12, 7))
+            >>> pal = SplitMac([binary8p4, BinaryK(8, 5)], BinaryK(12, 7))
             >>> per_channel = conv_formats(
             ...     pal,
             ...     prec_idx=torch.tensor([[0], [1]] * 4),

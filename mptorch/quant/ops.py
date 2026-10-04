@@ -1038,8 +1038,9 @@ def binaryK_quantize(
     format has ``K`` bits in total, ``P`` of them precision (``P - 1`` stored
     mantissa bits plus the implicit one), and ``K - P`` exponent bits
     (``K - P + 1`` when ``is_signed`` is false, since there is no sign bit).
-    Pass ``bias`` explicitly for a format outside P3109: the OCP 8-bit formats
-    are E4M3, ``K=8, P=4, bias=7``, and E5M2, ``K=8, P=3, bias=15``.
+    Pass ``bias`` explicitly for a format outside P3109: the layouts of the OCP
+    8-bit formats are ``K=8, P=4, bias=7`` (E4M3) and ``K=8, P=3, bias=15``
+    (E5M2).
 
     The rounding happens in a *carrier*, the binary format the arithmetic
     runs in: binary64 for a float64 ``x``, and binary32 for float32, float16

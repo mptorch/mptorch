@@ -1,0 +1,6 @@
+SuperFP(1, 2, 1, 1): [0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 6.0]
+E2M1:                [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+MXFP4_E2M1           relative error 0.137, flushed to zero 64%
+SuperFP(1, 2, 1, 1)  relative error 0.156, flushed to zero 44%
+E4M3 scale (NVFP4)         decoded / 2^-66: [0.0, 0.0, 0.0, 0.0]
+SuperFP(3, 4, 2, 7) scale  decoded / 2^-66: [1.0, 3.0, -2.0, 6.0]

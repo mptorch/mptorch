@@ -1,12 +1,22 @@
+from .block import (
+    BlockPacked,
+    block_matmul,
+    block_pack,
+    block_quantize,
+    block_quantize_,
+    block_unpack,
+)
 from .conv import conv_formats
 from .gemm import (
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
+    block_gemm_formats,
+    block_matmul_formats,
     matmul_formats,
     superfp_gemm_formats,
     superfp_gemm_formats_fma,
 )
-from .mac import FusedMac, Palette, Quant, SplitMac
+from .mac import BlockMac, BlockQuant, FusedMac, Palette, Quant, SplitMac
 from .matmul import qbmm, qmatmul, qmm
 from .modules import (
     QAffineFormats,
@@ -54,6 +64,15 @@ __all__ = [
     "SplitMac",
     "FusedMac",
     "Palette",
+    # block formats: packing, the block GEMM, and their value spellings
+    "BlockPacked",
+    "block_pack",
+    "block_unpack",
+    "block_quantize",
+    "block_quantize_",
+    "block_matmul",
+    "BlockQuant",
+    "BlockMac",
     # differentiable entry points
     "qmm",
     "qbmm",
@@ -72,4 +91,6 @@ __all__ = [
     "superfp_gemm_formats_fma",
     "matmul_formats",
     "conv_formats",
+    "block_matmul_formats",
+    "block_gemm_formats",
 ]

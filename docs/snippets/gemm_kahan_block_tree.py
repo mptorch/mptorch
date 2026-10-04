@@ -17,8 +17,8 @@ b = torch.randn(K, N) / 4
 exact = a.double() @ b.double()
 
 warnings.simplefilter("ignore", FormatRangeWarning)
-e4m3 = BinaryK(8, 4)
-bf16 = BinaryK(16, 8)  # 8 exponent, 7 mantissa bits
+binary8p4 = BinaryK(8, 4)
+binary16p8 = BinaryK(16, 8)  # bfloat16's field widths: 8 exponent, 7 mantissa bits
 
 
 def report(title, configs):
@@ -39,46 +39,56 @@ report(
     },
 )
 
-# E4M3 products into a bfloat16-like accumulator, which NAIVE loses bits in at
+# Binary8p4 products into a Binary16p8 accumulator, which NAIVE loses bits in at
 # every one of the 4096 steps.
 report(
-    "E4M3 products, 8-bit-precision sums",
+    "Binary8p4 products, Binary16p8 sums",
     {
-        "NAIVE": SplitMac(e4m3, bf16),
-        "KAHAN": SplitMac(e4m3, bf16, accumulate_algorithm=KAHAN),
-        "BLOCK, 16 per block": SplitMac(e4m3, bf16, accumulate_algorithm=BLOCK, block_size=16),
-        "BLOCK, 64 per block": SplitMac(e4m3, bf16, accumulate_algorithm=BLOCK, block_size=64),
-        "BLOCK, 64 per block, outer=bf16": SplitMac(
-            e4m3, bf16, accumulate_algorithm=BLOCK, block_size=64, outer=bf16
+        "NAIVE": SplitMac(binary8p4, binary16p8),
+        "KAHAN": SplitMac(binary8p4, binary16p8, accumulate_algorithm=KAHAN),
+        "BLOCK, 16 per block": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=BLOCK, block_size=16
         ),
-        "TREE, 16 per block": SplitMac(e4m3, bf16, accumulate_algorithm=TREE),
-        "TREE, 256 per block": SplitMac(e4m3, bf16, accumulate_algorithm=TREE, block_size=256),
-        "TREE, 256 per block, outer=bf16": SplitMac(
-            e4m3, bf16, accumulate_algorithm=TREE, block_size=256, outer=bf16
+        "BLOCK, 64 per block": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=BLOCK, block_size=64
         ),
-        "the products' own error (acc=None)": SplitMac(e4m3, None),
+        "BLOCK, 64 per block, outer=Binary16p8": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=BLOCK, block_size=64, outer=binary16p8
+        ),
+        "TREE, 16 per block": SplitMac(binary8p4, binary16p8, accumulate_algorithm=TREE),
+        "TREE, 256 per block": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=TREE, block_size=256
+        ),
+        "TREE, 256 per block, outer=Binary16p8": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=TREE, block_size=256, outer=binary16p8
+        ),
+        "the products' own error (acc=None)": SplitMac(binary8p4, None),
     },
 )
 
 # The same with an accumulator as narrow as the products.
 report(
-    "E4M3 products, E4M3 sums",
+    "Binary8p4 products, Binary8p4 sums",
     {
-        "NAIVE": SplitMac(e4m3, e4m3),
-        "KAHAN": SplitMac(e4m3, e4m3, accumulate_algorithm=KAHAN),
-        "BLOCK, 4 per block": SplitMac(e4m3, e4m3, accumulate_algorithm=BLOCK, block_size=4),
-        "BLOCK, 4 per block, outer=bf16": SplitMac(
-            e4m3, e4m3, accumulate_algorithm=BLOCK, block_size=4, outer=bf16
+        "NAIVE": SplitMac(binary8p4, binary8p4),
+        "KAHAN": SplitMac(binary8p4, binary8p4, accumulate_algorithm=KAHAN),
+        "BLOCK, 4 per block": SplitMac(
+            binary8p4, binary8p4, accumulate_algorithm=BLOCK, block_size=4
         ),
-        "TREE, 4 per block": SplitMac(e4m3, e4m3, accumulate_algorithm=TREE, block_size=4),
-        "TREE, 4 per block, outer=bf16": SplitMac(
-            e4m3, e4m3, accumulate_algorithm=TREE, block_size=4, outer=bf16
+        "BLOCK, 4 per block, outer=Binary16p8": SplitMac(
+            binary8p4, binary8p4, accumulate_algorithm=BLOCK, block_size=4, outer=binary16p8
+        ),
+        "TREE, 4 per block": SplitMac(
+            binary8p4, binary8p4, accumulate_algorithm=TREE, block_size=4
+        ),
+        "TREE, 4 per block, outer=Binary16p8": SplitMac(
+            binary8p4, binary8p4, accumulate_algorithm=TREE, block_size=4, outer=binary16p8
         ),
     },
 )
 
 # The three are binary32-only for now, and say so.
 try:
-    qmatmul(a.double(), b.double(), SplitMac(e4m3, bf16, accumulate_algorithm=KAHAN))
+    qmatmul(a.double(), b.double(), SplitMac(binary8p4, binary16p8, accumulate_algorithm=KAHAN))
 except ValueError as error:
     print("float64 operands:", str(error).split(", so they")[0])

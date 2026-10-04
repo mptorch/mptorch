@@ -14,6 +14,7 @@
 // <ATen/core/Tensor.h> is all these declarations need.
 #include <ATen/core/Tensor.h>
 #include <cstdint>
+#include <tuple>
 
 at::Tensor binaryK_quantize_cuda(at::Tensor a, int64_t K, int64_t P,
                                  int64_t bias, int64_t prng_bits,
@@ -729,3 +730,26 @@ at::Tensor superfp_conv_fma_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor pre
                                       c10::IntArrayRef fma_bias, bool fma_is_signed,
                                       int64_t accumulate_algorithm, int64_t round_mode,
                                       int64_t fma_saturation_mode, int64_t fma_prng_bits);
+
+// The block-format ops (common/block_decode.h, common/gemm_block.h): the
+// elementwise pack, unpack and quantizers, and the block GEMM. MPS binds them
+// to functions that raise (mps/block_entry.cpp) until phase H.
+std::tuple<at::Tensor, at::Tensor> block_pack_cuda(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+std::tuple<at::Tensor, at::Tensor> block_pack_cpu(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+std::tuple<at::Tensor, at::Tensor> block_pack_mps(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+
+at::Tensor block_unpack_cuda(at::Tensor data, at::Tensor scales, int64_t cols, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, at::ScalarType dtype);
+at::Tensor block_unpack_cpu(at::Tensor data, at::Tensor scales, int64_t cols, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, at::ScalarType dtype);
+at::Tensor block_unpack_mps(at::Tensor data, at::Tensor scales, int64_t cols, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, at::ScalarType dtype);
+
+at::Tensor block_quantize_cuda(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor block_quantize_cpu(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor block_quantize_mps(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+
+at::Tensor & block_quantize_cuda_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor & block_quantize_cpu_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+at::Tensor & block_quantize_mps_(at::Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
+
+at::Tensor block_matmul_cuda(at::Tensor a_data, at::Tensor a_scales, int64_t a_cols, bool trans_a, at::Tensor b_data, at::Tensor b_scales, int64_t b_cols, bool trans_b, c10::IntArrayRef a_fmt, double a_elem_max, double a_scale_max, double a_tensor_scale, c10::IntArrayRef b_fmt, double b_elem_max, double b_scale_max, double b_tensor_scale, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+at::Tensor block_matmul_cpu(at::Tensor a_data, at::Tensor a_scales, int64_t a_cols, bool trans_a, at::Tensor b_data, at::Tensor b_scales, int64_t b_cols, bool trans_b, c10::IntArrayRef a_fmt, double a_elem_max, double a_scale_max, double a_tensor_scale, c10::IntArrayRef b_fmt, double b_elem_max, double b_scale_max, double b_tensor_scale, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits);
+at::Tensor block_matmul_mps(at::Tensor a_data, at::Tensor a_scales, int64_t a_cols, bool trans_a, at::Tensor b_data, at::Tensor b_scales, int64_t b_cols, bool trans_b, c10::IntArrayRef a_fmt, double a_elem_max, double a_scale_max, double a_tensor_scale, c10::IntArrayRef b_fmt, double b_elem_max, double b_scale_max, double b_tensor_scale, bool fused, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits);

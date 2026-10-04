@@ -548,3 +548,82 @@ def test_accumulate_algorithms_backends_agree_on_zero(family, kind, algorithm, b
             if not torch.equal(cpu.view(torch.int32), gpu.view(torch.int32)):
                 failures.append(f"{name} {mode.name} K={K} outer={outer}")
     assert not failures, "\n".join(failures)
+
+
+# --- block formats -------------------------------------------------------------------
+
+
+def _block_formats():
+    import dataclasses
+
+    from mptorch import (
+        E2M1,
+        E8M0,
+        MXFP4_E2M1,
+        MXFP6_E3M2,
+        MXFP8_E4M3,
+        NVFP4,
+        BinaryK,
+        BlockFormat,
+        SuperFP,
+    )
+
+    return [
+        MXFP8_E4M3,
+        MXFP6_E3M2,
+        MXFP4_E2M1,
+        NVFP4,
+        dataclasses.replace(NVFP4, block_rows=16),
+        BlockFormat(BinaryK(6, 3, is_signed=False, bias=4), None, 32),
+        BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32),
+        BlockFormat(E2M1, SuperFP(3, 4, 2, 7), 16),
+    ]
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("fmt", range(8))
+def test_block_formats(device, fmt):
+    """block_quantize, block_quantize_ and block_unpack return no -0.0 in any
+    rounding mode (dev/continuation_plan.md, phase D, decision 7): the encoder
+    never writes the sign-only code, the decoder reads it as +0.0, and a
+    product that underflows is +0.0. The probe reaches every binade, so some
+    of every block's values round to zero from below its smallest value."""
+    from mptorch.quant import block_pack, block_quantize, block_quantize_, block_unpack
+
+    f = _block_formats()[fmt]
+    x = _probe().to(device)
+    x = x[: (x.numel() // 32) * 32].view(-1, 32)
+    failures = []
+    for mode in RoundMode:
+        ts = 1e-3 if f.has_tensor_scale else None
+        outs = {
+            "quantize": block_quantize(x, f, rounding=mode, tensor_scale=ts),
+            "unpack": block_unpack(block_pack(x, f, rounding=mode, tensor_scale=ts)),
+        }
+        y = x.clone()
+        block_quantize_(y, f, rounding=mode, tensor_scale=ts)
+        outs["in place"] = y
+        # the sign-only code itself, stored by hand
+        for name, out in outs.items():
+            if _negative_zeros(out).any():
+                failures.append(f"{name} {mode.name}")
+    assert not failures, "\n".join(failures)
+
+
+def test_block_sign_only_code_decodes_to_plus_zero():
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockPacked, block_unpack
+
+    data = torch.full((1, 32), 0x80, dtype=torch.uint8)
+    for scale in (0, 127, 254):
+        p = BlockPacked(
+            data,
+            torch.tensor([[scale]], dtype=torch.uint8),
+            MXFP8_E4M3,
+            (1, 32),
+            1,
+            1.0,
+            torch.float32,
+        )
+        out = block_unpack(p)
+        assert (out == 0).all() and not torch.signbit(out).any()

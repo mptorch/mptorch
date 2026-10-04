@@ -1,15 +1,14 @@
-How the convolutions are computed
-=================================
+Convolutions
+============
 
 A convolution layer runs three computations per step, the forward
-convolution, the input gradient and the weight gradient, and in a
-custom-precision simulation each of them is a set of dot products whose every
-product and every addition is rounded (:doc:`gemm`). This page says which dot
-products those are, in which order their terms are summed, and how
-:func:`~mptorch.quant.conv_formats` computes them without ever forming the
-matrices a textbook lowering to a matrix product would build. The layer guide
-(:doc:`layers`, "Custom arithmetic in the convolutions") has the worked
-example; this is the model underneath it.
+convolution, the input gradient and the weight gradient, and each is a set of
+dot products whose every product and every addition is rounded
+(:doc:`arithmetic`). This page says which dot products those are, in which
+order their terms are summed, and how :func:`~mptorch.quant.conv_formats`
+runs them on the core routine of :doc:`index` without ever forming the
+matrices a textbook lowering to a matrix product would build. The layer
+guide (:doc:`/layers`, "Convolutions") has the worked example.
 
 The three sums
 --------------
@@ -44,7 +43,7 @@ The last one is the sum over every (filter, tap) pair whose output position
 :math:`C/g` input and :math:`C_{\text{out}}/g` output channels each.
 
 Each element of each result is one dot product, and the simulation rounds it
-the way :doc:`gemm` rounds a matrix product's. For a ``SplitMac`` whose terms
+the way :doc:`arithmetic` rounds a matrix product's. For a ``SplitMac`` whose terms
 are :math:`a_1 b_1, \dots, a_K b_K`,
 
 .. math::
@@ -53,7 +52,7 @@ are :math:`a_1 b_1, \dots, a_K b_K`,
    \qquad \text{result} = s_K,
 
 and for a ``FusedMac`` :math:`s_t = Q_{\text{fma}}(a_t b_t + s_{t-1})`;
-``KAHAN``, ``BLOCK`` and ``TREE`` replace the recurrence with theirs (:doc:`gemm`,
+``KAHAN``, ``BLOCK`` and ``TREE`` replace the recurrence with theirs (:doc:`arithmetic`,
 "Summing differently"). A rounded sum depends on its order, so the order is
 part of the definition, and it is fixed per pass:
 
@@ -102,21 +101,21 @@ table above. The weight gradient is likewise
 for every entry of :math:`x` (nine for a 3x3 kernel), which is what
 ``F.unfold`` allocates, per call, forward and backward.
 
-``conv_formats`` runs these GEMMs on the matrix-product kernel of
-:doc:`gemm` with :math:`\tilde{X}` left implicit: the kernel stages a
-:math:`16 \times 16` tile of each operand per step of its K-loop, and for a
-convolution it computes each tile element's address in :math:`x` (or
-:math:`G`, or :math:`W`) from the geometry and reads it in place, or
-substitutes zero where the element is padding. Splitting an index into
-coordinates -- :math:`t \mapsto (c, i)`, a column into the output position
-:math:`o` -- divides by the geometry's extents, which are fixed for the
-call, so each division is a multiply-high and a shift by constants computed
-once on the host; nothing is divided per element. The arithmetic between the
-loads is the matrix product's, unchanged, so every format, rounding mode and
-accumulate algorithm applies, and each pass is **bit for bit the GEMM over
-the explicit matrices** -- ``tests/test_qconv_gemm.py`` builds them and checks
-it with ``torch.equal``, stochastic rounding included. What is gone is the
-memory: a pass allocates its result and nothing else.
+``conv_formats`` runs these GEMMs on the core routine of :doc:`index` with
+:math:`\tilde{X}` left implicit: the kernel stages a :math:`16 \times 16` tile
+of each operand per step of its K-loop, and for a convolution it computes each
+tile element's address in :math:`x` (or :math:`G`, or :math:`W`) from the
+geometry and reads it in place, or substitutes zero where the element is
+padding. Splitting an index into coordinates -- :math:`t \mapsto (c, i)`, a
+column into the output position :math:`o` -- divides by the geometry's
+extents, which are fixed for the call, so each division is a multiply-high and
+a shift by constants computed once on the host; nothing is divided per
+element. The arithmetic between the loads is the matrix product's, unchanged,
+so every format, rounding mode and accumulate algorithm applies, and each pass
+is **bit for bit the GEMM over the explicit matrices** --
+``tests/test_qconv_gemm.py`` builds them and checks it with ``torch.equal``,
+stochastic rounding included. What is gone is the memory: a pass allocates its
+result and nothing else.
 
 Groups do not multiply the launches: group :math:`\gamma` of sample
 :math:`b` is element :math:`b g + \gamma` of the kernel's batch dimension, so
@@ -207,7 +206,7 @@ every pass.
 Formats per element
 -------------------
 
-A palette mac (:doc:`gemm`, "Palettes") picks a format per element of each
+A palette mac (:doc:`arithmetic`, "Palettes") picks a format per element of each
 pass's result through an integer map indexed like that result with the
 spatial dimensions flattened: :math:`[C_{\text{out}}, \text{OUT}]` for the
 forward, :math:`[C, \text{IN}]` for the input gradient and

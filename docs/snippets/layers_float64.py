@@ -60,7 +60,7 @@ print(f"float32 layer, 30/24-bit, binary64: output {rel(out, ref_out)}, grad {re
 
 
 # And it changes the answer where the arithmetic sees bits it does not keep. An
-# FP8 recipe -- E4M3 signals, E5M2 gradients, E4M3 arithmetic -- rounds every
+# FP8 recipe -- Binary8p4 signals and arithmetic, gradients in E5M2's layout -- rounds every
 # signal to 8 bits first, so each product and sum is exact in binary32 as in
 # binary64 and the two carriers agree to the bit. A 22-bit arithmetic on
 # unquantized operands does not: binary32 rounds each product and sum to 24

@@ -1,0 +1,11 @@
+OCP        scales [0.5, 0.5]  blocks [3.0, -1.5, 0.25]  [3.0, -1.5, 0.25]
+NEAREST    scales [0.5, 0.5]  blocks [3.0, -1.5, 0.25]  [3.0, -1.5, 0.25]
+UP         scales [1.0, 1.0]  blocks [4.0, -1.5, 0.5]  [3.0, -1.5, 0.5]
+SELECTIVE  scales [1.0, 0.5]  blocks [4.0, -1.5, 0.5]  [3.0, -1.5, 0.25]
+
+defaults: OCP NEAREST SELECTIVE
+
+                              OCP    NEAREST         UP  SELECTIVE
+MXFP4_E2M1                 0.1142     0.1255     0.1158     0.1113
+MXFP6_E2M3                 0.0280     0.0651     0.0280     0.0278
+E2M1, SuperFP scale             -     0.1246     0.1152     0.1107

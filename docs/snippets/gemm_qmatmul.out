@@ -14,4 +14,4 @@ qbmm  True
 qbmm on 2D: qbmm expects 3D tensors, got 2D and 2D
 
 no format: grads equal torch's: True True
-E4M3:      cos(grad_a, torch) = 0.9994
+Binary8p4: cos(grad_a, torch) = 0.9994

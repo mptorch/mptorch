@@ -36,7 +36,7 @@ macs = [
     ("SplitMac(P=30, P=40)", wide),
     ("FusedMac(P=40)", FusedMac(BinaryK(48, 40))),
     ("SplitMac(P=24, P=24)", SplitMac(p24, p24)),
-    ("SplitMac(E4M3, E4M3)", SplitMac(BinaryK(8, 4), BinaryK(8, 4))),
+    ("SplitMac(P=4, P=4)", SplitMac(BinaryK(8, 4), BinaryK(8, 4))),
 ]
 print("\nrelative error against a @ b, float64 operands")
 for name, mac in macs:
@@ -52,7 +52,7 @@ macs32 = [
     ("SplitMac(P=24, None)", lambda c: SplitMac(p24, None, carrier=c)),
     ("FusedMac(None)", lambda c: FusedMac(None, carrier=c)),
     ("SplitMac(P=30, P=24)", lambda c: SplitMac(BinaryK(40, 30), p24, carrier=c)),
-    ("SplitMac(E4M3, E4M3)", lambda c: SplitMac(BinaryK(8, 4), BinaryK(8, 4), carrier=c)),
+    ("SplitMac(P=4, P=4)", lambda c: SplitMac(BinaryK(8, 4), BinaryK(8, 4), carrier=c)),
 ]
 print(f"\nfloat32 operands            {'binary32':<10}carrier=torch.float64")
 for name, build in macs32:
@@ -77,16 +77,16 @@ except ValueError as e:
 
 # carrier=torch.float64 is the float64 call on the widened operands, narrowed,
 # and so is the flat function's keyword; the result keeps the operands' dtype.
-# (E4M3's values are float16's too, so `.to` narrows them exactly.)
-e4m3_64 = SplitMac(BinaryK(8, 4), BinaryK(8, 4), carrier=F64)
+# (Binary8p4's values are float16's too, so `.to` narrows them exactly.)
+binary8p4_64 = SplitMac(BinaryK(8, 4), BinaryK(8, 4), carrier=F64)
 print()
 for dtype in (F32, torch.float16):
     ad, bd = a.to(dtype), b.to(dtype)
-    got = qmatmul(ad, bd, e4m3_64)
-    same = torch.equal(got, qmatmul(ad.double(), bd.double(), e4m3_64).to(dtype))
+    got = qmatmul(ad, bd, binary8p4_64)
+    same = torch.equal(got, qmatmul(ad.double(), bd.double(), binary8p4_64).to(dtype))
     print(f"{str(dtype):<13} carrier=torch.float64 == the float64 call, narrowed: {same}")
 flat = binaryK_matmul(a32, b32, mul_K=8, mul_P=4, carrier=F64)
-agrees = torch.equal(flat, qmatmul(a32, b32, e4m3_64))
+agrees = torch.equal(flat, qmatmul(a32, b32, binary8p4_64))
 print("binaryK_matmul(..., carrier=torch.float64) agrees:", agrees)
 
 # A carrier is never narrower than the operands.

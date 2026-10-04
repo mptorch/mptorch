@@ -50,7 +50,7 @@ namespace
   }
 
   // The boxed Autograd kernel. Boxed (arguments on the stack, one kernel for
-  // every schema) so the same function serves all twenty-five ops. It raises when
+  // every schema) so the same function serves all thirty ops. It raises when
   // a gradient would be expected, with a message specific to what the op is
   // (a GEMM, the narrowing store, or an elementwise quantizer), and
   // otherwise redispatches to the backend kernel below the autograd keys,
@@ -61,9 +61,11 @@ namespace
     if (at::GradMode::is_enabled() && any_requires_grad(op, *stack))
     {
       const std::string &name = op.schema().operator_name().name;
-      const bool matmul = name.find("custom_matmul") != std::string::npos;
+      const bool block_gemm = name.find("custom_matmul_block") != std::string::npos;
+      const bool matmul = name.find("custom_matmul") != std::string::npos && !block_gemm;
       const bool conv = name.find("custom_conv") != std::string::npos;
       const bool narrow = name.find("narrow_float64") != std::string::npos;
+      const bool block = name.find("::block_") != std::string::npos;
       TORCH_CHECK(
           false, name, " is not differentiable: ",
           matmul ? "it simulates the arithmetic of its own reduction, so which format each "
@@ -73,6 +75,14 @@ namespace
           : conv ? "it is one pass of a convolution in simulated arithmetic, and the other two "
                    "passes are ops of their own. Use mptorch.quant.QConv1d/2d/3d with "
                    "mptorch.quant.conv_formats, which runs all three"
+          : block_gemm
+              ? "it multiplies packed block-format operands, which carry no gradient. Use "
+                "mptorch.quant.qmatmul with a BlockMac (or block_gemm_formats on a QLinear), "
+                "which computes each gradient in the format its own hook names"
+          : block ? "packing to a block format has a zero derivative almost everywhere, so a "
+                    "gradient through it is a modelling choice. Use mptorch.quant.Quantizer with "
+                    "a BlockQuant, which applies one format in the forward pass and one of your "
+                    "choosing in the backward"
           : narrow ? "it is the store of a result mptorch.quant computed in binary64, which "
                      "its own entry points call where no gradient flows. Use Tensor.to for a "
                      "differentiable conversion"
@@ -119,6 +129,11 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_conv_superfp_mixed", kernel());
   m.impl("custom_conv_superfp_fma", kernel());
   m.impl("custom_conv_superfp_fma_mixed", kernel());
+  m.impl("block_pack", kernel());
+  m.impl("block_unpack", kernel());
+  m.impl("block_quant", kernel());
+  m.impl("block_quant_", kernel());
+  m.impl("custom_matmul_block", kernel());
 }
 
 // The two in-place quantizers also need the ADInplaceOrView key, which is
@@ -133,4 +148,5 @@ TORCH_LIBRARY_IMPL(mptorch, ADInplaceOrView, m)
 {
   m.impl("binaryK_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
   m.impl("superfp_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
+  m.impl("block_quant_", torch::autograd::autogradNotImplementedInplaceOrViewFallback());
 }

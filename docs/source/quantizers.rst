@@ -1,17 +1,20 @@
-Elementwise quantization
-========================
+Quantizers
+==========
 
-An elementwise quantizer rounds every element of a tensor to a format,
-independently. It is the simplest thing MPTorch does and the building block
-of everything else: what a layer applies to its weights and activations, what
-a straight-through estimator wraps, what a quantization-aware-training
-observer sits in front of.
+A quantizer rounds every element of a tensor to a format. It is the simplest
+thing MPTorch does and the building block of everything else: what a layer
+applies to its weights and activations, what a straight-through estimator
+wraps, what a quantization-aware-training observer sits in front of. An
+elementwise quantizer rounds each element independently,
 
 .. math::
 
-   \tilde{x}_i = Q_{F,\circ}(x_i) \qquad \text{for every element } i.
+   \tilde{x}_i = Q_{F,\circ}(x_i) \qquad \text{for every element } i,
 
-There are three spellings, from the most explicit to the most convenient.
+and a block quantizer first chooses each block's scale from the block, then
+rounds each element of it (`Block quantization and packed storage`_). There
+are three spellings of the first, from the most explicit to the most
+convenient.
 
 The functions
 -------------
@@ -40,7 +43,7 @@ Some things to know about them:
 - The result is stored back in the input's dtype, whichever carrier rounded
   it, which rounds a float16 or bfloat16 result once more. The input is already a value of that dtype, so
   only an edge of the format's range can miss, and the call warns when one
-  can -- the run shows E5M2's top meeting float16's. :doc:`concepts` gives
+  can -- the run shows the top of E5M2's layout meeting float16's. :doc:`concepts` gives
   the rule, and the stricter one a GEMM's result is held to.
 - The result is a fresh tensor; the input is never modified. The in-place
   twins, ``binaryK_quantize_`` and ``superfp_quantize_``, are the exception,
@@ -73,7 +76,7 @@ use.
   round in.
 - **Rounded once.** A value float32 cannot hold is rounded on its own bits.
   ``1.0625 + 2**-30`` is above the tie between ``1.0`` and ``1.125`` on
-  E4M3's grid, and rounds up; narrowed to float32 it *is* the tie, and
+  Binary8p4's grid, and rounds up; narrowed to float32 it *is* the tie, and
   round-to-nearest-even takes it down.
 - **Wider random draws.** Stochastic rounding takes its random bits below the
   format's mantissa in the carrier, so ``P - 1 + prng_bits`` may reach 52
@@ -167,6 +170,53 @@ measured. On the CPU they do too while the allocator recycles the result's
 block, but a result large enough to be mapped fresh from the system on every
 call pays for its pages on first touch, which can cost more than the rounding
 (``dev/benchmarks/cpu_quantize_elementwise.py`` pairs the two).
+
+Block quantization and packed storage
+-------------------------------------
+
+A block format (:ref:`block-formats`) is quantized a block at a time: the
+block's scale is chosen from its largest magnitude, by the format's
+``scale_rounding`` rule, and each element is divided by it and rounded to the
+element format in the call's rounding mode. :func:`~mptorch.quant.block_quantize`
+returns the decoded values in the input's dtype, like an elementwise
+quantizer; its ``axis`` argument names the packed axis, and
+``tensor_scale`` gives a format with a per-tensor scale (NVFP4) a static one
+instead of the default, the tensor's largest magnitude over the largest value
+the format can decode.
+
+:func:`~mptorch.quant.block_pack` rounds a tensor along one axis and returns a
+:class:`~mptorch.quant.BlockPacked`: ``data``, the element codes, and
+``scales``, the scale codes, both ``uint8``. Each row of ``data`` is the
+tensor with its packed axis moved last, a little-endian bit stream per block
+in which element :math:`i` holds bits :math:`[i\,b, (i+1)\,b)` of a
+:math:`b`-bit code. So two 4-bit codes share a byte, the first in the low
+nibble (the order of ``torch.float4_e2m1fn_x2`` and CUTLASS), and four 6-bit
+codes fill three bytes. :func:`~mptorch.quant.block_unpack` decodes a packed
+tensor, and :func:`~mptorch.quant.block_quantize` is the two fused, the
+decoded values with no packed intermediate: the fake quantizer a layer's
+``*_quant`` slot takes. :class:`~mptorch.quant.BlockQuant` is its value
+spelling, and so is :class:`~mptorch.quant.Quant` with a block format, along
+the last axis.
+
+.. literalinclude:: ../snippets/block_formats.py
+   :language: python
+   :caption: docs/snippets/block_formats.py
+
+.. literalinclude:: ../snippets/block_formats.out
+   :language: text
+   :caption: output
+
+A strided input packs through its strides, so packing a weight along its
+first axis copies nothing. Under ``RoundMode.SR`` an element's random bits are
+keyed on its index in the packed orientation, so ``block_quantize`` and
+``block_pack`` under one generator state draw the same bits, whatever the
+thread count.
+
+The block kernels round in binary32 only: a float64 tensor, or
+``carrier=torch.float64``, raises, and a float16 or bfloat16 result is held to
+what its dtype can store (:doc:`concepts`, "What a narrower tensor can
+store"). ``block_quantize_`` writes over its input, under the rules of `In
+place`_, and a block format is multiplied, packed, by :doc:`kernels/block`.
 
 Quantizer: a straight-through estimator
 ---------------------------------------

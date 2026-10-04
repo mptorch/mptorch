@@ -15,6 +15,7 @@
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_block.h"
 #include "../common/gemm_gather.h"
 #include <ATen/cuda/PhiloxCudaState.h>
 #include <cuda_runtime_api.h>
@@ -134,6 +135,41 @@ namespace mptorch::gemm_cuda
       else
       {
         launch_conv_as<float, AccumulateAlgorithm::NAIVE>(s, args, ctx);
+      }
+    }
+
+    // The block GEMM (common/gemm_block.h): the same kernel over a Blocked
+    // policy built from `Inner`, the Args of the mac it runs (BlockSplitArgs,
+    // BinaryKFusedArgs or an AccumulateArgs of either). Defined in the kernel
+    // header and instantiated, in binary32 only so far (the block driver has
+    // refused float64 by now), by the four custom_matmul_block*.cu files.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    static void launch_block_as(const mptorch::gemm::GemmShape &s,
+                                const mptorch::gemm::BlockGemmArgs<Inner> &args, const LaunchContext &ctx);
+
+    template <class Inner>
+    static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
+                       const LaunchContext &ctx)
+    {
+      if constexpr (requires { args.inner.alg; })
+      {
+        switch (args.inner.alg)
+        {
+        case AccumulateAlgorithm::KAHAN:
+          return launch_block_as<float, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+        case AccumulateAlgorithm::BLOCK:
+          return launch_block_as<float, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+        case AccumulateAlgorithm::TREE:
+          if constexpr (Inner::has_product)
+            return launch_block_as<float, AccumulateAlgorithm::TREE>(s, args, ctx);
+          return;
+        case AccumulateAlgorithm::NAIVE:
+          return; // a NAIVE call runs on the mac's own Args
+        }
+      }
+      else
+      {
+        launch_block_as<float, AccumulateAlgorithm::NAIVE>(s, args, ctx);
       }
     }
   };

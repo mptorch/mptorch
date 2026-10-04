@@ -68,8 +68,8 @@ function of your own (a scaled quantizer, an observer). ``QAffineFormats``
 is itself an ``nn.Module``, so a quantizer that is a module is registered in
 the model's ``state_dict``.
 
-The run below builds a layer with a quantizer on every signal -- E4M3 in the
-forward direction, E5M2 on the gradients -- and then recomputes the four
+The run below builds a layer with a quantizer on every signal -- Binary8p4 in the
+forward direction, Binary8p3 on the gradients -- and then recomputes the four
 equations by hand on the same tensors. They agree to the bit.
 
 .. literalinclude:: ../snippets/layers_qlinear.py
@@ -85,8 +85,8 @@ Custom arithmetic in the matrix products
 
 Leaving the ``*_math`` hooks unset means the three products are PyTorch's
 own, in the layer's dtype, however narrow the operands were rounded. To
-simulate the arithmetic *inside* them, a factory fills the three hooks with a
-GEMM of :doc:`gemm`'s kind:
+simulate the arithmetic *inside* them, a factory fills the three hooks with
+products of the core routine (:doc:`kernels/index`):
 
 - :func:`~mptorch.quant.binaryK_gemm_formats` -- ``SplitMac`` in BinaryK
   formats; ``mul_*`` and ``acc_*`` arguments, ``accumulate_quant=False``
@@ -115,7 +115,7 @@ runs, not on every forward pass; each factory also takes ``carrier``
    :caption: output
 
 The last three lines show the same weights under three other arithmetics,
-measured against the split BinaryK layer: a fused E4M3 step with stochastic
+measured against the split BinaryK layer: a fused Binary8p4 step with stochastic
 rounding, and the two SuperFP cores, whose format (two binades of mantissa)
 is a poor fit for these activations and says so.
 
@@ -144,27 +144,24 @@ Custom arithmetic in the convolutions
 
 :func:`~mptorch.quant.conv_formats` fills the three hooks with the
 convolution's passes -- the forward, the input gradient and the weight
-gradient -- each run as one GEMM in the arithmetic of a mac, exactly as
-:func:`~mptorch.quant.matmul_formats` does for a matmul. Each pass is the
-GEMM of that mac over the operands ``F.unfold`` would build, bit for bit,
-zeros and all, but nothing is unfolded: the kernel reads each operand element
-from the convolution's tensors when it loads its tile, so a pass allocates its
-result and nothing more, where the unfolded input of a 3x3 convolution is nine
-times the input. Every format, rounding mode and accumulate algorithm of
-:doc:`gemm` applies, and so does any stride, padding (``"same"`` included),
-dilation and ``groups``; a palette mac takes one ``prec_idx`` map per pass,
-each shaped like that pass's result with the spatial dimensions flattened
-(``[Cout, 1]`` is one format per output channel). As with the matmul
-factories, the operand quantizers are assigned afterwards.
+gradient -- each run as products of the core routine in the arithmetic of a
+mac, exactly as :func:`~mptorch.quant.matmul_formats` does for a matmul. Each
+pass is the product of that mac over the operands ``F.unfold`` would build,
+bit for bit, zeros and all, but nothing is unfolded: the kernel reads each
+operand element from the convolution's tensors when it loads its tile, so a
+pass allocates its result and nothing more, where the unfolded input of a 3x3
+convolution is nine times the input. Every format, rounding mode and
+accumulate algorithm of :doc:`kernels/arithmetic` applies, and so does any
+stride, padding (``"same"`` included), dilation and ``groups``; a palette mac
+takes one ``prec_idx`` map per pass, each shaped like that pass's result with
+the spatial dimensions flattened (``[Cout, 1]`` is one format per output
+channel). As with the matmul factories, the operand quantizers are assigned
+afterwards.
 
-The groups of a grouped convolution share one launch, but a depthwise one
-(one channel per group) fills a sixteenth of the kernel's tile. The input
-gradient of a strided convolution runs as one GEMM per residue class of the
-stride, each over only the kernel taps that reach its positions, so it skips
-the zeros a transposed convolution would insert and costs what the forward
-costs. :doc:`convolutions` has the equations: which dot product each pass is,
-in which order its terms are summed, and why skipping those zeros leaves a
-``NAIVE`` result bit for bit unchanged.
+:doc:`kernels/convolutions` has what the three passes compute: which dot
+product each is, in which order its terms are summed, how the input gradient
+of a strided convolution skips the zeros a transposed convolution would
+insert, and what each pass costs.
 
 .. literalinclude:: ../snippets/layers_conv_gemm.py
    :language: python
@@ -173,6 +170,46 @@ in which order its terms are summed, and why skipping those zeros leaves a
 .. literalinclude:: ../snippets/layers_conv_gemm.out
    :language: text
    :caption: output
+
+Block formats
+-------------
+
+:func:`~mptorch.quant.block_gemm_formats` builds a ``QAffineFormats`` whose
+three matrix products are block products, for :class:`~mptorch.quant.QLinear`.
+Each hook packs what it multiplies along the dimension it reduces over
+(:doc:`kernels/block` says why), in the format of the tensor's role: the input's, the weight's, and the output
+gradient's (the input's by default). There are two recipes for the weight:
+
+* **1D weight blocks.** Leave ``weight_quant`` unset: the forward packs the
+  weight along its input features and the input gradient along its output
+  features, each from the float weight, as MX training recipes do.
+* **Square weight tiles** (``dataclasses.replace(NVFP4, block_rows=16)``). Set
+  ``weight_quant = BlockQuant(w16, axis=1).pack``: the weight is packed once,
+  and the input gradient reads that packing transposed, so the forward and
+  backward passes see the same quantized weight. The packing is memoized on
+  the weight and its version counter, so it is redone once per optimizer
+  step (which writes the weight in place). A weight packed in a 1D or
+  non-square format cannot serve the input gradient, and raises there with
+  a message naming the square-tile spelling; for inference, where there is no
+  backward pass, a 1D packed weight is fine.
+
+.. literalinclude:: ../snippets/block_layers.py
+   :language: python
+   :caption: docs/snippets/block_layers.py
+
+.. literalinclude:: ../snippets/block_layers.out
+   :language: text
+   :caption: output
+
+Packing the weight once is not a memory saving in training: the float weight
+a 1D layer saves for its backward pass is the parameter itself, while the
+16 x 16 packing (0.504 bytes per element) is an allocation kept alive from
+the forward to the input gradient. Each GEMM's result is float32, stored in
+the input's dtype.
+
+``tensor_scale_epilogue=True`` applies a format's per-tensor scales to each
+product's result rather than in the decode, as NVIDIA's NVFP4 GEMMs do
+(:doc:`kernels/block`, "Tensor scales").
 
 Activations between layers
 --------------------------
@@ -205,9 +242,10 @@ giving ``carrier=torch.float64`` to the factory and to each
 binary64 and narrows its result back, so its signals stay float32 and are held
 to what float32 can store. The other direction is not a carrier: a float64
 model computes the float32 way as a float32 model, which on a GPU is also the
-faster arithmetic for the matrix products (:doc:`gemm`, "Performance notes").
-The convolutions of :func:`~mptorch.quant.conv_formats` are binary32 only so
-far: a float64 model, or a mac with ``carrier=torch.float64``, raises there.
+faster arithmetic for the matrix products (:doc:`kernels/calling`,
+"Performance notes"). The convolutions of :func:`~mptorch.quant.conv_formats`
+and the block products are binary32 only so far: a float64 model, or a mac
+with ``carrier=torch.float64``, raises there.
 
 The run puts one float64 reference against a float64 layer in a 30-bit
 arithmetic only binary64 can hold, and against a float32 layer in each
@@ -240,8 +278,9 @@ they are written down:
    a scaled quantizer of your own) for ``input_quant``, ``weight_quant``,
    ``bias_quant``, and for the three gradient paths.
 2. Choose the **arithmetic** of each matrix product and convolution -- a
-   factory from :doc:`gemm` or :func:`~mptorch.quant.conv_formats` for the
-   ``*_math`` hooks, or leave them PyTorch's own.
+   ``*_gemm_formats`` factory, :func:`~mptorch.quant.conv_formats` or
+   :func:`~mptorch.quant.block_gemm_formats` for the ``*_math`` hooks
+   (:doc:`kernels/index`), or leave them PyTorch's own.
 3. Share one ``QAffineFormats`` across layers that should behave the same,
    or give each layer its own.
 4. Round anything else with a ``Quantizer``.

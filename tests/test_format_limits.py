@@ -1153,3 +1153,44 @@ def test_a_storage_warning_names_the_callers_line():
         y.sum().backward()
     assert len(caught) >= 4  # the quantizer, the forward, and both gradients
     assert {c.filename for c in caught} == {__file__}
+
+
+# --- block formats ---------------------------------------------------------------
+#
+# A block format's element and cast scale are held against binary32 when the
+# BlockFormat is built (the block kernels have no other carrier yet), and its
+# decoded values against a float16 or bfloat16 result per call: with a
+# power-of-two scale the scale follows the block's largest input, so a decoded
+# value is a value of the input's dtype except where a block saturates onto an
+# elem_max whose significand the dtype lacks; with a mantissa scale (NVFP4) it
+# is a binary32 product the dtype does not hold in general.
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=str)
+def test_block_storage_findings(dtype):
+    import dataclasses
+
+    from mptorch import E8M0, MXFP4_E2M1, MXFP8_E4M3, MXFP8_E5M2, NVFP4, BlockFormat
+    from mptorch.quant import block_pack, block_quantize, block_unpack
+
+    x = torch.randn(4, 64, dtype=dtype)
+    for fmt in (MXFP8_E4M3, MXFP8_E5M2, MXFP4_E2M1, dataclasses.replace(MXFP8_E4M3, block_rows=32)):
+        _silent(lambda fmt=fmt: block_quantize(x, fmt))
+        _silent(lambda fmt=fmt: block_unpack(block_pack(x, fmt)))
+    with pytest.warns(FormatRangeWarning, match="tensor scale"):
+        block_quantize(x, NVFP4)
+    wide = BlockFormat(BinaryK(12, 10, bias=3), E8M0, 32)  # a 10-bit largest value
+    if dtype is torch.bfloat16:
+        with pytest.warns(FormatRangeWarning, match="significant bits"):
+            block_quantize(x, wide)
+    else:
+        _silent(lambda: block_quantize(x, wide))
+
+
+def test_block_element_must_fit_binary32():
+    from mptorch import E8M0, BlockFormat
+
+    with pytest.raises(ValueError, match="binary32 holds entirely"):
+        BlockFormat(BinaryK(12, 3, bias=1), E8M0, 32)  # a smallest value of 2^-2 ... top 2^1022
+    with pytest.raises(ValueError, match="binary32 holds entirely"):
+        BlockFormat(BinaryK(8, 4, bias=130), E8M0, 32)  # a floor below 2^-125

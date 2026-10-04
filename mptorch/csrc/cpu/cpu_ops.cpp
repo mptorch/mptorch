@@ -37,4 +37,9 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("custom_conv_superfp_mixed", TORCH_FN(superfp_conv_mixed_cpu));
   m.impl("custom_conv_superfp_fma", TORCH_FN(superfp_conv_fma_cpu));
   m.impl("custom_conv_superfp_fma_mixed", TORCH_FN(superfp_conv_fma_mixed_cpu));
+  m.impl("block_pack", TORCH_FN(block_pack_cpu));
+  m.impl("block_unpack", TORCH_FN(block_unpack_cpu));
+  m.impl("block_quant", TORCH_FN(block_quantize_cpu));
+  m.impl("block_quant_", TORCH_FN(block_quantize_cpu_));
+  m.impl("custom_matmul_block", TORCH_FN(block_matmul_cpu));
 }

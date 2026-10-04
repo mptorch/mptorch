@@ -31,7 +31,7 @@ superfp_quantize_(x, **m3e4, rounding_mode=RoundMode.SR)
 print("superfp, SR, same seed:", torch.equal(x, expected))
 
 # A float64 tensor rounds in binary64 in place, like any dtype in its own
-# carrier: 1.0625 + 2**-30 is above E4M3's tie and goes up, where its float32
+# carrier: 1.0625 + 2**-30 is above Binary8p4's tie and goes up, where its float32
 # neighbour is the tie itself.
 d = torch.tensor([1.0625 + 2**-30], dtype=torch.float64)
 print("float64:", binaryK_quantize_(d.clone(), K=8, P=4).tolist(), end="  ")

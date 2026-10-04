@@ -29,6 +29,7 @@
 // the ~3 s fixed cost per file with nothing left to parallelize.
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
+#include "../common/gemm_block.h"
 #include "../common/gemm_gather.h"
 #include "gemm_backend.h"
 #include <ATen/cuda/PhiloxUtils.cuh>
@@ -203,6 +204,37 @@ namespace mptorch::gemm_cuda
         return off < 0 ? T(0) : load_elem<T>(B, off, dt);
     }
 
+    // A blocked policy's decode tables (common/gemm_block.h's
+    // fill_block_table), A's and then B's, in shared memory, filled by the
+    // CTA before its first tile load. Any other policy has none
+    // (NoBlockTables) and compiles to what it did.
+    struct NoBlockTables
+    {
+    };
+
+    template <bool BLOCKED, class Accumulator>
+    __device__ __forceinline__ std::conditional_t<BLOCKED, const typename Accumulator::value_t *, NoBlockTables>
+    block_tables(const Accumulator &acc_proto)
+    {
+        if constexpr (!BLOCKED)
+        {
+            return NoBlockTables{};
+        }
+        else
+        {
+            using T = typename Accumulator::value_t;
+            constexpr int N = mptorch::gemm::BLOCK_TABLE;
+            __shared__ T tables[4 * N];
+            for (int i = threadIdx.x; i < N; i += blockDim.x)
+            {
+                mptorch::gemm::fill_block_table<T>(tables, i, acc_proto.block_a.p);
+                mptorch::gemm::fill_block_table<T>(tables + 2 * N, i, acc_proto.block_b.p);
+            }
+            __syncthreads();
+            return tables;
+        }
+    }
+
     // The kernel. A is logically [M, K] and B [K, N] (trans_* says the
     // storage is the transpose); C is written densely as [batch, M, N]. The
     // batch element is batch_base + blockIdx.z, and stride_a / stride_b are
@@ -279,6 +311,13 @@ namespace mptorch::gemm_cuda
         constexpr bool GATHERED = mptorch::gemm::is_gathered_v<Accumulator>;
         [[maybe_unused]] const auto ct = conv_thread<GATHERED>(acc_proto, bId, rId, cId);
 
+        // A blocked policy (common/gemm_block.h; the block GEMM) decodes its
+        // packed operands in the tile loads, at the two offsets above, which
+        // are in bytes for it. Its branches follow the dense ones, behind
+        // `if constexpr`, for the reason the gathered ones do.
+        constexpr bool BLOCKED = mptorch::gemm::is_blocked_v<Accumulator>;
+        [[maybe_unused]] const auto blk_tables = block_tables<BLOCKED>(acc_proto);
+
         Accumulator acc = acc_proto;
 
         // RoundMode::SR: seed this output element's Philox stream once,
@@ -324,12 +363,24 @@ namespace mptorch::gemm_cuda
         }
 
         // Stage the first K-tile in buffer 0; out-of-range lanes read 0.
-        if constexpr (!GATHERED)
+        if constexpr (!GATHERED && !BLOCKED)
         {
             As[0][threadRow * BLOCKSIZE + threadCol] =
                 (rId < M && threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, threadCol, aOff) : 0.0f;
             Bs[0][threadRow * BLOCKSIZE + threadCol] =
                 (threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, threadRow, cId, bOff) : 0.0f;
+        }
+        else if constexpr (BLOCKED)
+        {
+            As[0][threadRow * BLOCKSIZE + threadCol] =
+                (rId < M && threadCol < K)
+                    ? mptorch::gemm::block_load_table<T>(A, acc_proto.block_a, blk_tables, bId, aOff, rId, threadCol)
+                    : T(0);
+            Bs[0][threadRow * BLOCKSIZE + threadCol] =
+                (threadRow < K && cId < N)
+                    ? mptorch::gemm::block_load_table<T>(B, acc_proto.block_b, blk_tables + 2 * mptorch::gemm::BLOCK_TABLE,
+                                                         bId, bOff, cId, threadRow)
+                    : T(0);
         }
         else
         {
@@ -412,12 +463,26 @@ namespace mptorch::gemm_cuda
             if (t + 1 < numTiles)
             {
                 int64_t nextK = (t + 1) * BLOCKSIZE;
-                if constexpr (!GATHERED)
+                if constexpr (!GATHERED && !BLOCKED)
                 {
                     As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
                         (rId < M && nextK + threadCol < K) ? load_a<T>(A, dt, M, K, trans_a, rId, nextK + threadCol, aOff) : 0.0f;
                     Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
                         (nextK + threadRow < K && cId < N) ? load_b<T>(B, dt, K, N, trans_b, nextK + threadRow, cId, bOff) : 0.0f;
+                }
+                else if constexpr (BLOCKED)
+                {
+                    As[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (rId < M && nextK + threadCol < K)
+                            ? mptorch::gemm::block_load_table<T>(A, acc_proto.block_a, blk_tables, bId, aOff, rId,
+                                                                 nextK + threadCol)
+                            : T(0);
+                    Bs[(t + 1) % 2][threadRow * BLOCKSIZE + threadCol] =
+                        (nextK + threadRow < K && cId < N)
+                            ? mptorch::gemm::block_load_table<T>(B, acc_proto.block_b,
+                                                                 blk_tables + 2 * mptorch::gemm::BLOCK_TABLE, bId,
+                                                                 bOff, cId, nextK + threadRow)
+                            : T(0);
                 }
                 else
                 {
@@ -583,6 +648,40 @@ namespace mptorch::gemm_cuda
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, false, false, s.batch, 0, 0,
                                          Gathered<decltype(acc)>{acc, args.geom}, s.use_rng, ctx.rng,
                                          ctx.stream);
+                });
+            }
+        });
+    }
+
+    // The block GEMM (common/gemm_block.h): the policy `Inner` builds, wrapped
+    // in a Blocked that carries the two packed operands, and launched over
+    // [batch, M, N] with the operands' own trans flags and their data's batch
+    // strides in bytes. Instantiated by the four custom_matmul_block*.cu
+    // files.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    void CudaBackend::launch_block_as(const GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
+                                      const LaunchContext &ctx)
+    {
+        using mptorch::gemm::Blocked;
+        mptorch::dispatch_round_mode(s.rm, [&](auto rm_c)
+        {
+            constexpr RoundMode RM = decltype(rm_c)::value;
+            if constexpr (ALG == AccumulateAlgorithm::NAIVE)
+            {
+                args.inner.template with_accumulator<T, RM>([&](auto acc)
+                {
+                    launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
+                                         s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                         s.use_rng, ctx.rng, ctx.stream);
+                });
+            }
+            else
+            {
+                args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
+                {
+                    launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
+                                         s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                         s.use_rng, ctx.rng, ctx.stream);
                 });
             }
         });

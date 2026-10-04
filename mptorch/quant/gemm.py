@@ -34,9 +34,17 @@ from functools import partial
 
 import torch
 
-from mptorch.number import AccumulateAlgorithm, RoundMode, SaturationMode, SubnormalsMode
+from mptorch.number import (
+    AccumulateAlgorithm,
+    BinaryK,
+    BlockFormat,
+    RoundMode,
+    SaturationMode,
+    SubnormalsMode,
+)
 
-from .mac import Mac, spec_for_mac
+from .block import BlockPacked, _block_gemm_spec, _run_block_gemm, _stored_as
+from .mac import BlockMac, BlockQuant, Mac, _as_block_quant, spec_for_block_mac, spec_for_mac
 from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
     _binaryK_accumulated_spec,
@@ -54,6 +62,8 @@ __all__ = [
     "binaryK_gemm_formats_fma",
     "superfp_gemm_formats_fma",
     "matmul_formats",
+    "block_matmul_formats",
+    "block_gemm_formats",
 ]
 
 # What a resolved GEMM still takes per call: ``op(a) @ op(b)`` for 2D operands
@@ -727,3 +737,237 @@ def matmul_formats(
         )
     matmul = partial(_gemm_nd, spec)
     return _matmul_formats(matmul, matmul, matmul)
+
+
+# --- block formats --------------------------------------------------------------
+#
+# The block GEMM (`mptorch.quant.block_matmul`) multiplies packed operands,
+# each read along its K: packed along K, or along its other dimension and read
+# transposed. So each hook packs its operands along the dimension the pass
+# reduces over, as MX training recipes do, except an operand that arrives
+# packed: a weight packed once by `BlockQuant.pack` (a `weight_quant` slot), or
+# an operand of a square-tiled format, which quantizes to the same values
+# along either axis and so serves the backward pass read transposed. A 1D or
+# non-square format quantizes differently along each axis, so its backward
+# re-packs the float operand, and a weight that arrives packed in one cannot
+# be used for the input gradient.
+
+
+def _square_tile_hint(fmt: BlockFormat) -> str:
+    """How to spell the square-tiled variant of a format, for messages."""
+    return f"dataclasses.replace(fmt, block_rows={fmt.block_size})"
+
+
+def _packed_operand(q: BlockQuant, x: "torch.Tensor | BlockPacked", axis: int) -> BlockPacked:
+    """``x`` packed along ``axis`` by ``q``, unless it already is a packing."""
+    return x if isinstance(x, BlockPacked) else q.pack_fresh(x, axis)
+
+
+def _reused(x: "torch.Tensor | BlockPacked", q: BlockQuant, where: str) -> BlockPacked | None:
+    """A packing the forward pass made, for a backward pass to read along its
+    other axis, or ``None`` when the float operand was saved (and is packed
+    anew). Only a square tile quantizes the same along both axes, so a packing
+    in a 1D or non-square format, or in a format other than the one this pass
+    rounds to, raises."""
+    if not isinstance(x, BlockPacked):
+        return None
+    if x.fmt != q.fmt:
+        raise ValueError(
+            f"{where} rounds this operand to {q.fmt}, and the forward pass packed it in "
+            f"{x.fmt}: leave the *_quant slot unset so it is packed per pass"
+        )
+    if not x.fmt.is_square:
+        raise ValueError(
+            f"{where} reads the operand the forward pass packed along its other axis, and "
+            f"{x.fmt}'s tiles are not square, so its values along that axis are not the ones "
+            f"this pass rounds to: leave the *_quant slot unset so it is packed per pass, or use "
+            f"a square tile, {_square_tile_hint(x.fmt)}, which quantizes the same along either axis"
+        )
+    return x
+
+
+def block_matmul_formats(
+    mac: BlockMac, *, agrad_mac: BlockMac | None = None, bgrad_mac: BlockMac | None = None
+) -> QMatmulFormats:
+    """Build a ``QMatmulFormats`` whose three passes are block GEMMs.
+
+    The forward ``a @ b`` packs ``a`` along its last dimension and ``b`` along
+    its second-to-last (their K) in ``mac``'s two formats; ``a``'s gradient
+    ``grad @ b^T`` packs ``grad`` along its last dimension and ``b`` along its
+    last; ``b``'s gradient ``a^T @ grad`` packs ``a`` along its second-to-last
+    and ``grad`` along its second-to-last. A gradient pass takes the formats
+    of the slots it fills from ``agrad_mac`` / ``bgrad_mac``, which default to
+    ``mac``. An operand whose format has square tiles is packed once, by the
+    ``a_quant`` / ``b_quant`` slot this sets for it, and the gradient passes
+    read that packing through :attr:`mptorch.quant.BlockPacked.mT`. Each
+    pass's result is float32, stored in the operands' dtype.
+
+    Args:
+        mac (BlockMac): the forward's operand formats and arithmetic.
+        agrad_mac (BlockMac, optional): ``a``'s gradient's. Default: ``None``
+        bgrad_mac (BlockMac, optional): ``b``'s gradient's. Default: ``None``
+
+    Returns:
+        QMatmulFormats: the three math hooks, and ``a_quant`` / ``b_quant``
+        for square-tiled operands.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK, MXFP8_E4M3
+        >>> from mptorch.quant import BlockMac, QMatmul, block_matmul_formats
+        >>> layer = QMatmul(block_matmul_formats(BlockMac(MXFP8_E4M3, acc=BinaryK(16, 11))))
+        >>> layer(torch.randn(4, 64), torch.randn(64, 8)).shape
+        torch.Size([4, 8])
+    """
+    agrad_mac = mac if agrad_mac is None else agrad_mac
+    bgrad_mac = mac if bgrad_mac is None else bgrad_mac
+    fwd_spec, agrad_spec, bgrad_spec = (spec_for_block_mac(m) for m in (mac, agrad_mac, bgrad_mac))
+    qa, qb = cast_quant(mac.a), cast_quant(mac.b)
+    ag_a, ag_b = cast_quant(agrad_mac.a), cast_quant(agrad_mac.b)
+    bg_a, bg_b = cast_quant(bgrad_mac.a), cast_quant(bgrad_mac.b)
+
+    def fwd(q_a, q_b):
+        dtype = q_a.dtype
+        out = _run_block_gemm(fwd_spec, _packed_operand(qa, q_a, -1), _packed_operand(qb, q_b, -2))
+        return _stored_as(fwd_spec, out, dtype)
+
+    def bwd_agrad(q_grad, q_b):
+        b = _reused(q_b, ag_b, "a's gradient")
+        b_t = b.mT if b is not None else ag_b.pack_fresh(q_b, -1).mT
+        out = _run_block_gemm(agrad_spec, ag_a.pack_fresh(q_grad, -1), b_t)
+        return _stored_as(agrad_spec, out, q_grad.dtype)
+
+    def bwd_bgrad(q_grad, q_a):
+        a = _reused(q_a, bg_a, "b's gradient")
+        a_t = a.mT if a is not None else bg_a.pack_fresh(q_a, -2).mT
+        out = _run_block_gemm(bgrad_spec, a_t, bg_b.pack_fresh(q_grad, -2))
+        return _stored_as(bgrad_spec, out, q_grad.dtype)
+
+    formats = QMatmulFormats(fwd_math=fwd, bwd_agrad_math=bwd_agrad, bwd_bgrad_math=bwd_bgrad)
+    if qa.fmt.is_square:
+        formats.a_quant = partial(qa.pack_fresh, axis=-1)
+    if qb.fmt.is_square:
+        formats.b_quant = partial(qb.pack_fresh, axis=-2)
+    return formats
+
+
+def cast_quant(slot: "BlockFormat | BlockQuant | None") -> BlockQuant:
+    """A ``BlockMac`` slot as the ``BlockQuant`` it was normalized to."""
+    assert slot is not None  # BlockMac.__post_init__ fills b in from a
+    return _as_block_quant(slot, "a BlockMac slot")
+
+
+def block_gemm_formats(
+    input: "BlockFormat | BlockQuant",
+    weight: "BlockFormat | BlockQuant",
+    grad: "BlockFormat | BlockQuant | None" = None,
+    *,
+    acc: BinaryK | None = None,
+    fused: bool = False,
+    rounding: RoundMode = RoundMode.RNE,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    block_size: int | None = None,
+    outer: BinaryK | None = None,
+    carrier: torch.dtype | None = None,
+    tensor_scale_epilogue: bool = False,
+) -> QAffineFormats:
+    """Build a ``QAffineFormats`` whose three Linear GEMMs are block GEMMs.
+
+    Each hook packs what it multiplies along the dimension it reduces over, in
+    the format of the tensor's role: the forward ``x @ w^T`` packs the input
+    along its features in ``input``'s format and the weight along its input
+    features in ``weight``'s; the input gradient ``g @ w`` packs the output
+    gradient along its features in ``grad``'s format (``input``'s by default)
+    and the weight along its output features; the weight gradient ``g^T @ x``
+    packs both along the batch. The arithmetic (``acc``, ``fused``,
+    ``rounding``, the accumulate algorithm) is :func:`mptorch.quant.block_matmul`'s,
+    shared by the three. Results are float32, stored in the input's dtype.
+
+    A weight that arrives packed, from ``weight_quant = BlockQuant(fmt,
+    axis=1).pack``, is used as it is: that packs it once per optimizer step
+    (the memo sees the step's in-place write) instead of in each hook, and in
+    inference once for good. With square tiles
+    (``dataclasses.replace(fmt, block_rows=fmt.block_size)``, NVFP4's 16 x 16
+    weights) the input gradient reads that packing transposed, so the forward
+    and backward passes see the same quantized weight; a 1D or non-square
+    weight format quantizes differently along the other axis, so a weight
+    packed in one raises in the input gradient, and training with one leaves
+    ``weight_quant`` unset.
+
+    Args:
+        input (BlockFormat or BlockQuant): the input's format (a
+            ``BlockQuant`` names its rounding and tensor scale).
+        weight (BlockFormat or BlockQuant): the weight's.
+        grad (BlockFormat or BlockQuant, optional): the output gradient's.
+            Default: ``None``, ``input``'s.
+        acc (BinaryK, optional): the accumulate format. Default: ``None``
+        fused (bool): a fused multiply-add per step. Default: ``False``
+        rounding (RoundMode): the sum's rounding mode. Default:
+            ``RoundMode.RNE``
+        accumulate_algorithm (AccumulateAlgorithm): as for
+            :class:`mptorch.quant.SplitMac`. Default: ``AccumulateAlgorithm.NAIVE``
+        block_size (int, optional): BLOCK's and TREE's. Default: ``None``
+        outer (BinaryK, optional): BLOCK's and TREE's outer format.
+            Default: ``None``
+        carrier (torch.dtype, optional): ``None`` or ``torch.float32``.
+            Default: ``None``
+        tensor_scale_epilogue (bool): apply the operands' per-tensor scales
+            to each GEMM's result rather than in the decode, as NVIDIA's NVFP4
+            GEMMs do (:func:`mptorch.quant.block_matmul`). Default: ``False``
+
+    Returns:
+        QAffineFormats: with the three math hooks set and every ``*_quant``
+        slot left ``None``.
+
+    Example::
+
+        >>> import dataclasses, torch
+        >>> from mptorch import BinaryK, NVFP4
+        >>> from mptorch.quant import BlockQuant, QLinear, block_gemm_formats
+        >>> w16 = dataclasses.replace(NVFP4, block_rows=16)
+        >>> formats = block_gemm_formats(NVFP4, w16, acc=BinaryK(16, 11))
+        >>> formats.weight_quant = BlockQuant(w16, axis=1).pack
+        >>> layer = QLinear(64, 32, formats=formats)
+        >>> layer(torch.randn(8, 64)).sum().backward()
+    """
+    qi = _as_block_quant(input, "input")
+    qw = _as_block_quant(weight, "weight")
+    qg = qi if grad is None else _as_block_quant(grad, "grad")
+    spec = _block_gemm_spec(
+        acc,
+        fused,
+        rounding,
+        accumulate_algorithm,
+        block_size,
+        outer,
+        carrier,
+        tensor_scale_epilogue,
+    )
+
+    def fwd(q_input, q_weight, q_bias):
+        x_flat, x_shape = _flatten_leading(q_input)
+        w = q_weight if isinstance(q_weight, BlockPacked) else qw.pack_fresh(q_weight, 1)
+        out = _stored_as(
+            spec, _run_block_gemm(spec, qi.pack_fresh(x_flat, -1), w.mT), q_input.dtype
+        )
+        out = out.reshape(*x_shape[:-1], w.shape[0])
+        if q_bias is None:
+            return out
+        return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
+
+    def bwd_igrad(q_igrad_output, q_weight):
+        g_flat, g_shape = _flatten_leading(q_igrad_output)
+        w = _reused(q_weight, qw, "the input gradient")
+        if w is None:
+            w = qw.pack_fresh(q_weight, 0)
+        out = _run_block_gemm(spec, qg.pack_fresh(g_flat, -1), w)
+        return _stored_as(spec, out, q_igrad_output.dtype).reshape(*g_shape[:-1], w.shape[1])
+
+    def bwd_wgrad(q_wgrad_output, q_input):
+        g_flat, _ = _flatten_leading(q_wgrad_output)
+        i_flat, _ = _flatten_leading(q_input)
+        out = _run_block_gemm(spec, qg.pack_fresh(g_flat, 0).mT, qi.pack_fresh(i_flat, 0))
+        return _stored_as(spec, out, q_wgrad_output.dtype)
+
+    return QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)

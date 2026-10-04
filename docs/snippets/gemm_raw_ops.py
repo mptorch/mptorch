@@ -22,7 +22,7 @@ torch.manual_seed(0)
 a = torch.randn(4, 16)
 b = torch.randn(3, 16)  # will be read transposed
 
-# E4M3 multiply, bfloat16-like accumulate, no gradient tracking.
+# Binary8p4 multiply, Binary16p8 accumulate, no gradient tracking.
 out = binaryK_matmul(a, b, trans_b=True, mul_K=8, mul_P=4, acc_K=16, acc_P=8)
 cos = torch.nn.functional.cosine_similarity
 print(
