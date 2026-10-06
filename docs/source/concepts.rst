@@ -84,10 +84,11 @@ A few consequences are worth having in mind:
   half of that.
 - The largest finite value is
   :math:`(2 - 2^{2-P}) \cdot 2^{\,2^E - 1 - \text{bias}}` in P3109's
-  extended domain (``OVF_INF``, the default, and ``SAT_PROPAGATE``), where the
-  very last code of the top binade is :math:`\infty`, and
+  extended domain (the default), where the very last code of the top binade
+  is :math:`\infty`, and
   :math:`(2 - 2^{1-P}) \cdot 2^{\,2^E - 1 - \text{bias}}` in its finite
-  domain (``SAT_FINITE``), where that code is a number. Both are for a signed
+  domain, where that code is a number (`Subnormals, saturation and sign`_
+  says how to choose it). Both are for a signed
   format with :math:`P \ge 3` (see `Relation to IEEE P3109`_ for the rules for
   the other formats).
 - The smallest normal is :math:`2^{1 - \text{bias}}` and the smallest
@@ -227,11 +228,14 @@ in what an overflow returns. E4M3 has no infinity, and PyTorch's conversion to
 ``torch.float8_e4m3fn`` saturates at :math:`\pm 448`;
 ``BinaryK(8, 4, bias=7)`` returns
 
-- :math:`\pm\infty` under ``OVF_INF``, the default.
-- :math:`\pm 448` under ``SAT_PROPAGATE``, which is PyTorch's result for
-  every finite float32 input, except that a zero is always :math:`+0`.
-- :math:`\pm 480` under ``SAT_FINITE``, whose domain turns the infinity's
-  code into a number that E4M3 does not have.
+- :math:`\pm\infty` under ``SAT_NONE``, the default.
+- :math:`\pm 448` for a finite input under ``SAT_PROPAGATE``, which leaves an
+  infinite input infinite.
+- :math:`\pm 448` for every input under ``SAT_FINITE_EXTENDED``, an infinite
+  one included, which is PyTorch's result for every float32 input, except
+  that a zero is always :math:`+0`.
+- :math:`\pm 480` under ``SAT_FINITE``, whose finite domain turns the
+  infinity's code into a number that E4M3 does not have.
 
 In MPTorch these differences show up in two places:
 
@@ -276,27 +280,44 @@ as the rounding mode decides (see `Relation to IEEE P3109`_ for the rule). A
 value is flushed to zero only where the rounding mode says so -- under
 round-to-nearest, when it is nearer to zero than to the smallest value.
 
-:class:`~mptorch.SaturationMode` -- the top. The modes are P3109's saturation
-modes, and they choose its domain as well: a finite-domain P3109 format admits
-only ``SatFinite``, so ``SAT_FINITE`` is that domain and the other two are the
-extended one.
+:class:`~mptorch.SaturationMode` and :class:`~mptorch.Domain` -- the top.
+P3109 chooses two things here, separately: the *domain*, whether the format
+spends its top code of each sign on :math:`\pm\infty` (extended) or on a
+number (finite), and the *saturation mode*, what an operation does with a
+result beyond the largest finite value. The finite domain admits only
+``SatFinite``, which leaves four valid pairs, and each is one member of
+``SaturationMode``:
 
 ``SAT_FINITE``
    P3109's ``SatFinite``, in the finite domain. Everything is clamped to the
    largest finite value, which here includes the top mantissa code: a finite
    input that overflows *and* an infinite input alike, so the output never
    contains an infinity. NaN inputs pass through unchanged.
+``SAT_FINITE_EXTENDED``
+   P3109's ``SatFinite``, in the extended domain. The format keeps its
+   infinity codes, so its largest finite value is the one ``SAT_PROPAGATE``
+   and ``SAT_NONE`` have, but everything is clamped to it, an infinite input
+   included, as under ``SAT_FINITE``.
 ``SAT_PROPAGATE``
    P3109's ``SatPropagate``, in the extended domain. A finite input that
    overflows is clamped to the largest finite value with the top mantissa
    code excluded -- one that rounds onto that code included, like 480 in the
    run below -- and an infinite input stays infinite.
-``OVF_INF``
+``SAT_NONE``
    P3109's ``SatNone``, in the extended domain, and the default: an input
    that rounds past the largest finite value becomes :math:`\pm\infty`. P3109 rounds
    before it saturates, so this happens under every rounding mode, including
    the ones for which IEEE 754 stops at the largest finite value, such as
-   rounding toward zero (the run's ``OVF_INF, RZ`` line).
+   rounding toward zero (the run's ``SAT_NONE, RZ`` line).
+
+A :class:`~mptorch.BinaryK` or :class:`~mptorch.SuperFP` can name the pair as
+P3109 does, with ``domain=`` beside ``saturation=``:
+``BinaryK(8, 4, saturation=SAT_FINITE, domain=Domain.EXTENDED)`` is stored as
+``saturation=SAT_FINITE_EXTENDED``, and the two spellings make equal formats.
+Left out, the domain follows from the mode -- finite for ``SAT_FINITE``,
+extended otherwise -- and ``domain=Domain.FINITE`` with any other mode
+raises. The flat functions of the schema tier, which take no format object,
+name the pair with the ``SaturationMode`` member alone.
 
 .. literalinclude:: ../snippets/formats_modes.py
    :language: python
@@ -349,11 +370,14 @@ is in one table.
    * - bitwidth :math:`K`, precision :math:`P`, signedness
      - ``BinaryK(K, P, is_signed=...)``
    * - extended / finite domain
-     - ``saturation``: ``OVF_INF`` or ``SAT_PROPAGATE`` / ``SAT_FINITE``
+     - ``domain=Domain.EXTENDED`` / ``Domain.FINITE``
    * - exponent bias :math:`2^{K-P-1}`, unsigned :math:`2^{K-P}`
      - the default ``bias``
    * - ``SatNone``, ``SatPropagate``, ``SatFinite``
-     - ``OVF_INF``, ``SAT_PROPAGATE``, ``SAT_FINITE``
+     - ``saturation=SAT_NONE``, ``SAT_PROPAGATE``, ``SAT_FINITE``
+   * - extended domain with ``SatFinite`` (one ``SaturationMode`` member, for
+       the flat functions)
+     - ``SAT_FINITE_EXTENDED``
    * - ``NearestTiesToEven``, ``NearestTiesToAway``
      - ``RNE``, ``RNA``
    * - ``TowardPositive``, ``TowardNegative``, ``TowardZero``
@@ -427,11 +451,7 @@ because the region has the same shape in each. An input :math:`x` with
 the carrier, not an encoding, so P3109's single NaN is whichever NaN came in. (Its
 single zero is unsigned and gets no such latitude: every zero the kernels
 return is :math:`+0.0`, whether it came from :math:`-0.0` or from a negative
-value that rounded to zero, and the same holds for SuperFP.) And P3109's
-extended domain with
-``SatFinite`` -- a format that has infinities, clamping an infinite input to
-its largest finite value -- has no spelling, because ``SAT_FINITE`` also
-selects the finite domain.
+value that rounded to zero, and the same holds for SuperFP.)
 
 SuperFP: precision at the top, range below
 ------------------------------------------

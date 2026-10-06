@@ -39,6 +39,7 @@ from .number import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    Domain,
     FloatFormat,
     FormatRangeWarning,
     Number,
@@ -53,6 +54,7 @@ __version__ = "0.4.0"
 
 __all__ = [
     "SaturationMode",
+    "Domain",
     "SubnormalsMode",
     "RoundMode",
     "AccumulateAlgorithm",

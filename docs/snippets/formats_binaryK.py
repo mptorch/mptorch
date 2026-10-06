@@ -27,7 +27,7 @@ def describe(f: BinaryK) -> None:
     # domain that has it, and 1e30 overflows -- to infinity in the extended
     # domain, to the largest finite value in the finite one.
     probe = torch.tensor([max_extended, max_finite, min_normal, min_subnormal, 1e30])
-    for sat in (SaturationMode.OVF_INF, SaturationMode.SAT_FINITE):
+    for sat in (SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE):
         q = Quant(BinaryK(f.K, f.P, bias=f.bias, saturation=sat))
         print(f"  {sat.name:<11}{q(probe).tolist()}")
 

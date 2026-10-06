@@ -135,7 +135,7 @@ def binaryK_gemm_formats(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
@@ -197,7 +197,7 @@ def binaryK_gemm_formats(
             both because the kernels take it as a template parameter.
             Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): overflow behaviour of the multiply
-            format. Default: ``SaturationMode.OVF_INF``
+            format. Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): what the multiply format keeps
             below its smallest normal. Default: ``SubnormalsMode.SUBNORMALS``
         acc_saturation_mode (SaturationMode, optional): overflow behaviour of
@@ -283,7 +283,7 @@ def binaryK_gemm_formats_fma(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     block_size: int | None = None,
     outer_K: int | None = None,
@@ -324,7 +324,7 @@ def binaryK_gemm_formats_fma(
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): overflow behaviour.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): subnormal handling.
             Default: ``SubnormalsMode.SUBNORMALS``
         block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
@@ -394,7 +394,7 @@ def superfp_gemm_formats(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     block_size: int | None = None,
     outer_man_bits: int | None = None,
@@ -449,7 +449,7 @@ def superfp_gemm_formats(
         rounding_mode (RoundMode): rounding for both formats.
             Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): overflow behaviour of the multiply
-            format. Default: ``SaturationMode.OVF_INF``
+            format. Default: ``SaturationMode.SAT_NONE``
         acc_saturation_mode (SaturationMode, optional): ``None`` takes
             ``saturation_mode``. Default: ``None``
         block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
@@ -523,7 +523,7 @@ def superfp_gemm_formats_fma(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     block_size: int | None = None,
     outer_man_bits: int | None = None,
     outer_exp_bits: int | None = None,
@@ -561,7 +561,7 @@ def superfp_gemm_formats_fma(
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): overflow behaviour.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
             for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
         outer_man_bits (int, optional): mantissa bits of the outer format

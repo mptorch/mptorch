@@ -118,7 +118,7 @@ def test_underflow_is_the_same_rule_in_every_subnormals_mode(device, dtype, subn
         P,
         bias=bias,
         rounding_mode=mode,
-        saturation_mode=SaturationMode.OVF_INF,
+        saturation_mode=SaturationMode.SAT_NONE,
         subnormals_mode=subnormals,
     )
     assert torch.equal(got, want), f"{got.tolist()} != {want.tolist()}"
@@ -146,7 +146,7 @@ def test_underflow_is_signed_the_same_way_below_zero(device, dtype, subnormals, 
         P,
         bias=bias,
         rounding_mode=mode,
-        saturation_mode=SaturationMode.OVF_INF,
+        saturation_mode=SaturationMode.SAT_NONE,
         subnormals_mode=subnormals,
     )
     assert torch.equal(got, want), f"{got.tolist()} != {want.tolist()}"

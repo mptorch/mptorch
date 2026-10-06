@@ -531,6 +531,6 @@ def test_integer_input_is_still_rejected(device, raw_op, args):
             x,
             *args,
             RoundMode.RNE.value,
-            SaturationMode.OVF_INF.value,
+            SaturationMode.SAT_NONE.value,
             *([SubnormalsMode.SUBNORMALS.value] if raw_op == "binaryK_quant" else []),
         )

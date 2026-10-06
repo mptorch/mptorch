@@ -22,8 +22,9 @@ normal binades, writing ``n = (2**exp_bits - b) * 2**man_bits``:
   ``2**supernormal_cutoff`` up to ``2**(normal_cutoff-1)``;
 * codes n and above are the normal region, ``(1 + t*2**-man_bits) *
   2**(e-bias)`` for the top b binades;
-* the extended domain (``OVF_INF``, ``SAT_PROPAGATE``) spends the top code on
-  an infinity, the finite domain (``SAT_FINITE``) does not.
+* the extended domain (``SAT_NONE``, ``SAT_PROPAGATE``, ``SAT_FINITE_EXTENDED``)
+  spends the top code on an infinity, the finite domain (``SAT_FINITE``) does
+  not.
 
 SuperFP spends no code on a NaN, and none on a negative zero: a signed format's
 sign-bit-with-no-magnitude code encodes nothing, which is one of the two
@@ -57,7 +58,7 @@ import sys
 
 from binaryK_values import MAX_ENUMERATED, held_exactly
 
-SATURATIONS = ("OVF_INF", "SAT_FINITE", "SAT_PROPAGATE")
+SATURATIONS = ("SAT_NONE", "SAT_FINITE", "SAT_PROPAGATE", "SAT_FINITE_EXTENDED")
 
 
 class Entry:
@@ -246,6 +247,13 @@ def verify(entries: list[Entry], args: argparse.Namespace) -> int:
 
     x = torch.tensor(values, dtype=dtype)
     xs = torch.tensor(subnormal, dtype=dtype)
+    # Every value is a fixed point of the cast but an infinity under SatFinite
+    # in the extended domain, where the format has the code and the cast
+    # clamps it to the largest finite value, as it does any overflow.
+    want = x.clone()
+    if args.saturation == "SAT_FINITE_EXTENDED" and x.numel():
+        top = x[torch.isfinite(x)].abs().max()
+        want = torch.where(torch.isinf(x), torch.copysign(top, x), x)
     below = 0
     bad = 0
     for mode in RoundMode:
@@ -268,7 +276,7 @@ def verify(entries: list[Entry], args: argparse.Namespace) -> int:
             )
 
         got = quant(x)
-        wrong = (got != x) | (torch.signbit(got) != torch.signbit(x))
+        wrong = (got != want) | (torch.signbit(got) != torch.signbit(want))
         if wrong.any():
             bad += int(wrong.sum())
             i = int(wrong.nonzero()[0])
@@ -314,7 +322,7 @@ def main() -> int:
     )
     p.add_argument("--bias", type=int, required=True, help="exponent bias (no default)")
     p.add_argument("--unsigned", action="store_true", help="no sign bit")
-    p.add_argument("--saturation", choices=SATURATIONS, default="OVF_INF")
+    p.add_argument("--saturation", choices=SATURATIONS, default="SAT_NONE")
     p.add_argument("--order", choices=("value", "code"), default="value")
     p.add_argument("--style", choices=("dec", "hex", "both"), default="dec")
     p.add_argument("--annotate", action="store_true", help="prefix each line with its code point")

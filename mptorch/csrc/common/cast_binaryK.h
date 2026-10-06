@@ -85,7 +85,7 @@ struct BinaryKParamsT<float>
     float fast_min_normal; // 2^min_exp: below this the subnormal grid applies
     float fast_max_finite; // the largest finite magnitude (max_num as a float)
     float fast_clamp_hi;   // 2 * max_finite: the clamp before the split
-    float fast_ovf;        // inf under OVF_INF, else max_finite
+    float fast_ovf;        // inf under SAT_NONE, else max_finite
 };
 
 using BinaryKParams = BinaryKParamsT<float>;
@@ -112,7 +112,8 @@ CUDA_HOST_DEVICE_INLINE BinaryKParamsT<T> make_binaryK_params(int man_bits, int 
     p.round_shift = round_p.shift;
 
     // P3109's reserved codes at the top: +infinity outside the finite domain
-    // (SAT_FINITE), and NaN above it in an unsigned format.
+    // (SAT_FINITE; SAT_FINITE_EXTENDED keeps it), and NaN above it in an
+    // unsigned format.
     const int reserved_codes = (saturation_mode != SaturationMode::SAT_FINITE) + (is_signed ? 0 : 1);
     NormalRangeParamsT<T> normal_p =
         make_normal_range_params<T>(exp_bits, man_bits, bias, saturation_mode, reserved_codes, extended_normals);
@@ -182,7 +183,7 @@ CUDA_HOST_DEVICE_INLINE BinaryKParamsT<T> make_binaryK_params(int man_bits, int 
         p.fast_max_finite = reinterpret_cast<const MPTORCH_THREAD T &>(p.max_num);
         p.fast_clamp_hi = 2.0f * p.fast_max_finite;
         const uint32_t inf_bits = F::INF_BITS;
-        p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? reinterpret_cast<const MPTORCH_THREAD T &>(inf_bits) : p.fast_max_finite;
+        p.fast_ovf = (saturation_mode == SaturationMode::SAT_NONE) ? reinterpret_cast<const MPTORCH_THREAD T &>(inf_bits) : p.fast_max_finite;
         if (!p.fast_rne)
         {
             // keep the unused constants finite so a disabled gate can never
@@ -246,7 +247,8 @@ CUDA_HOST_DEVICE_INLINE float cast_binaryK_rne_fast(float origin_float, const MP
     // NaN passes through unchanged; inf takes `y`, which is what the integer
     // path's target_exp == 128 arm (saturate_nonfinite) gives it: the clamp
     // put it at fast_clamp_hi, which the split keeps and the compare above
-    // turns into fast_ovf (inf under OVF_INF, max_finite under SAT_FINITE).
+    // turns into fast_ovf (inf under SAT_NONE, max_finite under both SatFinite
+    // modes, as saturate_nonfinite gives it).
     // One ordered compare separates the two: `<= inf` is false only for NaN.
     //
     // Nothing to unsign here, because `y` is never -0.0: saturation gives
@@ -315,7 +317,7 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_nearest_even(T origin_float, bool is_sign
         quantize_bits = clip_subnormal_range_exponent(target, quantize_bits, p.subnormal_min_exponent_store);
         quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
-    // NaN/inf inputs: NaN passes through, inf saturates under SAT_FINITE
+    // NaN/inf inputs: NaN passes through, inf saturates under both SatFinite modes
     else if (target_exp == F::INF_EXP)
     {
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);

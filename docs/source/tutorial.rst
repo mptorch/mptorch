@@ -60,8 +60,10 @@ zero. Beyond that value they differ, and not in the same way:
 
 - For E4M3 it is the overflow convention only. PyTorch saturates to
   :math:`\pm 448`, an infinite input included, where a BinaryK format under
-  its default ``OVF_INF`` policy produces :math:`\pm\infty` (or clamps, under
+  its default ``SAT_NONE`` policy produces :math:`\pm\infty` (or clamps, under
   ``SAT_FINITE``, to 480: the finite domain spends the top code on a number).
+  ``SAT_FINITE_EXTENDED`` -- P3109's ``SatFinite`` in the extended domain --
+  is PyTorch's convention: it clamps to 448, infinities included.
 - For E5M2 it is the value set. The first table's largest finite values,
   98304 against 57344, are the difference: ``BinaryK(8, 3, bias=15)`` spends
   the top exponent field E5M2 reserves on three more numbers -- 65536, 81920

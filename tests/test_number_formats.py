@@ -75,7 +75,7 @@ def _binaryK_grid():
         [(8, 4), (16, 11), (6, 3)],
         [True, False],
         [RoundMode.RNE, RoundMode.SR, RoundMode.RZ],
-        [SaturationMode.OVF_INF, SaturationMode.SAT_FINITE],
+        [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE],
         [SubnormalsMode.SUBNORMALS, SubnormalsMode.NORMALS],
     ):
         yield K, P, signed, rm, sat, sub
@@ -111,7 +111,7 @@ def test_binaryK_split_mac_asymmetric_slots():
     """Saturation and subnormals belong to the format slot, not the op, so the
     accumulate's modes reach the ``acc_*`` arguments instead of the multiply's."""
     mul = BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE)
-    acc = BinaryK(12, 6, saturation=SaturationMode.OVF_INF, subnormals=SubnormalsMode.NORMALS)
+    acc = BinaryK(12, 6, saturation=SaturationMode.SAT_NONE, subnormals=SubnormalsMode.NORMALS)
     assert spec_for_mac(SplitMac(mul, acc)) == _binaryK_spec(
         mul_K=8,
         mul_P=4,
@@ -119,7 +119,7 @@ def test_binaryK_split_mac_asymmetric_slots():
         acc_P=6,
         saturation_mode=SaturationMode.SAT_FINITE,
         subnormals_mode=SubnormalsMode.SUBNORMALS,
-        acc_saturation_mode=SaturationMode.OVF_INF,
+        acc_saturation_mode=SaturationMode.SAT_NONE,
         acc_subnormals_mode=SubnormalsMode.NORMALS,
     )
 

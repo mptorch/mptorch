@@ -49,8 +49,9 @@ Some things to know about them:
   twins, ``binaryK_quantize_`` and ``superfp_quantize_``, are the exception,
   and have `a section of their own <In place_>`_.
 - NaN passes through with its payload. An infinity passes through too,
-  except under ``SaturationMode.SAT_FINITE``, which clamps it to the largest
-  finite value like any other overflow.
+  except under ``SatFinite`` in either domain (``SaturationMode.SAT_FINITE``
+  and ``SAT_FINITE_EXTENDED``), which clamps it to the largest finite value
+  like any other overflow.
 - ``prng_bits`` only matters under ``RoundMode.SR``. The random bits are
   drawn in the carrier, below the format's mantissa, so the two share its
   mantissa bits: 23 in binary32 and 52 in binary64, as the run shows.

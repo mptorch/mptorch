@@ -103,16 +103,17 @@ def test_nan_passthrough(device, mode):
 @pytest.mark.parametrize("mode", ALL_MODES)
 @pytest.mark.parametrize(
     "saturation_mode",
-    [SaturationMode.SAT_FINITE, SaturationMode.SAT_PROPAGATE, SaturationMode.OVF_INF],
+    list(SaturationMode),
 )
 def test_inf_handling(device, mode, saturation_mode):
-    """An infinity is kept under OVF_INF and SAT_PROPAGATE; under SAT_FINITE,
-    which promises a finite result for every input, it saturates to the same
-    value an overflowing finite input does."""
+    """An infinity is kept under SAT_NONE and SAT_PROPAGATE; under SatFinite
+    (SAT_FINITE, SAT_FINITE_EXTENDED), which promises a finite result for
+    every input, it saturates to the same value an overflowing finite input
+    does."""
     for sign in (1.0, -1.0):
         inf = sign * float("inf")
         out = _quantize(inf, mode, device, saturation_mode=saturation_mode)
-        if saturation_mode is SaturationMode.SAT_FINITE:
+        if saturation_mode in (SaturationMode.SAT_FINITE, SaturationMode.SAT_FINITE_EXTENDED):
             huge = _quantize(sign * 3.0e38, mode, device, saturation_mode=saturation_mode)
             assert math.isfinite(out)
             assert out == huge
@@ -287,29 +288,30 @@ def test_ro_normal_region_zero_man_bits(device):
 
 # ---------------------------------------------------------------------------
 # The saturation modes at the overflow boundary, in every rounding mode. Under
-# OVF_INF the top code of the reference format, 31 (011111), is +Inf, so the
+# SAT_NONE the top code of the reference format, 31 (011111), is +Inf, so the
 # largest finite value is 1.5 (code 30); SAT_FINITE keeps the whole top binade
 # and its largest finite value is 1.75 (code 31).
 @pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", ALL_MODES)
 def test_saturation_mode_differentiation(device, mode):
     """The largest finite value and the fate of an overflow differ between
-    SAT_FINITE and OVF_INF, whichever the rounding mode."""
+    SAT_FINITE and SAT_NONE, whichever the rounding mode."""
     assert _quantize(1.5, mode, device, saturation_mode=SaturationMode.SAT_FINITE) == 1.5
-    assert _quantize(1.5, mode, device, saturation_mode=SaturationMode.OVF_INF) == 1.5
+    assert _quantize(1.5, mode, device, saturation_mode=SaturationMode.SAT_NONE) == 1.5
 
     assert _quantize(1.75, mode, device, saturation_mode=SaturationMode.SAT_FINITE) == 1.75
-    assert _quantize(1.75, mode, device, saturation_mode=SaturationMode.OVF_INF) == float("inf")
+    assert _quantize(1.75, mode, device, saturation_mode=SaturationMode.SAT_NONE) == float("inf")
 
     assert _quantize(2.0, mode, device, saturation_mode=SaturationMode.SAT_FINITE) == 1.75
-    assert _quantize(2.0, mode, device, saturation_mode=SaturationMode.OVF_INF) == float("inf")
+    assert _quantize(2.0, mode, device, saturation_mode=SaturationMode.SAT_NONE) == float("inf")
 
     assert _quantize(-5.0, mode, device, saturation_mode=SaturationMode.SAT_FINITE) == -1.75
-    assert _quantize(-5.0, mode, device, saturation_mode=SaturationMode.OVF_INF) == float("-inf")
+    assert _quantize(-5.0, mode, device, saturation_mode=SaturationMode.SAT_NONE) == float("-inf")
 
 
 # The same boundary where the reserved code is a large part of the top binade.
-# Outside SAT_FINITE the top binade's last code is +Inf, so with man_bits = 0
+# Outside SAT_FINITE (the finite domain) the top binade's last code is +Inf,
+# SAT_FINITE_EXTENDED included, so with man_bits = 0
 # (one code per binade) the largest finite value is a binade down and with
 # man_bits = 1 it is the binade's first code; SAT_FINITE keeps the whole
 # binade. `above` is the first code past `largest`, which has to saturate like
@@ -318,12 +320,14 @@ def test_saturation_mode_differentiation(device, mode):
 # normal_binades 8 keeps every value here in the normal region.
 TOP_CASES = [
     # (man_bits, saturation_mode, largest, above)
-    (0, SaturationMode.OVF_INF, 2.0**7, 2.0**8),
+    (0, SaturationMode.SAT_NONE, 2.0**7, 2.0**8),
     (0, SaturationMode.SAT_PROPAGATE, 2.0**7, 2.0**8),
     (0, SaturationMode.SAT_FINITE, 2.0**8, 2.0**9),
-    (1, SaturationMode.OVF_INF, 2.0**8, 1.5 * 2.0**8),
+    (1, SaturationMode.SAT_NONE, 2.0**8, 1.5 * 2.0**8),
     (1, SaturationMode.SAT_PROPAGATE, 2.0**8, 1.5 * 2.0**8),
     (1, SaturationMode.SAT_FINITE, 1.5 * 2.0**8, 2.0**9),
+    (0, SaturationMode.SAT_FINITE_EXTENDED, 2.0**7, 2.0**8),
+    (1, SaturationMode.SAT_FINITE_EXTENDED, 2.0**8, 1.5 * 2.0**8),
     (3, SaturationMode.SAT_PROPAGATE, 1.75 * 2.0**8, 1.875 * 2.0**8),
 ]
 
@@ -336,7 +340,7 @@ def test_top_of_range(device, mode, man_bits, saturation_mode, largest, above):
     value, with the sign, in every rounding mode."""
     cfg = {"man_bits": man_bits, "exp_bits": 4, "normal_binades": 8, "bias": 7}
     kw = dict(saturation_mode=saturation_mode, cfg=cfg)
-    saturated = math.inf if saturation_mode is SaturationMode.OVF_INF else largest
+    saturated = math.inf if saturation_mode is SaturationMode.SAT_NONE else largest
     assert _quantize(largest, mode, device, **kw) == largest
     for x in (above, 3.0e38):
         assert _quantize(x, mode, device, **kw) == saturated, x

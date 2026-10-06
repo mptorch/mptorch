@@ -34,9 +34,10 @@ SUPERFP_FORMATS = [
 ]
 
 SATURATION_MODES = [
-    SaturationMode.OVF_INF,
+    SaturationMode.SAT_NONE,
     SaturationMode.SAT_FINITE,
     SaturationMode.SAT_PROPAGATE,  # gates the fast path off
+    SaturationMode.SAT_FINITE_EXTENDED,
 ]
 
 ROUND_MODES = [

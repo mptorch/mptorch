@@ -29,10 +29,13 @@ shares no code with the cast it checks:
   to zero is +0.0 whatever the sign of the input, -0.0 included. The
   comparison reads the sign bit of a zero, because ``-0.0 == 0.0`` is true.
 
-``SaturationMode`` carries the domain as well as the saturation: ``SAT_FINITE``
-is the finite domain, the other two the extended one. An unsigned format turns
-every negative input into 0, -infinity included. The paper says so for SatNone,
-and MPTorch reads the other two modes the same way.
+``SaturationMode`` carries the domain as well as the saturation, one member per
+valid pair: ``SAT_FINITE`` is SatFinite in the finite domain, and ``SAT_NONE``,
+``SAT_PROPAGATE`` and ``SAT_FINITE_EXTENDED`` are SatNone, SatPropagate and
+SatFinite in the extended one. ``_P3109`` below is that table, and the reference
+works in the paper's terms on the pair. An unsigned format turns every negative
+input into 0, -infinity included. The paper says so for SatNone, and MPTorch
+reads the other modes the same way.
 
 Each test runs on float32 inputs, rounded in binary32, and again on float64
 inputs float32 cannot hold, rounded in binary64, over formats up to K = 64
@@ -44,11 +47,19 @@ import math
 import pytest
 import torch
 
-from mptorch.number import RoundMode, SaturationMode
-from mptorch.quant import binaryK_quantize
+from mptorch.number import BinaryK, Domain, RoundMode, SaturationMode
+from mptorch.quant import Quant, binaryK_quantize
 from tests.markers import available_devices, has_float64
 
 DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
+
+# Each SaturationMode as P3109's (domain, saturation mode) pair.
+_P3109 = {
+    SaturationMode.SAT_FINITE: ("finite", "SatFinite"),
+    SaturationMode.SAT_PROPAGATE: ("extended", "SatPropagate"),
+    SaturationMode.SAT_NONE: ("extended", "SatNone"),
+    SaturationMode.SAT_FINITE_EXTENDED: ("extended", "SatFinite"),
+}
 
 
 def _bias(K: int, P: int, signed: bool) -> int:
@@ -129,8 +140,8 @@ def _round_to_precision(x: torch.Tensor, P: int, B: int, mode: RoundMode) -> tor
     return torch.where(regular, rounded, x)
 
 
-def _saturate(z: torch.Tensor, mode: SaturationMode, hi: float, signed: bool) -> torch.Tensor:
-    """omega-Saturate (section IV-B) into [M_lo, M_hi].
+def _saturate(z: torch.Tensor, mode: str, hi: float, signed: bool) -> torch.Tensor:
+    """omega-Saturate (section IV-B) into [M_lo, M_hi], by the paper's mode name.
 
     An unsigned format sends every negative value to 0 first.
     """
@@ -138,10 +149,11 @@ def _saturate(z: torch.Tensor, mode: SaturationMode, hi: float, signed: bool) ->
     if not signed:
         z = torch.where(z < 0, torch.zeros_like(z), z)
     clamped = z.clamp(lo, hi)  # NaN stays NaN
-    if mode is SaturationMode.SAT_FINITE:
+    if mode == "SatFinite":
         return clamped
-    if mode is SaturationMode.SAT_PROPAGATE:
+    if mode == "SatPropagate":
         return torch.where(torch.isinf(z), z, clamped)
+    assert mode == "SatNone", mode
     return torch.where((z > hi) | (z < lo), torch.copysign(torch.full_like(z, math.inf), z), z)
 
 
@@ -158,13 +170,14 @@ def _project(
     other. float64's largest value stands in for that result, since it is
     beyond every format these tests round to.
     """
-    finite = saturation is SaturationMode.SAT_FINITE
+    domain, mode = _P3109[saturation]
+    finite = domain == "finite"
     B = _bias(K, P, signed) if bias is None else bias
     hi = math.ldexp(_max_finite(K, P, signed, finite), _bias(K, P, signed) - B)
     rounded = _round_to_precision(x, P, B, rounding)
     beyond = torch.copysign(torch.full_like(rounded, torch.finfo(torch.float64).max), rounded)
     rounded = torch.where(torch.isinf(rounded) & torch.isfinite(x), beyond, rounded)
-    projected = _saturate(rounded, saturation, hi, signed)
+    projected = _saturate(rounded, mode, hi, signed)
     # Code point 0 decodes to a zero with no sign.
     return torch.where(projected == 0, torch.zeros_like(projected), projected)
 
@@ -269,12 +282,14 @@ def test_reference_largest_finite_matches_table_i(P, extended, finite):
 @pytest.mark.parametrize(
     "K,P,signed,saturation_mode,largest",
     [
-        (8, 4, True, SaturationMode.OVF_INF, 224.0),  # Binary8p4se
+        (8, 4, True, SaturationMode.SAT_NONE, 224.0),  # Binary8p4se
         (8, 4, True, SaturationMode.SAT_FINITE, 240.0),  # Binary8p4sf
+        (8, 4, True, SaturationMode.SAT_FINITE_EXTENDED, 224.0),  # Binary8p4se, SatFinite
+        (8, 4, False, SaturationMode.SAT_FINITE_EXTENDED, 53248.0),  # Binary8p4ue, SatFinite
         (8, 3, True, SaturationMode.SAT_PROPAGATE, 49152.0),  # Binary8p3se
-        (8, 4, False, SaturationMode.OVF_INF, 53248.0),  # Binary8p4ue: NaN and +inf on top
+        (8, 4, False, SaturationMode.SAT_NONE, 53248.0),  # Binary8p4ue: NaN and +inf on top
         (8, 4, False, SaturationMode.SAT_FINITE, 57344.0),  # Binary8p4uf: NaN on top
-        (4, 2, True, SaturationMode.OVF_INF, 2.0),  # Binary4p2se, Table I
+        (4, 2, True, SaturationMode.SAT_NONE, 2.0),  # Binary4p2se, Table I
         (4, 1, True, SaturationMode.SAT_FINITE, 8.0),  # Binary4p1sf, Table I
     ],
 )
@@ -292,7 +307,7 @@ def test_largest_finite_value(device, K, P, signed, saturation_mode, largest):
             x, K, P, is_signed=signed, rounding_mode=mode, saturation_mode=saturation_mode
         )
         assert q[0].item() == largest, mode
-        expected = math.inf if saturation_mode is SaturationMode.OVF_INF else largest
+        expected = math.inf if saturation_mode is SaturationMode.SAT_NONE else largest
         assert q[1].item() == expected, mode
 
 
@@ -360,7 +375,7 @@ def test_zero_and_far_below_the_smallest_subnormal(device, carrier, signed):
     # bits and a bias of 1024, fails it and is skipped.
     for K, P in [(K, P) for K, P in formats if _bias(K, P, signed) + P <= 1023]:
         for mode in DETERMINISTIC:
-            want = _project(x.double(), K, P, signed, mode, SaturationMode.OVF_INF)
+            want = _project(x.double(), K, P, signed, mode, SaturationMode.SAT_NONE)
             got = binaryK_quantize(x.to(device), K, P, is_signed=signed, rounding_mode=mode)
             got = got.cpu().double()
             bad = _mismatches(got, want)
@@ -497,3 +512,46 @@ def test_nan_passes_through_whole(device, signed, saturation_mode):
                     f"{int(nans[i]) & mask:#x} -> {int(bits[i]) & mask:#x}"
                 )
     assert not failures, "\n".join(failures)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
+def test_domain_names_the_same_format(device, signed):
+    """``domain=`` on a format object is P3109's own spelling of the pair.
+
+    It folds into the stored ``SaturationMode``, so the two spellings of one
+    format compare (and memoize) equal and round alike, and a format object in
+    the extended domain under SatFinite rounds as the transcription says.
+    """
+    sat, ext = SaturationMode, Domain.EXTENDED
+    by_domain = BinaryK(8, 4, is_signed=signed, saturation=sat.SAT_FINITE, domain=ext)
+    by_mode = BinaryK(8, 4, is_signed=signed, saturation=sat.SAT_FINITE_EXTENDED)
+    assert by_domain == by_mode and hash(by_domain) == hash(by_mode)
+    assert by_domain.saturation is sat.SAT_FINITE_EXTENDED and by_domain.domain is ext
+    for mode, domain in [
+        (sat.SAT_FINITE, Domain.FINITE),
+        (sat.SAT_NONE, ext),
+        (sat.SAT_PROPAGATE, ext),
+        (sat.SAT_FINITE_EXTENDED, ext),
+    ]:
+        assert BinaryK(8, 4, is_signed=signed, saturation=mode).domain is domain
+    x = _inputs(8, 4, signed)
+    for rounding in DETERMINISTIC:
+        want = _project(x.double(), 8, 4, signed, rounding, sat.SAT_FINITE_EXTENDED)
+        got = Quant(by_domain, rounding)(x.to(device)).cpu().double()
+        assert not _mismatches(got, want).any(), rounding
+
+
+def test_finite_domain_admits_only_sat_finite():
+    for mode in (
+        SaturationMode.SAT_NONE,
+        SaturationMode.SAT_PROPAGATE,
+        SaturationMode.SAT_FINITE_EXTENDED,
+    ):
+        with pytest.raises(ValueError, match="finite domain admits only SatFinite"):
+            BinaryK(8, 4, saturation=mode, domain=Domain.FINITE)
+    assert BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE, domain=Domain.FINITE) == BinaryK(
+        8, 4, saturation=SaturationMode.SAT_FINITE
+    )
+    with pytest.raises(TypeError, match="domain must be a Domain"):
+        BinaryK(8, 4, domain="finite")  # type: ignore[arg-type]

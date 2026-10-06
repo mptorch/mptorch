@@ -1026,7 +1026,7 @@ def binaryK_quantize(
     prng_bits: int = 0,
     is_signed: bool = True,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     *,
     carrier: torch.dtype | None = None,
@@ -1054,8 +1054,9 @@ def binaryK_quantize(
     that dtype as well; the inputs are already its values, so only a result
     at an edge of the format's range can land off its grid, and that warns.
     NaN inputs pass through, and so do infinities except under
-    ``SaturationMode.SAT_FINITE``, which clamps them to the largest finite
-    value.
+    ``SaturationMode.SAT_FINITE`` and ``SAT_FINITE_EXTENDED`` (P3109's
+    ``SatFinite`` in its two domains), which clamp them to the largest
+    finite value.
 
     Not differentiable: rounding to a coarse grid has a zero derivative almost
     everywhere, so on a tensor that requires grad under grad mode this raises
@@ -1078,7 +1079,7 @@ def binaryK_quantize(
         rounding_mode (RoundMode): how a value between two of the format's is
             rounded. Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): what a value past the largest finite
-            one becomes. Default: ``SaturationMode.OVF_INF``
+            one becomes. Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): how the bottom of the range is
             filled in. Default: ``SubnormalsMode.SUBNORMALS``
         carrier (torch.dtype, optional): ``torch.float64`` rounds any ``x`` in
@@ -1179,7 +1180,7 @@ def binaryK_quantize_(
     prng_bits: int = 0,
     is_signed: bool = True,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     *,
     carrier: torch.dtype | None = None,
@@ -1279,7 +1280,7 @@ def superfp_quantize(
     prng_bits: int = 0,
     is_signed: bool = True,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     *,
     carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
@@ -1311,7 +1312,7 @@ def superfp_quantize(
         rounding_mode (RoundMode): how a value between two of the format's is
             rounded. Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): what a value past the largest finite
-            one becomes. Default: ``SaturationMode.OVF_INF``
+            one becomes. Default: ``SaturationMode.SAT_NONE``
         carrier (torch.dtype, optional): as for :func:`binaryK_quantize`.
             Default: ``None``, ``x``'s own carrier.
 
@@ -1382,7 +1383,7 @@ def superfp_quantize_(
     prng_bits: int = 0,
     is_signed: bool = True,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     *,
     carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
@@ -1471,7 +1472,7 @@ def _binaryK_spec(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
@@ -1559,7 +1560,7 @@ def binaryK_matmul(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
@@ -1654,7 +1655,7 @@ def binaryK_matmul(
             op because the kernel is instantiated on it. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the multiply format's overflow
-            behavior. Default: ``SaturationMode.OVF_INF``
+            behavior. Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): the multiply format's bottom of
             range. Default: ``SubnormalsMode.SUBNORMALS``
         acc_saturation_mode (SaturationMode, optional): the accumulate
@@ -1800,7 +1801,7 @@ def _superfp_spec(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
@@ -1883,7 +1884,7 @@ def superfp_matmul(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     block_size: int | None = None,
     outer_man_bits: int | None = None,
@@ -1940,7 +1941,7 @@ def superfp_matmul(
         rounding_mode (RoundMode): the rounding of both formats. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the multiply format's overflow
-            behavior. Default: ``SaturationMode.OVF_INF``
+            behavior. Default: ``SaturationMode.SAT_NONE``
         acc_saturation_mode (SaturationMode, optional): the accumulate
             format's overflow behavior. Default: ``None``, ``saturation_mode``.
         block_size (int, optional): as for :func:`binaryK_matmul`.
@@ -2065,7 +2066,7 @@ def _binaryK_fma_spec(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
@@ -2117,7 +2118,7 @@ def binaryK_matmul_fma(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     block_size: int | None = None,
     outer_K: int | None = None,
@@ -2169,7 +2170,7 @@ def binaryK_matmul_fma(
         rounding_mode (RoundMode): the fused step's rounding. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the format's overflow behavior.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): the format's bottom of range.
             Default: ``SubnormalsMode.SUBNORMALS``
         block_size (int, optional): as for :func:`binaryK_matmul`.
@@ -2271,7 +2272,7 @@ def _superfp_fma_spec(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma`'s format into a ``_GemmSpec``.
@@ -2321,7 +2322,7 @@ def superfp_matmul_fma(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     block_size: int | None = None,
     outer_man_bits: int | None = None,
     outer_exp_bits: int | None = None,
@@ -2367,7 +2368,7 @@ def superfp_matmul_fma(
         rounding_mode (RoundMode): the fused step's rounding. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the format's overflow behavior.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         block_size (int, optional): as for :func:`binaryK_matmul`.
             Default: ``None``
         outer_man_bits (int, optional): mantissa bits of the outer format, the
@@ -2489,7 +2490,7 @@ def _binaryK_mixed_spec(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
@@ -2579,7 +2580,7 @@ def binaryK_matmul_mixed(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
@@ -2645,7 +2646,7 @@ def binaryK_matmul_mixed(
         rounding_mode (RoundMode): the rounding of every format. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the multiply formats' overflow
-            behavior. Default: ``SaturationMode.OVF_INF``
+            behavior. Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): the multiply formats' bottom of
             range. Default: ``SubnormalsMode.SUBNORMALS``
         acc_saturation_mode (SaturationMode, optional): the accumulate
@@ -2731,7 +2732,7 @@ def _superfp_mixed_spec(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
@@ -2826,7 +2827,7 @@ def superfp_matmul_mixed(
     acc_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
@@ -2883,7 +2884,7 @@ def superfp_matmul_mixed(
         rounding_mode (RoundMode): the rounding of every format. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the multiply formats' overflow
-            behavior. Default: ``SaturationMode.OVF_INF``
+            behavior. Default: ``SaturationMode.SAT_NONE``
         acc_saturation_mode (SaturationMode, optional): the accumulate
             formats' overflow behavior. Default: ``None``, ``saturation_mode``.
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
@@ -2958,7 +2959,7 @@ def _binaryK_fma_mixed_spec(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
@@ -3013,7 +3014,7 @@ def binaryK_matmul_fma_mixed(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
@@ -3054,7 +3055,7 @@ def binaryK_matmul_fma_mixed(
         rounding_mode (RoundMode): the rounding of every entry. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the formats' overflow behavior.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): the formats' bottom of range.
             Default: ``SubnormalsMode.SUBNORMALS``
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
@@ -3120,7 +3121,7 @@ def _superfp_fma_mixed_spec(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     carrier: torch.dtype | None = None,
 ) -> _GemmSpec:
     """Resolve :func:`superfp_matmul_fma_mixed`'s palette into a ``_GemmSpec``.
@@ -3177,7 +3178,7 @@ def superfp_matmul_fma_mixed(
     fma_prng_bits: int = 0,
     accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
     rounding_mode: RoundMode = RoundMode.RNE,
-    saturation_mode: SaturationMode = SaturationMode.OVF_INF,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     carrier: torch.dtype | None = None,
 ) -> torch.Tensor:
     """Quantized fused-multiply-add GEMM whose superfp format varies per element.
@@ -3215,7 +3216,7 @@ def superfp_matmul_fma_mixed(
         rounding_mode (RoundMode): the rounding of every entry. Default:
             ``RoundMode.RNE``
         saturation_mode (SaturationMode): the formats' overflow behavior.
-            Default: ``SaturationMode.OVF_INF``
+            Default: ``SaturationMode.SAT_NONE``
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
             Default: ``None``, the operands' own carrier.
 

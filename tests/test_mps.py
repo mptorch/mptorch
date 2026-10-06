@@ -108,23 +108,26 @@ def _words(dtype: torch.dtype) -> torch.Tensor:
 # non-P3109 subnormal modes, and a 12-bit precision finer than float16's, whose
 # float16 results the store has to round.
 BINARYK = [
-    (8, 4, None, True, SaturationMode.OVF_INF, SubnormalsMode.SUBNORMALS),
+    (8, 4, None, True, SaturationMode.SAT_NONE, SubnormalsMode.SUBNORMALS),
     (8, 3, None, True, SaturationMode.SAT_FINITE, SubnormalsMode.SUBNORMALS),
     (8, 5, None, False, SaturationMode.SAT_PROPAGATE, SubnormalsMode.SUBNORMALS),
-    (8, 1, None, True, SaturationMode.OVF_INF, SubnormalsMode.SUBNORMALS),
-    (8, 4, None, True, SaturationMode.OVF_INF, SubnormalsMode.NORMALS),
+    (8, 1, None, True, SaturationMode.SAT_NONE, SubnormalsMode.SUBNORMALS),
+    (8, 4, None, True, SaturationMode.SAT_NONE, SubnormalsMode.NORMALS),
     (8, 4, None, True, SaturationMode.SAT_FINITE, SubnormalsMode.EXTENDED_NORMALS),
-    (16, 12, None, True, SaturationMode.OVF_INF, SubnormalsMode.SUBNORMALS),
+    (16, 12, None, True, SaturationMode.SAT_NONE, SubnormalsMode.SUBNORMALS),
+    (8, 4, None, True, SaturationMode.SAT_FINITE_EXTENDED, SubnormalsMode.SUBNORMALS),
+    (8, 3, None, False, SaturationMode.SAT_FINITE_EXTENDED, SubnormalsMode.NORMALS),
 ]
 
 # (man_bits, exp_bits, normal_binades, bias, is_signed, saturation). The last
 # has so many supernormal binades that nothing underflows at all.
 SUPERFP = [
-    (3, 4, 1, 7, True, SaturationMode.OVF_INF),
+    (3, 4, 1, 7, True, SaturationMode.SAT_NONE),
     (2, 5, 2, 15, True, SaturationMode.SAT_FINITE),
-    (0, 4, 1, 7, True, SaturationMode.OVF_INF),
+    (0, 4, 1, 7, True, SaturationMode.SAT_NONE),
     (4, 3, 1, 3, False, SaturationMode.SAT_PROPAGATE),
-    (9, 3, 1, 3, True, SaturationMode.OVF_INF),
+    (9, 3, 1, 3, True, SaturationMode.SAT_NONE),
+    (3, 4, 1, 7, True, SaturationMode.SAT_FINITE_EXTENDED),
 ]
 
 

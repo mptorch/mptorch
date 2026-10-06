@@ -21,9 +21,10 @@ The code points, for a format with exponent width E and precision P:
 * a signed format spends the code with the sign bit set and no magnitude --
   what a binary float would read as -0.0 -- on its single NaN, which is why
   the kernels never return -0.0; an unsigned format spends its top code on it;
-* the extended domain (``OVF_INF``, ``SAT_PROPAGATE``) spends the top
-  remaining magnitude code on an infinity, the finite domain (``SAT_FINITE``)
-  does not, and that one code is the whole difference between them.
+* the extended domain (``SAT_NONE``, ``SAT_PROPAGATE``, ``SAT_FINITE_EXTENDED``)
+  spends the top remaining magnitude code on an infinity, the finite domain
+  (``SAT_FINITE``) does not, and that one code is the whole difference between
+  them.
 
 Examples::
 
@@ -57,7 +58,7 @@ import random
 import sys
 from fractions import Fraction
 
-SATURATIONS = ("OVF_INF", "SAT_FINITE", "SAT_PROPAGATE")
+SATURATIONS = ("SAT_NONE", "SAT_FINITE", "SAT_PROPAGATE", "SAT_FINITE_EXTENDED")
 SUBNORMALS = ("SUBNORMALS", "NORMALS", "EXTENDED_NORMALS")
 
 
@@ -273,6 +274,13 @@ def verify(entries: list[Entry], args: argparse.Namespace) -> int:
 
     x = torch.tensor(values, dtype=dtype)
     xs = torch.tensor(subnormal, dtype=dtype)
+    # Every value is a fixed point of the cast but an infinity under SatFinite
+    # in the extended domain, where the format has the code and the cast
+    # clamps it to the largest finite value, as it does any overflow.
+    want = x.clone()
+    if args.saturation == "SAT_FINITE_EXTENDED" and x.numel():
+        top = x[torch.isfinite(x)].abs().max()
+        want = torch.where(torch.isinf(x), torch.copysign(top, x), x)
     below = 0
     bad = 0
     for mode in RoundMode:
@@ -288,7 +296,7 @@ def verify(entries: list[Entry], args: argparse.Namespace) -> int:
             saturation_mode=SaturationMode[args.saturation],
             subnormals_mode=SubnormalsMode[args.subnormals],
         )
-        wrong = (got != x) | (torch.signbit(got) != torch.signbit(x))
+        wrong = (got != want) | (torch.signbit(got) != torch.signbit(want))
         if wrong.any():
             bad += int(wrong.sum())
             i = int(wrong.nonzero()[0])
@@ -351,7 +359,7 @@ def main() -> int:
         help="exponent bias (default: P3109's, 2**(K-P-1) signed and 2**(K-P) unsigned)",
     )
     p.add_argument("--unsigned", action="store_true", help="no sign bit; E = K - P + 1")
-    p.add_argument("--saturation", choices=SATURATIONS, default="OVF_INF")
+    p.add_argument("--saturation", choices=SATURATIONS, default="SAT_NONE")
     p.add_argument("--subnormals", choices=SUBNORMALS, default="SUBNORMALS")
     p.add_argument("--order", choices=("value", "code"), default="value")
     p.add_argument("--style", choices=("dec", "hex", "both"), default="dec")

@@ -287,7 +287,7 @@ def test_a_carrier_narrower_than_the_operands_is_refused(device, op):
 # whose argument names a palette and a single format share. The typed wrappers
 # accept them too on float64 operands, which the last test of this section
 # checks. A format is ("binaryK", K, P, bias) or ("superfp", man_bits,
-# exp_bits, normal_binades, bias); every format here is signed, OVF_INF,
+# exp_bits, normal_binades, bias); every format here is signed, SAT_NONE,
 # SUBNORMALS.
 
 

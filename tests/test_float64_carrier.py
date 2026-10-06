@@ -295,7 +295,7 @@ def test_formats_on_binary64s_edges_are_exact(device, K, P, bias):
     ):
         fmt = BinaryK(K, P, bias=bias)
         got = _silent(lambda fmt=fmt, rm=rm: Quant(fmt, rm)(x.to(device))).cpu()
-        want = _project(x, K, P, True, rm, SaturationMode.OVF_INF, bias)
+        want = _project(x, K, P, True, rm, SaturationMode.SAT_NONE, bias)
         same = (got == want) & (torch.signbit(got) == torch.signbit(want))
         assert bool((same | (got.isnan() & want.isnan())).all()), rm.name
 

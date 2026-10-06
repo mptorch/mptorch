@@ -575,7 +575,7 @@ def test_binary64_holds_every_format_binary32_holds():
         for bias, signed, sat, sub in itertools.product(
             (-130, -1, 0, 1, 7, 100, 124, 126, 127, 128, 200, 1000, 1022, 1024),
             (True, False),
-            (SaturationMode.OVF_INF, SaturationMode.SAT_FINITE),
+            (SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE),
             list(SubnormalsMode),
         ):
             for prng_bits in (0, 20):
@@ -587,7 +587,7 @@ def test_binary64_holds_every_format_binary32_holds():
         range(0, 24), range(1, 11), (1, 2, 7, 30, 255), (-130, 0, 7, 22, 127, 500)
     ):
         for sat, prng_bits in itertools.product(
-            (SaturationMode.OVF_INF, SaturationMode.SAT_FINITE), (0, 12)
+            (SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE), (0, 12)
         ):
             args = (man_bits, exp_bits, nb, bias, sat, prng_bits)
             if _superfp_findings(*args, F32) == (None, None):

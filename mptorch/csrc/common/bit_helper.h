@@ -694,8 +694,9 @@ struct NormalRangeParamsT
 // the way IEEE P3109 assigns them (arXiv:2606.04028, SVII): of the top
 // binade's 2^man_bits codes, the last `reserved_codes` hold no finite value,
 // and max_num is the largest code left. binaryK reserves P3109's: +infinity
-// outside SAT_FINITE (the extended domain) and, in an unsigned format, NaN
-// above it. superfp reserves the infinity only.
+// outside SAT_FINITE (in the extended domain, SAT_FINITE_EXTENDED included)
+// and, in an unsigned format, NaN above it. superfp reserves the infinity
+// only.
 //
 // With man_bits <= 1 the reserved codes can outnumber the top binade's, and
 // the largest finite code then sits one or two binades lower. A format whose
@@ -972,9 +973,9 @@ enum class UnderflowMode
 // overflow a magnitude test: anything above max_num (a rounding that landed
 // on a reserved code, carried into the next binade, or carried a finite input
 // all the way into the all-ones field) is out of range, and becomes infinity
-// under OVF_INF (SatNone) and max_num under the other two (SatFinite,
-// SatPropagate: the value was finite, so SatPropagate has nothing to
-// propagate). Non-finite inputs never get here: every cast sends them to
+// under SAT_NONE (SatNone) and max_num under the other three (SatFinite in
+// either domain, SatPropagate: the value was finite, so SatPropagate has
+// nothing to propagate). Non-finite inputs never get here: every cast sends them to
 // saturate_nonfinite before it rounds.
 //
 // clip_normal_range_exponent below is this plus the sign, and the note there
@@ -992,7 +993,7 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
 
     // handle overflow
     if (quantized_num > max_num)
-        quantized_num = (saturation_mode == SaturationMode::OVF_INF) ? W(F::INF_BITS) : max_num;
+        quantized_num = (saturation_mode == SaturationMode::SAT_NONE) ? W(F::INF_BITS) : max_num;
     // handle underflow
     else if constexpr (U == UnderflowMode::NONE)
     {
@@ -1076,10 +1077,11 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_exponent(W old_num, W quantized_num,
 
 // What an input whose exponent field is all ones (an infinity or a NaN)
 // becomes. A NaN passes through unchanged under every mode, payload included.
-// So does an infinity, except under SAT_FINITE, whose contract is that every
-// return value is finite: there it becomes the format's largest finite
-// magnitude with the input's sign, max_num, the same value an overflowing
-// finite input saturates to under that mode. Every integer-path cast's
+// So does an infinity, except under P3109's SatFinite (SAT_FINITE and
+// SAT_FINITE_EXTENDED), whose contract is that every return value is finite:
+// there it becomes the format's largest finite magnitude with the input's
+// sign, max_num, the same value an overflowing finite input saturates to
+// under those modes. Every integer-path cast's
 // NaN/inf arm reads this; the float-arithmetic fast paths reproduce it with
 // their final select instead (see cast_binaryK_rne_fast). Uniform per format,
 // and on the arm only non-finite inputs take, so it costs the finite ones
@@ -1089,8 +1091,9 @@ CUDA_HOST_DEVICE_INLINE W saturate_nonfinite(W target, SaturationMode saturation
 {
     using F = WordTraits<W>;
     bool is_inf = (target & F::MAN_MASK) == 0;
-    return (is_inf && saturation_mode == SaturationMode::SAT_FINITE) ? ((target & F::SIGN_MASK) | max_num)
-                                                                      : target;
+    bool clamps_inf =
+        saturation_mode == SaturationMode::SAT_FINITE || saturation_mode == SaturationMode::SAT_FINITE_EXTENDED;
+    return (is_inf && clamps_inf) ? ((target & F::SIGN_MASK) | max_num) : target;
 }
 
 // The two negations the directed modes need, both on the word rather than as

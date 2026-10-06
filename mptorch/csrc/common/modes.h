@@ -40,33 +40,43 @@ enum class SubnormalsMode
 };
 
 /*
-The three saturation modes are IEEE P3109's, and they also select P3109's
-domain: SAT_FINITE is the finite domain, in which the code points the extended
-domain spends on the infinities hold finite values, and the other two are the
-extended domain. Which codes those are, and so what the largest finite value
-is, is decided by make_normal_range_params in bit_helper.h. In an unsigned
-format every mode returns 0 for a negative value.
+Each value is one of IEEE P3109's saturation modes together with the format's
+domain, which P3109 chooses separately: the finite domain spends on finite
+values the code points the extended domain spends on the infinities, and
+admits only SatFinite. SAT_FINITE is SatFinite in the finite domain, the other
+three are the extended domain. Which codes are reserved, and so what the
+largest finite value is, is decided by make_normal_range_params in
+bit_helper.h. In an unsigned format every mode returns 0 for a negative value.
+The Python side spells SAT_FINITE_EXTENDED as SAT_FINITE plus
+Domain.EXTENDED on a format object (mptorch/number.py).
 
 SAT_FINITE:
-P3109 SatFinite. Every return value is clamped to the representable finite
-range, an infinite input included. NaN inputs pass through unchanged.
+P3109 SatFinite, finite domain. Every return value is clamped to the
+representable finite range, an infinite input included. NaN inputs pass
+through unchanged.
 
 SAT_PROPAGATE:
 P3109 SatPropagate. Finite values that overflow are clamped to the
 representable range, whereas infinite inputs stay infinite.
 
-OVF_INF:
+SAT_NONE:
 P3109 SatNone. Out-of-range values become positive or negative infinity.
 Rounding comes before saturation, so this holds under every rounding mode,
 unlike IEEE 754, where rounding toward zero, for one, overflows to the largest
 finite value.
+
+SAT_FINITE_EXTENDED:
+P3109 SatFinite, extended domain. The format keeps its infinity codes, so its
+largest finite value is SAT_PROPAGATE's and SAT_NONE's, but every return value
+is clamped to it, an infinite input included, as under SAT_FINITE.
  */
 
 enum class SaturationMode
 {
     SAT_FINITE,
     SAT_PROPAGATE,
-    OVF_INF
+    SAT_NONE,
+    SAT_FINITE_EXTENDED
 };
 
 /*

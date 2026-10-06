@@ -110,7 +110,7 @@ struct SuperfpParamsT<float>
     float fast_super_half; // 2^(supernormal_cutoff - 1), the flush midpoint
     float fast_max_finite; // the largest finite magnitude (max_num as a float)
     float fast_clamp_hi;   // 2 * max_finite: the clamp before the split
-    float fast_ovf;        // inf under OVF_INF, else max_finite
+    float fast_ovf;        // inf under SAT_NONE, else max_finite
 };
 
 using SuperfpParams = SuperfpParamsT<float>;
@@ -230,7 +230,7 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
         p.fast_max_finite = reinterpret_cast<const MPTORCH_THREAD T &>(p.max_num);
         p.fast_clamp_hi = 2.0f * p.fast_max_finite;
         const uint32_t inf_bits = F::INF_BITS;
-        p.fast_ovf = (saturation_mode == SaturationMode::OVF_INF) ? reinterpret_cast<const MPTORCH_THREAD T &>(inf_bits) : p.fast_max_finite;
+        p.fast_ovf = (saturation_mode == SaturationMode::SAT_NONE) ? reinterpret_cast<const MPTORCH_THREAD T &>(inf_bits) : p.fast_max_finite;
         if (!p.fast_rne)
         {
             // keep the unused constants finite so a disabled gate can never
@@ -287,8 +287,8 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // significand rounds up, and exactly the midpoint ties to even, which is zero.
 //
 // NaN passes through unchanged and inf is handled as the integer path's
-// target_exp == 128 arm does (saturate_nonfinite: inf under OVF_INF, the
-// largest finite value under SAT_FINITE). Neither needs a branch of its own:
+// target_exp == 128 arm does (saturate_nonfinite: inf under SAT_NONE, the
+// largest finite value under both SatFinite modes). Neither needs a branch of its own:
 // `inf >= fast_normal_min` is true so inf takes the normal arm, where the
 // clamp and the saturating compare produce exactly fast_ovf, and every
 // compare against NaN is false so NaN takes the supernormal one.
@@ -314,7 +314,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const MP
             nrm = p.fast_ovf;
         // `<= inf` rather than `< inf`: inf itself is out of range and takes
         // nrm, which the compare above already made fast_ovf (inf under
-        // OVF_INF, the largest finite value under SAT_FINITE), and only a
+        // SAT_NONE, the largest finite value under both SatFinite modes), and only a
         // NaN (which never reaches this arm) would fail the compare. `nrm` is
         // never zero (|x| >= 2^normal_cutoff, and the split keeps its
         // exponent), so this return has nothing to unsign.
@@ -380,7 +380,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
     bool underflow = target_exp < p.supernormal_cutoff;
     if (target_exp == F::INF_EXP)
     {
-        // NaN/inf inputs: NaN passes through, inf saturates under SAT_FINITE
+        // NaN/inf inputs: NaN passes through, inf saturates under both SatFinite modes
         quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
         quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }

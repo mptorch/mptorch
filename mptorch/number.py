@@ -4,16 +4,18 @@ The enums here (:class:`RoundMode`, :class:`SaturationMode`,
 :class:`SubnormalsMode`, :class:`AccumulateAlgorithm`) are mirrored one to one,
 by name and by integer value, by the C++ enums in ``csrc/common/modes.h``; the
 kernels receive ``.value`` across the ``torch.ops`` boundary, so the two must
-stay in sync. :class:`BinaryK` and :class:`SuperFP` are the frozen value types
-that name a format once. The ``check_*`` functions say what a *carrier* (the
-binary float a cast rounds in) and a *storage* dtype (the tensor a result is
-written to) make of a format, as a :exc:`ValueError` where the format cannot
-work at all and a :class:`FormatRangeWarning` where it works over part of its
-range.
+stay in sync. :class:`Domain` is Python's alone: a format object folds it into
+its :class:`SaturationMode` when it is built. :class:`BinaryK` and
+:class:`SuperFP` are the frozen value types that name a format once. The
+``check_*`` functions say what a *carrier* (the binary float a cast rounds in)
+and a *storage* dtype (the tensor a result is written to) make of a format, as
+a :exc:`ValueError` where the format cannot work at all and a
+:class:`FormatRangeWarning` where it works over part of its range.
 """
 
 __all__ = [
     "SaturationMode",
+    "Domain",
     "SubnormalsMode",
     "RoundMode",
     "AccumulateAlgorithm",
@@ -54,12 +56,18 @@ class SaturationMode(Enum):
     """What a format does with a value beyond its largest finite one.
 
     Mirrors ``SaturationMode`` in ``csrc/common/modes.h``, by name and value.
-    The three members are IEEE P3109's saturation modes, and they also select
-    P3109's *domain*: a finite-domain format admits only ``SatFinite``, so
-    :attr:`SAT_FINITE` is the finite domain, in which the code points the
-    extended domain spends on the infinities hold finite values instead, and
-    the other two are the extended domain. The mode is a property of each
-    format slot, so a GEMM whose multiply saturates and whose accumulate
+    Each member is one of IEEE P3109's three saturation modes together with
+    the format's *domain* (see :class:`Domain`), which P3109 chooses
+    separately: the finite domain spends on finite values the code points
+    the extended domain spends on the infinities, and admits only
+    ``SatFinite``. So there are four valid combinations, one member each.
+    :attr:`SAT_FINITE` is the finite domain and the other three the extended
+    one. On a :class:`BinaryK` or :class:`SuperFP` the domain can be named
+    with ``domain=`` instead, and ``saturation=SAT_FINITE,
+    domain=Domain.EXTENDED`` is stored as :attr:`SAT_FINITE_EXTENDED`; the
+    flat ``*_quantize`` and ``*_matmul`` functions, which take no format
+    object, name the combination with this member. The mode is a property of
+    each format slot, so a GEMM whose multiply saturates and whose accumulate
     overflows to infinity is expressible. A NaN input passes through every
     mode unchanged.
 
@@ -86,7 +94,67 @@ class SaturationMode(Enum):
     #: largest finite value becomes :math:`\pm\infty` under every rounding mode,
     #: because the overflow test reads the rounded value. This differs from IEEE
     #: 754, whose ``roundTowardZero`` never rounds a finite value to infinity.
-    OVF_INF = 2
+    SAT_NONE = 2
+    #: P3109 ``SatFinite``, extended domain: the format keeps its infinity codes,
+    #: and so the largest finite value of :attr:`SAT_NONE` and
+    #: :attr:`SAT_PROPAGATE`, but every result beyond it, an infinite input
+    #: included, clamps to it, as under :attr:`SAT_FINITE`.
+    SAT_FINITE_EXTENDED = 3
+
+
+class Domain(Enum):
+    r"""Whether a format spends code points on the infinities: P3109's domain.
+
+    The *extended* domain has :math:`\pm\infty` (the top code of each sign);
+    the *finite* domain spends those codes on finite values, so its largest
+    finite value is one code higher, and admits only the ``SatFinite``
+    saturation mode. A :class:`BinaryK` or :class:`SuperFP` takes it as
+    ``domain=`` and folds it into its :class:`SaturationMode` when it is
+    built; left ``None``, it follows from the saturation mode, finite for
+    ``SAT_FINITE`` and extended otherwise.
+
+    Example::
+
+        >>> from mptorch import BinaryK, Domain, SaturationMode
+        >>> f = BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE, domain=Domain.EXTENDED)
+        >>> f.saturation, f == BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE_EXTENDED)
+        (<SaturationMode.SAT_FINITE_EXTENDED: 3>, True)
+        >>> BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE).domain
+        <Domain.FINITE: 1>
+    """
+
+    #: Has :math:`\pm\infty`: P3109's ``e`` formats (``Binary8p4se``).
+    EXTENDED = 0
+    #: No infinities, and every code a value or the NaN: the ``f`` formats.
+    FINITE = 1
+
+
+def _resolve_domain(
+    saturation: SaturationMode, domain: Domain | None, label: str
+) -> tuple[SaturationMode, Domain]:
+    """The saturation mode and the domain a format object stores.
+
+    One spelling per combination, so that two spellings of one format compare
+    (and memoize) equal: ``SAT_FINITE`` in the extended domain is stored as
+    ``SAT_FINITE_EXTENDED``, and the domain is filled in from the mode.
+    """
+    if not isinstance(saturation, SaturationMode):
+        raise TypeError(f"{label} saturation must be a SaturationMode, got {saturation!r}")
+    finite = saturation is SaturationMode.SAT_FINITE
+    if domain is None:
+        return saturation, Domain.FINITE if finite else Domain.EXTENDED
+    if not isinstance(domain, Domain):
+        raise TypeError(f"{label} domain must be a Domain or None, got {domain!r}")
+    if domain is Domain.FINITE:
+        if not finite:
+            raise ValueError(
+                f"{label}: the finite domain admits only SatFinite "
+                f"(SaturationMode.SAT_FINITE), got {saturation}"
+            )
+        return saturation, domain
+    if finite:
+        return SaturationMode.SAT_FINITE_EXTENDED, domain
+    return saturation, domain
 
 
 class SubnormalsMode(Enum):
@@ -789,7 +857,7 @@ def check_binaryK(
     P: int,
     bias: int,
     is_signed: bool = True,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     prng_bits: int = 0,
     *,
@@ -812,7 +880,7 @@ def check_binaryK(
         bias (int): the resolved exponent bias, never ``None``.
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
         saturation (SaturationMode): overflow behaviour and domain.
-            Default: ``SaturationMode.OVF_INF``.
+            Default: ``SaturationMode.SAT_NONE``.
         subnormals (SubnormalsMode): what lies below the smallest normal.
             Default: ``SubnormalsMode.SUBNORMALS``.
         prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
@@ -842,7 +910,7 @@ def check_superfp(
     exp_bits: int,
     normal_binades: int,
     bias: int,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     prng_bits: int = 0,
     *,
     carrier: torch.dtype = torch.float32,
@@ -862,7 +930,7 @@ def check_superfp(
             mantissa; the rest encode supernormal powers of two.
         bias (int): the exponent bias.
         saturation (SaturationMode): overflow behaviour and domain.
-            Default: ``SaturationMode.OVF_INF``.
+            Default: ``SaturationMode.SAT_NONE``.
         prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
         carrier (torch.dtype): ``torch.float32`` or ``torch.float64``.
             Default: ``torch.float32``.
@@ -888,7 +956,7 @@ def check_binaryK_carrier(
     P: int,
     bias: int,
     is_signed: bool = True,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     prng_bits: int = 0,
     *,
@@ -915,7 +983,7 @@ def check_superfp_carrier(
     exp_bits: int,
     normal_binades: int,
     bias: int,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     prng_bits: int = 0,
     *,
     carrier: torch.dtype,
@@ -1104,7 +1172,7 @@ def _storage_edge_findings(
     The second edge is reached only by saturating. A largest value that is not
     the dtype's has more significant bits than the dtype, so the format is
     finer there, and every input of the dtype above it is already on the
-    format's continued grid: rounding leaves it where it is and `OVF_INF`
+    format's continued grid: rounding leaves it where it is and `SAT_NONE`
     makes it an infinity, which is a value of the dtype.
     """
     label, name, m = ext.label, st.name, ext.man_bits
@@ -1124,7 +1192,7 @@ def _storage_edge_findings(
             f"format's grid: a {name} input near it rounds up out of {name}'s range and "
             f"is stored as infinity, whatever the saturation mode"
         )
-    saturates = saturation is not SaturationMode.OVF_INF
+    saturates = saturation is not SaturationMode.SAT_NONE
     if below and saturates and not _in_storage(*top, st):
         return None, (
             f"{label}'s largest finite value, ({top[0]}) * 2^{top[1]}, is not a {name} "
@@ -1262,7 +1330,7 @@ def check_binaryK_storage(
     P: int,
     bias: int,
     is_signed: bool = True,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     *,
     storage: torch.dtype,
@@ -1290,7 +1358,7 @@ def check_binaryK_storage(
         bias (int): the resolved exponent bias.
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
         saturation (SaturationMode): overflow behaviour and domain.
-            Default: ``SaturationMode.OVF_INF``.
+            Default: ``SaturationMode.SAT_NONE``.
         subnormals (SubnormalsMode): what lies below the smallest normal.
             Default: ``SubnormalsMode.SUBNORMALS``.
         storage (torch.dtype): the dtype the result is stored in.
@@ -1314,7 +1382,7 @@ def check_superfp_storage(
     exp_bits: int,
     normal_binades: int,
     bias: int,
-    saturation: SaturationMode = SaturationMode.OVF_INF,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
     *,
     storage: torch.dtype,
     elementwise: bool = False,
@@ -1393,10 +1461,11 @@ class BinaryK(FloatFormat):
     (Fitzgibbon, Wintersteiger and Sarnoff give an overview in
     arXiv:2606.04028), parameterizes its binary formats by bitwidth,
     precision (the implicit leading bit included), signedness and domain, and
-    names them ``Binary<K>p<P><s|u><e|f>``. ``K``, ``P`` and ``is_signed`` are
-    the first three, and ``saturation`` carries the domain (see
-    :class:`SaturationMode`), so ``BinaryK(8, 4)`` is ``Binary8p4se`` and
-    ``BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE)`` is ``Binary8p4sf``.
+    names them ``Binary<K>p<P><s|u><e|f>``. ``K``, ``P``, ``is_signed`` and
+    ``domain`` are the four, so ``BinaryK(8, 4)`` is ``Binary8p4se`` and
+    ``BinaryK(8, 4, domain=Domain.FINITE, saturation=SaturationMode.SAT_FINITE)``
+    is ``Binary8p4sf``; the finite domain admits only ``SAT_FINITE``, so that
+    saturation mode alone selects it too.
     Three of P3109's conventions are worth knowing: the format has one zero,
     unsigned, at the all-zero code, so no cast returns ``-0.0``; in a signed
     format the code with only the sign bit set (which would hold ``-0.0``) is
@@ -1426,20 +1495,29 @@ class BinaryK(FloatFormat):
         prng_bits (int): width of the random mantissa drawn by
             :attr:`RoundMode.SR`, ignored under every other rounding mode.
             Default: 0.
-        saturation (SaturationMode): overflow behaviour and domain.
-            Default: ``SaturationMode.OVF_INF``.
+        saturation (SaturationMode): overflow behaviour. Default:
+            ``SaturationMode.SAT_NONE``.
+        domain (Domain, optional): whether the format has infinities.
+            ``Domain.FINITE`` admits only ``SAT_FINITE``; ``Domain.EXTENDED``
+            with ``SAT_FINITE`` is stored as
+            ``SaturationMode.SAT_FINITE_EXTENDED``. Default: ``None``, which
+            follows from ``saturation``: finite for ``SAT_FINITE``, extended
+            otherwise. The instance stores the resolved domain.
         subnormals (SubnormalsMode): what lies below the smallest normal; any
             value but ``SUBNORMALS`` gives a format outside the standard.
             Default: ``SubnormalsMode.SUBNORMALS``.
 
     Raises:
-        ValueError: only for a format neither carrier can simulate: more than
-            53 bits of precision, ``P - 1 + prng_bits`` above 52, an exponent
-            field past 30 bits, a negative ``prng_bits``, or no finite value
-            binary64 holds. Nothing warns here; whether float32 or float64
-            arithmetic carries the rest is the call's to decide, so each call
-            checks the format against its own carrier (see
-            :class:`FormatRangeWarning`).
+        ValueError: for the finite domain with a saturation mode other than
+            ``SAT_FINITE``, and otherwise only for a format neither carrier
+            can simulate: more than 53 bits of precision,
+            ``P - 1 + prng_bits`` above 52, an exponent field past 30 bits, a
+            negative ``prng_bits``, or no finite value binary64 holds. Nothing
+            warns here; whether float32 or float64 arithmetic carries the rest
+            is the call's to decide, so each call checks the format against
+            its own carrier (see :class:`FormatRangeWarning`).
+        TypeError: if ``saturation`` is not a ``SaturationMode`` or
+            ``domain`` not a ``Domain``.
 
     Example::
 
@@ -1458,12 +1536,16 @@ class BinaryK(FloatFormat):
     bias: int | None = None
     is_signed: bool = True
     prng_bits: int = 0
-    saturation: SaturationMode = SaturationMode.OVF_INF
+    saturation: SaturationMode = SaturationMode.SAT_NONE
+    domain: Domain | None = None
     subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS
 
     def __post_init__(self) -> None:
         if self.P < 1 or self.K < self.P:
             raise ValueError(f"BinaryK needs 1 <= P <= K, got K={self.K}, P={self.P}")
+        saturation, domain = _resolve_domain(self.saturation, self.domain, "BinaryK")
+        object.__setattr__(self, "saturation", saturation)
+        object.__setattr__(self, "domain", domain)
         if self.prng_bits < 0:
             raise ValueError(f"BinaryK prng_bits must be non-negative, got {self.prng_bits}")
         if self.bias is None:
@@ -1520,14 +1602,19 @@ class SuperFP(FloatFormat):
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
         prng_bits (int): width of the random mantissa drawn by
             :attr:`RoundMode.SR`. Default: 0.
-        saturation (SaturationMode): overflow behaviour and domain.
-            Default: ``SaturationMode.OVF_INF``.
+        saturation (SaturationMode): overflow behaviour. Default:
+            ``SaturationMode.SAT_NONE``.
+        domain (Domain, optional): whether the top code is an infinity, as
+            for :class:`BinaryK`. Default: ``None``, which follows from
+            ``saturation``.
 
     Raises:
-        ValueError: only for what neither carrier can simulate, as for
-            :class:`BinaryK`, and here also for a ``normal_binades`` that
-            leaves no supernormal codes. Each call checks the format against
-            its own carrier (see :class:`FormatRangeWarning`).
+        ValueError: for the finite domain with a saturation mode other than
+            ``SAT_FINITE``, for what neither carrier can simulate, as for
+            :class:`BinaryK`, and for a ``normal_binades`` that leaves no
+            supernormal codes. Each call checks the format against its own
+            carrier (see :class:`FormatRangeWarning`).
+        TypeError: as for :class:`BinaryK`.
 
     Example::
 
@@ -1547,9 +1634,13 @@ class SuperFP(FloatFormat):
     _: KW_ONLY
     is_signed: bool = True
     prng_bits: int = 0
-    saturation: SaturationMode = SaturationMode.OVF_INF
+    saturation: SaturationMode = SaturationMode.SAT_NONE
+    domain: Domain | None = None
 
     def __post_init__(self) -> None:
+        saturation, domain = _resolve_domain(self.saturation, self.domain, "SuperFP")
+        object.__setattr__(self, "saturation", saturation)
+        object.__setattr__(self, "domain", domain)
         if self.man_bits < 0 or self.exp_bits < 1:
             raise ValueError(
                 f"SuperFP needs man_bits >= 0 and exp_bits >= 1, "

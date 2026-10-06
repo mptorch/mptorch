@@ -620,7 +620,7 @@ def _block_gemm_spec(
         a[4],
         accumulate_algorithm.value,
         rounding.value,
-        a[5] if acc is not None else SaturationMode.OVF_INF.value,
+        a[5] if acc is not None else SaturationMode.SAT_NONE.value,
         a[6] if acc is not None else SubnormalsMode.SUBNORMALS.value,
         a[7],
         block,
@@ -629,7 +629,7 @@ def _block_gemm_spec(
         o[2],
         o[3],
         o[4],
-        o[5] if outer is not None else SaturationMode.OVF_INF.value,
+        o[5] if outer is not None else SaturationMode.SAT_NONE.value,
         o[6] if outer is not None else SubnormalsMode.SUBNORMALS.value,
         o[7],
     )
