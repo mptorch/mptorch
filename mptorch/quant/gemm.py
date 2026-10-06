@@ -228,8 +228,8 @@ def binaryK_gemm_formats(
 
     Raises:
         ValueError: for a format no carrier can hold (precision above 53
-            bits, an exponent field wider than ten bits, stochastic bits with
-            no significand left) or a ``carrier`` that names no carrier.
+            bits, an exponent field past 30 bits, stochastic bits with no
+            significand left) or a ``carrier`` that names no carrier.
 
     Example::
 
@@ -297,7 +297,7 @@ def binaryK_gemm_formats_fma(
 ) -> QAffineFormats:
     """Fused-multiply-add analog of :func:`binaryK_gemm_formats`.
 
-    Each dot-product step is one fused multiply-add ``round(a * b + s)``,
+    Each dot-product step is one fused multiply-add ``round_fma(s + a * b)``,
     rounded once to the ``fma_*`` format
     (:func:`mptorch.quant.ops.binaryK_matmul_fma`), rather than a rounded
     multiply followed by a separately rounded add. The general contract
@@ -411,9 +411,10 @@ def superfp_gemm_formats(
     The dot products run through :func:`mptorch.quant.ops.superfp_matmul`:
     products rounded to the ``mul_*`` superfp format and, when
     ``accumulate_quant`` is set, partial sums to the ``acc_*`` one. A superfp
-    format has ``normal_binades`` binades of normal values around 1.0 and
-    spends the rest of its exponent range on supernormal values, powers of two
-    with no mantissa; it has no subnormals, so there is no ``subnormals_mode``.
+    format keeps a mantissa in the top ``normal_binades`` binades of its
+    range and spends the rest of its codes on supernormal values, powers of
+    two with no mantissa; it has no subnormals, so there is no
+    ``subnormals_mode``.
     See :func:`superfp_gemm_formats_fma` for the fused-multiply-add analog.
 
     Args:

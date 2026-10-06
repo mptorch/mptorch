@@ -23,11 +23,12 @@ man_bits == 0 that step is the whole binade, and the mode degenerates to
 NORMALS.
 
 All three modes round the same way below whatever their smallest value is,
-because that region has the same shape in each: two candidates, zero and the
-smallest value, and the rounding mode picks between them. Nearest takes the
-nearer and a tie the zero, the directed modes take their own direction,
-round-to-odd takes the nonzero one, and stochastic takes it with probability
-|x| divided by it. bit_helper.h's UnderflowMode is where that rule is
+because that region has the same shape in each: two candidates for the
+magnitude of an input x, zero and the smallest value x_min, and the rounding
+mode picks between them. Nearest takes the nearer, and on a tie RNE takes the
+zero and RNA takes x_min; the directed modes take their own direction;
+round-to-odd takes x_min, the nonzero one; and stochastic takes x_min with
+probability |x| / x_min. bit_helper.h's UnderflowMode is where that rule is
 implemented.
 */
 

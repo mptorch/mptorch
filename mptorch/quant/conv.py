@@ -310,13 +310,15 @@ def conv_formats(
             ``accumulate_algorithm`` applies; a palette selects the
             per-output-element ops, which need a map per pass.
         prec_idx (Tensor, optional): the forward's palette map, indexed like
-            the output with its spatial dimensions flattened: ``[Cout, L]``,
-            ``[Cout, 1]`` (one format per output channel) or ``[1, L]``,
-            optionally with a leading batch dimension. Required by, and only
-            by, a palette ``mac``. Default: ``None``
+            the output with its spatial dimensions flattened: ``[Cout, OUT]``
+            with ``OUT`` the number of output positions, ``[Cout, 1]`` (one
+            format per output channel) or ``[1, OUT]``, optionally with a
+            leading batch dimension. Required by, and only by, a palette
+            ``mac``. Default: ``None``
         igrad_prec_idx (Tensor, optional): the input gradient's map, shaped
-            the same way over ``[Cin, H*W...]``; the classes of a strided
-            gradient read it at their own positions. Default: ``None``
+            the same way over ``[Cin, IN]`` with ``IN`` the number of input
+            positions; the classes of a strided gradient read it at their own
+            positions. Default: ``None``
         wgrad_prec_idx (Tensor, optional): the weight gradient's map, over the
             weight as ``[Cout, Cin/groups * prod(kernel)]``, or ``[Cout, 1]``.
             Default: ``None``

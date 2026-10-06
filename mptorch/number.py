@@ -97,11 +97,13 @@ class SubnormalsMode(Enum):
     one bit of precision has subnormals), so the other two give formats
     outside the standard. The three differ only in where the bottom of the
     range is. Below it they all behave alike, because the region has the same
-    shape in each: the two candidates are zero and the smallest value, and the
-    rounding mode picks between them. Nearest takes the nearer and gives a tie
-    to zero, the directed modes take their own direction, :attr:`RoundMode.RO`
-    takes the nonzero one, and :attr:`RoundMode.SR` takes it with probability
-    ``|x| / smallest``.
+    shape in each: the two candidates for the magnitude of an input ``x`` are
+    zero and the smallest value, ``x_min``, and the rounding mode picks
+    between them. Nearest takes the nearer, and on a tie
+    :attr:`RoundMode.RNE` takes the zero and :attr:`RoundMode.RNA` takes
+    ``x_min``; the directed modes take their own direction;
+    :attr:`RoundMode.RO` takes ``x_min``, the nonzero one; and
+    :attr:`RoundMode.SR` takes ``x_min`` with probability ``|x| / x_min``.
 
     All three keep the same two special codes, which the casts' NaN detection
     and sign handling rely on: the all-zero code is the one zero, unsigned as
@@ -174,26 +176,30 @@ class AccumulateAlgorithm(Enum):
     Mirrors ``AccumulateAlgorithm`` in ``csrc/common/modes.h``, by name and
     value, and selects the reduction inside a custom-arithmetic GEMM
     (:class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac`, the
-    flat ``*_matmul`` wrappers). Below, ``mul`` and ``add`` are the mac's two
-    roundings (``add`` is the identity with no accumulate format, and a fused
-    mac's step is ``add(fma(a, b, s))`` in place of ``add(s + mul(a * b))``),
-    ``outer`` is the rounding of the mac's ``outer`` format (the identity
-    without one), and the products are taken in order, ``k = 0 .. K - 1``:
+    flat ``*_matmul`` wrappers). Below, ``a`` and ``b`` are the two operands
+    of one step, ``s`` is the running sum, and ``round_mul`` and ``round_acc``
+    are the mac's two roundings (``round_acc`` is the identity with no
+    accumulate format, and in a fused mac it is the fused format's rounding,
+    the step being ``round_acc(fma(a, b, s))`` in place of
+    ``round_acc(s + round_mul(a * b))``). ``round_out`` is the rounding of the
+    mac's ``outer`` format (the identity without one), and the products are
+    taken in order, ``k = 1 .. K``:
 
-    * :attr:`NAIVE`: ``s = add(s + mul(a * b))``, which is what a hardware
-      accumulator of the accumulate format does. The result is ``s``.
+    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, which is what a
+      hardware accumulator of the accumulate format does. The result is ``s``.
     * :attr:`KAHAN`: a compensation ``c`` is carried alongside the sum, in
-      the accumulate format like it: ``y = add(mul(a * b) - c)``,
-      ``t = add(s + y)``, ``c = add(add(t - s) - y)``, ``s = t``. The result
-      is ``s``. With no accumulate format this is Kahan's summation in the
-      carrier.
-    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum, and after every
-      ``block_size`` products, and after the last, the block is folded into a
-      total, ``tot = outer(tot + blk)``, and restarted from zero. Two levels
-      of precision: a narrow accumulate format inside a block, a wider outer
-      format across them. The result is ``tot``.
-    * :attr:`TREE`: the products of a block of ``block_size = 2**L`` are
-      summed pairwise, ``add(add(p0 + p1) + add(p2 + p3))`` and so on up,
+      the accumulate format like it: ``y = round_acc(round_mul(a * b) - c)``,
+      ``t = round_acc(s + y)``, ``c = round_acc(round_acc(t - s) - y)``,
+      ``s = t``. The result is ``s``. With no accumulate format this is
+      Kahan's summation in the carrier.
+    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum ``s``, and after
+      every ``block_size`` products, and after the last, the block is folded
+      into a total, ``tot = round_out(tot + s)``, and ``s`` restarted from
+      zero. Two levels of precision: a narrow accumulate format inside a
+      block, a wider outer format across them. The result is ``tot``.
+    * :attr:`TREE`: the rounded products ``p1, p2, ...`` of a block of
+      ``block_size = 2**L`` are summed pairwise,
+      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` and so on up,
       in the order they arrive, and the block's root is folded as in
       ``BLOCK``. A last, partial block merges the subtrees it has, smallest
       first. It needs a product term, so a fused mac refuses it.
@@ -310,13 +316,28 @@ class FormatRangeWarning(UserWarning):
     with ``carrier=torch.float64``. The quantizers and GEMMs of
     :mod:`mptorch.quant` warn per call when a format reaches above the
     carrier's largest finite value, spaces its values finer than the carrier's
-    smallest subnormal (:math:`2^{-149}`, :math:`2^{-1074}`), or has a
-    smallest value below :math:`2^{-125}` (:math:`2^{-1021}`). The last exists
-    because every cast places an input by its exponent field, which all of the
-    carrier's subnormals share, so the bottom binade would be rounded onto the
-    wrong grid. :class:`BinaryK` and :class:`SuperFP` do not warn when they
-    are built, since a format does not know which carrier it will meet; they
-    raise only for what neither carrier can do.
+    smallest subnormal (:math:`2^{-149}` in binary32, :math:`2^{-1074}` in
+    binary64), or has a smallest positive value below the floor the carrier
+    gives it. That floor depends on how the cast finds the bottom of the
+    format:
+
+    * :math:`2^{-125}` (:math:`2^{-1021}`) for a :class:`BinaryK` with
+      ``SubnormalsMode.SUBNORMALS`` and for a :class:`SuperFP`. Their casts
+      place an input on the subnormal or supernormal grid by its exponent
+      field, which all of the carrier's subnormals share, so a format reaching
+      lower would have its bottom binade rounded onto the wrong grid.
+    * :math:`2^{-126}` (:math:`2^{-1022}`), the carrier's smallest normal, for
+      a :class:`BinaryK` with ``SubnormalsMode.NORMALS`` or
+      ``SubnormalsMode.EXTENDED_NORMALS``, whose casts find the bottom by
+      comparing magnitudes and read no field. Two cases stop a binade short,
+      at the first floor: ``P = 1`` under ``NORMALS``, and
+      ``EXTENDED_NORMALS`` at the carrier's full precision (``P = 24``,
+      ``P = 53``).
+
+    :doc:`/concepts` ("What the carrier can hold") derives both.
+    :class:`BinaryK` and :class:`SuperFP` do not warn when they are built,
+    since a format does not know which carrier it will meet; they raise only
+    for what neither carrier can do.
 
     The same warning is issued when the result is stored in a dtype narrower
     than the carrier (float16 or bfloat16 under binary32, and float32 as well
@@ -642,9 +663,10 @@ def _superfp_extent(
 
     Call it only once `_width_error` and `_superfp_regions_error` have passed.
     The normal region holds the top ``normal_binades`` binades with a full
-    mantissa; below it the codes the other binades would have spent on
-    mantissas encode ``(binades - normal_binades) * 2**man_bits`` further
-    powers of two, the supernormals, and everything below those flushes.
+    mantissa; below it the ``(binades - normal_binades) * 2**man_bits`` codes
+    the other binades would have spent on mantissas encode the zero and, all
+    but that one, further powers of two, the supernormals, and everything
+    below those flushes.
     """
     binades = 1 << exp_bits
     # superfp spends no code on a NaN, signed or not (`make_superfp_params`)
@@ -1474,10 +1496,11 @@ class SuperFP(FloatFormat):
 
     The top ``normal_binades`` binades of the exponent range keep a full
     ``man_bits``-bit mantissa; the codes the remaining binades would have
-    spent on mantissas encode further powers of two below them (the
-    supernormals, ``(2**exp_bits - normal_binades) * 2**man_bits`` of them),
-    and everything below those flushes to zero. The format therefore trades
-    precision at the bottom of the range for dynamic range at the same width.
+    spent on mantissas, ``n = (2**exp_bits - normal_binades) * 2**man_bits``
+    of them, encode the zero and ``n - 1`` further powers of two below them
+    (the supernormals), and everything below those flushes to zero. The
+    format therefore trades precision at the bottom of the range for dynamic
+    range at the same width.
 
     Deliberately not symmetric with :class:`BinaryK`. ``bias`` is required and
     has no default, because the cast has no derivation rule for one; there is
@@ -1728,7 +1751,7 @@ class ScaleRounding(Enum):
     then clamped to the scale's codes (and a zero cast scale raised to the
     smallest positive one), and none depends on the elements' rounding mode.
     With E2M1 elements a block's largest element lands, in E2M1's units, in
-    ``[4, 8)`` under :attr:`OCP`, ``(4.5, 9]`` under :attr:`NEAREST` (from a
+    ``[4, 8)`` under :attr:`OCP`, ``[4.5, 9]`` under :attr:`NEAREST` (from a
     power-of-two scale), ``(3, 6]`` under :attr:`UP` and ``(3.5, 7]`` under
     :attr:`SELECTIVE`; anything above 6 saturates to 6.
 
@@ -1803,8 +1826,8 @@ class BlockFormat(Number):
     same way unless the block's largest element would then saturate past
     what rounding to nearest allows, where it takes the next scale up. A
     cast scale is clamped to its largest value and raised to its smallest
-    positive one; the tensor scale defaults to ``amax(|x|) / (elem_max *
-    scale_max)``. Each element is divided by its
+    positive one; the tensor scale defaults to ``max(|x|) / (elem_max *
+    scale_max)`` over the whole tensor ``x``. Each element is divided by its
     scale and rounded, in the call's rounding mode, by ``elem``'s cast (a
     binaryK or a superfp one) under ``SaturationMode.SAT_FINITE``, then
     clamped to ``elem_max`` (``elem``'s own ``saturation`` is not read; its

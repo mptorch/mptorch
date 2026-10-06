@@ -188,8 +188,8 @@ the format can decode.
 :class:`~mptorch.quant.BlockPacked`: ``data``, the element codes, and
 ``scales``, the scale codes, both ``uint8``. Each row of ``data`` is the
 tensor with its packed axis moved last, a little-endian bit stream per block
-in which element :math:`i` holds bits :math:`[i\,b, (i+1)\,b)` of a
-:math:`b`-bit code. So two 4-bit codes share a byte, the first in the low
+in which the :math:`w`-bit code of element :math:`i` holds bits
+:math:`[i\,w, (i+1)\,w)`. So two 4-bit codes share a byte, the first in the low
 nibble (the order of ``torch.float4_e2m1fn_x2`` and CUTLASS), and four 6-bit
 codes fill three bytes. :func:`~mptorch.quant.block_unpack` decodes a packed
 tensor, and :func:`~mptorch.quant.block_quantize` is the two fused, the

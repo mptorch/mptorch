@@ -103,10 +103,13 @@ Summing differently: KAHAN, BLOCK and TREE
 What the table above charges a narrow accumulator for is the *order* of the
 sum as much as its width: one running sum, rounded :math:`K` times, each time
 against a total that has grown far past the term being added.
-``accumulate_algorithm`` changes the order and keeps the formats. With
-:math:`p_k = Q_{\text{mul}}(a_k b_k)`, :math:`Q_{\text{acc}}` the accumulate
-rounding and :math:`Q_{\text{out}}` a third one, the mac's ``outer`` format
-(each the identity when its format is ``None``):
+``accumulate_algorithm`` changes the order and keeps the formats. Take one
+output element and drop its indices :math:`i, j`, so that its terms are
+:math:`a_k b_k` for :math:`k = 1, \dots, K`. With
+:math:`p_k = Q_{\text{mul}}(a_k b_k)` the rounded product, :math:`s` the
+running sum, :math:`Q_{\text{acc}}` the accumulate rounding and
+:math:`Q_{\text{out}}` a third one, the mac's ``outer`` format (each the
+identity when its format is ``None``):
 
 :attr:`~mptorch.AccumulateAlgorithm.NAIVE`
    :math:`s \leftarrow Q_{\text{acc}}(s + p_k)`, the recurrence above.
@@ -120,7 +123,7 @@ rounding and :math:`Q_{\text{out}}` a third one, the mac's ``outer`` format
 :attr:`~mptorch.AccumulateAlgorithm.BLOCK`
    Two levels. The ``NAIVE`` recurrence runs on a block's sum; after every
    ``block_size`` products, and after the last, the block is folded into a
-   total, :math:`T \leftarrow Q_{\text{out}}(T + s)`, and restarted from
+   total :math:`T`, :math:`T \leftarrow Q_{\text{out}}(T + s)`, and restarted from
    zero. A block's sum stays small, so a narrow ``acc`` loses little in it,
    and ``outer`` -- wider, or ``None`` for the carrier -- is rounded once per
    block rather than once per product. ``block_size`` divides 16 or is a
@@ -128,7 +131,7 @@ rounding and :math:`Q_{\text{out}}` a third one, the mac's ``outer`` format
 :attr:`~mptorch.AccumulateAlgorithm.TREE`
    The products of a block of ``block_size`` :math:`= 2^L` (up to 256, 16 by
    default) are summed pairwise,
-   :math:`Q_{\text{acc}}(Q_{\text{acc}}(p_0 + p_1) + Q_{\text{acc}}(p_2 + p_3))`
+   :math:`Q_{\text{acc}}(Q_{\text{acc}}(p_1 + p_2) + Q_{\text{acc}}(p_3 + p_4))`
    and so on up, so that every addition is of two terms of like size, and the
    block's root is folded into the total as in ``BLOCK``. ``SplitMac`` only:
    a fused multiply-add has no product term to pair.

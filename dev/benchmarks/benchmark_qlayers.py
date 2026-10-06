@@ -8,8 +8,7 @@ arithmetic over an explicit ``unfold`` (the forward and the weight gradient as
 one batched GEMM over the unfolded input, the input gradient as a GEMM into
 the column space followed by ``F.fold``, whose sum is float32 and outside the
 simulated arithmetic), and cuDNN in float32. Min of ``--rounds`` rounds of
-``--iters`` calls each, the three alternating (``dev/gemm_roadmap.md``,
-*Timing on this machine*).
+``--iters`` calls each, the three alternating.
 """
 
 import argparse
@@ -184,7 +183,10 @@ def _time(fn, iters):
         del out
     end.record()
     torch.cuda.synchronize()
-    return start.elapsed_time(end) / iters, (torch.cuda.max_memory_allocated() - base) / 2**20
+    return (
+        start.elapsed_time(end) / iters,
+        (torch.cuda.max_memory_allocated() - base) / 2**20,
+    )
 
 
 def _conv_runs(passes, x, w, gy, k, s, p):

@@ -50,8 +50,11 @@ Why the blocks run along K
 --------------------------
 
 Where :math:`\beta` consecutive terms of the sum share both operands'
-scales, the scales come out of their part of the sum. For the block
-:math:`\kappa` of :math:`K`,
+scales, the scales come out of their part of the sum. Take the block
+:math:`\kappa` of :math:`K`, the set of its :math:`\beta` consecutive
+:math:`k`, and write :math:`\sigma^A_{i\kappa}` and :math:`\sigma^B_{\kappa j}`
+for the scales row :math:`i` of :math:`A` and column :math:`j` of :math:`B`
+have over it. Then
 
 .. math::
 
@@ -117,8 +120,8 @@ formats:
   .. math::
 
      c_{ij} = \sum_\kappa \operatorname{fl}\Big( \sigma^A_{i\kappa} \sigma^B_{\kappa j}
-     \, S_{ij\kappa} \Big),
-     \qquad S_{ij\kappa} = \sum_{k \in \kappa} e^A_{ik}\, e^B_{kj}
+     \, D_{ij\kappa} \Big),
+     \qquad D_{ij\kappa} = \sum_{k \in \kappa} e^A_{ik}\, e^B_{kj}
      \ \text{(rounded as the accumulator rounds)},
 
   with the outer sum in binary32. OCP leaves the precision of a block's
@@ -137,8 +140,10 @@ A cast scale (NVFP4's E4M3, or a superfp) comes with a float32 scale per
 tensor, :math:`S_t`, and the block product can apply it in either of two
 places.
 
-**In the loop**, the default: the decode carries it,
-:math:`\sigma = \operatorname{fl}(s\, S_t)`, so
+**In the loop**, the default: the decode carries it. A block's scale is the
+scale format's value times the tensor scale,
+:math:`\sigma^A = \operatorname{fl}(s^A S^A_t)` for :math:`A` and likewise
+for :math:`B`, so
 
 .. math::
 
@@ -157,8 +162,11 @@ is multiplied once by the product of the two tensor scales,
    \alpha = \operatorname{fl}\big(S^A_t S^B_t\big), \qquad
    s_k = Q_{\text{acc}}\big(s_{k-1} + \operatorname{fl}(e^A s^A \, e^B s^B)\big).
 
-With E2M1 elements and E4M3 scales, :math:`e\,s` has at most six significant
-bits and a product of two at most twelve, so the loop rounds only the sum. The
+Here :math:`s_k` is the running sum, as everywhere, and :math:`s^A` and
+:math:`s^B` are the scale formats' values of the two elements' blocks. With
+E2M1 elements and E4M3 scales, an element times its block's scale,
+:math:`e^A s^A`, has at most six significant bits and a product of two at
+most twelve, so the loop rounds only the sum. The
 two options are the same product in exact arithmetic, and with power-of-two
 tensor scales and a binary32 sum the same bits, since every value then
 differs by a power of two, which commutes with each rounding in binary32's

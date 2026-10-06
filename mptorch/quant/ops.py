@@ -1094,8 +1094,8 @@ def binaryK_quantize(
 
     Raises:
         ValueError: if the carrier cannot hold the format (precision above the
-            carrier's, ``P - 1 + prng_bits`` above its mantissa bits, more
-            than seven or ten exponent bits, no finite normal value), or if
+            carrier's, ``P - 1 + prng_bits`` above its mantissa bits, an
+            exponent field past 30 bits, no finite normal value), or if
             ``carrier`` is a dtype that names no carrier or is narrower than
             ``x``.
         TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
@@ -1287,8 +1287,9 @@ def superfp_quantize(
 
     The format has ``man_bits`` stored mantissa bits and ``exp_bits`` exponent
     bits, but only the top ``normal_binades`` binades carry the mantissa. The
-    lower binades' encodings become that many further powers of two below the
-    normal region, the supernormals, and values below those flush to zero:
+    lower binades' encodings become the zero and, all but that one, further
+    powers of two below the normal region, the supernormals, and values below
+    those flush to zero:
     there are no subnormals, hence no ``subnormals_mode``. ``bias`` is
     required, since the format has no default rule for it. See
     :class:`mptorch.SuperFP`.
@@ -2131,8 +2132,8 @@ def binaryK_matmul_fma(
     """Quantized GEMM with a fused multiply-add in a binaryK format.
 
     The fused analog of :func:`binaryK_matmul`: every dot-product step
-    computes a single hardware-style fused multiply-add, ``a*b + acc`` with
-    one rounding, instead of rounding the multiply and the accumulate
+    computes a single hardware-style fused multiply-add, ``s + a * b`` with
+    ``s`` the running sum and one rounding, instead of rounding the multiply and the accumulate
     separately. A real FMA unit has one output rounding, so there is a single
     ``fma_K``/``fma_P`` format rather than a ``mul_*``/``acc_*`` pair. With
     ``fma_quant=False`` the fused step runs at the carrier's own precision,

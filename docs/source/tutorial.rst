@@ -205,7 +205,8 @@ plain SGD, five epochs each. Three things vary:
   in the same with stochastic rounding, or in E4M3;
 - the **master weights**: float32, or rounded to E4M3 after every
   optimizer step, with round-to-nearest or stochastic rounding. The update
-  :math:`w \leftarrow Q(w - \eta\, g)` is applied by hand after
+  :math:`w \leftarrow Q(w - \eta\, g)`, with learning rate :math:`\eta` and
+  gradient :math:`g`, is applied by hand after
   ``opt.step()``, which is all a low-precision master copy is.
 
 One configuration also scales the loss by 1024 (and the gradients back

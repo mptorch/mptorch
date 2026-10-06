@@ -131,7 +131,7 @@ def _float32(v: float) -> float:
 def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None) -> float:
     """The per-tensor scale a call packs with: 1 for a format without one.
 
-    NVFP4's default is ``amax(|x|) / (elem_max * scale_max)`` over the finite
+    NVFP4's default is ``max(|x|) / (elem_max * scale_max)`` over the finite
     elements, in float32 arithmetic, so that the tensor's largest block takes
     the largest scale; a tensor with no nonzero finite element takes 1. A
     caller-supplied (static) scale is rounded to float32.
@@ -350,7 +350,7 @@ def block_pack(
         rounding (RoundMode): the elements' rounding mode; the scale is
             always chosen by the format's rule. Default: ``RoundMode.RNE``
         tensor_scale (float, optional): the per-tensor scale of a format whose
-            block scale has a mantissa (NVFP4); ``None`` takes ``amax(|x|) /
+            block scale has a mantissa (NVFP4); ``None`` takes ``max(|x|) /
             (elem_max * scale_max)``, which reads ``x`` once more and, on a
             GPU, synchronizes with it. Default: ``None``
         carrier (torch.dtype, optional): the arithmetic the rounding runs in.

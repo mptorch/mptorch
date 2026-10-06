@@ -18,7 +18,10 @@ input :math:`x` of :math:`C` channels with a weight :math:`W` of
 :math:`C_{\text{out}}` filters over a kernel of extent :math:`k`, with stride
 :math:`s`, padding :math:`p` and dilation :math:`d` (each a vector over the
 spatial dimensions; products and comparisons of such vectors are per
-dimension). Without groups, output position :math:`o` of filter :math:`c'` is
+dimension). The batch has :math:`B` samples, the output's spatial extent is
+the vector :math:`\text{out}`, and :math:`\text{OUT} = \prod \text{out}` and
+:math:`\text{IN}` are the numbers of output and input positions. Without
+groups, output position :math:`o` of filter :math:`c'` is
 
 .. math::
 
@@ -69,7 +72,7 @@ part of the definition, and it is fixed per pass:
      - :math:`\tfrac{C}{g} \prod k`
    * - weight gradient
      - :math:`(b, o)`, :math:`b` outer, the output positions row-major
-     - :math:`B \prod \text{out}`
+     - :math:`B \cdot \text{OUT}`
    * - input gradient
      - :math:`(c', j)`, :math:`c'` outer, the taps of the position's class
        *descending* (below)
@@ -168,8 +171,8 @@ zero-inserted sum's order.
 
 Leaving the zeros out is invisible where a zero term changes nothing. Under a
 deterministic rounding a plain sum does not move: the product of a weight and
-an inserted zero rounds to zero, and :math:`Q(s + 0) = s` because :math:`s`
-is already a value of the format. So for ``NAIVE`` and every rounding mode
+an inserted zero rounds to zero, and :math:`Q(s_{t-1} + 0) = s_{t-1}` because
+the running sum is already a value of the format. So for ``NAIVE`` and every rounding mode
 but ``SR`` the result is the zero-inserted one bit for bit (except that a
 weight of :math:`\pm\infty` or NaN no longer turns the positions it does not
 reach into NaN, as :math:`\infty \cdot 0` did). Elsewhere a zero term was not

@@ -29,7 +29,7 @@ look like:
 
 .. math::
 
-   c_{ij} = \sum_{k=1}^{K} a_{ik}\, b_{kj}
+   c_{ij} = \sum_{k} a_{ik}\, b_{kj}
    \quad\longrightarrow\quad
    s_{k} = Q_{\text{acc}}\big(s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})\big).
 
@@ -73,7 +73,7 @@ as :math:`E = K - P` for a signed format and :math:`E = K - P + 1` for an
 unsigned one, which has no sign bit to spend. ``is_signed`` is P3109's
 signedness, and the domain comes with the saturation mode, below.
 
-A few consequences worth having in mind:
+A few consequences are worth having in mind:
 
 - Within one *binade* :math:`[2^q, 2^{q+1})` there are :math:`2^{P-1}`
   representable values, spaced :math:`2^{q-P+1}` apart -- the *unit in the
@@ -88,8 +88,8 @@ A few consequences worth having in mind:
   very last code of the top binade is :math:`\infty`, and
   :math:`(2 - 2^{1-P}) \cdot 2^{\,2^E - 1 - \text{bias}}` in its finite
   domain (``SAT_FINITE``), where that code is a number. Both are for a signed
-  format with :math:`P \ge 3`; `Relation to IEEE P3109`_ has the rule for
-  the others.
+  format with :math:`P \ge 3` (see `Relation to IEEE P3109`_ for the rules for
+  the other formats).
 - The smallest normal is :math:`2^{1 - \text{bias}}` and the smallest
   subnormal :math:`2^{1 - \text{bias} - (P-1)}`.
 - ``bias`` defaults to P3109's, the middle of the exponent range:
@@ -110,8 +110,7 @@ A few consequences worth having in mind:
   laid out the IEEE way and is outrun likewise, while E4M3 spends its top
   exponent field on numbers and is matched on every finite value.
 
-Some formats you may want, as BinaryK values -- first from P3109, then from
-outside it:
+Some formats of interest can be approximately represented in terms of BinaryK:
 
 ===========================  ============================================  ======  ======  ======
 format                       spelling                                      E       P-1     bias
@@ -172,11 +171,9 @@ standards spend the code points of the same layout differently:
   value. A signed format has a single, unsigned zero, and the encoding IEEE
   754 would read as :math:`-0.0` is its one NaN.
 - P3109's default bias, :math:`2^{E-1}`, is one more than IEEE 754's for the
-  same exponent width.
+  same exponent width (:math:`2^{E-1}-1`).
 
-So a bias can line up at most one end of the range with the dtype's, and
-neither special-value set ever matches. For float16, counting every code point
-of each format:
+So a bias can line up at most one end of the range with that of the closest IEEE 754 dtype, and neither special-value set ever matches between the formats. For float16, we have for instance:
 
 .. list-table::
    :header-rows: 1
@@ -205,28 +202,38 @@ of each format:
 
 None of the three has float16's :math:`-0.0` or its 2046 NaN codes; each has
 one zero and one NaN. bfloat16 and float32 differ from their spellings in the
-same way. With the IEEE bias the BinaryK format reaches a binade past the
+same way. With the IEEE 754 bias the BinaryK format reaches a binade past the
 dtype, to about :math:`6.8 \cdot 10^{38}` against :math:`3.4 \cdot 10^{38}`,
-with :math:`2^{P-1} - 1` extra values (127 for bfloat16, :math:`2^{23} - 1` for
-float32). With P3109's bias, ``Binary16p8`` and ``Binary32p24`` lose the
+with :math:`2^{P-1} - 1` extra values (:math:`127` for bfloat16, :math:`2^{23} - 1` 
+for float32). With P3109's bias, ``Binary16p8`` and ``Binary32p24`` lose the
 dtype's largest value to :math:`+\infty` in the extended domain, match it in
 the finite one, and add :math:`2^{P-1}` values below the dtype's smallest
 normal, down to :math:`2^{-134}` and :math:`2^{-150}`.
 
-The two OCP layouts sit on either side of this. E5M2 is laid out the IEEE 754
-way too, so its spelling is in float16's position: ``BinaryK(8, 3, bias=15)``
-reaches 98304 where E5M2 stops at :math:`57344`, three values more of each sign (four
-in the finite domain, up to :math:`114688`). E4M3 keeps its top field for finite
-values, as P3109 does, so ``BinaryK(8, 4, bias=7)`` has exactly its finite
-values, up to :math:`448`, and differs in the special codes only: :math:`\pm\infty` where E4M3 has its
-two NaNs, and its one NaN where E4M3 has :math:`-0`. What an overflow returns
-follows from that. E4M3 has no infinity, and PyTorch's conversion to
-``torch.float8_e4m3fn`` saturates at :math:`\pm 448`; the spelling returns
-:math:`\pm\infty` by default, :math:`448` under ``SAT_PROPAGATE`` -- PyTorch's result
-on every finite float32 input, the sign of a zero aside -- and :math:`480` under
-``SAT_FINITE``, whose domain makes the top code a number E4M3 does not have.
+The two OCP 8-bit formats relate to their BinaryK rows differently.
 
-In MPTorch this shows in two places:
+**E5M2** reserves its top exponent field as IEEE 754 does, so
+``BinaryK(8, 3, bias=15)`` is to it what ``BinaryK(16, 11, bias=15)`` is to
+float16 above: it has every finite value of E5M2 and a binade more. E5M2's
+largest finite value is :math:`57344`; the BinaryK format adds :math:`65536`,
+:math:`81920` and :math:`98304` of each sign, and under ``SAT_FINITE`` also
+:math:`114688`, the code that is :math:`\pm\infty` in the extended domain.
+
+**E4M3** spends its top exponent field on finite values, as P3109 does, so
+``BinaryK(8, 4, bias=7)`` has exactly E4M3's finite values, up to :math:`448`.
+Only the special codes differ: the BinaryK format has :math:`\pm\infty` where
+E4M3 has its two NaNs, and its one NaN where E4M3 has :math:`-0`. That shows
+in what an overflow returns. E4M3 has no infinity, and PyTorch's conversion to
+``torch.float8_e4m3fn`` saturates at :math:`\pm 448`;
+``BinaryK(8, 4, bias=7)`` returns
+
+- :math:`\pm\infty` under ``OVF_INF``, the default.
+- :math:`\pm 448` under ``SAT_PROPAGATE``, which is PyTorch's result for
+  every finite float32 input, except that a zero is always :math:`+0`.
+- :math:`\pm 480` under ``SAT_FINITE``, whose domain turns the infinity's
+  code into a number that E4M3 does not have.
+
+In MPTorch these differences show up in two places:
 
 - Quantizing to one of the dtype-layout rows is not the dtype's own
   conversion. A value between the dtype's largest finite value and the row's
@@ -265,7 +272,7 @@ of the *format*, so two formats in one computation can differ in them.
    Not P3109 either.
 
 Below its smallest value every mode rounds alike: to zero or to that value,
-as the rounding mode decides (`Relation to IEEE P3109`_ has the rule). A
+as the rounding mode decides (see `Relation to IEEE P3109`_ for the rule). A
 value is flushed to zero only where the rounding mode says so -- under
 round-to-nearest, when it is nearer to zero than to the smallest value.
 
@@ -299,15 +306,40 @@ extended one.
    :language: text
    :caption: output
 
-An unsigned format (``is_signed=False``) has no sign bit; negative inputs
-become zero and the bit goes to the exponent, which is why the unsigned
-``BinaryK(8, 4)`` above has P3109's unsigned bias :math:`2^{K-P} = 16` and
-holds 3000, as 3072: it reaches 53248 where the signed format stops at 224.
+An unsigned format (``is_signed=False``) has no sign bit: negative inputs
+become zero, and the freed bit goes to the exponent field. The run's last
+line uses the unsigned ``BinaryK(8, 4)``, P3109's ``Binary8p4ue``, which has
+five exponent bits and the default bias :math:`2^{K-P} = 16`, where the signed
+``Binary8p4se`` has four and :math:`2^{K-P-1} = 8`. Its normal exponents
+therefore run from :math:`-15` to :math:`15` instead of :math:`-7` to
+:math:`7`, and its largest finite value is :math:`1.625 \cdot 2^{15} = 53248`
+against the signed format's :math:`1.75 \cdot 2^{7} = 224` (the unsigned top
+binade ends in two reserved codes, :math:`+\infty` and NaN, the signed one in
+one). The extra bit buys range, not precision: both formats have
+:math:`P = 4`, so around :math:`3000` the unsigned format's values are 256 apart, 
+and the run's input :math:`3000` comes back as :math:`3072`, the nearest of them.
 
 Relation to IEEE P3109
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The correspondence in one place:
+The sections above brought in P3109 one notion at a time: how it names a
+format after its parameters, its default bias, its two domains and its three
+saturation modes. This section puts them side by side and says in what sense a
+:class:`~mptorch.BinaryK` *is* a P3109 format. It covers, in order:
+
+- which MPTorch argument stands for which notion of the standard.
+- the rule for the largest finite value, which the earlier sections stated
+  only for a signed format with :math:`P \ge 3`.
+- how the correspondence is tested.
+- the two ways in which MPTorch departs from the standard.
+
+Every parameter of a P3109 format, and each of its saturation and rounding
+modes, has a counterpart among the arguments of ``BinaryK`` and MPTorch's
+enums. A ``BinaryK(K, P)`` left at its defaults is therefore the P3109 format
+with that bitwidth and precision, signed and in the extended domain, for every
+width the standard admits. The rounding modes are only introduced further down 
+(see `Rounding modes`_); their rows are listed here so that the whole correspondence 
+is in one table.
 
 .. list-table::
    :header-rows: 1
@@ -335,18 +367,18 @@ The top of the range is counted in P3109's code points. Of the top binade's
 :math:`2^{P-1}` codes, the extended domain spends the last on :math:`+\infty`;
 an unsigned format spends its last on NaN and, in the extended domain, the one
 below that on :math:`+\infty`. The largest finite value is the highest code
-left -- 224 for ``Binary8p4se``, 240 for ``Binary8p4sf``, 53248 for
-``Binary8p4ue`` -- and with :math:`P \le 2` the reserved codes can outnumber
-the top binade's, which moves it a binade or two lower. A finite result above
-it saturates whatever the rounding mode.
+left -- :math:`224` for ``Binary8p4se``, :math:`240` for ``Binary8p4sf``, 
+:math:`53248` for ``Binary8p4ue`` -- and with :math:`P \le 2` the reserved codes 
+can outnumber the top binade's, which moves it a binade or two lower. A finite 
+result above it saturates whatever the rounding mode.
 
 ``dev/benchmarks/binaryK_values.py`` prints the whole code-point table for a
 format -- every value, one per line, infinities and NaN included -- and with
 ``--verify`` quantizes each one to check the kernel returns it unchanged;
-``dev/benchmarks/superfp_values.py`` is its SuperFP twin.
+``dev/benchmarks/superfp_values.py`` is its SuperFP analgoue.
 
-Two test files hold this against the standard. ``tests/test_binaryk_quantize.py``
-checks the six deterministic modes against gfloat, a reference implementation
+Two test files compare the formats to the standard. ``tests/test_binaryk_quantize.py``
+checks the six deterministic modes against `gfloat <https://github.com/graphcore-research/gfloat>`__, a reference implementation
 of P3109, below the top of the range. ``tests/test_binaryk_p3109.py`` checks the
 top itself -- every precision of the 3- to 8-bit formats, signed and unsigned,
 in all three saturation modes -- against a transcription of the paper's
@@ -355,24 +387,41 @@ definitions, since gfloat overflows the IEEE 754 way under directed rounding.
 MPTorch departs from the standard in two ways.
 
 **By extension.** A ``bias`` other than the default, and the ``NORMALS`` and
-``EXTENDED_NORMALS`` subnormal modes, give formats P3109 does not define; so
+``EXTENDED_NORMALS`` subnormal modes, represent formats P3109 does not define; so
 do the widths it excludes (it requires :math:`K \ge 3`, and :math:`P < K` for
-a signed format). They are what reach E4M3's finite values, and the nearest
-spellings of E5M2 and of the IEEE 754 dtypes; `The IEEE 754 dtypes are not
-P3109 formats`_ shows that none of them is the format it is laid out as.
+a signed format). These are the options that allow one to reach E4M3's finite values,
+and the nearest representations to E5M2 and the IEEE 754 dtypes (see `The IEEE 754 dtypes are not P3109 formats`_).
 
 The two extra subnormal modes move the bottom of the range and nothing else.
-``NORMALS`` leaves the exponent-zero codes unused, so the smallest value is the
-smallest normal :math:`2^{1-b}`. ``EXTENDED_NORMALS`` spends them on one more
-binade of normals at :math:`2^{-b}` -- all but the mantissa-zero code, which is
-the zero, and with the sign bit the NaN, exactly as in every other binaryK
-format; that binade's values therefore start one step above the power of two at
-its foot, and with :math:`P = 1` it holds nothing at all. Below whatever the
-smallest value is, all three modes round alike, because the region has the same
-shape in each: the two candidates are zero and that value, and the rounding
-mode picks between them -- nearest takes the nearer, and on a tie ``RNE`` takes the
-zero and ``RNA`` the value; the directed modes take their own direction, ``RO`` takes the nonzero one, and
-``SR`` takes it with probability :math:`|x|` over it.
+Both concern the :math:`2^{P-1}` codes of each sign whose exponent field is
+zero, which ``SUBNORMALS`` spends on the zero and the :math:`2^{P-1} - 1`
+subnormals:
+
+- ``NORMALS`` leaves all of them but the zero unused, so the smallest positive
+  value is the smallest normal, :math:`2^{1-\text{bias}}`.
+- ``EXTENDED_NORMALS`` spends them on one more binade of normals,
+  :math:`[2^{-\text{bias}}, 2^{1-\text{bias}})`, directly below the smallest
+  normal. The mantissa-zero code of that binade does not encode
+  :math:`2^{-\text{bias}}`: it remains the zero (and, with the sign bit set,
+  the NaN), exactly as in every other BinaryK format. The binade therefore
+  holds :math:`2^{P-1} - 1` values, the smallest of which is one step above
+  the power of two at its foot, :math:`(1 + 2^{1-P})\, 2^{-\text{bias}}`, and
+  with :math:`P = 1` it holds none.
+
+Write :math:`x_{\min}` for the smallest positive value of the format:
+:math:`2^{1-\text{bias}-(P-1)}` under ``SUBNORMALS``, and the two values above
+under the other modes. Below :math:`x_{\min}` all three modes round alike,
+because the region has the same shape in each. An input :math:`x` with
+:math:`0 < |x| < x_{\min}` has two candidates for its magnitude, zero and
+:math:`x_{\min}`, and the rounding mode picks between them (see
+`Rounding modes`_ for the modes):
+
+- ``RNE`` and ``RNA`` take the nearer one. On a tie, :math:`|x| = x_{\min} / 2`,
+  ``RNE`` takes the zero and ``RNA`` takes :math:`x_{\min}`.
+- ``RU``, ``RD`` and ``RZ`` take the candidate in their own direction.
+- ``RO`` takes :math:`x_{\min}`, the nonzero candidate.
+- ``SR`` takes :math:`x_{\min}` with probability :math:`|x| / x_{\min}`, and
+  the zero otherwise.
 
 **By simulating values rather than code points.** A result is a value of
 the carrier, not an encoding, so P3109's single NaN is whichever NaN came in. (Its
@@ -391,9 +440,9 @@ SuperFP: precision at the top, range below
 It has the same three fields as a binary float -- ``man_bits``, ``exp_bits``,
 ``bias`` -- but only the top ``normal_binades`` binades carry a mantissa. The
 encodings of the remaining :math:`2^{\text{exp\_bits}} - \text{normal\_binades}`
-binades, :math:`2^{\text{man\_bits}}` codes each, are reinterpreted as that
-many further *powers of two* below the normal region: numbers with an
-implicit mantissa of exactly 1. Writing :math:`e_{\max} = 2^{\text{exp\_bits}} - 1 - \text{bias}`,
+binades, :math:`2^{\text{man\_bits}}` codes each, are reinterpreted: the first
+is the zero, and the others are that many further *powers of two* below the
+normal region, numbers with an implicit mantissa of exactly 1. Writing :math:`e_{\max} = 2^{\text{exp\_bits}} - 1 - \text{bias}`,
 the three regions are
 
 .. math::
@@ -401,13 +450,14 @@ the three regions are
    \begin{aligned}
    \text{normal:}      &\quad [2^{\,e_{\max} - b + 1},\; 2^{\,e_{\max}+1}),
       && \text{full mantissa} \\
-   \text{supernormal:} &\quad [2^{\,e_{\max} - b + 1 - n},\; 2^{\,e_{\max} - b + 1}),
+   \text{supernormal:} &\quad [2^{\,e_{\max} - b + 2 - n},\; 2^{\,e_{\max} - b + 1}),
       && \text{powers of two only} \\
    \text{underflow:}   &\quad \text{below that}, && \text{flushed to zero}
    \end{aligned}
 
 with :math:`b = \text{normal\_binades}` and
-:math:`n = (2^{\text{exp\_bits}} - b)\, 2^{\text{man\_bits}}`. There are no
+:math:`n = (2^{\text{exp\_bits}} - b)\, 2^{\text{man\_bits}}` the number of
+reinterpreted codes, of which :math:`n - 1` are supernormals. There are no
 subnormals, and the bias has no default: it is part of the design of the
 format and must be given. Rounding in the supernormal region is rounding of
 the *exponent*: to nearest, :math:`3 = 2^{1.58}` becomes :math:`4`.
@@ -449,9 +499,10 @@ consecutive elements along one axis, its *packed* axis, and element
    x_i \;\approx\; e_i\, \sigma_\kappa ,
 
 its element value :math:`e_i` times its block's scale :math:`\sigma_\kappa`:
-a power of two, :math:`\sigma_\kappa = 2^{X_\kappa}`, for an E8M0 scale, and
-for any other scale the scale format's value times a float32 scale per
-tensor, :math:`\sigma_\kappa = s_\kappa S_t`, one float32 product. The
+a power of two with an integer exponent :math:`X_\kappa`,
+:math:`\sigma_\kappa = 2^{X_\kappa}`, for an E8M0 scale, and for any other
+scale the scale format's value :math:`s_\kappa` times a float32 scale per
+tensor :math:`S_t`, :math:`\sigma_\kappa = s_\kappa S_t`, one float32 product. The
 presets are OCP MX v1.0's and NVFP4:
 
 =======================  ==============  ===============  =====  ==========  ==============
@@ -668,7 +719,7 @@ mode     name                                 :math:`Q(x)`
 ``RD``   round down (toward :math:`-\infty`)  :math:`\lfloor x \rfloor_F`
 ``RZ``   round toward zero (truncate)         :math:`\lfloor x \rfloor_F` if :math:`x > 0`, :math:`\lceil x \rceil_F` if :math:`x < 0`
 ``RO``   round to odd                         :math:`x` if representable; else the neighbour with odd mantissa
-``SR``   stochastic rounding                  :math:`\lceil x \rceil_F` with probability :math:`p(x)`, else :math:`\lfloor x \rfloor_F`
+``SR``   stochastic rounding                  :math:`\lceil x \rceil_F` with probability :math:`\Pr(\text{up})`, else :math:`\lfloor x \rfloor_F`
 =======  ===================================  ==========================================================
 
 ``RNE`` is what IEEE arithmetic does by default and is unbiased on average.
@@ -691,19 +742,19 @@ Stochastic rounding
 Under ``SR`` the rounding direction is random, with a probability
 proportional to how far :math:`x` sits between its two neighbours. Writing
 :math:`f = (x - \lfloor x \rfloor_F) / (\lceil x \rceil_F - \lfloor x \rfloor_F) \in [0, 1)`
-for that fraction, the ideal rule is :math:`P(\text{up}) = f`, which makes
+for that fraction, the ideal rule is :math:`\Pr(\text{up}) = f`, which makes
 the rounding *unbiased*: :math:`\mathbb{E}[Q(x)] = x`.
 
-The implementation draws ``prng_bits`` random bits and adds them just below
-the last kept mantissa bit, then truncates -- so with :math:`p` random bits
-the probability is quantized to steps of :math:`2^{-p}`:
+The implementation draws :math:`N` random bits (``prng_bits``) and adds them
+just below the last kept mantissa bit, then truncates -- so the probability is
+quantized to steps of :math:`2^{-N}`:
 
 .. math::
 
-   P(\text{up}) = 1 - \frac{\lceil (1 - f)\, 2^{p} \rceil}{2^{p}}
-   \;\xrightarrow{\;p \to \infty\;}\; f .
+   \Pr(\text{up}) = 1 - \frac{\lceil (1 - f)\, 2^{N} \rceil}{2^{N}}
+   \;\xrightarrow{\;N \to \infty\;}\; f .
 
-This is P3109's ``StochasticA`` rounding with :math:`N = p` random bits:
+This is P3109's ``StochasticA`` rounding with :math:`N` random bits:
 writing :math:`\eta` for the fraction of :math:`|x|` between its neighbours
 (:math:`\eta = f` when :math:`x > 0`), it rounds away from zero when
 :math:`\lfloor \eta\, 2^{N} \rfloor + R \ge 2^{N}` for a uniform integer
@@ -732,7 +783,7 @@ not depend on how the work was split across threads.
    :caption: output
 
 The first table shows the probability converging to the exact fraction as the
-random bits increase (with 1-3 bits, :math:`\lceil 0.4 \cdot 2^p \rceil / 2^p`
+random bits increase (with 1-3 bits, :math:`\lceil 0.4 \cdot 2^N \rceil / 2^N`
 is :math:`1/2`, so the coin is fair whatever the residual). The second shows
 why anyone accepts the extra variance: an accumulator whose increments are
 smaller than half its spacing never moves under round-to-nearest -- the sum
@@ -830,7 +881,8 @@ binary64's in parentheses:
   ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP` -- the carrier's
   significand bits, and it cannot hold a finer grid.
 * **The top.** The largest finite value must be at most the carrier's, which
-  is ``bias >= 2**exp_bits - 128`` (``- 1024``). Above that the cast saturates
+  is :math:`\text{bias} \ge 2^E - 128` (:math:`2^E - 1024`), with :math:`E`
+  the exponent width (``exp_bits`` for a SuperFP). Above that the cast saturates
   at the carrier's largest value on the format's grid, and the codes over it
   are unreachable.
 * **The bottom.** A subnormal's exponent field is 0 whatever its magnitude, so
@@ -840,8 +892,8 @@ binary64's in parentheses:
   both placed on their grid *by* that field, so their smallest value must be
   at least :math:`2^{-125}` (:math:`2^{-1021}`), a binade clear of it:
   :math:`\text{bias} + P \le 127` (1023) for the first, and
-  :math:`\text{normal_cutoff} - (2^{\text{exp_bits}} - b)\,2^{\text{man_bits}} + 1 \ge -125`
-  (:math:`-1021`) for the second. The two non-P3109 subnormal modes decide
+  :math:`e_{\max} - b + 2 - n \ge -125` (:math:`-1021`) for the second, in the
+  notation of `SuperFP: precision at the top, range below`_. The two non-P3109 subnormal modes decide
   their bottom by comparing magnitudes instead, which reads no field, so
   ``NORMALS`` and ``EXTENDED_NORMALS`` are exact down to the smallest normal
   -- and no further, because below that the floor leaves the carrier's

@@ -1,7 +1,7 @@
 """What the batched GEMM is worth against the loop of 2D calls it replaces.
 
-X1 gave the kernel one batch dimension with per-operand strides. This measures
-the three things that decision was made on:
+The GEMM kernels carry one batch dimension with per-operand strides. This
+measures the three things that decision was made on:
 
     batched      one call, one launch (or one parallel region) over the whole
                  batch -- what `qmatmul` does now
@@ -20,10 +20,21 @@ copy: `q @ k.mT` against `q @ k.mT.contiguous()`, which is the same values
 either way (tests/test_qmatmul_batched.py) and should now be the same time as
 well, minus the copy.
 
-The second table is R-2's: the accumulate algorithms past NAIVE (KAHAN, BLOCK,
-TREE; `csrc/common/gemm_accumulate.h`) against NAIVE on the same formats, at
-one square GEMM and on the attention shapes, for a split and a fused mac and
-under round-to-nearest and stochastic rounding. What an algorithm costs is its
+The second table times the accumulate algorithms, which decide in what order
+one output element's K products are summed and where that sum is rounded
+(`csrc/common/gemm_accumulate.h` states each exactly):
+
+    NAIVE   one running sum, rounded after every addition
+    KAHAN   NAIVE plus a compensation term, which carries each addition's
+            rounding error into the next step
+    BLOCK   a running sum per block of `block_size` products, each block
+            folded into a total with one more rounding, the `outer` format's
+    TREE    a pairwise sum within each block, folded into the total likewise
+
+KAHAN, BLOCK and TREE are each timed against NAIVE on the same formats, at one
+square GEMM and on the attention shapes, for a split mac (the product and the
+sum rounded separately) and a fused one (one rounding per multiply-add), under
+round-to-nearest and stochastic rounding. What an algorithm costs is its
 roundings per step, so the ratios are the thing to read: KAHAN's step is five
 roundings to NAIVE's two (four to one fused), BLOCK adds a fold per block, and
 TREE replaces the running sum's rounding by a little under one merge per

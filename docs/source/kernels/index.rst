@@ -39,15 +39,15 @@ The routine computes
    B_\beta \in \mathbb{R}^{K \times N}, \qquad
    \beta = 1, \dots, \text{batch},
 
-and each element of the result is one dot product of length :math:`K`,
-computed as a running sum in a fixed order:
+and each element :math:`c_{\beta i j}` of the result is one dot product of
+length :math:`K`, computed as a running sum in a fixed order:
 
 .. math::
 
    s_0 = 0, \qquad
-   s_k = \operatorname{step}\big(s_{k-1},\; a_{\beta m k},\; b_{\beta k n}\big)
+   s_k = \operatorname{step}\big(s_{k-1},\; a_{\beta i k},\; b_{\beta k j}\big)
    \quad (k = 1, \dots, K), \qquad
-   c_{\beta m n} = s_K .
+   c_{\beta i j} = s_K .
 
 Four things vary, and nothing else does.
 
@@ -72,7 +72,7 @@ of the definition, and it is the same on every device.
 **What each output element owns.** A palette gives each element its own
 format through an index map (:doc:`arithmetic`), and under stochastic rounding
 each element draws from a random stream of its own, keyed on its index
-:math:`(\beta, m, n)` into the result, from one seed per call. A result
+:math:`(\beta, i, j)` into the result, from one seed per call. A result
 therefore depends neither on how the work is tiled or threaded nor on the
 device: the CPU and CUDA kernels return the same bits in every deterministic
 mode, and an Apple GPU returns the CPU's, stochastic rounding included, up to
