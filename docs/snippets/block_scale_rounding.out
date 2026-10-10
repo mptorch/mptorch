@@ -9,3 +9,13 @@ defaults: OCP NEAREST SELECTIVE
 MXFP4_E2M1                 0.1142     0.1255     0.1158     0.1113
 MXFP6_E2M3                 0.0280     0.0651     0.0280     0.0278
 E2M1, SuperFP scale             -     0.1246     0.1152     0.1107
+
+NEAREST            scale 6.5   block [9.75, 19.5, 26.0, 39.0]
+FOUR_OVER_SIX_MSE  scale 10.0  block [10.0, 20.0, 30.0, 40.0]
+
+NVFP4                   takes 4    error
+NEAREST                    0.0%   0.0937
+FOUR_OVER_SIX_MSE         45.4%   0.0862
+FOUR_OVER_SIX_MAE         33.8%   0.0873
+FOUR_OVER_SIX_ABS_MAX     60.1%   0.0884
+default tensor scale: NVFP4's block of the largest value takes the scale 448.0 and Four Over Six's 256.0

@@ -272,14 +272,41 @@ def _pow2_exponent(fmt: BlockFormat, amax: float) -> int:
     return X
 
 
+FOUR_OVER_SIX = (
+    ScaleRounding.FOUR_OVER_SIX_MSE,
+    ScaleRounding.FOUR_OVER_SIX_MAE,
+    ScaleRounding.FOUR_OVER_SIX_ABS_MAX,
+)
+
+
+def top_factor(fmt: BlockFormat) -> Fraction:
+    """``elem_max`` over the largest power of two not above it (1.5 for E2M1):
+    the factor between Four Over Six's two candidate scales."""
+    assert fmt.elem_max is not None
+    em = Fraction(fmt.elem_max)
+    return em / Fraction(2) ** _log2_floor(em)
+
+
+def top_scale(fmt: BlockFormat) -> float:
+    """The scale the default tensor scale gives the tensor's largest block:
+    the scale format's largest, or under Four Over Six the largest whose
+    multiple by ``top_factor`` is a scale too, so that this block has both
+    candidates (256 for E4M3, since 384 is a value and 288 * 1.5 is not)."""
+    assert fmt.scale is not None
+    values = {Fraction(float(v)) for v in _grid(Layout(fmt.scale), fmt.scale_max, set())[0]}
+    if fmt.scale_rule not in FOUR_OVER_SIX:
+        return float(max(values))
+    return float(max(v for v in values if v > 0 and v * top_factor(fmt) in values))
+
+
 def tensor_scale_of(x: torch.Tensor, fmt: BlockFormat) -> float:
-    """NVFP4's default per-tensor scale: ``amax(|x|) / (elem_max * scale_max)``
+    """NVFP4's default per-tensor scale: ``amax(|x|) / (elem_max * top_scale)``
     over the finite elements, in float32; 1 for a tensor with none."""
     assert fmt.elem_max is not None
     a = x.detach().abs().float().cpu().numpy()
     a = a[np.isfinite(a)]
     amax = np.float32(a.max()) if a.size else np.float32(0)
-    ts = float(amax / np.float32(fmt.elem_max * fmt.scale_max))
+    ts = float(amax / np.float32(fmt.elem_max * top_scale(fmt)))
     return ts if ts > 0 else 1.0
 
 
@@ -294,8 +321,9 @@ def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple
     (NVFP4's rule), or up, or, for SELECTIVE, to nearest unless the block's
     largest element at that scale is above the fit threshold, then up; at
     most its largest value, at least its smallest positive one, all in
-    float32. A NaN in a format with no element NaN code makes the scale the
-    scale's NaN."""
+    float32. A Four Over Six rule starts from the scale rounded to nearest
+    here, and ``four_over_six`` then chooses from the tile's elements. A NaN
+    in a format with no element NaN code makes the scale the scale's NaN."""
     s = fmt.scale
     if s is None:
         return 0, 1.0, "none"
@@ -335,6 +363,66 @@ def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple
     return code, how[1], how[0]
 
 
+def error_units(err: float, amax: float) -> int:
+    """Four Over Six counts an element's error in units of ``2^(floor(log2(
+    amax)) - 22)``, truncated, and at most ``2^24``: integers, so that a
+    block's error does not depend on the order it is added up in."""
+    if not np.isfinite(err):
+        return 1 << 24
+    units = Fraction(abs(float(err))) * Fraction(2) ** (22 - _log2_floor(Fraction(float(amax))))
+    return min(int(units), 1 << 24)
+
+
+def four_over_six(
+    fmt: BlockFormat,
+    tile: np.ndarray,
+    nan: np.ndarray,
+    amax: float,
+    ts: float,
+    six: tuple[int, float],
+    mode: RoundMode,
+) -> tuple[int, float]:
+    """Four Over Six's choice for a tile (arXiv:2512.02010): ``six``, the scale
+    ``tile_scale`` returned (its code and the factor an element is divided
+    by), or the scale nearest to that ratio times ``top_factor``, under which
+    the tile's largest element lands on ``elem_max``'s power of two. The tile
+    is quantized under both in ``mode`` and decoded, and the second scale is
+    taken if its error against the input is strictly the smaller: the sum of
+    squares, the sum, or the largest of the elements' errors, each in
+    ``error_units``. NaN elements count for nothing."""
+    assert fmt.scale is not None and fmt.elem_max is not None
+    grid, codes, pow2 = _grid(Layout(fmt.scale), fmt.scale_max, set())
+    ratio = np.float32(amax) / np.float32(np.float32(fmt.elem_max) * np.float32(ts))
+    with np.errstate(over="ignore"):
+        low_ratio = np.float32(ratio * np.float32(float(top_factor(fmt))))
+    i = _round_magnitude(
+        np.array([float(low_ratio)]), grid, codes, pow2, RoundMode.RNE, np.zeros(1, bool)
+    )[0]
+    i = 1 if grid[i] == 0 else int(i)
+    low = (int(codes[i]), float(np.float32(np.float32(grid[i]) * np.float32(ts))))
+    if low[0] == six[0]:
+        return six
+    x32 = tile.astype(np.float32)
+    errors = []
+    for code, factor in (six, low):
+        scaled = (x32 / np.float32(factor)).astype(np.float64)
+        c = round_elements(fmt, np.where(nan, 0.0, scaled), mode)
+        decoded = (decode_elem(fmt, c) * scale_value(fmt, code, ts)).astype(np.float32)
+        err = np.abs(decoded - x32)  # one binary32 subtraction
+        units = [
+            error_units(e, amax)
+            for e, skip in zip(err.ravel(), nan.ravel(), strict=True)
+            if not skip
+        ]
+        if fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MSE:
+            errors.append(sum(u * u for u in units))
+        elif fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MAE:
+            errors.append(sum(units))
+        else:
+            errors.append(max(units, default=0))
+    return low if errors[1] < errors[0] else six
+
+
 def reference(
     x: torch.Tensor,
     fmt: BlockFormat,
@@ -372,6 +460,9 @@ def reference(
                 finite_abs = np.abs(tile[~nan])
                 amax = float(finite_abs.max()) if finite_abs.size else 0.0
                 sc, factor, how = tile_scale(fmt, amax, bool(nan.any()), ts)
+                nan_scale = bool(nan.any()) and fmt.nan_code is None
+                if fmt.scale_rule in FOUR_OVER_SIX and how == "div" and not nan_scale:
+                    sc, factor = four_over_six(fmt, tile, nan, amax, ts, (sc, factor), mode)
                 if fmt.scale is not None:
                     scales[b, t, j] = sc
                 if how == "mul":

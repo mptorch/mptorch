@@ -6,11 +6,13 @@
 // of one block (block_rows = 1 for a 1D format), over ATen's thread pool: an
 // amax pass over the tile, its scale, then an encode pass over the same
 // elements, which reads element i before it writes it and touches no other,
-// so the in-place quantizer is sound. The encode rounds through the element
-// format's cast in the call's rounding mode, a template parameter as for the
-// GEMM, and with the sign as a template parameter as in binaryK_kernel.cpp,
-// which folds the cast's unsigned early return away (2.5x there). Inputs are
-// read through their strides, so a transposed view packs without a copy.
+// so the in-place quantizer is sound. A Four Over Six rule (block_decode.h)
+// adds a pass between the two, which only reads. The encode rounds through
+// the element format's cast in the call's rounding mode, a template parameter
+// as for the GEMM, and with the sign as a template parameter as in
+// binaryK_kernel.cpp, which folds the cast's unsigned early return away (2.5x
+// there). Inputs are read through their strides, so a transposed view packs
+// without a copy.
 //
 // Tiles are disjoint and each element's stochastic draw is keyed on its own
 // index (common/block_kernels.h), so results do not depend on the thread
@@ -34,7 +36,12 @@ using namespace mptorch::block;
 namespace
 {
 
-  template <typename scalar_t, RoundMode RM, bool IsSigned>
+  // FOS: a Four Over Six rule's call (block_decode.h), a template parameter
+  // so that every other rule's kernel holds none of it. It is 1D blocks only,
+  // so a tile is one row segment of at most 128 elements, and the pass that
+  // compares the two candidate scales keeps both candidates' codes: the
+  // encode pass then writes the chosen ones without casting a third time.
+  template <typename scalar_t, RoundMode RM, bool IsSigned, bool FOS>
   void pack_tiles(const BlockPackJob &j, const BlockFormatParams &p, const BlockCast &c, uint64_t seed)
   {
     using F = FloatTraits<float>;
@@ -48,6 +55,7 @@ namespace
     at::parallel_for(0, tiles, grain, [&](int64_t t_begin, int64_t t_end)
     {
       uint8_t buf[256]; // one row of a block: at most 128 codes of 16 bits
+      uint16_t kept[2][128]; // FOS: a block's codes under each candidate
       for (int64_t t = t_begin; t < t_end; ++t)
       {
         const int64_t b = t / per_batch;
@@ -71,7 +79,44 @@ namespace
             else if (w > amax)
               amax = w;
           }
-        const TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+        TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+        // FOS: the codes the encode pass writes, when the pass below made them
+        const uint16_t *chosen = nullptr;
+        if constexpr (FOS)
+        {
+          // The block under both candidate scales, each element with the draw
+          // the encode pass would give it, and the second candidate if its
+          // error is strictly the smaller.
+          const TileScale<float> low = four_over_six_low<float>(block_float<float>(amax), s, p, c);
+          if (low.code != s.code)
+          {
+            const int amax_exp = block_floor_log2(block_float<float>(amax));
+            const int64_t row_idx = (b * j.rows + r0) * j.cols;
+            uint64_t err_six = 0, err_low = 0;
+            for (int64_t cc = c0; cc < c1; ++cc)
+            {
+              const float v = static_cast<float>(xb[r0 * j.xs1 + cc * j.xs2]);
+              uint32_t rv = 0;
+              if constexpr (RM == RoundMode::SR)
+              {
+                const int64_t i = row_idx + cc;
+                rv = philox_block(seed, static_cast<uint64_t>(i >> 2), 0).word(static_cast<int>(i & 3));
+              }
+              uint32_t code_six, code_low;
+              err_six = add_block_error(
+                  err_six, candidate_error_units<float, RM>(v, s, amax_exp, IsSigned, rv, p, c, code_six),
+                  c.scale_rounding);
+              err_low = add_block_error(
+                  err_low, candidate_error_units<float, RM>(v, low, amax_exp, IsSigned, rv, p, c, code_low),
+                  c.scale_rounding);
+              kept[0][cc - c0] = static_cast<uint16_t>(code_six);
+              kept[1][cc - c0] = static_cast<uint16_t>(code_low);
+            }
+            chosen = kept[err_low < err_six ? 1 : 0];
+            if (err_low < err_six)
+              s = low;
+          }
+        }
         if (!j.quant && p.scale_cols != 0)
           j.scales[(b * p.row_tiles + rt) * p.scale_cols + blk] = static_cast<uint8_t>(s.code);
 
@@ -84,20 +129,26 @@ namespace
           int64_t drawn = -1;
           for (int64_t cc = c0; cc < c1; ++cc)
           {
-            const float v = static_cast<float>(xb[r * j.xs1 + cc * j.xs2]);
-            uint32_t rv = 0;
-            if constexpr (RM == RoundMode::SR)
+            uint32_t code;
+            if (chosen != nullptr)
+              code = chosen[cc - c0];
+            else
             {
-              const int64_t i = row_idx + cc;
-              if ((i >> 2) != drawn)
+              const float v = static_cast<float>(xb[r * j.xs1 + cc * j.xs2]);
+              uint32_t rv = 0;
+              if constexpr (RM == RoundMode::SR)
               {
-                drawn = i >> 2;
-                draws = philox_block(seed, static_cast<uint64_t>(drawn), 0);
+                const int64_t i = row_idx + cc;
+                if ((i >> 2) != drawn)
+                {
+                  drawn = i >> 2;
+                  draws = philox_block(seed, static_cast<uint64_t>(drawn), 0);
+                }
+                rv = draws.word(static_cast<int>(i & 3));
               }
-              rv = draws.word(static_cast<int>(i & 3));
+              const float q = block_cast<float, RM>(scaled_elem(v, s, p), IsSigned, rv, c);
+              code = encode_elem(v, q, p);
             }
-            const float q = block_cast<float, RM>(scaled_elem(v, s, p), IsSigned, rv, c);
-            const uint32_t code = encode_elem(v, q, p);
             if (j.quant)
               o[b * j.os0 + r * j.os1 + cc * j.os2] = static_cast<scalar_t>(decode_value<float>(code, s.code, p));
             else
@@ -117,10 +168,17 @@ namespace
     mptorch::dispatch_round_mode(j.rm, [&](auto rm_c)
     {
       constexpr RoundMode RM = decltype(rm_c)::value;
-      if (c.elem_signed)
-        pack_tiles<scalar_t, RM, true>(j, p, c, seed);
+      if (is_four_over_six(c.scale_rounding))
+      {
+        if (c.elem_signed)
+          pack_tiles<scalar_t, RM, true, true>(j, p, c, seed);
+        else
+          pack_tiles<scalar_t, RM, false, true>(j, p, c, seed);
+      }
+      else if (c.elem_signed)
+        pack_tiles<scalar_t, RM, true, false>(j, p, c, seed);
       else
-        pack_tiles<scalar_t, RM, false>(j, p, c, seed);
+        pack_tiles<scalar_t, RM, false, false>(j, p, c, seed);
     });
   }
 

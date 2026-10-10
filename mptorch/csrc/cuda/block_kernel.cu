@@ -13,7 +13,9 @@
 // lane alike, and each lane encodes its elements. block_pack stages the codes
 // in shared memory and has the group's lanes assemble the block's bytes, lane
 // j taking bytes j, j + G, ... from the codes whose bits meet each; the
-// quantizers write the decoded values in place of the codes.
+// quantizers write the decoded values in place of the codes. Under a Four
+// Over Six rule the group first compares the errors of two candidate scales,
+// reduced by shuffles as well (four_over_six, below).
 //
 // A 2D format (block_rows > 1) takes block_pack_tile_kernel: one CTA per tile,
 // an amax pass over the whole tile combined through shared memory, a barrier,
@@ -98,6 +100,58 @@ namespace mptorch::block_cuda
             nan = n != 0;
         }
 
+        // Four Over Six's choice for one row segment (a 1D block), by its
+        // group: `six` is tile_scale's candidate, the same in every lane of
+        // the group, as is the second one. Each lane adds up its elements'
+        // errors under both, in the fixed point of block_decode.h, with the
+        // draws encode_segment will give them; the group reduces them by
+        // shuffles, which every lane of the warp takes part in, and takes the
+        // second candidate if its error is strictly the smaller. The errors
+        // are integers, so the choice is the CPU's whatever the order.
+        template <RoundMode RM>
+        __device__ __forceinline__ TileScale<float> four_over_six(const BlockPackJob &j, const BlockFormatParams &p,
+                                                                  const BlockCast &c, const TileScale<float> &six,
+                                                                  uint32_t amax, uint64_t seed, uint64_t offset,
+                                                                  bool live, int64_t b, int64_t r, int64_t blk,
+                                                                  const Group &g, const float *v)
+        {
+            const float a = block_float<float>(amax);
+            const TileScale<float> low = four_over_six_low<float>(a, six, p, c);
+            uint64_t err_six = 0, err_low = 0;
+            if (live && low.code != six.code)
+            {
+                const int amax_exp = block_floor_log2(a);
+                const int64_t row_idx = (b * j.rows + r) * j.cols;
+                for (int e = 0; e < g.E; ++e)
+                {
+                    const int64_t cc = blk * p.block_size + g.gl + e * g.G;
+                    if (cc >= j.cols)
+                        continue;
+                    uint32_t rv = 0;
+                    if constexpr (RM == RoundMode::SR)
+                    {
+                        const int64_t idx = row_idx + cc;
+                        rv = philox_block(seed, static_cast<uint64_t>(idx >> 2), offset).word(static_cast<int>(idx & 3));
+                    }
+                    uint32_t code; // encode_segment casts again under the scale chosen
+                    err_six = add_block_error(
+                        err_six, candidate_error_units<float, RM>(v[e], six, amax_exp, c.elem_signed, rv, p, c, code),
+                        c.scale_rounding);
+                    err_low = add_block_error(
+                        err_low, candidate_error_units<float, RM>(v[e], low, amax_exp, c.elem_signed, rv, p, c, code),
+                        c.scale_rounding);
+                }
+            }
+            for (int off = g.G / 2; off > 0; off >>= 1)
+            {
+                const uint64_t other_six = __shfl_xor_sync(0xffffffffu, err_six, off);
+                const uint64_t other_low = __shfl_xor_sync(0xffffffffu, err_low, off);
+                err_six = merge_block_error(err_six, other_six, c.scale_rounding);
+                err_low = merge_block_error(err_low, other_low, c.scale_rounding);
+            }
+            return err_low < err_six ? low : six;
+        }
+
         // One row segment's encode, by its group: the E elements `v` a lane
         // loaded (cols past the row's end are not elements), their codes, and
         // either the decoded values written back (quantize) or the block's
@@ -145,7 +199,11 @@ namespace mptorch::block_cuda
             }
         }
 
-        template <typename scalar_t, RoundMode RM>
+        // FOS: a Four Over Six rule's launch, the only one that carries the
+        // choice between two scales. A template parameter rather than a test
+        // of c.scale_rounding, so the kernel every other rule runs holds none
+        // of it (its registers were what the lane layout above was tuned to).
+        template <typename scalar_t, RoundMode RM, bool FOS>
         __global__ __launch_bounds__(THREADS) void block_pack_kernel(BlockPackJob j, BlockFormatParams p,
                                                                      BlockCast c, at::PhiloxCudaState rng)
         {
@@ -206,7 +264,9 @@ namespace mptorch::block_cuda
                         amax = w;
                 }
                 reduce_group(amax, nan, g.G);
-                const TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+                TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+                if constexpr (FOS)
+                    s = four_over_six<RM>(j, p, c, s, amax, seed, offset, live, b, r, blk, g, v);
                 encode_segment<scalar_t, RM>(j, p, c, s, seed, offset, live, b, r, blk, g, v, codes);
                 if (!j.quant && live && g.gl == 0 && p.scale_cols != 0)
                     j.scales[(b * p.row_tiles + r) * p.scale_cols + blk] = static_cast<uint8_t>(s.code);
@@ -343,8 +403,11 @@ namespace mptorch::block_cuda
                 const int G = p.block_size >= 4 ? p.block_size / 4 : 1;
                 const int64_t groups_per_cta = int64_t(WARPS) * (32 / G);
                 const int64_t segs = j.batch * j.rows * p.n_blocks;
-                block_pack_kernel<scalar_t, RM>
-                    <<<grid_of((segs + groups_per_cta - 1) / groups_per_cta), THREADS, 0, stream>>>(j, p, c, rng);
+                const unsigned grid = grid_of((segs + groups_per_cta - 1) / groups_per_cta);
+                if (is_four_over_six(c.scale_rounding))
+                    block_pack_kernel<scalar_t, RM, true><<<grid, THREADS, 0, stream>>>(j, p, c, rng);
+                else
+                    block_pack_kernel<scalar_t, RM, false><<<grid, THREADS, 0, stream>>>(j, p, c, rng);
             }
             else
             {

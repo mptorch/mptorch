@@ -105,14 +105,15 @@ MAX_PALETTE = 8  # must equal MAX_GEMM_FORMATS in common/gemm_policy.h
 class Palette:
     """Up to eight formats of one family, selected per output element.
 
-    A palette is what a GEMM slot holds when the format varies across the
-    output: the ``_mixed`` ops take the palette's widths as a table and a
-    ``prec_idx`` map that picks one entry per output element. A plain
-    sequence of formats works anywhere a ``Palette`` does and is converted to
-    one; the class exists for the validation. Every entry must be of the same
-    family, and entries that disagree on a field the schema shares across the
-    palette (sign, stochastic bits, saturation, subnormals) are rejected here,
-    naming the first that does, rather than silently taking entry 0's.
+    A GEMM slot holds a palette when the format varies across the output. The
+    ``_mixed`` ops take the palette's widths as a table, and a ``prec_idx``
+    map picks one entry per output element. A plain sequence of formats works
+    anywhere a ``Palette`` does and is converted to one; the class exists for
+    the validation. Every entry must be of the same family. Some fields are
+    shared across the palette by the schema: sign, stochastic bits,
+    saturation and subnormals. Entries that disagree on one of them are
+    rejected here, with an error naming the first such entry. The palette
+    does not silently take entry 0's value.
 
     Args:
         formats (Number or Sequence[Number] or Palette): one format, a
@@ -202,36 +203,38 @@ def _varies(slot: Palette | None) -> bool:
 class Quant:
     """A format plus a rounding mode, as a callable ``Tensor -> Tensor``.
 
-    Calling it rounds every element of a tensor to the format in the carrier
-    and returns a tensor of the same dtype and shape. This is what every
-    ``*_quant`` slot of a ``QAffineFormats`` / ``QMatmulFormats`` takes, and
-    what a straight-through :class:`mptorch.quant.Quantizer` or a QAT observer
-    wraps. The call is bound at construction, so a call pays only the op; the
-    class is frozen so that a ``Quant`` can be a dictionary key and a
-    memoization key like the mac objects.
+    Calling it rounds every element of a tensor to the format, in the carrier,
+    and returns a tensor of the same dtype and shape. Every ``*_quant`` slot
+    of a ``QAffineFormats`` or ``QMatmulFormats`` takes one, and a
+    straight-through :class:`mptorch.quant.Quantizer` or a QAT observer wraps
+    one. The call is bound at construction, so each call costs only the op.
+    The class is frozen, so a ``Quant`` can be a dictionary key and a
+    memoization key, like the mac objects.
 
     Args:
-        fmt (Number): the format to round to, a :class:`mptorch.BinaryK`, a
-            :class:`mptorch.SuperFP`, or a :class:`mptorch.BlockFormat`, whose
-            blocks run along the last axis (:class:`BlockQuant` names another
-            axis and a tensor scale).
+        fmt (Number): the format to round to: a :class:`mptorch.BinaryK`, a
+            :class:`mptorch.SuperFP`, or a :class:`mptorch.BlockFormat`. A
+            block format's blocks run along the last axis; use
+            :class:`BlockQuant` for another axis or a tensor scale.
         rounding (RoundMode): the rounding mode. Default: ``RoundMode.RNE``
         carrier (torch.dtype, optional): the float arithmetic the cast rounds
-            in, :func:`mptorch.quant.binaryK_quantize`'s argument of that
-            name. ``None`` rounds in the tensor's own default carrier
-            (binary32 for float16, bfloat16 and float32 tensors, binary64 for
-            float64 ones); ``torch.float64`` rounds in binary64 whatever the
-            tensor; ``torch.float32`` rounds in binary32 and refuses a float64
-            tensor. Default: ``None``
-        inplace (bool): round the tensor in place and return it, through
-            :func:`mptorch.quant.binaryK_quantize_` /
-            :func:`mptorch.quant.superfp_quantize_`, instead of allocating a
-            result. For a tensor the caller owns (a weight quantized once at
-            load); never for a ``*_quant`` slot of a layer's formats, whose
-            input belongs to the graph of whatever produced it. The call then
+            in, as the argument of the same name of
+            :func:`mptorch.quant.binaryK_quantize`. ``None`` rounds in the
+            tensor's own default carrier: binary32 for float16, bfloat16 and
+            float32 tensors, and binary64 for float64 ones.
+            ``torch.float64`` rounds in binary64 whatever the tensor.
+            ``torch.float32`` rounds in binary32 and refuses a float64 tensor.
+            Default: ``None``
+        inplace (bool): round the tensor in place and return it, instead of
+            allocating a result. This goes through
+            :func:`mptorch.quant.binaryK_quantize_` or
+            :func:`mptorch.quant.superfp_quantize_`. Use it for a tensor the
+            caller owns, such as a weight quantized once at load. Never use
+            it in a ``*_quant`` slot of a layer's formats, because a layer's
+            input belongs to the graph of whatever produced it. The call
             refuses what the in-place ops refuse: a tensor that is not
             contiguous, a CUDA view off a 16-byte boundary, a ``carrier``
-            wider than the tensor, an MPS tensor. Default: ``False``
+            wider than the tensor, and an MPS tensor. Default: ``False``
 
     Raises:
         TypeError: for a format with no elementwise quantizer, or a
@@ -314,27 +317,29 @@ class Quant:
 class BlockQuant:
     """A block format plus a rounding mode: a fake quantizer, and a packer.
 
-    Calling it is :func:`mptorch.quant.block_quantize` along ``axis``: the
-    decoded values, of the tensor's shape and dtype, which is what a
-    ``*_quant`` slot of a layer's formats or a :class:`mptorch.quant.Quantizer`
-    takes. :meth:`pack` is :func:`mptorch.quant.block_pack` instead, the codes
-    themselves, which :func:`mptorch.quant.block_gemm_formats` and
+    Calling it is :func:`mptorch.quant.block_quantize` along ``axis``. It
+    returns the decoded values, with the tensor's shape and dtype. That is
+    what a ``*_quant`` slot of a layer's formats or a
+    :class:`mptorch.quant.Quantizer` takes.
+
+    :meth:`pack` is :func:`mptorch.quant.block_pack` instead. It returns the
+    codes themselves, which :func:`mptorch.quant.block_gemm_formats` and
     :func:`mptorch.quant.block_matmul_formats` multiply without decoding them
     first. Use ``BlockQuant(fmt, axis=1).pack`` as a ``QLinear``'s
-    ``weight_quant`` to pack its weight once rather than in every hook: the
-    packing is memoized on the tensor and its version counter, so it is redone
-    after each optimizer step (which writes the weight in place) and not
-    otherwise. A write the version counter does not see (through ``.data``)
-    is invisible to the memo too.
+    ``weight_quant`` to pack its weight once instead of in every hook. The
+    packing is memoized on the tensor and its version counter. It is
+    therefore redone after each optimizer step (which writes the weight in
+    place) and not otherwise. The memo does not see a write that the version
+    counter does not see (one made through ``.data``).
 
     Args:
         fmt (BlockFormat): the format.
         rounding (RoundMode): the elements' rounding mode. Default:
             ``RoundMode.RNE``
         axis (int): the axis the blocks run along. Default: ``-1``
-        tensor_scale (float, optional): a static per-tensor scale for a format
-            that has one (NVFP4); ``None`` derives it per call. Default:
-            ``None``
+        tensor_scale (float, optional): a static per-tensor scale, for a
+            format that has one (NVFP4). ``None`` derives it per call.
+            Default: ``None``
         carrier (torch.dtype, optional): as for
             :func:`mptorch.quant.block_quantize`. Default: ``None``
 
@@ -377,8 +382,8 @@ class BlockQuant:
         )
 
     def pack(self, x: torch.Tensor, axis: int | None = None) -> BlockPacked:
-        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis`` (default:
-        this quantizer's), memoized on ``x`` and its version."""
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, memoized on
+        ``x`` and its version. ``axis`` defaults to this quantizer's."""
         axis = self.axis if axis is None else axis
         memo = self._memo[0]
         if memo is not None:
@@ -397,8 +402,9 @@ class BlockQuant:
         return packed
 
     def pack_fresh(self, x: torch.Tensor, axis: int) -> BlockPacked:
-        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, not memoized:
-        for an activation or a gradient, a new tensor every call."""
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, not memoized.
+        Use it for an activation or a gradient, which is a new tensor on
+        every call."""
         return block_pack(
             x,
             self.fmt,
@@ -422,17 +428,22 @@ def _as_block_quant(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
 class BlockMac:
     """The block GEMM: two block-format operands and the arithmetic of their product.
 
-    ``a`` and ``b`` are the formats the left and right operand are packed in
-    (a :class:`mptorch.BlockFormat`, packed to nearest even, or a
-    :class:`BlockQuant`, which names the rounding and a tensor scale); ``b``
-    defaults to ``a``. The product decodes both operands in binary32 and sums
-    their products as :func:`mptorch.quant.block_matmul` states: each product
-    rounded to binary32 and the sum to ``acc`` (a split mac), or each fused
-    multiply-add rounded to ``acc`` (``fused=True``), ``acc=None`` leaving the
-    sum in binary32. The accumulate algorithms are :class:`SplitMac`'s.
-    :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` take one
-    (:func:`mptorch.quant.block_matmul_formats` builds their formats), and so
-    does a bare ``BlockFormat``, as ``BlockMac(fmt)``.
+    ``a`` and ``b`` are the formats that the left and right operands are
+    packed in. Each is a :class:`mptorch.BlockFormat` (packed to nearest
+    even) or a :class:`BlockQuant` (which specifies the rounding and a tensor
+    scale). ``b`` defaults to ``a``.
+
+    The product decodes both operands in binary32 and sums their products as
+    :func:`mptorch.quant.block_matmul` describes. In a split mac, each
+    product is rounded to binary32 and the sum to ``acc``. With
+    ``fused=True``, each fused multiply-add is rounded to ``acc``.
+    ``acc=None`` leaves the sum in binary32. The accumulate algorithms are
+    those of :class:`SplitMac`.
+
+    :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` accept a
+    ``BlockMac`` (:func:`mptorch.quant.block_matmul_formats` builds their
+    formats). They also accept a bare ``BlockFormat``, which means
+    ``BlockMac(fmt)``.
 
     Args:
         a (BlockFormat or BlockQuant): the left operand's format.
@@ -444,12 +455,12 @@ class BlockMac:
             ``RoundMode.RNE``
         accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`
             (``TREE`` needs ``fused=False``). Default: ``AccumulateAlgorithm.NAIVE``
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``; block
+        carrier (torch.dtype, optional): ``None`` or ``torch.float32``. Block
             formats have binary32 kernels only so far. Default: ``None``
         block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
         outer (BinaryK, optional): as for :class:`SplitMac`. Default: ``None``
         tensor_scale_epilogue (bool): apply the operands' per-tensor scales
-            once, to the result, as NVIDIA's NVFP4 GEMMs do, rather than in
+            once, to the result, as NVIDIA's NVFP4 GEMMs do, instead of in
             each decoded element (:func:`mptorch.quant.block_matmul`).
             Default: ``False``
 
@@ -540,20 +551,20 @@ class SplitMac:
     """Quantize the product and the running sum separately: two roundings.
 
     Each step of a dot product computes ``s = round_acc(s + round_mul(a * b))``
-    in the carrier, the product rounded to the ``mul`` format and the new
-    partial sum to the ``acc`` format. ``mul`` and ``acc`` are each a format,
-    a sequence of formats (a palette, which selects the ``_mixed`` op and
-    requires a ``prec_idx`` at the call), or, for ``acc`` alone, ``None``,
-    which leaves the running sum in the carrier's full precision. They must
-    belong to the same family: no kernel implements a binaryK multiply with a
-    superfp accumulate.
+    in the carrier. The product is rounded to the ``mul`` format and the new
+    partial sum to the ``acc`` format. ``mul`` and ``acc`` are each a format
+    or a sequence of formats. A sequence is a palette; it selects the
+    ``_mixed`` op and requires a ``prec_idx`` at the call. ``acc`` alone may
+    also be ``None``, which leaves the running sum in the carrier's full
+    precision. Both must belong to the same family: no kernel implements a
+    binaryK multiply with a superfp accumulate.
 
-    ``rounding`` is one mode for both halves because the kernels take the
-    rounding mode as a template parameter (a runtime switch inside the
-    accumulate step cost 1.2 to 2.3 times the kernel time), and a per-format
-    mode would square the number of kernel instantiations. Saturation,
-    subnormals and the stochastic-rounding width *are* per format, and live
-    on the format objects.
+    ``rounding`` is one mode for both halves. The kernels take the rounding
+    mode as a template parameter, because a runtime switch inside the
+    accumulate step cost 1.2 to 2.3 times the kernel time, and a mode per
+    format would square the number of kernel instantiations. Saturation,
+    subnormals and the stochastic-rounding width *are* per format, and are
+    set on the format objects.
 
     Args:
         mul (Number or Sequence[Number] or Palette): the multiply format, or a
@@ -565,32 +576,33 @@ class SplitMac:
             Default: ``RoundMode.RNE``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
             summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries a
-            compensation term in the ``acc`` format alongside the sum.
+            compensation term next to the sum, in the ``acc`` format.
             ``BLOCK`` runs the step above over blocks of ``block_size``
-            products and folds each block's sum into a total with a third
+            products and adds each block's sum to a total with a third
             rounding, ``outer``. ``TREE`` sums each block's products
-            pairwise, rounding every pair's sum to ``acc``, and folds the
-            block's root the same way. :class:`mptorch.AccumulateAlgorithm`
-            states each precisely. The three are binary32-only so far:
-            float64 operands and ``carrier=torch.float64`` raise, and so does
-            a palette in any slot. Default: ``AccumulateAlgorithm.NAIVE``
-        carrier (torch.dtype, optional): the float arithmetic both halves and
-            everything between them are computed in,
-            :func:`mptorch.quant.binaryK_matmul`'s argument of that name.
-            ``None`` takes the operands' (binary64 for float64, binary32 for
-            the rest); ``torch.float64`` widens narrower operands to binary64
-            and narrows the result back to their dtype; ``torch.float32``
-            refuses float64 operands. Every call holds the formats to that
-            carrier. Default: ``None``
+            pairwise, rounding every pair's sum to ``acc``, and adds the
+            block's root to the total in the same way.
+            :class:`mptorch.AccumulateAlgorithm` states each precisely.
+            ``KAHAN``, ``BLOCK`` and ``TREE`` are binary32-only so far:
+            float64 operands, ``carrier=torch.float64`` and a palette in any
+            slot raise. Default: ``AccumulateAlgorithm.NAIVE``
+        carrier (torch.dtype, optional): the float arithmetic that both halves
+            and everything between them are computed in, as the argument of
+            the same name of :func:`mptorch.quant.binaryK_matmul`. ``None``
+            takes the operands' carrier (binary64 for float64, binary32 for
+            the rest). ``torch.float64`` widens narrower operands to binary64
+            and narrows the result back to their dtype. ``torch.float32``
+            refuses float64 operands. Every call checks the formats against
+            that carrier. Default: ``None``
         block_size (int, optional): products per block. ``BLOCK`` requires
-            one, which must divide 16 or be a multiple of 16; ``TREE`` takes a
-            power of two in [2, 256] and defaults to 16; ``NAIVE`` and
+            one, which must divide 16 or be a multiple of 16. ``TREE`` takes a
+            power of two in [2, 256] and defaults to 16. ``NAIVE`` and
             ``KAHAN`` take none. Default: ``None``
-        outer (Number, optional): the format ``BLOCK`` and ``TREE`` round the
-            total to after each block is folded in, of the mac's family.
-            ``None`` leaves the total in the carrier's precision, as
-            ``acc=None`` leaves the sum. When given, it is the format the
-            result holds. Default: ``None``
+        outer (Number, optional): the format, of the mac's family, that
+            ``BLOCK`` and ``TREE`` round the total to after each block is
+            added. ``None`` leaves the total in the carrier's precision, as
+            ``acc=None`` does for the sum. When given, the result holds this
+            format's values. Default: ``None``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
@@ -654,8 +666,8 @@ class FusedMac:
 
     Each step computes ``s = round_fma(s + a * b)`` with the product exact,
     so there is one rounding per step where :class:`SplitMac` has two.
-    ``fma`` is a format, a palette, or ``None`` for an unrounded fused step
-    (the carrier's own FMA, in order). ``None`` carries no format for
+    ``fma`` is a format, a palette, or ``None``. ``None`` gives an unrounded
+    fused step: the carrier's own FMA, in order. It has no format for
     ``prec_idx`` to select, so it never selects a ``_mixed`` op.
 
     Args:
@@ -664,13 +676,13 @@ class FusedMac:
         rounding (RoundMode): rounding mode of the fused step.
             Default: ``RoundMode.RNE``
         accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`,
-            with the fused step in place of the split one, except ``TREE``,
-            which raises: a fused multiply-add has no product term to sum
-            pairwise. Default: ``AccumulateAlgorithm.NAIVE``
+            with the fused step in place of the split one. ``TREE`` raises,
+            because a fused multiply-add has no product term to sum pairwise.
+            Default: ``AccumulateAlgorithm.NAIVE``
         carrier (torch.dtype, optional): as for :class:`SplitMac`.
             Default: ``None``
         block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
-        outer (Number, optional): as for :class:`SplitMac`; with ``fma=None``
+        outer (Number, optional): as for :class:`SplitMac`. With ``fma=None``
             it may be of either family. Default: ``None``
 
     Raises:

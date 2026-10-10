@@ -2,12 +2,16 @@ Block matrix products
 =====================
 
 A product of two tensors in block formats (:ref:`block-formats`) runs on the
-core routine of :doc:`index` with a tile load that decodes each element from
-its code and its block's scale. This page states what that product computes:
-where it quantizes, why its blocks must run along the dimension it sums over,
-when it equals the dot product OCP MX defines, and where a per-tensor scale
-enters the sum. :doc:`calling` has the functions that run it, and
-:doc:`/layers` the layer recipes built on it.
+core routine of :doc:`index`. Its tile load decodes each element from its
+code and its block's scale. This page states what that product computes:
+
+- where it quantizes;
+- why its blocks must run along the dimension it sums over;
+- when it equals the dot product that OCP MX defines;
+- where a per-tensor scale enters the sum.
+
+:doc:`calling` has the functions that run it, and :doc:`/layers` the layer
+recipes built on it.
 
 Quantization in the loop
 ------------------------
@@ -16,10 +20,11 @@ For :math:`C = AB` with :math:`A \in \mathbb{R}^{M \times K}` and
 :math:`B \in \mathbb{R}^{K \times N}`, a block product rounds in two places.
 
 **The operands, once per product.** Each operand is block-quantized along
-:math:`K`, the dimension the product sums over: :math:`A` in blocks of
-:math:`\beta` consecutive :math:`k` along each row, :math:`B` along each
-column, a scale per block (per tile of :math:`\rho` rows or columns, for a 2D
-format). The kernel reads each element decoded,
+:math:`K`, the dimension the product sums over. :math:`A` is split into
+blocks of :math:`\beta` consecutive :math:`k` along each row, and :math:`B`
+along each column. There is one scale per block, or per tile of
+:math:`\rho` rows or columns for a 2D format. The kernel reads each element
+decoded:
 
 .. math::
 
@@ -27,12 +32,13 @@ format). The kernel reads each element decoded,
    \qquad
    \tilde b_{kj} = e^B_{kj}\, \sigma^B_{\lfloor j/\rho \rfloor,\, \lfloor k/\beta \rfloor},
 
-an element value times its block's scale -- the value
+This is an element value times its block's scale, the value that
 :func:`~mptorch.quant.block_unpack` returns, computed in binary32.
 
-**The sum, at every step.** The loop is the routine's, with the carrier's
-own product in place of a multiply format -- the elements' values are what a
-block-format unit multiplies -- and the sum rounded to the accumulate format:
+**The sum, at every step.** The loop is the core routine's, with two
+specifics. There is no multiply format: the product is the carrier's own,
+because the decoded element values are what a block-format unit multiplies.
+The sum is rounded to the accumulate format:
 
 .. math::
 
@@ -41,19 +47,20 @@ block-format unit multiplies -- and the sum rounded to the accumulate format:
    s_k = Q_{\text{acc}}\big(\tilde a_{ik}\, \tilde b_{kj} + s_{k-1}\big)
    \quad \text{(fused)},
 
-where :math:`\operatorname{fl}` is a binary32 product and
-:math:`Q_{\text{acc}}` rounds to a :class:`~mptorch.BinaryK` accumulate format
-in the call's rounding mode, or is binary32's own addition without one. Every
-accumulate algorithm of :doc:`arithmetic` applies, and :math:`c_{ij} = s_K`.
+Here :math:`\operatorname{fl}` is a binary32 product. :math:`Q_{\text{acc}}`
+rounds to a :class:`~mptorch.BinaryK` accumulate format in the call's
+rounding mode; without an accumulate format it is binary32's own addition.
+Every accumulate algorithm of :doc:`arithmetic` applies, and
+:math:`c_{ij} = s_K`.
 
 Why the blocks run along K
 --------------------------
 
-Where :math:`\beta` consecutive terms of the sum share both operands'
-scales, the scales come out of their part of the sum. Take the block
+When :math:`\beta` consecutive terms of the sum share both operands' scales,
+the scales can be factored out of that part of the sum. Take the block
 :math:`\kappa` of :math:`K`, the set of its :math:`\beta` consecutive
-:math:`k`, and write :math:`\sigma^A_{i\kappa}` and :math:`\sigma^B_{\kappa j}`
-for the scales row :math:`i` of :math:`A` and column :math:`j` of :math:`B`
+:math:`k`. Let :math:`\sigma^A_{i\kappa}` and :math:`\sigma^B_{\kappa j}` be
+the scales that row :math:`i` of :math:`A` and column :math:`j` of :math:`B`
 have over it. Then
 
 .. math::
@@ -63,12 +70,14 @@ have over it. Then
    \sum_{k \in \kappa} e^A_{ik}\, e^B_{kj} .
 
 OCP MX v1.0 defines the dot product of two blocks this way, and a longer dot
-product as the sum of its blocks' dot products: a block-format unit multiplies
-narrow elements and applies the scales once per block. The factorization
-needs the blocks to run along the summed dimension. MPTorch's decode is
-random access, so it would multiply operands blocked either way, but the
-products it simulates are the ones hardware computes, and a training step
-sums over a different dimension in each of its three products:
+product as the sum of its blocks' dot products. A block-format unit
+multiplies narrow elements and applies the scales once per block. This
+factorization requires the blocks to run along the summed dimension.
+
+MPTorch's decode is random access, so it could multiply operands blocked
+either way. But the products it simulates are the ones hardware computes.
+And a training step sums over a different dimension in each of its three
+products:
 
 .. list-table::
    :header-rows: 1
@@ -91,31 +100,31 @@ sums over a different dimension in each of its three products:
      - the batch
      - :math:`G` and :math:`x` along the batch
 
-So each tensor is quantized twice, along two axes: the weight for the forward
-and the input gradient, the input for the forward and the weight gradient,
-the output gradient for the two backward passes. With 1D blocks the two
-quantizations of a tensor differ -- the input gradient multiplies a weight
-the forward never saw. A square tile holds the same elements whichever axis
-is packed, so one packing serves both passes (:ref:`block-formats`, "2D
-tiles"); :doc:`/layers` has the recipe.
+Each tensor is therefore quantized twice, along two axes: the weight for the
+forward pass and the input gradient, the input for the forward pass and the
+weight gradient, and the output gradient for the two backward passes. With
+1D blocks the two quantizations of a tensor differ, so the input gradient
+multiplies a weight that the forward pass never saw. A square tile holds the
+same elements whichever axis is packed, so one packing serves both passes
+(:ref:`block-formats`, "2D tiles"). :doc:`/layers` has the recipe.
 
 Exact products, and OCP's order of summation
 --------------------------------------------
 
 Under an E8M0 scale a decoded value is an element times a power of two,
-:math:`\tilde a = e \cdot 2^X`, with at most 8 significant bits in the
-element. A product of two is then a product of significands of at most 16
-bits times a power of two, **exact in binary32** as long as it stays in
-binary32's normal range, and rounding commutes with a power-of-two scale in
-that range, :math:`Q(2^X y) = 2^X Q(y)`. Two things follow for the MX
-formats:
+:math:`\tilde a = e \cdot 2^X`, and the element has at most 8 significant
+bits. A product of two decoded values is then a product of two significands
+of at most 16 bits, times a power of two. It is **exact in binary32** as long
+as it stays in binary32's normal range. In that range rounding also commutes
+with a power-of-two scale: :math:`Q(2^X y) = 2^X Q(y)`. Two things follow for
+the MX formats:
 
-- the split step rounds nothing but the sum: :math:`\operatorname{fl}(\tilde
-  a \tilde b) = \tilde a \tilde b`, and a fused step is the same step;
-- the block product is OCP's two-level dot product exactly, once its terms are
-  summed in OCP's order. That order is the ``BLOCK`` accumulate algorithm with
-  ``block_size`` :math:`= \beta` and no ``outer`` format: a block's products
-  summed on their own, then added to the total,
+- The split step rounds only the sum, because :math:`\operatorname{fl}(\tilde
+  a \tilde b) = \tilde a \tilde b`. A fused step is the same step.
+- The block product is exactly OCP's two-level dot product, provided its
+  terms are summed in OCP's order. That order is the ``BLOCK`` accumulate
+  algorithm with ``block_size`` :math:`= \beta` and no ``outer`` format: a
+  block's products are summed on their own and then added to the total,
 
   .. math::
 
@@ -125,23 +134,23 @@ formats:
      \ \text{(rounded as the accumulator rounds)},
 
   with the outer sum in binary32. OCP leaves the precision of a block's
-  internal sum to the implementation; the accumulate format is where you
+  internal sum to the implementation, and the accumulate format is where you
   choose it. The default, ``NAIVE``, adds every product to one running total
-  across the blocks, which is another order and in general another result.
+  across the blocks. That is a different order and in general a different
+  result.
 
-The run below checks both on MXFP8 operands whose magnitudes change along
-:math:`K`, rebuilding OCP's sum from the codes, and then turns to the next
-section's question.
+The run below checks both points on MXFP8 operands whose magnitudes change
+along :math:`K`, by rebuilding OCP's sum from the codes. It then illustrates
+the next section.
 
 Tensor scales: in the loop or after it
 --------------------------------------
 
 A cast scale (NVFP4's E4M3, or a superfp) comes with a float32 scale per
-tensor, :math:`S_t`, and the block product can apply it in either of two
-places.
+tensor, :math:`S_t`. The block product can apply it in one of two places.
 
-**In the loop**, the default: the decode carries it. A block's scale is the
-scale format's value times the tensor scale,
+**In the loop** (the default). The decode includes it. A block's scale is
+the scale format's value times the tensor scale,
 :math:`\sigma^A = \operatorname{fl}(s^A S^A_t)` for :math:`A` and likewise
 for :math:`B`, so
 
@@ -149,12 +158,12 @@ for :math:`B`, so
 
    \tilde a_{ik} = \operatorname{fl}\big(e^A_{ik} \cdot \operatorname{fl}(s^A S^A_t)\big),
 
-a value of up to 24 significant bits. The decode and every product can round,
-and the accumulator sees the operands' own magnitudes.
+which is a value of up to 24 significant bits. The decode and every product
+can round, and the accumulator sees the operands' own magnitudes.
 
-**After it**, with ``tensor_scale_epilogue=True``, as NVIDIA's NVFP4 GEMMs do:
-the loop runs on the elements times their block scales alone, and the result
-is multiplied once by the product of the two tensor scales,
+**After it**, with ``tensor_scale_epilogue=True``, as NVIDIA's NVFP4 GEMMs
+do. The loop runs on the elements times their block scales alone, and the
+result is multiplied once by the product of the two tensor scales:
 
 .. math::
 
@@ -162,27 +171,29 @@ is multiplied once by the product of the two tensor scales,
    \alpha = \operatorname{fl}\big(S^A_t S^B_t\big), \qquad
    s_k = Q_{\text{acc}}\big(s_{k-1} + \operatorname{fl}(e^A s^A \, e^B s^B)\big).
 
-Here :math:`s_k` is the running sum, as everywhere, and :math:`s^A` and
-:math:`s^B` are the scale formats' values of the two elements' blocks. With
-E2M1 elements and E4M3 scales, an element times its block's scale,
-:math:`e^A s^A`, has at most six significant bits and a product of two at
-most twelve, so the loop rounds only the sum. The
-two options are the same product in exact arithmetic, and with power-of-two
-tensor scales and a binary32 sum the same bits, since every value then
-differs by a power of two, which commutes with each rounding in binary32's
-normal range. Otherwise they differ in three ways:
+Here :math:`s_k` is the running sum, and :math:`s^A` and :math:`s^B` are the
+scale formats' values for the two elements' blocks. With E2M1 elements and
+E4M3 scales, an element times its block's scale, :math:`e^A s^A`, has at most
+six significant bits, and a product of two at most twelve. The loop
+therefore rounds only the sum.
 
-- **Accuracy.** With a binary32 sum, the epilogue rounds less: in the run it
+In exact arithmetic the two options give the same product. They also give
+the same bits when the tensor scales are powers of two and the sum is in
+binary32: every value then differs by a power of two, which commutes with
+each rounding in binary32's normal range. Otherwise they differ in three
+ways:
+
+- **Accuracy.** With a binary32 sum the epilogue rounds less. In the run it
   is two to three times closer to the exact product.
-- **Range.** In the epilogue the accumulator sums values the tensor scales
-  have not yet shrunk. Under NVFP4's default :math:`S_t = \max|x| / (6 \cdot
-  448)` a tensor's largest element decodes to :math:`6 \cdot 448 = 2688`
-  whatever the tensor's own magnitude, and a product of two to about
-  :math:`7 \cdot 10^6`, so a narrow accumulate format can overflow where the
-  in-loop product does not, as the run's last lines show. NVIDIA's GEMMs
-  accumulate in FP32.
-- **The result's values.** The epilogue's result is :math:`\alpha s_K` rounded
-  to binary32, not a value of the accumulate format.
+- **Range.** In the epilogue the accumulator sums values that the tensor
+  scales have not yet shrunk. Under NVFP4's default
+  :math:`S_t = \max|x| / (6 \cdot 448)`, a tensor's largest element decodes
+  to :math:`6 \cdot 448 = 2688` whatever the tensor's own magnitude, and a
+  product of two such elements to about :math:`7 \cdot 10^6`. A narrow
+  accumulate format can therefore overflow where the in-loop product does
+  not, as the run's last lines show. NVIDIA's GEMMs accumulate in FP32.
+- **The result's values.** The epilogue's result is :math:`\alpha s_K`
+  rounded to binary32. It is not a value of the accumulate format.
 
 An E8M0 format has no tensor scale, and the option changes nothing there.
 
@@ -197,23 +208,31 @@ An E8M0 format has no tensor scale, and the option changes nothing there.
 How the kernel decodes
 ----------------------
 
-Each thread block fills two tables per operand when it starts, from the
+When it starts, each thread block fills two tables per operand from the
 operand's format: the values of its 256 element codes and of its 256 scale
-codes, the latter with the tensor scale folded in unless it is applied after
-the loop. A tile load is then two table reads, one binary32 product and a
-test that keeps a zero unsigned. The tables are why the block product takes
-element codes of at most 8 bits -- every OCP and NVFP4 format, and every
-superfp element up to a byte -- where the elementwise block operations take up
-to 16: an arithmetic decode compiled in for wider codes took the kernels from
-30-38 registers to 48-80. An operand packed along its other dimension is read
-transposed, at the cost of a select in the load, and under stochastic
-rounding each output element draws as in every product of the routine.
+codes. The scale table has the tensor scale folded in, unless that scale is
+applied after the loop. A tile load is then two table reads, one binary32
+product, and a test that keeps a zero unsigned.
 
-The decode costs little next to the arithmetic. At :math:`1024^3` on an RTX
-4060 laptop GPU the block product takes 1.15 to 1.18 times the time of the
-flat product on the decoded float32 operands with a fused mac under
-round-to-nearest (the cheapest arithmetic, where the decode shows most), 1.05
-to 1.08 times under stochastic rounding, and less than half with a split mac,
-whose flat counterpart pays for a multiply rounding the block product does not
-have (``dev/benchmarks/benchmark_block.py``). The kernels compute in binary32
-on the CPU and CUDA; a float64 operand and an Apple GPU tensor raise.
+Because of the tables, the block product takes element codes of at most 8
+bits. That covers every OCP and NVFP4 format and every superfp element up to
+a byte. The elementwise block operations take up to 16 bits. An arithmetic
+decode compiled in for wider codes took the kernels from 30-38 registers to
+48-80, so it was left out.
+
+An operand packed along its other dimension is read transposed, which costs
+one select in the load. Under stochastic rounding each output element draws
+as in every product of the routine.
+
+The decode costs little compared with the arithmetic. At :math:`1024^3` on
+an RTX 4060 laptop GPU, the block product was compared with the flat product
+on the decoded float32 operands (``dev/benchmarks/benchmark_block.py``):
+
+- with a fused mac under round-to-nearest, the cheapest arithmetic and so
+  the one where the decode shows most, it takes 1.15 to 1.18 times as long;
+- with a fused mac under stochastic rounding, 1.05 to 1.08 times;
+- with a split mac, less than half as long, because the flat product also
+  rounds every product to a multiply format and the block product does not.
+
+The kernels compute in binary32 on the CPU and CUDA. A float64 operand and
+an Apple GPU tensor raise.

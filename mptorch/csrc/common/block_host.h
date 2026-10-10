@@ -137,11 +137,16 @@ namespace mptorch::block
     TORCH_CHECK(kind >= 0 && kind <= 2, op, ": scale kind must be 0 (none), 1 (power of two) or 2 "
                                             "(minifloat), got ", kind);
     const int64_t rule = at(BlockFmtField::SCALE_ROUNDING);
-    TORCH_CHECK(rule >= 0 && rule <= 3 &&
+    TORCH_CHECK(rule >= 0 && rule <= 6 &&
                     (rule != static_cast<int64_t>(ScaleRounding::OCP) ||
                      kind != static_cast<int64_t>(ScaleKind::MINIFLOAT)),
-                op, ": scale_rounding must be 0 (OCP, a power-of-two scale only), 1 (nearest), 2 (up) "
-                    "or 3 (selective), got ", rule, " for scale kind ", kind);
+                op, ": scale_rounding must be 0 (OCP, a power-of-two scale only), 1 (nearest), 2 (up), "
+                    "3 (selective) or 4 to 6 (Four Over Six), got ", rule, " for scale kind ", kind);
+    TORCH_CHECK(!is_four_over_six(static_cast<int32_t>(rule)) ||
+                    (kind == static_cast<int64_t>(ScaleKind::MINIFLOAT) && br == 1),
+                op, ": a Four Over Six scale_rounding (4 to 6) takes a cast scale, which can hold the "
+                    "factor between its two candidates, and 1D blocks (block_rows = 1) so far, got "
+                    "scale kind ", kind, " and block_rows=", br);
     if (kind == static_cast<int64_t>(ScaleKind::POW2))
     {
       // the pack multiplies by the reciprocal, 2^-X, which is a binary32

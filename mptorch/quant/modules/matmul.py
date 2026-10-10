@@ -157,11 +157,12 @@ class CustomArithMatmul(torch.autograd.Function):
 class QMatmul(torch.nn.Module):
     """``torch.matmul`` with the arithmetic of one :class:`QMatmulFormats`.
 
-    The module form of :func:`mptorch.quant.qmatmul`, for the same reason
-    ``QLinear`` is a module: a ``QMatmulFormats`` is an ``nn.Module``, so a
-    quantizer that carries state (a QAT observer) is registered in the parent
-    model's ``state_dict`` when the matmul is held as a submodule. Two of
-    these are what a quantized attention block calls per head.
+    This is the module form of :func:`mptorch.quant.qmatmul`. Like
+    ``QLinear``, it is a module because its formats are one: a
+    ``QMatmulFormats`` is an ``nn.Module``, so a quantizer that carries state
+    (a QAT observer) is registered in the parent model's ``state_dict`` when
+    the matmul is held as a submodule. A quantized attention block calls two
+    of these per head.
 
     Args:
         formats (None or Number or SplitMac or FusedMac or QMatmulFormats):

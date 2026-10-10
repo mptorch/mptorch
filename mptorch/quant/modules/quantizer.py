@@ -49,19 +49,20 @@ class _StraightThrough(torch.autograd.Function):
 class Quantizer(nn.Module):
     """Quantize in the forward pass, quantize (or pass through) in the backward.
 
-    The module form of the straight-through estimator: the output is
-    ``forward_quant(x)`` and the gradient reaching ``x`` is
-    ``backward_quant(grad)``, with each direction left alone when its
-    quantizer is ``None``. Being an ``nn.Module``, it sits in any ``*_quant``
-    slot of a ``QAffineFormats`` / ``QMatmulFormats`` and is registered with
-    the parent model, which matters as soon as the quantizer carries state of
-    its own.
+    This is the module form of the straight-through estimator. The output is
+    ``forward_quant(x)``, and the gradient that reaches ``x`` is
+    ``backward_quant(grad)``. A direction whose quantizer is ``None`` is left
+    alone. Because it is an ``nn.Module``, it can sit in any ``*_quant`` slot
+    of a ``QAffineFormats`` or ``QMatmulFormats`` and is registered with the
+    parent model. That matters as soon as the quantizer carries state of its
+    own.
 
     Args:
-        forward_quant (Number or Callable, optional): the forward's quantizer.
-            A format is wrapped in a :class:`mptorch.quant.Quant` with
-            round-to-nearest-even; any ``Tensor -> Tensor`` callable is used
-            as is; ``None`` leaves the forward alone. Default: ``None``
+        forward_quant (Number or Callable, optional): the forward pass's
+            quantizer. A format is wrapped in a :class:`mptorch.quant.Quant`
+            with round-to-nearest-even. Any ``Tensor -> Tensor`` callable is
+            used as it is. ``None`` leaves the forward pass alone. Default:
+            ``None``
         backward_quant (Number or Callable, optional): the backward's
             quantizer, in the same forms. Default: ``None``
 

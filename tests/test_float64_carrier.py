@@ -30,13 +30,16 @@ code with the kernels.
 The last section covers the narrower tensor. ``carrier=torch.float64`` widens
 the operands in Python, runs the binary64 kernel and narrows each result back
 to their dtype with one rounding, through the ``narrow_float64`` op. The op
-exists because torch's own float64 to float16 or bfloat16 ``.to()`` goes
-through float32 and so rounds twice: 65519.999999 becomes float16 infinity
-where one rounding gives 65504. The op rounds by integer arithmetic on the
-float64 word (``csrc/common/narrow_binary64.h``), and is held to three
-references that share no code with it: exact rounding in ``Fraction`` at every
-tie plus or minus a hair, a spelling in torch arithmetic over every float64
-exponent field, and for float32 the hardware conversion. A float32 layer naming
+exists because torch's own float64 to bfloat16 ``.to()`` goes through float32
+and so rounds twice: ``1 + 2**-8 + 2**-30`` becomes 1.0 where one rounding
+gives ``1 + 2**-7``. Its float64 to float16 ``.to()`` does the same on some
+platforms (65519.999999 becomes float16 infinity where one rounding gives
+65504) and not on others: an arm64 CPU converts in one step. The op rounds
+by integer arithmetic on the float64 word
+(``csrc/common/narrow_binary64.h``), and is held to three references that
+share no code with it: exact rounding in ``Fraction`` at every tie plus or
+minus a hair, a spelling in torch arithmetic over every float64 exponent
+field, and for float32 the hardware conversion. A float32 layer naming
 binary64 is then held to the float64 layer it widens to.
 """
 
@@ -424,9 +427,11 @@ def test_narrowing_a_binary64_result_rounds_once(device, dtype):
     """``_narrowed`` rounds a float64 onto float16 or bfloat16 once, correctly.
 
     Held to the ``Fraction`` reference at every hard point, as is the torch
-    spelling that the next test uses as its reference. torch's ``.to()``, which
-    goes through float32, fails the same comparison, so the inputs do
-    discriminate."""
+    spelling that the next test uses as its reference. A conversion in two
+    steps, through float32, fails the same comparison on finite inputs, so
+    the inputs do discriminate. The two steps are spelled out here, because
+    whether torch's own ``.to()`` takes them depends on the dtype and the
+    platform (always for bfloat16; for float16 not on an arm64 CPU)."""
     from mptorch.quant.ops import _narrowed
 
     x = _hard_cases(dtype, 4096, torch.Generator().manual_seed(21))
@@ -436,7 +441,10 @@ def test_narrowing_a_binary64_result_rounds_once(device, dtype):
     same = _same_words(got, want)
     assert bool(same.all()), x[~same][:4].tolist()
     assert bool(_same_words(_narrowed_by_torch(x.to(device), dtype).cpu(), want).all())
-    assert not torch.equal(x.to(dtype), want)
+    two_steps = x.float().to(dtype)
+    assert bool((~_same_words(two_steps, want) & torch.isfinite(x)).any())
+    if dtype is torch.bfloat16:
+        assert bool((~_same_words(x.to(dtype), want) & torch.isfinite(x)).any())
 
 
 @pytest.mark.parametrize("device", float64_devices)

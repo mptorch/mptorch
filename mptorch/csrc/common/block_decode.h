@@ -125,13 +125,33 @@ namespace mptorch::block
   //
   // Every rule is then clamped to the scale's codes. The rule does not depend
   // on the elements' rounding mode.
+  //
+  // The three FOUR_OVER_SIX rules (Cook et al., arXiv:2512.02010) are of
+  // another kind: they read the tile's elements, not only its amax. A tile
+  // has two candidate scales, NEAREST's, which takes amax onto elem_max (6
+  // for E2M1), and the nearest scale to r * elem_max / 2^emax, which takes it
+  // onto elem_max's power of two (4). The tile is quantized under both, in
+  // the call's rounding mode, and takes the second scale if its error is
+  // strictly the smaller: the sum of squared errors (MSE), the sum of
+  // absolute errors (MAE) or the largest absolute error (ABS_MAX), over the
+  // tile's elements, of the decoded value against the input (four_over_six_
+  // low, candidate_error_units). A MINIFLOAT scale only: a power of two
+  // cannot hold the factor between the candidates. 1D blocks only so far.
   enum class ScaleRounding : int
   {
     OCP = 0,
     NEAREST = 1,
     UP = 2,
     SELECTIVE = 3,
+    FOUR_OVER_SIX_MSE = 4,
+    FOUR_OVER_SIX_MAE = 5,
+    FOUR_OVER_SIX_ABS_MAX = 6,
   };
+
+  CUDA_HOST_DEVICE_INLINE bool is_four_over_six(int32_t rule)
+  {
+    return rule >= static_cast<int32_t>(ScaleRounding::FOUR_OVER_SIX_MSE);
+  }
 
   // What `elem_nan_code` and `elem_inf_code` hold for a format without one.
   constexpr MPTORCH_CONSTANT uint32_t NO_CODE = 0xFFFFFFFFu;
@@ -749,6 +769,108 @@ namespace mptorch::block
     const uint32_t code = encode_minifloat(block_float<T>(mag), p.elem_man_bits, p.elem_bias, p.elem_extended,
                                            p.elem_super_codes, p.elem_super_cutoff);
     return (w & F::SIGN_MASK) != 0 && code != 0 ? (code | p.elem_sign_bit) : code;
+  }
+
+  // --- Four Over Six --------------------------------------------------------
+
+  // Four Over Six's second candidate for a tile whose first, `six`, is
+  // tile_scale's (NEAREST's): the scale nearest to amax / (2^emax * S_t),
+  // under which the tile's largest element lands on elem_max's power of two.
+  // The ratio is the first candidate's times elem_max's significand (1.5 for
+  // E2M1), as the reference implementation forms it. The two are the same
+  // scale where the scale format clamps both, where it cannot tell them
+  // apart, or where elem_max is a power of two; a caller compares the codes
+  // and skips the error pass then.
+  template <class T>
+  CUDA_HOST_DEVICE_INLINE TileScale<T> four_over_six_low(T amax, const MPTORCH_THREAD TileScale<T> &six,
+                                                         const MPTORCH_THREAD BlockFormatParams &p,
+                                                         const MPTORCH_THREAD BlockCastT<T> &c)
+  {
+    using F = FloatTraits<T>;
+    TileScale<T> s = six;
+    if (six.nan_block || p.scale_kind != static_cast<int32_t>(ScaleKind::MINIFLOAT))
+      return s;
+    const T ts = static_cast<T>(p.tensor_scale);
+    const T ratio = amax / F::rn_mul(static_cast<T>(p.elem_max), ts);
+    const T sv = cast_scale(F::rn_mul(ratio, c.max_sig), false, p, c);
+    s.code = encode_minifloat(sv, p.scale_man_bits, p.scale_bias, p.scale_extended, p.scale_super_codes,
+                              p.scale_super_cutoff);
+    s.factor = F::rn_mul(sv, ts);
+    return s;
+  }
+
+  // An element's error is counted in fixed point, in units of 2^(amax_exp -
+  // ERROR_UNIT_BITS) with amax_exp = floor(log2(amax)), truncated, and at
+  // most ERROR_UNITS_MAX (an error of 2^(amax_exp + 2), over twice amax). A
+  // tile's largest magnitude is thus 2^22 to 2^23 units. Integers because a
+  // tile's error is then exact, so the same whatever order its elements are
+  // added in: a CPU loop, a warp's shuffles, either orientation of a square
+  // tile. A float sum would let two backends choose differently at a near
+  // tie. A squared error is at most 2^48, and a tile has at most 2^14
+  // elements, so a sum fits 64 bits.
+  constexpr MPTORCH_CONSTANT int ERROR_UNIT_BITS = 22;
+  constexpr MPTORCH_CONSTANT uint32_t ERROR_UNITS_MAX = 1u << 24;
+
+  // |err| in those units, on the word: err = sig * 2^(E - MAN_BITS) with sig
+  // its significand as an integer, shifted right by what is left.
+  template <class T>
+  CUDA_HOST_DEVICE_INLINE uint32_t block_error_units(T err, int amax_exp)
+  {
+    using F = FloatTraits<T>;
+    using W = typename F::word_t;
+    const W w = block_word(err) & F::ABS_MASK;
+    if (w == 0)
+      return 0u;
+    if (w >= F::INF_BITS)
+      return ERROR_UNITS_MAX;
+    const int E = block_floor_log2(err);
+    if (E - amax_exp >= 2)
+      return ERROR_UNITS_MAX;
+    const W sig = (w >> F::MAN_BITS) == 0 ? w << (F::MAN_BITS - block_leading_bit(w))
+                                          : (w & F::MAN_MASK) | (W(1) << F::MAN_BITS);
+    const int rs = F::MAN_BITS - ERROR_UNIT_BITS + amax_exp - E;
+    return rs > F::MAN_BITS ? 0u : static_cast<uint32_t>(sig >> rs);
+  }
+
+  // One element's error under a candidate scale: what block_unpack would
+  // return for the code the pack would write, against the input. The cast is
+  // the encode pass's own, in the call's rounding mode and with the
+  // element's own random word, so the candidate judged is the candidate
+  // written; `code` is that code, for a caller that keeps it instead of
+  // casting again. A NaN counts for nothing under either candidate.
+  template <class T, RoundMode RM>
+  CUDA_HOST_DEVICE_INLINE uint32_t candidate_error_units(T v, const MPTORCH_THREAD TileScale<T> &s,
+                                                         int amax_exp, bool is_signed,
+                                                         typename FloatTraits<T>::word_t rbits,
+                                                         const MPTORCH_THREAD BlockFormatParams &p,
+                                                         const MPTORCH_THREAD BlockCastT<T> &c,
+                                                         MPTORCH_THREAD uint32_t &code)
+  {
+    using F = FloatTraits<T>;
+    const bool nan = block_isnan(v);
+    const T q = nan ? T(0) : block_cast<T, RM>(scaled_elem(v, s, p), is_signed, rbits, c);
+    code = encode_elem(v, q, p);
+    if (nan)
+      return 0u;
+    return block_error_units(F::rn_sub(decode_value<T>(code, s.code, p), v), amax_exp);
+  }
+
+  // A tile's error so far with one more element's, and two partial errors
+  // merged, by the rule's measure.
+  CUDA_HOST_DEVICE_INLINE uint64_t add_block_error(uint64_t acc, uint32_t units, int32_t rule)
+  {
+    if (rule == static_cast<int32_t>(ScaleRounding::FOUR_OVER_SIX_MSE))
+      return acc + static_cast<uint64_t>(units) * units;
+    if (rule == static_cast<int32_t>(ScaleRounding::FOUR_OVER_SIX_MAE))
+      return acc + units;
+    return units > acc ? units : acc;
+  }
+
+  CUDA_HOST_DEVICE_INLINE uint64_t merge_block_error(uint64_t a, uint64_t b, int32_t rule)
+  {
+    if (rule == static_cast<int32_t>(ScaleRounding::FOUR_OVER_SIX_ABS_MAX))
+      return a > b ? a : b;
+    return a + b;
   }
 
   // --- building the parameters ------------------------------------------------

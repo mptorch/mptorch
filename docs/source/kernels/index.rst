@@ -2,22 +2,26 @@ Quantized numerical kernels
 ===========================
 
 A quantizer rounds the *operands* of a computation. A matrix product has
-another place rounding can happen: inside, at every step of every dot
-product. A tensor core that takes 8-bit inputs and keeps a 32-bit running
-sum, an accumulator that keeps only 14 bits, a fused multiply-add that rounds
-once per step -- these are different arithmetics, they give different
-results on the same operands, and simulating them is what MPTorch's kernels
-are for.
+another place where rounding can happen: inside, at every step of every dot
+product. Consider a tensor core that takes 8-bit inputs and keeps a 32-bit
+running sum, an accumulator that keeps only 14 bits, and a fused multiply-add
+that rounds once per step. These are different arithmetics, and they give
+different results on the same operands. MPTorch's kernels simulate them.
 
-Every such computation -- a matrix product, the three products of a linear
-layer, the three passes of a convolution, a product of two tensors in a block
-format -- runs on **one routine**: a batched matrix product in which every
-dot product is computed in the arithmetic you choose. This page describes
-that routine. The pages under it take each part and each operation in turn --
-what a step of a dot product rounds and in what order the terms are summed;
-products of block-format tensors, and where their scales enter the sum; a
-convolution and its two gradients as matrix products whose matrices are
-never built; and the functions, objects and modules that run them:
+Every such computation runs on **one routine**: a batched matrix product in
+which every dot product is computed in the arithmetic you choose. This holds
+for a matrix product, the three products of a linear layer, the three passes
+of a convolution, and a product of two tensors in a block format. This page
+describes that routine. The pages under it cover each part and each
+operation:
+
+- :doc:`arithmetic`: what a step of a dot product rounds, and in what order
+  the terms are summed;
+- :doc:`block`: products of block-format tensors, and where their scales
+  enter the sum;
+- :doc:`convolutions`: a convolution and its two gradients as matrix products
+  whose matrices are never built;
+- :doc:`calling`: the functions, objects and modules that run them.
 
 .. toctree::
    :maxdepth: 1
@@ -49,41 +53,46 @@ length :math:`K`, computed as a running sum in a fixed order:
    \quad (k = 1, \dots, K), \qquad
    c_{\beta i j} = s_K .
 
-Four things vary, and nothing else does.
+Only four things vary.
 
 **How the operands are read.** The kernel reaches :math:`A` and :math:`B`
-only through its tile loads. A dense operand is read through its strides, so
-a transposed operand is a flag and a broadcast one a stride of zero; a
-convolution's operands are gathered from the convolution's own tensors, with
-zeros for the padding (:doc:`convolutions`); a block-format operand is decoded
-from its codes and scales (:doc:`block`). Whatever the load, it hands the
-step the value an explicit matrix would hold at that place.
+only through its tile loads:
 
-**What a step rounds.** A *mac* names it: the product rounded to one format
-and the sum to another (``SplitMac``), or one fused multiply-add rounded once
-(``FusedMac``). Whatever the formats leave unrounded is computed in the
+- A dense operand is read through its strides. A transposed operand is then
+  just a flag, and a broadcast one a stride of zero.
+- A convolution's operands are gathered from the convolution's own tensors,
+  with zeros for the padding (:doc:`convolutions`).
+- A block-format operand is decoded from its codes and scales (:doc:`block`).
+
+Whatever the load, it gives the step the value an explicit matrix would hold
+at that position.
+
+**What a step rounds.** A *mac* specifies it. A ``SplitMac`` rounds the
+product to one format and the sum to another. A ``FusedMac`` rounds one fused
+multiply-add once. Anything the formats leave unrounded is computed in the
 operands' carrier, binary32 or binary64 (:doc:`/concepts`, "Carriers").
 
-**In what order the terms are folded.** One running sum (``NAIVE``), Kahan's
-compensated sum, or two-level sums over blocks or pairwise trees
-(:doc:`arithmetic`). A rounded sum depends on its order, so the order is part
-of the definition, and it is the same on every device.
+**In what order the terms are summed.** The choices are one running sum
+(``NAIVE``), Kahan's compensated sum, and two-level sums over blocks or
+pairwise trees (:doc:`arithmetic`). A rounded sum depends on its order, so
+the order is part of the definition, and it is the same on every device.
 
-**What each output element owns.** A palette gives each element its own
-format through an index map (:doc:`arithmetic`), and under stochastic rounding
-each element draws from a random stream of its own, keyed on its index
+**What each output element has of its own.** A palette gives each element its
+own format through an index map (:doc:`arithmetic`). Under stochastic
+rounding each element draws from its own random stream, keyed on its index
 :math:`(\beta, i, j)` into the result, from one seed per call. A result
-therefore depends neither on how the work is tiled or threaded nor on the
-device: the CPU and CUDA kernels return the same bits in every deterministic
-mode, and an Apple GPU returns the CPU's, stochastic rounding included, up to
-the GPU's own float unit between the roundings (:ref:`apple-gpu`).
+therefore does not depend on how the work is tiled or threaded, or on the
+device. The CPU and CUDA kernels return the same bits in every deterministic
+mode. An Apple GPU returns the CPU's bits, stochastic rounding included,
+except for what the GPU's own float unit does between the roundings
+(:ref:`apple-gpu`).
 
-The kernel stages a :math:`16 \times 16` tile of each operand per step of its
-K-loop -- in shared or threadgroup memory on a GPU, per task on the CPU --
+For each step of its K-loop the kernel stages a :math:`16 \times 16` tile of
+each operand (in shared or threadgroup memory on a GPU, per task on the CPU)
 and runs the step over the tile. The operations below differ only in their
-tile loads, which is how one routine serves them all without slowing any of
-them: each is bit for bit the routine over the explicit matrices it
-describes. What each entry point runs:
+tile loads. That is how one routine serves them all without slowing any of
+them: each is bit for bit the routine applied to the explicit matrices it
+describes. Each entry point runs the following:
 
 .. list-table::
    :header-rows: 1
@@ -109,11 +118,13 @@ describes. What each entry point runs:
        sums over
      - decoded from codes and scales
 
-The run below checks it four times: one mac, and four entry points against
-the routine on explicit matrices -- a batched product slice by slice, a
-linear layer's three products, a convolution against the product of its
-unfolded input, and a block product against the product of its decoded
-operands.
+The run below checks this with one mac and four entry points, each against
+the routine on explicit matrices:
+
+- a batched product, slice by slice;
+- a linear layer's three products;
+- a convolution, against the product of its unfolded input;
+- a block product, against the product of its decoded operands.
 
 .. literalinclude:: ../../snippets/kernels_core.py
    :language: python

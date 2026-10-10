@@ -70,8 +70,8 @@ def _formats_for(spelling: "Number | Mac | BlockMac", prec_idx: Any = None) -> Q
 def as_matmul_formats(formats: Any, prec_idx: torch.Tensor | None = None) -> QMatmulFormats:
     """Normalize whatever a caller passed as ``formats`` to a ``QMatmulFormats``.
 
-    This is the one place the four spellings the module docstring lists are
-    told apart, so :func:`qmatmul` and :class:`mptorch.quant.QMatmul` accept
+    The four spellings listed in the module docstring are told apart here and
+    nowhere else, so :func:`qmatmul` and :class:`mptorch.quant.QMatmul` accept
     exactly the same values.
 
     Args:
@@ -118,34 +118,40 @@ def qmatmul(
 ) -> torch.Tensor:
     """``torch.matmul``'s contract, computed in the arithmetic ``formats`` names.
 
-    Accepts everything ``torch.matmul`` accepts (1D promotion on either
-    operand, leading dimensions of any rank broadcast against each other) and
-    is differentiable in both operands, with the gradient of each computed in
-    the arithmetic its own hook names. float64 operands are computed in
-    binary64, and the rest in binary32 unless a mac's ``carrier`` asks for
-    binary64; either way each pass holds the formats to its carrier and warns
-    (:class:`mptorch.FormatRangeWarning`) about what it cannot hold.
+    It accepts everything ``torch.matmul`` accepts: 1D promotion on either
+    operand, and leading dimensions of any rank broadcast against each other.
+    It is differentiable in both operands, and each gradient is computed in
+    the arithmetic of its own hook. Float64 operands are computed in
+    binary64. The others are computed in binary32, unless a mac's ``carrier``
+    asks for binary64. In both cases each pass checks the formats against its
+    carrier and warns (:class:`mptorch.FormatRangeWarning`) about what the
+    carrier cannot hold.
 
-    Two shapes cost no copy: an operand that is the transpose of a contiguous
-    tensor (``q @ k.mT``) sets the kernel's transpose flag instead of being
-    materialized, and ``[..., M, K] @ [K, N]`` folds its batch into ``M`` for
-    one large GEMM rather than a batch of small ones. Both are bit-identical
-    to the batched spelling, stochastic rounding included, because each
-    output element's random stream is keyed on its index into the output.
+    Two shapes need no copy:
+
+    * An operand that is the transpose of a contiguous tensor (``q @ k.mT``)
+      sets the kernel's transpose flag and is not materialized.
+    * ``[..., M, K] @ [K, N]`` folds its batch into ``M``, giving one large
+      GEMM instead of a batch of small ones.
+
+    Both are bit-identical to the batched spelling, stochastic rounding
+    included, because each output element's random stream is keyed on its
+    index into the output.
 
     Args:
         a (Tensor): the left operand, 1D or higher.
         b (Tensor): the right operand, 1D or higher, of the same dtype.
         formats (None or Number or SplitMac or FusedMac or QMatmulFormats):
-            the arithmetic; see the module docstring for what each spelling
+            the arithmetic. The module docstring says what each spelling
             means. Default: ``None`` (plain ``torch.matmul``)
-        prec_idx (Tensor, optional): required by, and only by, a palette
-            format: an integer map of the forward's output shape (``[M, N]``,
-            ``[M, 1]`` or ``[1, N]``, optionally batched) selecting a palette
-            entry per output element. It is the *forward's* map; a palette
-            that also has to differentiate needs one map per pass, which is
-            what :func:`mptorch.quant.matmul_formats`' ``agrad_prec_idx`` and
-            ``bgrad_prec_idx`` are for. Default: ``None``
+        prec_idx (Tensor, optional): an integer map of the forward pass's
+            output shape (``[M, N]``, ``[M, 1]`` or ``[1, N]``, optionally
+            batched) that selects a palette entry per output element. It is
+            required by a palette format and by nothing else. It is the
+            *forward's* map. A palette that also has to differentiate needs
+            one map per pass; use the ``agrad_prec_idx`` and
+            ``bgrad_prec_idx`` arguments of
+            :func:`mptorch.quant.matmul_formats` for those. Default: ``None``
 
     Returns:
         Tensor: ``a @ b`` in the operands' dtype, with ``torch.matmul``'s
@@ -213,8 +219,8 @@ def qbmm(
 ) -> torch.Tensor:
     """:func:`qmatmul` restricted to two batches of matrices, as ``torch.bmm`` is.
 
-    No broadcasting: both batch dimensions must be equal, which is the check
-    ``torch.bmm`` makes and ``qmatmul`` does not.
+    There is no broadcasting: both batch dimensions must be equal.
+    ``torch.bmm`` makes this check and ``qmatmul`` does not.
 
     Args:
         a (Tensor): a ``[B, M, K]`` batch of matrices.

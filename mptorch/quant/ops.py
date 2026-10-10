@@ -144,13 +144,17 @@ def _call_carrier(carrier: torch.dtype | None, dtype: torch.dtype) -> tuple[bool
 def _narrowed(x: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     """A float64 result stored in ``dtype``, rounded to nearest-even once.
 
-    float64 to float32 is a single conversion and ``.float()`` is it. To
-    float16 and bfloat16 torch converts through float32, which rounds twice:
-    a value a hair above a tie on the narrow grid first lands on the tie and
-    then goes to even, so 65519.999999 comes back as float16 infinity where a
-    single rounding gives 65504. The ``narrow_float64`` op rounds the float64
-    word onto the dtype's grid directly, by integer arithmetic on its bits
-    (``csrc/common/narrow_binary64.h``), at about the cost of ``.to()``.
+    float64 to float32 is a single conversion, and ``.float()`` does it. To
+    bfloat16, torch converts through float32, which rounds twice: a value a
+    hair above a tie on the narrow grid first lands on the tie and then goes
+    to even. ``1 + 2**-8 + 2**-30`` comes back as bfloat16 1.0, where a single
+    rounding gives ``1 + 2**-7``. On some platforms torch converts to float16
+    the same way, and 65519.999999 then comes back as float16 infinity instead
+    of 65504; an arm64 CPU converts float64 to float16 in one step, correctly.
+    The ``narrow_float64`` op rounds the float64 word onto the dtype's grid
+    directly, by integer arithmetic on its bits
+    (``csrc/common/narrow_binary64.h``), at about the cost of ``.to()``. It
+    gives the single rounding on every platform.
     """
     if dtype is torch.float32:
         return x.float()
@@ -1035,34 +1039,38 @@ def binaryK_quantize(
 
     binaryK is the parameterized family of IEEE P3109, the draft Standard for
     Arithmetic Formats for Machine Learning (see :class:`mptorch.BinaryK`). A
-    format has ``K`` bits in total, ``P`` of them precision (``P - 1`` stored
-    mantissa bits plus the implicit one), and ``K - P`` exponent bits
-    (``K - P + 1`` when ``is_signed`` is false, since there is no sign bit).
-    Pass ``bias`` explicitly for a format outside P3109: the layouts of the OCP
-    8-bit formats are ``K=8, P=4, bias=7`` (E4M3) and ``K=8, P=3, bias=15``
-    (E5M2).
+    format has ``K`` bits in total. ``P`` of them are precision (``P - 1``
+    stored mantissa bits plus the implicit one), and ``K - P`` are exponent
+    bits (``K - P + 1`` when ``is_signed`` is false, because there is no sign
+    bit). Pass ``bias`` explicitly for a format outside P3109. The layouts of
+    the OCP 8-bit formats are ``K=8, P=4, bias=7`` (E4M3) and
+    ``K=8, P=3, bias=15`` (E5M2).
 
     The rounding happens in a *carrier*, the binary format the arithmetic
-    runs in: binary64 for a float64 ``x``, and binary32 for float32, float16
-    and bfloat16, on their float32 value. The format is held to what that
-    carrier can hold on every call, at most 24 bits of precision and seven
-    exponent bits in binary32, 53 and ten in binary64 (see :doc:`/concepts`),
-    and the random bits of ``RoundMode.SR`` are drawn in the carrier too, so
-    ``P - 1 + prng_bits`` is held to its 23 or 52 mantissa bits. A result
-    narrower than its carrier (float16 or bfloat16, or float32 under binary64)
-    is rounded a second time when it is stored, so the format is held against
-    that dtype as well; the inputs are already its values, so only a result
-    at an edge of the format's range can land off its grid, and that warns.
-    NaN inputs pass through, and so do infinities except under
-    ``SaturationMode.SAT_FINITE`` and ``SAT_FINITE_EXTENDED`` (P3109's
-    ``SatFinite`` in its two domains), which clamp them to the largest
-    finite value.
+    runs in. It is binary64 for a float64 ``x``. For float32, float16 and
+    bfloat16 it is binary32, applied to their float32 value. Every call
+    checks the format against what its carrier can hold: at most 24 bits of
+    precision and seven exponent bits in binary32, and 53 and ten in binary64
+    (see :doc:`/concepts`). The random bits of ``RoundMode.SR`` are drawn in
+    the carrier too, so ``P - 1 + prng_bits`` is limited to its 23 or 52
+    mantissa bits.
 
-    Not differentiable: rounding to a coarse grid has a zero derivative almost
-    everywhere, so on a tensor that requires grad under grad mode this raises
-    and points at :class:`mptorch.quant.Quantizer`, the straight-through
-    estimator. See :class:`mptorch.quant.Quant` for the format-object
-    spelling of the same call.
+    A result narrower than its carrier (float16 or bfloat16, or float32 under
+    binary64) is rounded a second time when it is stored, so the format is
+    also checked against that dtype. The inputs are already values of the
+    dtype, so only a result at an edge of the format's range can land off its
+    grid, and that case warns.
+
+    NaN inputs pass through. So do infinities, except under
+    ``SaturationMode.SAT_FINITE`` and ``SAT_FINITE_EXTENDED`` (P3109's
+    ``SatFinite`` in its two domains), which clamp them to the largest finite
+    value.
+
+    The function is not differentiable: rounding to a coarse grid has a zero
+    derivative almost everywhere. On a tensor that requires grad under grad
+    mode it raises and points at :class:`mptorch.quant.Quantizer`, the
+    straight-through estimator. :class:`mptorch.quant.Quant` is the
+    format-object spelling of the same call.
 
     Args:
         x (Tensor): the tensor to round; float32, float64, float16 or
@@ -1083,9 +1091,9 @@ def binaryK_quantize(
         subnormals_mode (SubnormalsMode): how the bottom of the range is
             filled in. Default: ``SubnormalsMode.SUBNORMALS``
         carrier (torch.dtype, optional): ``torch.float64`` rounds any ``x`` in
-            binary64, widening a narrower one first and narrowing the result
-            back to its dtype with one rounding. ``torch.float32`` names
-            binary32, which a float64 ``x`` refuses, since the carrier is
+            binary64. A narrower ``x`` is widened first, and the result is
+            narrowed back to its dtype with one rounding. ``torch.float32``
+            names binary32. A float64 ``x`` refuses it, because the carrier is
             never narrower than the tensor. Default: ``None``, ``x``'s own
             carrier.
 
@@ -1103,7 +1111,7 @@ def binaryK_quantize(
         RuntimeError: if ``x`` requires grad under grad mode.
 
     Warns:
-        FormatRangeWarning: if the format's range outruns the carrier's, or a
+        FormatRangeWarning: if the format's range exceeds the carrier's, or a
             result at an edge of the range lands off a narrower storage
             dtype's grid. The format still quantizes correctly over the part
             that fits.
@@ -1187,24 +1195,26 @@ def binaryK_quantize_(
 ) -> torch.Tensor:
     """Round every element of ``x`` to a binaryK format, in place.
 
-    The in-place spelling of :func:`binaryK_quantize`: the same arguments, the
-    same per-call format checks and, element for element, the same result
-    (under ``RoundMode.SR`` and one seed too, since each element's random word
-    is keyed on its index), written over ``x``. There is no output allocation
-    and no output-sized footprint, so peak memory is one tensor instead of
-    two; the time is the same, since the kernel reads and writes the same
-    bytes either way. It is for a caller that owns ``x``: a weight quantized
-    once at load, an activation nothing else will read.
+    This is the in-place spelling of :func:`binaryK_quantize`. It takes the
+    same arguments, makes the same per-call format checks, and gives the same
+    result element for element, written over ``x``. That includes
+    ``RoundMode.SR`` with the same seed, because each element's random word
+    is keyed on its index. No output is allocated, so peak memory is one
+    tensor instead of two. The time is the same, because the kernel reads and
+    writes the same bytes either way. Use it when the caller owns ``x``: a
+    weight quantized once at load, or an activation that nothing else will
+    read.
 
-    What :func:`binaryK_quantize` handles by copying, this refuses, because a
-    copy is what the kernel would then write, leaving ``x`` as it was:
+    :func:`binaryK_quantize` handles some inputs by copying them. This
+    function refuses those inputs, because the kernel would write the copy
+    and leave ``x`` unchanged:
 
     * a tensor that is not contiguous;
     * on CUDA, a view that does not start on a 16-byte boundary (``x[1:]``),
       which the kernel's vector loads cannot address;
     * ``carrier=torch.float64`` on a float32, float16 or bfloat16 tensor,
       which rounds a float64 copy and narrows the result. A float64 tensor
-      rounds in binary64 in place like any other dtype in its carrier.
+      does round in place in binary64, which is its own carrier.
 
     It has no MPS kernel yet and raises on an MPS tensor.
 
@@ -1288,11 +1298,10 @@ def superfp_quantize(
 
     The format has ``man_bits`` stored mantissa bits and ``exp_bits`` exponent
     bits, but only the top ``normal_binades`` binades carry the mantissa. The
-    lower binades' encodings become the zero and, all but that one, further
-    powers of two below the normal region, the supernormals, and values below
-    those flush to zero:
-    there are no subnormals, hence no ``subnormals_mode``. ``bias`` is
-    required, since the format has no default rule for it. See
+    codes of the lower binades become the zero and further powers of two
+    below the normal region, the supernormals. Values below those flush to
+    zero. There are no subnormals, and so no ``subnormals_mode``. ``bias`` is
+    required, because the format has no default rule for it. See
     :class:`mptorch.SuperFP`.
 
     Dtypes, the carrier, the storage check, ``prng_bits`` and
@@ -1340,9 +1349,9 @@ def superfp_quantize(
         >>> superfp_quantize(x, man_bits=3, exp_bits=4, normal_binades=8, bias=7)
         tensor([1.0000, 3.2500, 0.0625])
 
-    With ``bias=7`` the eight normal binades start at 2, so 3.3 rounds on a
-    grid of step 0.25, while 1.1 and 0.05 fall in the supernormal region and
-    round to a power of two.
+    With ``bias=7`` the eight normal binades start at 2, so 3.3 is rounded on
+    a grid of step 0.25. 1.1 and 0.05 fall in the supernormal region and are
+    rounded to a power of two.
     """
     dtype = x.dtype
     wide, widen = _call_carrier(carrier, dtype)
@@ -1389,11 +1398,12 @@ def superfp_quantize_(
 ) -> torch.Tensor:
     """Round every element of ``x`` to a superfp format, in place.
 
-    The in-place spelling of :func:`superfp_quantize`: the same arguments,
-    checks and result, written over ``x``, with no output allocation. What it
-    is for and what it refuses (a tensor that is not contiguous, a CUDA view
-    off a 16-byte boundary, a ``carrier`` wider than ``x``, an MPS tensor) are
-    as for :func:`binaryK_quantize_`.
+    This is the in-place spelling of :func:`superfp_quantize`: the same
+    arguments, checks and result, written over ``x``, with no output
+    allocation. Its purpose and the inputs it refuses are the same as for
+    :func:`binaryK_quantize_`: a tensor that is not contiguous, a CUDA view
+    off a 16-byte boundary, a ``carrier`` wider than ``x``, and an MPS
+    tensor.
 
     Args:
         x (Tensor): the tensor to round and overwrite; float32, float64,
@@ -1577,38 +1587,42 @@ def binaryK_matmul(
     """Quantized GEMM with a split multiply-accumulate in binaryK formats.
 
     Computes ``op(a) @ op(b)``, where ``op(x) = x.T`` when the corresponding
-    ``trans_*`` flag is set, else ``op(x) = x``. Unlike quantizing ``a`` and
-    ``b`` and then calling ``torch.matmul``, this quantizes the *arithmetic*
-    of each dot product: every partial product is rounded to the binaryK
-    format given by ``mul_K``/``mul_P``, and, when ``accumulate_quant`` is
-    true, the running sum is rounded to the format given by
-    ``acc_K``/``acc_P`` after every accumulation step. With
+    ``trans_*`` flag is set, and ``op(x) = x`` otherwise. This is not the
+    same as quantizing ``a`` and ``b`` and then calling ``torch.matmul``. It
+    quantizes the *arithmetic* of each dot product. Every partial product is
+    rounded to the binaryK format given by ``mul_K``/``mul_P``. When
+    ``accumulate_quant`` is true, the running sum is rounded to the format
+    given by ``acc_K``/``acc_P`` after every accumulation step. With
     ``accumulate_quant=False`` the running sum stays at the carrier's
     precision and only the multiply is quantized.
 
-    Everything the formats do not round (a product before its rounding, a sum
-    before its) is computed in a carrier, and so are the roundings: binary64
-    for float64 operands and binary32 for float32, float16 and bfloat16. Both
-    formats are held to that carrier on every call, and the accumulate
-    format, whose values the result holds, is also held against a result
-    dtype narrower than the carrier, as in :func:`binaryK_quantize`.
+    Everything the formats do not round (a product or a sum before its
+    rounding) is computed in a carrier, and so are the roundings. The carrier
+    is binary64 for float64 operands and binary32 for float32, float16 and
+    bfloat16. Every call checks both formats against that carrier. The result
+    holds the accumulate format's values, so that format is also checked
+    against a result dtype narrower than the carrier, as in
+    :func:`binaryK_quantize`.
 
     ``a`` and ``b`` follow ``torch.matmul``'s operand rules: 1D operands are
-    promoted (and their dimension dropped from the result), leading
+    promoted (and their dimension is dropped from the result), leading
     dimensions broadcast against each other, and ``trans_a``/``trans_b``
-    apply to the last two dimensions. A shared operand is read at stride 0
-    rather than expanded, an operand that is the transpose of a contiguous
-    tensor flips the kernel's flag instead of being copied, and
-    ``[..., M, K] @ [K, N]`` folds its batch into ``M`` as a view, so the two
-    shapes a quantized attention block uses cost no copy. Under
-    ``RoundMode.SR`` each output element's random stream is keyed on its
-    index into the ``[batch, M, N]`` result, so the folded and the batched
-    spelling are bit-identical.
+    apply to the last two dimensions. Three cases need no copy:
 
-    This function resolves the format on every call. A caller holding one
-    format across many calls should use `mptorch.quant.gemm`'s factories,
-    which resolve it once per layer, and :func:`mptorch.quant.qmatmul` is the
-    differentiable entry point.
+    * A shared operand is read at stride 0 instead of being expanded.
+    * An operand that is the transpose of a contiguous tensor flips the
+      kernel's flag instead of being copied.
+    * ``[..., M, K] @ [K, N]`` folds its batch into ``M`` as a view.
+
+    The two shapes that a quantized attention block uses are covered by
+    these. Under ``RoundMode.SR`` each output element's random stream is
+    keyed on its index into the ``[batch, M, N]`` result, so the folded and
+    the batched spellings are bit-identical.
+
+    This function resolves the format on every call. A caller that keeps one
+    format across many calls should use the factories of
+    `mptorch.quant.gemm`, which resolve it once per layer.
+    :func:`mptorch.quant.qmatmul` is the differentiable entry point.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -1640,20 +1654,20 @@ def binaryK_matmul(
         acc_prng_bits (int): random bits ``RoundMode.SR`` draws for the
             accumulate rounding. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
-            summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries
-            a compensation term, rounded to the accumulate format, alongside
-            the sum. ``BLOCK`` runs the step above over blocks of
-            ``block_size`` products and folds each block's sum into a total,
+            summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries a
+            compensation term next to the sum, rounded to the accumulate
+            format. ``BLOCK`` runs the step above over blocks of
+            ``block_size`` products and adds each block's sum to a total,
             which the outer format rounds. ``TREE`` sums each block's
-            products pairwise, every pair's sum rounded to the accumulate
-            format, and folds the block's root the same way.
-            :class:`mptorch.AccumulateAlgorithm` states each precisely. The
-            three past ``NAIVE`` have binary32 kernels only so far: float64
-            operands and ``carrier=torch.float64`` raise, as does an MPS
-            tensor. Default: ``AccumulateAlgorithm.NAIVE``
-        rounding_mode (RoundMode): the rounding of both formats, one mode per
-            op because the kernel is instantiated on it. Default:
-            ``RoundMode.RNE``
+            products pairwise, rounding every pair's sum to the accumulate
+            format, and adds the block's root to the total in the same way.
+            :class:`mptorch.AccumulateAlgorithm` states each precisely.
+            ``KAHAN``, ``BLOCK`` and ``TREE`` have binary32 kernels only so
+            far: float64 operands, ``carrier=torch.float64`` and an MPS
+            tensor raise. Default: ``AccumulateAlgorithm.NAIVE``
+        rounding_mode (RoundMode): the rounding of both formats. There is
+            one mode per op, because the kernel is instantiated on it.
+            Default: ``RoundMode.RNE``
         saturation_mode (SaturationMode): the multiply format's overflow
             behavior. Default: ``SaturationMode.SAT_NONE``
         subnormals_mode (SubnormalsMode): the multiply format's bottom of
@@ -1664,15 +1678,15 @@ def binaryK_matmul(
             format's bottom of range. Default: ``None``, ``subnormals_mode``.
         block_size (int, optional): products per block. ``BLOCK`` requires
             one, which must divide 16 or be a multiple of 16 (the kernels
-            count in slabs of 16 steps); ``TREE`` takes a power of two in
-            [2, 256] and defaults to 16; ``NAIVE`` and ``KAHAN`` take none.
+            count in slabs of 16 steps). ``TREE`` takes a power of two in
+            [2, 256] and defaults to 16. ``NAIVE`` and ``KAHAN`` take none.
             Default: ``None``
-        outer_K (int, optional): width of the outer format, the rounding
-            ``BLOCK`` and ``TREE`` apply to the total after each block is
-            folded in. ``None`` (with ``outer_P``) leaves the total in the
-            carrier's precision. When given, it is the format the result
-            holds, and the one held against a narrower result dtype.
-            Default: ``None``
+        outer_K (int, optional): width of the outer format. This is the
+            rounding that ``BLOCK`` and ``TREE`` apply to the total after
+            each block is added. ``None`` (with ``outer_P``) leaves the total
+            in the carrier's precision. When given, it is the format whose
+            values the result holds, and the one checked against a narrower
+            result dtype. Default: ``None``
         outer_P (int, optional): precision of the outer format; given
             together with ``outer_K``. Default: ``None``
         outer_bias (int, optional): exponent bias of the outer format.
@@ -1685,11 +1699,11 @@ def binaryK_matmul(
             overflow behavior. Default: ``None``, the accumulate format's.
         outer_subnormals_mode (SubnormalsMode, optional): the outer format's
             bottom of range. Default: ``None``, the accumulate format's.
-        carrier (torch.dtype, optional): as for :func:`binaryK_quantize`:
-            ``torch.float64`` widens narrower operands to binary64 and narrows
-            the result back to their dtype with one rounding, and
-            ``torch.float32`` refuses float64 operands. Default: ``None``, the
-            operands' own carrier.
+        carrier (torch.dtype, optional): as for :func:`binaryK_quantize`.
+            ``torch.float64`` widens narrower operands to binary64 and
+            narrows the result back to their dtype with one rounding.
+            ``torch.float32`` refuses float64 operands. Default: ``None``,
+            the operands' own carrier.
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -1706,7 +1720,7 @@ def binaryK_matmul(
             mode (use :func:`mptorch.quant.qmatmul`).
 
     Warns:
-        FormatRangeWarning: if a format's range outruns the carrier's, or the
+        FormatRangeWarning: if a format's range exceeds the carrier's, or the
             accumulate format's range reaches past a narrower result dtype's.
 
     Example::
@@ -1719,8 +1733,8 @@ def binaryK_matmul(
         tensor([[ 7., 10.],
                 [16., 24.]])
 
-    With three stored mantissa bits (``P=4``) every product and sum is exact;
-    with two (``P=3``) the sums 15 and 22 round to 16 and 24.
+    With three stored mantissa bits (``P=4``) every product and sum is exact.
+    With two (``P=3``) the sums 15 and 22 are rounded to 16 and 24.
     """
     # A NAIVE call names none of the accumulation keywords, and resolves
     # through the builder it always resolved through, with the keywords it
@@ -1898,13 +1912,14 @@ def superfp_matmul(
 ) -> torch.Tensor:
     """Quantized GEMM with a split multiply-accumulate in superfp formats.
 
-    The superfp analog of :func:`binaryK_matmul`: every partial product is
+    The superfp analog of :func:`binaryK_matmul`. Every partial product is
     rounded to the superfp format given by ``mul_man_bits``, ``mul_exp_bits``,
-    ``mul_normal_binades`` and ``mul_bias``, and, when ``accumulate_quant`` is
-    true, the running sum to the ``acc_*`` format after every step. See
-    :func:`binaryK_matmul` for the general contract (``torch.matmul``'s
-    operand rules, the transpose flags, the carrier, the storage check and
-    the per-call resolution) and :func:`superfp_quantize` for the format.
+    ``mul_normal_binades`` and ``mul_bias``. When ``accumulate_quant`` is
+    true, the running sum is rounded to the ``acc_*`` format after every
+    step. :func:`binaryK_matmul` describes the general contract:
+    ``torch.matmul``'s operand rules, the transpose flags, the carrier, the
+    storage check and the per-call resolution. :func:`superfp_quantize`
+    describes the format.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -2132,16 +2147,16 @@ def binaryK_matmul_fma(
 ) -> torch.Tensor:
     """Quantized GEMM with a fused multiply-add in a binaryK format.
 
-    The fused analog of :func:`binaryK_matmul`: every dot-product step
-    computes a single hardware-style fused multiply-add, ``s + a * b`` with
-    ``s`` the running sum and one rounding, instead of rounding the multiply and the accumulate
-    separately. A real FMA unit has one output rounding, so there is a single
-    ``fma_K``/``fma_P`` format rather than a ``mul_*``/``acc_*`` pair. With
-    ``fma_quant=False`` the fused step runs at the carrier's own precision,
-    the fused analog of :func:`binaryK_matmul`'s ``accumulate_quant=False``.
+    The fused analog of :func:`binaryK_matmul`. Every dot-product step is a
+    single hardware-style fused multiply-add: ``s + a * b``, with ``s`` the
+    running sum, rounded once. The multiply and the accumulate are not
+    rounded separately. A real FMA unit has one output rounding, so there is
+    a single ``fma_K``/``fma_P`` format instead of a ``mul_*``/``acc_*``
+    pair. With ``fma_quant=False`` the fused step runs at the carrier's own
+    precision, like ``accumulate_quant=False`` in :func:`binaryK_matmul`.
 
-    ``a`` and ``b`` follow ``torch.matmul``'s operand rules, and the carrier,
-    the storage check and the per-call resolution are as for
+    ``a`` and ``b`` follow ``torch.matmul``'s operand rules. The carrier, the
+    storage check and the per-call resolution are as for
     :func:`binaryK_matmul`.
 
     Args:
@@ -2335,13 +2350,13 @@ def superfp_matmul_fma(
 ) -> torch.Tensor:
     """Quantized GEMM with a fused multiply-add in a superfp format.
 
-    The superfp analog of :func:`binaryK_matmul_fma`: every dot-product step
-    is one fused multiply-add rounded once to the format given by
+    The superfp analog of :func:`binaryK_matmul_fma`. Every dot-product step
+    is one fused multiply-add, rounded once to the format given by
     ``fma_man_bits``, ``fma_exp_bits``, ``fma_normal_binades`` and
-    ``fma_bias`` (see :func:`superfp_quantize`), or left at the carrier's
-    precision with ``fma_quant=False``. ``a`` and ``b`` follow
-    ``torch.matmul``'s operand rules, and the carrier, the storage check and
-    the per-call resolution are as for :func:`binaryK_matmul`.
+    ``fma_bias`` (see :func:`superfp_quantize`). With ``fma_quant=False`` it
+    is left at the carrier's precision. ``a`` and ``b`` follow
+    ``torch.matmul``'s operand rules. The carrier, the storage check and the
+    per-call resolution are as for :func:`binaryK_matmul`.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -2588,28 +2603,31 @@ def binaryK_matmul_mixed(
 ) -> torch.Tensor:
     """Quantized GEMM whose binaryK format varies per output element.
 
-    The palette analog of :func:`binaryK_matmul`: the same split arithmetic,
-    a rounded multiply and then a rounded accumulate, but the binaryK format
-    each output element's dot product runs in is chosen from a *palette* of
-    up to 8 formats by ``prec_idx``. ``mul_K`` and ``mul_P`` are per-entry
-    sequences whose common length is the palette size ``n``; the other
-    palette arguments may be a scalar, broadcast to every entry, an
-    ``n``-length sequence, or ``None`` with the same per-entry defaulting as
-    :func:`binaryK_matmul` (``acc_*`` fall back to the ``mul_*`` entry, a
-    bias to P3109's). Every entry is held to the call's carrier, and every
-    accumulate entry to a narrower result dtype.
+    The palette analog of :func:`binaryK_matmul`. The arithmetic is the same
+    split one, a rounded multiply followed by a rounded accumulate. The
+    difference is that the binaryK format of each output element's dot
+    product is chosen by ``prec_idx`` from a *palette* of up to 8 formats.
+
+    ``mul_K`` and ``mul_P`` are per-entry sequences, and their common length
+    is the palette size ``n``. Each of the other palette arguments may be a
+    scalar (used for every entry), an ``n``-length sequence, or ``None``.
+    ``None`` defaults per entry as in :func:`binaryK_matmul`: ``acc_*`` fall
+    back to the ``mul_*`` entry, and a bias to P3109's. Every entry is
+    checked against the call's carrier, and every accumulate entry against a
+    narrower result dtype.
 
     ``prec_idx`` selects a palette entry per output element. Its shape must
     be the GEMM's output shape ``[M, N]`` (dense), ``[M, 1]`` (per row) or
-    ``[1, N]`` (per column), optionally with a leading batch dimension of
-    ``B`` (one map per batch element) or 1. The batch is never folded into
-    ``M`` here, since the map is indexed by output element. Any integer dtype
-    and layout is accepted: a map that is already ``int32``, contiguous and
-    on ``a``'s device is passed through untouched, and any other spelling is
-    narrowed and packed on every call. On CUDA the bounds check reads the
-    map's extremes back to the host, so it is memoized on the map tensor's
-    identity and version; hold one map and reuse it across calls rather than
-    rebuilding it, which would re-check it each call.
+    ``[1, N]`` (per column). It may have a leading batch dimension of ``B``
+    (one map per batch element) or 1. The batch is never folded into ``M``
+    here, because the map is indexed by output element.
+
+    Any integer dtype and layout is accepted. A map that is already
+    ``int32``, contiguous and on ``a``'s device is passed through unchanged.
+    Any other map is narrowed and packed on every call. On CUDA the bounds
+    check reads the map's extremes back to the host, so it is memoized on the
+    map tensor's identity and version. Keep one map and reuse it across
+    calls; a map rebuilt per call is re-checked per call.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -2683,7 +2701,7 @@ def binaryK_matmul_mixed(
         tensor([[ 7., 10.],
                 [15., 24.]])
 
-    Three output elements use the ``P=4`` entry and are exact; the last uses
+    Three output elements use the ``P=4`` entry and are exact. The last uses
     the ``P=3`` entry, whose two mantissa bits round the sum 22 to 24.
     """
     return _gemm_mixed_nd(
@@ -2833,12 +2851,12 @@ def superfp_matmul_mixed(
 ) -> torch.Tensor:
     """Quantized GEMM whose superfp format varies per output element.
 
-    The superfp analog of :func:`binaryK_matmul_mixed`, which holds the
-    palette, ``prec_idx`` and carrier contract. ``mul_man_bits`` and
-    ``mul_exp_bits`` are per-entry sequences whose common length is the
-    palette size ``n``; ``mul_normal_binades``, ``mul_bias`` and every
-    ``acc_*`` may be a scalar or an ``n``-length sequence, and an ``acc_*``
-    may also be ``None`` to fall back to the corresponding ``mul_*`` entry.
+    The superfp analog of :func:`binaryK_matmul_mixed`, which describes the
+    palette, ``prec_idx`` and the carrier contract. ``mul_man_bits`` and
+    ``mul_exp_bits`` are per-entry sequences, and their common length is the
+    palette size ``n``. ``mul_normal_binades``, ``mul_bias`` and every
+    ``acc_*`` may be a scalar or an ``n``-length sequence. An ``acc_*`` may
+    also be ``None``, which falls back to the corresponding ``mul_*`` entry.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -3020,15 +3038,18 @@ def binaryK_matmul_fma_mixed(
 ) -> torch.Tensor:
     """Quantized fused-multiply-add GEMM whose binaryK format varies per element.
 
-    The palette analog of :func:`binaryK_matmul_fma`: each dot-product step
-    is a single fused multiply-add rounded once, and the binaryK format that
-    rounding uses is chosen per output element from a palette of up to 8
-    formats by ``prec_idx``, whose contract is :func:`binaryK_matmul_mixed`'s.
-    ``fma_K`` and ``fma_P`` are per-entry sequences whose common length is
-    the palette size ``n``; ``fma_bias`` may be a scalar, an ``n``-length
-    sequence or ``None`` for P3109's bias per entry. ``fma_quant=False`` is
-    rejected: an unrounded fused step carries no format, so a palette of it
-    would leave ``prec_idx`` nothing to choose; use
+    The palette analog of :func:`binaryK_matmul_fma`. Each dot-product step
+    is a single fused multiply-add, rounded once. The binaryK format of that
+    rounding is chosen per output element by ``prec_idx``, from a palette of
+    up to 8 formats. ``prec_idx`` follows the contract of
+    :func:`binaryK_matmul_mixed`.
+
+    ``fma_K`` and ``fma_P`` are per-entry sequences, and their common length
+    is the palette size ``n``. ``fma_bias`` may be a scalar, an ``n``-length
+    sequence, or ``None`` for P3109's bias per entry.
+
+    ``fma_quant=False`` is rejected. An unrounded fused step has no format,
+    so a palette would leave ``prec_idx`` nothing to choose. Use
     :func:`binaryK_matmul_fma` for the unquantized fused step.
 
     Args:
@@ -3183,11 +3204,13 @@ def superfp_matmul_fma_mixed(
 ) -> torch.Tensor:
     """Quantized fused-multiply-add GEMM whose superfp format varies per element.
 
-    The superfp analog of :func:`binaryK_matmul_fma_mixed`, which holds the
-    palette, ``prec_idx`` and carrier contract and the ``fma_quant=False``
-    rejection. ``fma_man_bits`` and ``fma_exp_bits`` are per-entry sequences
-    whose common length is the palette size ``n``; ``fma_normal_binades`` and
-    ``fma_bias`` may each be a scalar or an ``n``-length sequence.
+    The superfp analog of :func:`binaryK_matmul_fma_mixed`, which describes
+    the palette, ``prec_idx`` and the carrier contract. ``fma_quant=False``
+    is rejected here too, because an unrounded fused step has no format for
+    ``prec_idx`` to choose. ``fma_man_bits`` and ``fma_exp_bits`` are
+    per-entry sequences, and their common length is the palette size ``n``.
+    ``fma_normal_binades`` and ``fma_bias`` may each be a scalar or an
+    ``n``-length sequence.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.

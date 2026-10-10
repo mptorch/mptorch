@@ -5,12 +5,15 @@
 // A tensor narrower than its carrier stores what the carrier computed, and
 // that store is a rounding of its own. Under `carrier=torch.float64` the
 // carrier's result is float64 and the store is float64 -> float32, float16
-// or bfloat16, and torch's own conversion to the last two goes through
-// float32 on both backends, which rounds twice: a value a hair past a
-// midpoint of the narrow grid is first rounded onto the midpoint and then to
-// even, so 65519.999999 comes back as float16 infinity instead of 65504. This
-// is the conversion done once, on the word, for the narrow_float64 op that
-// mptorch/quant/ops.py's `_narrowed` calls.
+// or bfloat16. torch's own conversion to bfloat16 goes through float32, which
+// rounds twice: a value a hair past a midpoint of the narrow grid is first
+// rounded onto the midpoint and then to even, so 1 + 2^-8 + 2^-30 comes back
+// as bfloat16 1.0 instead of 1 + 2^-7. Its conversion to float16 does the
+// same on some platforms, where 65519.999999 comes back as float16 infinity
+// instead of 65504; an arm64 CPU converts float64 to float16 in one step and
+// gets it right. This is the conversion done once, on the word, on every
+// platform, for the narrow_float64 op that mptorch/quant/ops.py's `_narrowed`
+// calls.
 //
 // `ExpBits` and `ManBits` are the target's fields and `Word` its storage: (5,
 // 10) is float16, (8, 7) bfloat16 and (8, 23) float32. The result is IEEE 754's

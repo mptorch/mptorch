@@ -17,19 +17,22 @@ from torch import nn
 class QAffineFormats(nn.Module):
     """Quantizers and custom math for an affine layer (Linear, Conv1d/2d/3d).
 
-    Every slot is optional and ``None`` means plain PyTorch behaviour for that
-    step, so quantization is opt-in per tensor and per pass: a
-    ``QAffineFormats()`` with nothing set makes ``QLinear`` behave exactly as
-    ``nn.Linear``. The forward quantizes the input, the weight and the bias
-    through their ``*_quant`` slots, then runs ``fwd_math`` (or the plain
-    op). The backward quantizes the incoming gradient *separately* for the
-    input-gradient path (``igrad_quant``) and the weight-gradient path
-    (``wgrad_quant``), since the two GEMMs may want different formats, and
-    runs ``bwd_igrad_math`` and ``bwd_wgrad_math`` (or PyTorch's defaults).
+    Every slot is optional, and ``None`` means plain PyTorch behaviour for
+    that step. Quantization is therefore opt-in per tensor and per pass: with
+    a ``QAffineFormats()`` that has nothing set, ``QLinear`` behaves exactly
+    as ``nn.Linear``.
 
-    Inheriting from ``nn.Module`` is what makes a quantizer that is itself an
-    ``nn.Module`` (a QAT observer with running statistics) register with the
-    parent model and appear in its ``state_dict``.
+    The forward pass quantizes the input, the weight and the bias through
+    their ``*_quant`` slots, then runs ``fwd_math`` (or the plain op). The
+    backward pass quantizes the incoming gradient *separately* for the
+    input-gradient path (``igrad_quant``) and the weight-gradient path
+    (``wgrad_quant``), because the two GEMMs may need different formats. It
+    then runs ``bwd_igrad_math`` and ``bwd_wgrad_math`` (or PyTorch's
+    defaults).
+
+    The class inherits from ``nn.Module``. A quantizer that is itself an
+    ``nn.Module`` (a QAT observer with running statistics) is therefore
+    registered with the parent model and appears in its ``state_dict``.
 
     Args:
         weight_quant (Callable, optional): applied to the weight in the
@@ -96,19 +99,20 @@ class QAffineFormats(nn.Module):
 class QMatmulFormats(nn.Module):
     """Quantizers and custom math for a quantized matmul.
 
-    The container :class:`QMatmul` and :func:`mptorch.quant.qmatmul` read. The
-    slots mirror :class:`QAffineFormats`'s, renamed for an op whose two
-    operands have equal standing: ``a``/``b`` rather than input/weight, and
-    one gradient quantizer per operand, since the two gradient GEMMs may want
-    different formats. Every slot is optional and ``None`` means plain
-    PyTorch: a ``QMatmulFormats()`` with nothing set computes ``torch.matmul``
-    and its ordinary gradients. There is deliberately no ``output_quant``,
-    because rounding the result of the op is an elementwise step, and an
-    elementwise step is a quantizer the caller applies rather than a slot on
-    every op's formats.
+    :class:`QMatmul` and :func:`mptorch.quant.qmatmul` read this container.
+    Its slots mirror those of :class:`QAffineFormats`, renamed for an op whose
+    two operands play the same role: ``a``/``b`` instead of input/weight, and
+    one gradient quantizer per operand, because the two gradient GEMMs may
+    need different formats. Every slot is optional, and ``None`` means plain
+    PyTorch. A ``QMatmulFormats()`` with nothing set computes
+    ``torch.matmul`` and its ordinary gradients.
 
-    Inheriting from ``nn.Module`` is what registers a stateful quantizer (a
-    QAT observer) in the parent model's ``state_dict``.
+    There is no ``output_quant``, on purpose. Rounding the result of the op
+    is an elementwise step, so the caller applies a quantizer for it; it is
+    not a slot on every op's formats.
+
+    The class inherits from ``nn.Module``, which registers a stateful
+    quantizer (a QAT observer) in the parent model's ``state_dict``.
 
     Args:
         a_quant (Callable, optional): applied to ``a`` in the forward.

@@ -277,38 +277,44 @@ def conv_formats(
     """Build a ``QAffineFormats`` whose three convolution passes run in ``mac``'s arithmetic.
 
     The forward convolution, the input gradient and the weight gradient of a
-    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in the arithmetic ``mac``
-    names -- every product and every addition of every dot product rounded as
-    a GEMM of that mac rounds them -- with the operands gathered from the
-    convolution's tensors inside the kernel instead of unfolded, so none of
-    the three allocates more than its result. The forward and the weight
-    gradient are each one GEMM, bit-identical to the GEMM of the same mac
-    over ``F.unfold``'s operands. The input gradient is one GEMM per residue
-    class of the stride, each over the kernel taps that reach its positions,
-    so a strided convolution's gradient costs what its forward does rather
-    than the ``stride**nd`` times more of a transposed convolution that sums
-    the zeros it inserts; under a ``NAIVE`` sum and a deterministic rounding
-    the two are bit-identical, since adding a zero changes nothing there
-    (:doc:`/kernels/convolutions` has the equations and what differs otherwise).
-    Any stride, padding (``"same"`` and ``"valid"`` included), dilation and
-    ``groups`` works; groups share one launch, and a depthwise convolution
-    (one channel per group) runs at a sixteenth of the kernel's tile width,
-    which is correct but not fast. Like :func:`matmul_formats`, this sets
-    only the math hooks; operand quantization (``weight_quant``,
-    ``input_quant`` and the other ``*_quant`` slots) is layered on by the
-    caller.
+    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in ``mac``'s arithmetic.
+    Every product and every addition of every dot product is rounded as a
+    GEMM of that mac rounds it. The operands are gathered from the
+    convolution's tensors inside the kernel instead of being unfolded, so no
+    pass allocates more than its result.
 
-    The kernels compute in binary32: the operands may be float32, float16 or
-    bfloat16, and a float64 model, or a mac with ``carrier=torch.float64``,
-    raises (the binary64 kernels are ``dev/continuation_plan.md``'s phase
-    G). MPS tensors raise too (phase H).
+    The forward pass and the weight gradient are each one GEMM, bit-identical
+    to the GEMM of the same mac over ``F.unfold``'s operands.
+
+    The input gradient is one GEMM per residue class of the stride, each over
+    the kernel taps that reach its positions. A strided convolution's
+    gradient therefore costs what its forward pass does. A transposed
+    convolution would cost ``stride**nd`` times more, because it sums the
+    zeros it inserts. Under a ``NAIVE`` sum and a deterministic rounding the
+    two are bit-identical, because adding a zero changes nothing there.
+    :doc:`/kernels/convolutions` has the equations and says what differs in
+    the other cases.
+
+    Any stride, padding (``"same"`` and ``"valid"`` included), dilation and
+    ``groups`` works. Groups share one launch. A depthwise convolution (one
+    channel per group) uses a sixteenth of the kernel's tile width, which is
+    correct but not fast.
+
+    Like :func:`matmul_formats`, this sets only the math hooks. The caller
+    adds operand quantization (``weight_quant``, ``input_quant`` and the
+    other ``*_quant`` slots) separately.
+
+    The kernels compute in binary32. The operands may be float32, float16 or
+    bfloat16. A float64 model, or a mac with ``carrier=torch.float64``,
+    raises (the binary64 kernels are phase G of
+    ``dev/continuation_plan.md``). MPS tensors raise too (phase H).
 
     Args:
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,
             resolved once through :func:`mptorch.quant.mac.spec_for_mac`. A
-            bare ``Number`` is ``SplitMac(fmt, fmt)``. Every
-            ``accumulate_algorithm`` applies; a palette selects the
-            per-output-element ops, which need a map per pass.
+            bare ``Number`` means ``SplitMac(fmt, fmt)``. Every
+            ``accumulate_algorithm`` applies. A palette selects the
+            per-output-element ops, which need one map per pass.
         prec_idx (Tensor, optional): the forward's palette map, indexed like
             the output with its spatial dimensions flattened: ``[Cout, OUT]``
             with ``OUT`` the number of output positions, ``[Cout, 1]`` (one
@@ -316,8 +322,8 @@ def conv_formats(
             leading batch dimension. Required by, and only by, a palette
             ``mac``. Default: ``None``
         igrad_prec_idx (Tensor, optional): the input gradient's map, shaped
-            the same way over ``[Cin, IN]`` with ``IN`` the number of input
-            positions; the classes of a strided gradient read it at their own
+            the same way over ``[Cin, IN]``, with ``IN`` the number of input
+            positions. The classes of a strided gradient read it at their own
             positions. Default: ``None``
         wgrad_prec_idx (Tensor, optional): the weight gradient's map, over the
             weight as ``[Cout, Cin/groups * prod(kernel)]``, or ``[Cout, 1]``.
@@ -334,8 +340,8 @@ def conv_formats(
     Example:
 
         Binary8p4 products summed in a 12-bit accumulator, with the operands
-        rounded to Binary8p4 too, for a strided layer; the backward runs both gradients in
-        the same arithmetic::
+        also rounded to Binary8p4, for a strided layer. The backward pass runs
+        both gradients in the same arithmetic::
 
             >>> import torch
             >>> from mptorch import AccumulateAlgorithm, BinaryK, RoundMode

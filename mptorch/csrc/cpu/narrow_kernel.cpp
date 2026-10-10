@@ -2,9 +2,10 @@
 // float16 or bfloat16, with common/narrow_binary64.h's integer rounding of
 // the word applied to every element on ATen's thread pool, as the
 // elementwise quantizers are (utils.h). This exists because torch's own
-// float64 to float16/bfloat16 conversion goes through float32 on both
-// backends and so rounds twice; one rounding from the binary64 word is what
-// a result computed in binary64 for a narrower tensor needs.
+// float64 to bfloat16 conversion, and on some platforms its float64 to
+// float16 one, goes through float32 and so rounds twice
+// (common/narrow_binary64.h); one rounding from the binary64 word is what a
+// result computed in binary64 for a narrower tensor needs.
 
 #include "../common/narrow_binary64.h"
 #include "../common/narrow_host.h"

@@ -1,16 +1,18 @@
 """Number formats, the modes that round into them, and what a float makes of them.
 
 The enums here (:class:`RoundMode`, :class:`SaturationMode`,
-:class:`SubnormalsMode`, :class:`AccumulateAlgorithm`) are mirrored one to one,
-by name and by integer value, by the C++ enums in ``csrc/common/modes.h``; the
-kernels receive ``.value`` across the ``torch.ops`` boundary, so the two must
-stay in sync. :class:`Domain` is Python's alone: a format object folds it into
+:class:`SubnormalsMode`, :class:`AccumulateAlgorithm`) mirror the C++ enums in
+``csrc/common/modes.h`` one to one, by name and by integer value. The kernels
+receive ``.value`` across the ``torch.ops`` boundary, so the two must stay in
+sync. :class:`Domain` exists in Python only: a format object folds it into
 its :class:`SaturationMode` when it is built. :class:`BinaryK` and
-:class:`SuperFP` are the frozen value types that name a format once. The
-``check_*`` functions say what a *carrier* (the binary float a cast rounds in)
-and a *storage* dtype (the tensor a result is written to) make of a format, as
-a :exc:`ValueError` where the format cannot work at all and a
-:class:`FormatRangeWarning` where it works over part of its range.
+:class:`SuperFP` are the frozen value types that describe a format.
+
+The ``check_*`` functions report what a *carrier* (the binary float a cast
+rounds in) and a *storage* dtype (the tensor a result is written to) can do
+with a format. They raise :exc:`ValueError` where the format cannot work at
+all, and warn with :class:`FormatRangeWarning` where it works over part of
+its range.
 """
 
 __all__ = [
@@ -56,20 +58,23 @@ class SaturationMode(Enum):
     """What a format does with a value beyond its largest finite one.
 
     Mirrors ``SaturationMode`` in ``csrc/common/modes.h``, by name and value.
-    Each member is one of IEEE P3109's three saturation modes together with
-    the format's *domain* (see :class:`Domain`), which P3109 chooses
-    separately: the finite domain spends on finite values the code points
-    the extended domain spends on the infinities, and admits only
-    ``SatFinite``. So there are four valid combinations, one member each.
-    :attr:`SAT_FINITE` is the finite domain and the other three the extended
-    one. On a :class:`BinaryK` or :class:`SuperFP` the domain can be named
-    with ``domain=`` instead, and ``saturation=SAT_FINITE,
-    domain=Domain.EXTENDED`` is stored as :attr:`SAT_FINITE_EXTENDED`; the
-    flat ``*_quantize`` and ``*_matmul`` functions, which take no format
-    object, name the combination with this member. The mode is a property of
-    each format slot, so a GEMM whose multiply saturates and whose accumulate
-    overflows to infinity is expressible. A NaN input passes through every
-    mode unchanged.
+    Each member combines one of IEEE P3109's three saturation modes with the
+    format's *domain* (see :class:`Domain`), which P3109 chooses separately.
+    The finite domain spends on finite values the code points that the
+    extended domain spends on the infinities, and it admits only
+    ``SatFinite``. That leaves four valid combinations, one member each:
+    :attr:`SAT_FINITE` is the finite domain, and the other three are the
+    extended one.
+
+    On a :class:`BinaryK` or :class:`SuperFP` the domain can be given with
+    ``domain=`` instead: ``saturation=SAT_FINITE, domain=Domain.EXTENDED`` is
+    stored as :attr:`SAT_FINITE_EXTENDED`. The flat ``*_quantize`` and
+    ``*_matmul`` functions take no format object, so they name the
+    combination with the member alone.
+
+    The mode is a property of each format slot. A GEMM whose multiply
+    saturates and whose accumulate overflows to infinity can therefore be
+    expressed. A NaN input passes through every mode unchanged.
 
     Example::
 
@@ -95,9 +100,9 @@ class SaturationMode(Enum):
     #: because the overflow test reads the rounded value. This differs from IEEE
     #: 754, whose ``roundTowardZero`` never rounds a finite value to infinity.
     SAT_NONE = 2
-    #: P3109 ``SatFinite``, extended domain: the format keeps its infinity codes,
-    #: and so the largest finite value of :attr:`SAT_NONE` and
-    #: :attr:`SAT_PROPAGATE`, but every result beyond it, an infinite input
+    #: P3109 ``SatFinite``, extended domain: the format keeps its infinity
+    #: codes, so its largest finite value is that of :attr:`SAT_NONE` and
+    #: :attr:`SAT_PROPAGATE`. Every result beyond it, an infinite input
     #: included, clamps to it, as under :attr:`SAT_FINITE`.
     SAT_FINITE_EXTENDED = 3
 
@@ -105,13 +110,13 @@ class SaturationMode(Enum):
 class Domain(Enum):
     r"""Whether a format spends code points on the infinities: P3109's domain.
 
-    The *extended* domain has :math:`\pm\infty` (the top code of each sign);
-    the *finite* domain spends those codes on finite values, so its largest
-    finite value is one code higher, and admits only the ``SatFinite``
-    saturation mode. A :class:`BinaryK` or :class:`SuperFP` takes it as
-    ``domain=`` and folds it into its :class:`SaturationMode` when it is
-    built; left ``None``, it follows from the saturation mode, finite for
-    ``SAT_FINITE`` and extended otherwise.
+    The *extended* domain has :math:`\pm\infty` (the top code of each sign).
+    The *finite* domain spends those codes on finite values, so its largest
+    finite value is one code higher, and it admits only the ``SatFinite``
+    saturation mode. A :class:`BinaryK` or :class:`SuperFP` takes the domain
+    as ``domain=`` and folds it into its :class:`SaturationMode` when it is
+    built. If it is left ``None``, it follows from the saturation mode: finite
+    for ``SAT_FINITE`` and extended otherwise.
 
     Example::
 
@@ -161,22 +166,25 @@ class SubnormalsMode(Enum):
     """How a format handles the range below its smallest normal number.
 
     Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``, by name and value.
-    Only :attr:`SUBNORMALS` is IEEE P3109's (every P3109 format with more than
-    one bit of precision has subnormals), so the other two give formats
-    outside the standard. The three differ only in where the bottom of the
-    range is. Below it they all behave alike, because the region has the same
-    shape in each: the two candidates for the magnitude of an input ``x`` are
-    zero and the smallest value, ``x_min``, and the rounding mode picks
-    between them. Nearest takes the nearer, and on a tie
-    :attr:`RoundMode.RNE` takes the zero and :attr:`RoundMode.RNA` takes
-    ``x_min``; the directed modes take their own direction;
-    :attr:`RoundMode.RO` takes ``x_min``, the nonzero one; and
-    :attr:`RoundMode.SR` takes ``x_min`` with probability ``|x| / x_min``.
+    Only :attr:`SUBNORMALS` is IEEE P3109's: every P3109 format with more than
+    one bit of precision has subnormals. The other two give formats outside
+    the standard. The three differ only in where the bottom of the range is.
+
+    Below the bottom they all behave the same way. An input ``x`` has two
+    candidates for its magnitude, zero and the smallest value ``x_min``, and
+    the rounding mode picks between them:
+
+    * :attr:`RoundMode.RNE` and :attr:`RoundMode.RNA` take the nearer one. On
+      a tie, ``RNE`` takes the zero and ``RNA`` takes ``x_min``.
+    * The directed modes take the candidate in their own direction.
+    * :attr:`RoundMode.RO` takes ``x_min``, the nonzero candidate.
+    * :attr:`RoundMode.SR` takes ``x_min`` with probability ``|x| / x_min``.
 
     All three keep the same two special codes, which the casts' NaN detection
-    and sign handling rely on: the all-zero code is the one zero, unsigned as
-    in P3109 (no cast ever returns ``-0.0``), and in a signed format the code
-    with only the sign bit set, the one that would encode ``-0.0``, is the NaN.
+    and sign handling rely on. The all-zero code is the one zero. It is
+    unsigned, as in P3109, and no cast ever returns ``-0.0``. In a signed
+    format, the code with only the sign bit set (the one that would encode
+    ``-0.0``) is the NaN.
 
     Example::
 
@@ -193,10 +201,10 @@ class SubnormalsMode(Enum):
 
     SUBNORMALS = 0  #: Gradual underflow, the default: exponent code 0 holds subnormals.
     NORMALS = 1  #: No subnormals: below the smallest normal, zero or that normal.
-    #: No subnormals, and exponent code 0 is one more binade of normal numbers,
+    #: No subnormals. Exponent code 0 is one more binade of normal numbers,
     #: except its mantissa-zero code, which is still the zero (and with the
-    #: sign bit the NaN), so that binade's values start one step above the
-    #: power of two at its foot.
+    #: sign bit the NaN). That binade's values therefore start one step above
+    #: the power of two at its foot.
     EXTENDED_NORMALS = 2
 
 
@@ -206,14 +214,17 @@ class RoundMode(Enum):
     Mirrors ``RoundMode`` in ``csrc/common/modes.h``, by name and value. Each
     member is one of IEEE P3109's rounding modes, whose name is given in
     parentheses, and defines the result :math:`y` of rounding an input
-    :math:`x`. The rounding mode is a property of the operation, not of the
-    format: the kernels take it as a template parameter, because a runtime
-    ``switch`` inside a GEMM's accumulate step cost 1.2 to 2.3 times the
-    kernel time, so :class:`mptorch.quant.Quant` and
-    :class:`mptorch.quant.SplitMac` carry it next to the format. Stochastic
-    rounding draws each output element's random bits from a stream keyed on
-    that element's index in the output, so the result does not depend on how
-    the work is split across threads or batches.
+    :math:`x`.
+
+    The rounding mode is a property of the operation, not of the format. The
+    kernels take it as a template parameter, because a runtime ``switch``
+    inside a GEMM's accumulate step cost 1.2 to 2.3 times the kernel time.
+    :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac` therefore
+    carry it next to the format.
+
+    Stochastic rounding draws each output element's random bits from a stream
+    keyed on that element's index in the output. The result does not depend
+    on how the work is split across threads or batches.
 
     Example::
 
@@ -242,41 +253,44 @@ class AccumulateAlgorithm(Enum):
     """How the partial products of a dot product are folded into its sum.
 
     Mirrors ``AccumulateAlgorithm`` in ``csrc/common/modes.h``, by name and
-    value, and selects the reduction inside a custom-arithmetic GEMM
+    value. It selects the reduction inside a custom-arithmetic GEMM
     (:class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac`, the
-    flat ``*_matmul`` wrappers). Below, ``a`` and ``b`` are the two operands
-    of one step, ``s`` is the running sum, and ``round_mul`` and ``round_acc``
-    are the mac's two roundings (``round_acc`` is the identity with no
-    accumulate format, and in a fused mac it is the fused format's rounding,
-    the step being ``round_acc(fma(a, b, s))`` in place of
-    ``round_acc(s + round_mul(a * b))``). ``round_out`` is the rounding of the
-    mac's ``outer`` format (the identity without one), and the products are
-    taken in order, ``k = 1 .. K``:
+    flat ``*_matmul`` wrappers).
 
-    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, which is what a
-      hardware accumulator of the accumulate format does. The result is ``s``.
-    * :attr:`KAHAN`: a compensation ``c`` is carried alongside the sum, in
-      the accumulate format like it: ``y = round_acc(round_mul(a * b) - c)``,
+    Notation: ``a`` and ``b`` are the two operands of one step, and ``s`` is
+    the running sum. ``round_mul`` and ``round_acc`` are the mac's two
+    roundings. ``round_acc`` is the identity when there is no accumulate
+    format. In a fused mac it is the fused format's rounding, and the step is
+    ``round_acc(fma(a, b, s))`` in place of
+    ``round_acc(s + round_mul(a * b))``. ``round_out`` is the rounding of the
+    mac's ``outer`` format (the identity without one). The products are taken
+    in order, ``k = 1 .. K``:
+
+    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, as a hardware
+      accumulator of the accumulate format does. The result is ``s``.
+    * :attr:`KAHAN`: a compensation ``c`` is carried next to the sum, also in
+      the accumulate format: ``y = round_acc(round_mul(a * b) - c)``,
       ``t = round_acc(s + y)``, ``c = round_acc(round_acc(t - s) - y)``,
       ``s = t``. The result is ``s``. With no accumulate format this is
       Kahan's summation in the carrier.
-    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum ``s``, and after
-      every ``block_size`` products, and after the last, the block is folded
-      into a total, ``tot = round_out(tot + s)``, and ``s`` restarted from
-      zero. Two levels of precision: a narrow accumulate format inside a
-      block, a wider outer format across them. The result is ``tot``.
+    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum ``s``. After
+      every ``block_size`` products, and after the last one, the block is
+      added to a total, ``tot = round_out(tot + s)``, and ``s`` restarts from
+      zero. This gives two levels of precision: a narrow accumulate format
+      inside a block, and a wider outer format across blocks. The result is
+      ``tot``.
     * :attr:`TREE`: the rounded products ``p1, p2, ...`` of a block of
-      ``block_size = 2**L`` are summed pairwise,
-      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` and so on up,
-      in the order they arrive, and the block's root is folded as in
-      ``BLOCK``. A last, partial block merges the subtrees it has, smallest
-      first. It needs a product term, so a fused mac refuses it.
+      ``block_size = 2**L`` are summed pairwise, in the order they arrive:
+      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` and so on up.
+      The block's root is added to the total as in ``BLOCK``. A last, partial
+      block merges the subtrees it has, smallest first. The algorithm needs a
+      product term, so a fused mac refuses it.
 
     Under :attr:`RoundMode.SR` every rounding that is not an identity draws
     once, in the order written. Nothing is padded, so a result does not
-    depend on how a backend tiles ``K``; the CPU and CUDA kernels agree to the
-    bit in every deterministic mode. The three past ``NAIVE`` are implemented
-    for the single-format ops, in binary32: float64 operands,
+    depend on how a backend tiles ``K``, and the CPU and CUDA kernels agree to
+    the bit in every deterministic mode. ``KAHAN``, ``BLOCK`` and ``TREE``
+    are implemented for the single-format ops, in binary32. Float64 operands,
     ``carrier=torch.float64``, a palette and an MPS tensor raise.
 
     Example::
@@ -378,48 +392,48 @@ class FormatRangeWarning(UserWarning):
     """Warns that a format's range outruns the float it is rounded or stored in.
 
     Quantizing to such a format is partial: the cast is correct over the part
-    of the format the carrier holds, and some of the format's values are never
-    returned. The carrier is the operand's, binary64 for a float64 tensor and
-    binary32 for float32, float16 and bfloat16, unless the call names binary64
-    with ``carrier=torch.float64``. The quantizers and GEMMs of
-    :mod:`mptorch.quant` warn per call when a format reaches above the
-    carrier's largest finite value, spaces its values finer than the carrier's
-    smallest subnormal (:math:`2^{-149}` in binary32, :math:`2^{-1074}` in
-    binary64), or has a smallest positive value below the floor the carrier
-    gives it. That floor depends on how the cast finds the bottom of the
-    format:
+    of the format that the carrier holds, and some of the format's values are
+    never returned. The carrier is the operand's: binary64 for a float64
+    tensor, and binary32 for float32, float16 and bfloat16, unless the call
+    names binary64 with ``carrier=torch.float64``.
+
+    The quantizers and GEMMs of :mod:`mptorch.quant` warn per call when a
+    format does one of three things: reaches above the carrier's largest
+    finite value; spaces its values finer than the carrier's smallest
+    subnormal (:math:`2^{-149}` in binary32, :math:`2^{-1074}` in binary64);
+    or has a smallest positive value below the floor the carrier gives it.
+    That floor depends on how the cast finds the bottom of the format:
 
     * :math:`2^{-125}` (:math:`2^{-1021}`) for a :class:`BinaryK` with
       ``SubnormalsMode.SUBNORMALS`` and for a :class:`SuperFP`. Their casts
-      place an input on the subnormal or supernormal grid by its exponent
-      field, which all of the carrier's subnormals share, so a format reaching
+      place an input on the subnormal or supernormal grid using its exponent
+      field, which all of the carrier's subnormals share. A format reaching
       lower would have its bottom binade rounded onto the wrong grid.
     * :math:`2^{-126}` (:math:`2^{-1022}`), the carrier's smallest normal, for
       a :class:`BinaryK` with ``SubnormalsMode.NORMALS`` or
-      ``SubnormalsMode.EXTENDED_NORMALS``, whose casts find the bottom by
-      comparing magnitudes and read no field. Two cases stop a binade short,
-      at the first floor: ``P = 1`` under ``NORMALS``, and
+      ``SubnormalsMode.EXTENDED_NORMALS``. Their casts find the bottom by
+      comparing magnitudes and read no field. Two cases stop a binade
+      earlier, at the first floor: ``P = 1`` under ``NORMALS``, and
       ``EXTENDED_NORMALS`` at the carrier's full precision (``P = 24``,
       ``P = 53``).
 
     :doc:`/concepts` ("What the carrier can hold") derives both.
     :class:`BinaryK` and :class:`SuperFP` do not warn when they are built,
-    since a format does not know which carrier it will meet; they raise only
+    because a format does not know which carrier it will meet. They raise only
     for what neither carrier can do.
 
     The same warning is issued when the result is stored in a dtype narrower
     than the carrier (float16 or bfloat16 under binary32, and float32 as well
-    under binary64) and the format's range outruns *that* dtype: above its
+    under binary64) and the format's range exceeds *that* dtype: above its
     largest finite value, or spaced finer than its smallest subnormal. The
     cast rounds in the carrier, and storing the result rounds a second time,
-    onto the dtype's grid, with a value above the dtype's range stored as an
-    infinity whatever the format's saturation mode.
+    onto the dtype's grid. A value above the dtype's range is stored as an
+    infinity, whatever the format's saturation mode.
 
-    It is a warning rather than an error because such a format is still
-    useful: a wide binaryK is a reasonable precision-only target, where the
-    unreachable top of the range is exactly the point. Each warning names the
-    line that made the call, so the default filter reports it once per line
-    rather than once per training step.
+    This is a warning and not an error because such a format is still useful.
+    A wide binaryK is a reasonable precision-only target, and its unreachable
+    top is then intended. Each warning names the line that made the call, so
+    the default filter reports it once per line, not once per training step.
 
     Example::
 
@@ -1423,12 +1437,12 @@ def check_superfp_storage(
 class Number:
     """Base class for every simulated number format.
 
-    Subclassed by :class:`FloatFormat` (the element-by-element float
+    Its subclasses are :class:`FloatFormat` (the element-by-element float
     families) and :class:`BlockFormat` (block minifloats: OCP MX and NVFP4,
-    whose elements share a scale per block). Fixed-point, block floating
-    point with integer mantissas, logarithmic and tapered (posit) formats
-    belong here too; each needs a kernel first, so none of them is declared
-    as an empty class in the meantime.
+    whose elements share a scale per block). Fixed-point formats, block
+    floating point with integer mantissas, and logarithmic and tapered
+    (posit) formats would also belong here. Each needs a kernel first, so
+    none is declared as an empty class in the meantime.
 
     Example::
 
@@ -1442,7 +1456,7 @@ class Number:
 class FloatFormat(Number):
     """Base class for the two floating-point families the kernels implement.
 
-    :class:`BinaryK` and :class:`SuperFP` are its subclasses; a quantizer or
+    :class:`BinaryK` and :class:`SuperFP` are its subclasses. A quantizer or
     GEMM factory that takes a ``FloatFormat`` accepts either.
 
     Example::
@@ -1457,30 +1471,35 @@ class FloatFormat(Number):
 class BinaryK(FloatFormat):
     """An IEEE P3109 binaryK float: ``K`` total bits of which ``P`` are precision.
 
-    P3109, the draft Standard for Arithmetic Formats for Machine Learning
+    P3109 is the draft Standard for Arithmetic Formats for Machine Learning
     (Fitzgibbon, Wintersteiger and Sarnoff give an overview in
-    arXiv:2606.04028), parameterizes its binary formats by bitwidth,
+    arXiv:2606.04028). It parameterizes its binary formats by bitwidth,
     precision (the implicit leading bit included), signedness and domain, and
     names them ``Binary<K>p<P><s|u><e|f>``. ``K``, ``P``, ``is_signed`` and
-    ``domain`` are the four, so ``BinaryK(8, 4)`` is ``Binary8p4se`` and
+    ``domain`` are those four. ``BinaryK(8, 4)`` is ``Binary8p4se``, and
     ``BinaryK(8, 4, domain=Domain.FINITE, saturation=SaturationMode.SAT_FINITE)``
-    is ``Binary8p4sf``; the finite domain admits only ``SAT_FINITE``, so that
-    saturation mode alone selects it too.
-    Three of P3109's conventions are worth knowing: the format has one zero,
-    unsigned, at the all-zero code, so no cast returns ``-0.0``; in a signed
-    format the code with only the sign bit set (which would hold ``-0.0``) is
-    the NaN, and in an unsigned one the top code is; and the largest finite
-    value is counted in code points, so with one or two mantissa bits the
-    codes reserved for infinity and NaN can push it a binade or two down.
+    is ``Binary8p4sf``. The finite domain admits only ``SAT_FINITE``, so that
+    saturation mode alone also selects it.
+
+    Three of P3109's conventions are worth knowing:
+
+    * The format has one zero, unsigned, at the all-zero code. No cast returns
+      ``-0.0``.
+    * In a signed format the NaN is the code with only the sign bit set
+      (which would hold ``-0.0``). In an unsigned format it is the top code.
+    * The largest finite value is counted in code points. With one or two
+      mantissa bits, the codes reserved for infinity and NaN can push it a
+      binade or two down.
+
     :doc:`/concepts` maps the rest of the standard onto this class and says
     where MPTorch goes beyond it.
 
-    The rounding mode is not a property of the format but of the operation
-    (see :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac`),
-    because the kernels take it as a template parameter shared by a multiply
-    and its accumulate. The instance is frozen, and so hashable, because the
-    code that resolves a format memoizes on its value; the derived ``bias``
-    is filled in at construction rather than at each call site.
+    The rounding mode is a property of the operation, not of the format (see
+    :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac`), because
+    the kernels take it as a template parameter shared by a multiply and its
+    accumulate. The instance is frozen, and therefore hashable, because the
+    code that resolves a format memoizes on its value. The derived ``bias`` is
+    filled in at construction, not at each call site.
 
     Args:
         K (int): total bits, sign included.
@@ -1488,9 +1507,9 @@ class BinaryK(FloatFormat):
             ``P - 1`` mantissa bits are stored; ``1 <= P <= K``.
         bias (int, optional): exponent bias. Default: P3109's, ``2**(K-P-1)``
             signed and ``2**(K-P)`` unsigned, which encodes 1.0 at the middle
-            code point. Any other bias gives a format outside the standard;
-            that is how the layout of OCP's E4M3, ``BinaryK(8, 4, bias=7)``, is
-            spelled.
+            code point. Any other bias gives a format outside the standard.
+            The layout of OCP's E4M3 is spelled this way:
+            ``BinaryK(8, 4, bias=7)``.
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
         prng_bits (int): width of the random mantissa drawn by
             :attr:`RoundMode.SR`, ignored under every other rounding mode.
@@ -1498,26 +1517,26 @@ class BinaryK(FloatFormat):
         saturation (SaturationMode): overflow behaviour. Default:
             ``SaturationMode.SAT_NONE``.
         domain (Domain, optional): whether the format has infinities.
-            ``Domain.FINITE`` admits only ``SAT_FINITE``; ``Domain.EXTENDED``
+            ``Domain.FINITE`` admits only ``SAT_FINITE``. ``Domain.EXTENDED``
             with ``SAT_FINITE`` is stored as
             ``SaturationMode.SAT_FINITE_EXTENDED``. Default: ``None``, which
             follows from ``saturation``: finite for ``SAT_FINITE``, extended
             otherwise. The instance stores the resolved domain.
-        subnormals (SubnormalsMode): what lies below the smallest normal; any
-            value but ``SUBNORMALS`` gives a format outside the standard.
-            Default: ``SubnormalsMode.SUBNORMALS``.
+        subnormals (SubnormalsMode): what lies below the smallest normal. Any
+            value other than ``SUBNORMALS`` gives a format outside the
+            standard. Default: ``SubnormalsMode.SUBNORMALS``.
 
     Raises:
         ValueError: for the finite domain with a saturation mode other than
-            ``SAT_FINITE``, and otherwise only for a format neither carrier
+            ``SAT_FINITE``. Otherwise only for a format that neither carrier
             can simulate: more than 53 bits of precision,
             ``P - 1 + prng_bits`` above 52, an exponent field past 30 bits, a
-            negative ``prng_bits``, or no finite value binary64 holds. Nothing
-            warns here; whether float32 or float64 arithmetic carries the rest
-            is the call's to decide, so each call checks the format against
-            its own carrier (see :class:`FormatRangeWarning`).
+            negative ``prng_bits``, or no finite value that binary64 holds.
+            Nothing warns here. Whether float32 or float64 arithmetic carries
+            the format depends on the call, so each call checks the format
+            against its own carrier (see :class:`FormatRangeWarning`).
         TypeError: if ``saturation`` is not a ``SaturationMode`` or
-            ``domain`` not a ``Domain``.
+            ``domain`` is not a ``Domain``.
 
     Example::
 
@@ -1577,26 +1596,30 @@ class SuperFP(FloatFormat):
     """A supernormal float, as ``common/cast_superfp.h`` implements it.
 
     The top ``normal_binades`` binades of the exponent range keep a full
-    ``man_bits``-bit mantissa; the codes the remaining binades would have
-    spent on mantissas, ``n = (2**exp_bits - normal_binades) * 2**man_bits``
-    of them, encode the zero and ``n - 1`` further powers of two below them
-    (the supernormals), and everything below those flushes to zero. The
-    format therefore trades precision at the bottom of the range for dynamic
-    range at the same width.
+    ``man_bits``-bit mantissa. The remaining binades would have spent
+    ``n = (2**exp_bits - normal_binades) * 2**man_bits`` codes on mantissas.
+    Those codes instead encode the zero and ``n - 1`` further powers of two
+    below the normal binades (the supernormals). Everything below those
+    flushes to zero. The format therefore trades precision at the bottom of
+    the range for dynamic range at the same width.
 
-    Deliberately not symmetric with :class:`BinaryK`. ``bias`` is required and
-    has no default, because the cast has no derivation rule for one; there is
-    a single ``normal_binades`` rather than one per end of the range; and
-    there is no ``subnormals`` mode, because the format has no subnormals. It
-    spends no code point on a NaN, so signedness does not move the top of the
-    range, and its one zero is unsigned like binaryK's. The instance is
-    frozen for the same reason :class:`BinaryK` is.
+    The class is deliberately not symmetric with :class:`BinaryK`:
+
+    * ``bias`` is required and has no default, because the cast has no rule
+      to derive one.
+    * There is a single ``normal_binades``, not one per end of the range.
+    * There is no ``subnormals`` mode, because the format has no subnormals.
+
+    The format spends no code point on a NaN, so signedness does not move the
+    top of the range. Its one zero is unsigned, like binaryK's. The instance
+    is frozen, and therefore hashable, because the code that resolves a
+    format memoizes on its value, as for :class:`BinaryK`.
 
     Args:
         man_bits (int): stored mantissa bits in the normal region.
         exp_bits (int): exponent field width, at least 1.
         normal_binades (int): binades at the top of the range that keep their
-            mantissa; at least 1 and at most ``2**exp_bits - 1``, so that at
+            mantissa. At least 1 and at most ``2**exp_bits - 1``, so that at
             least one supernormal code remains.
         bias (int): exponent bias.
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
@@ -1610,8 +1633,8 @@ class SuperFP(FloatFormat):
 
     Raises:
         ValueError: for the finite domain with a saturation mode other than
-            ``SAT_FINITE``, for what neither carrier can simulate, as for
-            :class:`BinaryK`, and for a ``normal_binades`` that leaves no
+            ``SAT_FINITE``; for a format that neither carrier can simulate, as
+            for :class:`BinaryK`; and for a ``normal_binades`` that leaves no
             supernormal codes. Each call checks the format against its own
             carrier (see :class:`FormatRangeWarning`).
         TypeError: as for :class:`BinaryK`.
@@ -1834,17 +1857,41 @@ class ScaleRounding(Enum):
     largest magnitude ``amax``.
 
     Mirrors ``ScaleRounding`` in ``csrc/common/block_decode.h``, by name and
-    value. Below, ``r = amax / elem_max`` (divided by the tensor scale too, for
-    a cast scale) is the scale that would take ``amax`` exactly onto
-    ``elem_max``, and ``T`` is ``elem_max`` plus half the element format's step
-    above it (7 for E2M1, whose values end 4, 6), the largest scaled element
-    that rounding to nearest would still take to ``elem_max``. Every rule is
-    then clamped to the scale's codes (and a zero cast scale raised to the
-    smallest positive one), and none depends on the elements' rounding mode.
-    With E2M1 elements a block's largest element lands, in E2M1's units, in
-    ``[4, 8)`` under :attr:`OCP`, ``[4.5, 9]`` under :attr:`NEAREST` (from a
-    power-of-two scale), ``(3, 6]`` under :attr:`UP` and ``(3.5, 7]`` under
-    :attr:`SELECTIVE`; anything above 6 saturates to 6.
+    value. Two quantities are used below:
+
+    * ``r = amax / elem_max`` is the scale that would put ``amax`` exactly on
+      ``elem_max``. For a cast scale it is also divided by the tensor scale.
+    * ``T`` is ``elem_max`` plus half the element format's step above it (7
+      for E2M1, whose largest values are 4 and 6). It is the largest scaled
+      element that rounding to nearest would still take to ``elem_max``.
+
+    Every rule's result is clamped to the scale's codes, and a zero cast
+    scale is raised to the smallest positive one. No rule depends on the
+    elements' rounding mode. With E2M1 elements and a power-of-two scale, a
+    block's largest element lands, in E2M1's units, in ``[4, 8)`` under
+    :attr:`OCP`, ``[4.5, 9]`` under :attr:`NEAREST`, ``(3, 6]`` under
+    :attr:`UP` and ``(3.5, 7]`` under :attr:`SELECTIVE`. Anything above 6
+    saturates to 6.
+
+    The three ``FOUR_OVER_SIX`` rules (Cook et al., `Four Over Six
+    <https://arxiv.org/abs/2512.02010>`__) read the block's elements, not only
+    ``amax``. A block has two candidate scales:
+
+    * :attr:`NEAREST`'s scale, under which the block's largest element lands
+      on ``elem_max`` (6 for E2M1);
+    * the scale nearest to ``r * elem_max / 2**emax``, under which it lands
+      on ``elem_max``'s power of two (4).
+
+    The block is quantized under both, in the call's rounding mode, and takes
+    the second scale if its error is strictly the smaller. The three rules
+    differ in the error they compare. They need a cast scale, because a power
+    of two cannot hold the factor of 1.5 between the candidates, and they run
+    on 1D blocks (``block_rows == 1``) so far. Under these rules the default
+    tensor scale gives the tensor's largest block the scale ``top_scale``
+    instead of ``scale_max`` (256 instead of 448 for E4M3), so that this
+    block also has both candidates. Errors are counted in fixed point, in
+    units of ``2**(floor(log2(amax)) - 22)``. A block's error is therefore
+    exact, and the choice is the same on every backend.
 
     Example::
 
@@ -1861,25 +1908,38 @@ class ScaleRounding(Enum):
     #: ``2**(emax + 1) / elem_max`` (4/3 for E2M1) and saturate. The default
     #: for a power-of-two scale (E8M0).
     OCP = 0
-    #: ``r`` rounded to nearest even in the scale format. The scale can fall
-    #: half a step of it below ``r``: a factor of 1.0625 in E4M3's normals,
-    #: which E2M1's top step absorbs, and of 1.5 where the scale's values are
-    #: powers of two, which saturates the largest element by up to a third.
-    #: NVFP4's rule, and the default for a binaryK scale with a mantissa
-    #: (E4M3).
+    #: ``r`` rounded to nearest even in the scale format. The scale can be up
+    #: to half a scale step below ``r``. In E4M3's normals that is a factor
+    #: of 1.0625, which E2M1's top step absorbs. Where the scale's values are
+    #: powers of two it is a factor of 1.5, which saturates the largest
+    #: element by up to a third. NVFP4's rule, and the default for a binaryK
+    #: scale with a mantissa (E4M3).
     NEAREST = 1
-    #: The smallest scale at least ``r``: no element passes ``elem_max``, at
-    #: the price of a grid up to twice as coarse for the rest of the block.
-    #: The rule NVIDIA's MXFP8 pretraining recipe uses for E8M0 (arXiv
-    #: 2506.08027).
+    #: The smallest scale that is at least ``r``. No element passes
+    #: ``elem_max``, but the grid can be up to twice as coarse for the rest
+    #: of the block. The rule that NVIDIA's MXFP8 pretraining recipe uses for
+    #: E8M0 (arXiv 2506.08027).
     UP = 2
-    #: :attr:`NEAREST`, or the next scale up where the block's largest
-    #: element would land above ``T``: only where the clamp at ``elem_max``
-    #: would move it further than rounding to nearest does. From a power of
-    #: two, the smallest scale with ``amax / scale <= T``. The default for a
-    #: :class:`SuperFP` scale, whose values below its normal binades are
-    #: powers of two.
+    #: :attr:`NEAREST`, or the next scale up if the block's largest element
+    #: would otherwise land above ``T``. That is the only case where the
+    #: clamp at ``elem_max`` moves the element further than rounding to
+    #: nearest does. With a power-of-two scale this is the smallest scale
+    #: with ``amax / scale <= T``. The default for a :class:`SuperFP` scale,
+    #: whose values below its normal binades are powers of two.
     SELECTIVE = 3
+    #: Four Over Six by the sum of squared errors, which the paper finds best
+    #: for post-training quantization.
+    FOUR_OVER_SIX_MSE = 4
+    #: Four Over Six by the sum of absolute errors, which the paper finds
+    #: best for pre-training.
+    FOUR_OVER_SIX_MAE = 5
+    #: Four Over Six by the largest absolute error.
+    FOUR_OVER_SIX_ABS_MAX = 6
+
+    @property
+    def is_four_over_six(self) -> bool:
+        """Whether this is one of the three ``FOUR_OVER_SIX`` rules."""
+        return self.value >= ScaleRounding.FOUR_OVER_SIX_MSE.value
 
 
 @dataclass(frozen=True)
@@ -1888,105 +1948,141 @@ class BlockFormat(Number):
 
     Covers OCP's Microscaling (MX) formats and NVIDIA's NVFP4, and the same
     construction over :class:`SuperFP` elements and scales. A tensor is split
-    into blocks of ``block_size`` consecutive elements along one axis (the
-    *packed* axis, which the functions that take a block format name with
-    ``axis``), and each block stores one ``scale`` code and ``block_size``
-    element codes. An element decodes to its ``elem`` value times the block's
-    scale, times a per-tensor float32 scale when ``scale`` is cast rather than
-    a power of two (NVFP4's E4M3, or a superfp). :func:`mptorch.quant.block_quantize` rounds a
-    tensor to the format, :func:`mptorch.quant.block_pack` stores it in
-    ``uint8`` codes, and :func:`mptorch.quant.block_matmul` multiplies two
-    packed operands.
+    into blocks of ``block_size`` consecutive elements along one axis, the
+    *packed* axis. The functions that take a block format name that axis with
+    ``axis``. Each block stores one ``scale`` code and ``block_size`` element
+    codes, and an element decodes to its ``elem`` value times its block's
+    scale. :func:`mptorch.quant.block_quantize` rounds a tensor to the
+    format, :func:`mptorch.quant.block_pack` stores it in ``uint8`` codes, and
+    :func:`mptorch.quant.block_matmul` multiplies two packed operands.
+
+    The kind of ``scale`` decides whether the tensor has a second scale. The
+    tensor scale is not an option of its own:
+
+    - A *power-of-two* scale (``scale.P == 1``: E8M0, the MX presets) reaches
+      from ``2**-127`` to ``2**127``, so the block scale is enough. The
+      format has no tensor scale, and ``tensor_scale=`` raises.
+    - A *cast* scale is a binaryK with a mantissa (NVFP4's E4M3) or a
+      superfp. It follows a block's largest magnitude more closely, but over
+      a much shorter range (E4M3: ``2**-9`` to 448). The format therefore
+      also has one float32 scale per tensor, which brings the tensor into
+      that range. A block's scale is then its scale code's value times the
+      tensor scale, a float32 product. The functions that quantize or pack
+      take it as ``tensor_scale`` (its default is given below).
+      ``tensor_scale=1.0`` leaves the block scales alone.
+    - ``scale=None`` stores the element codes unscaled.
+
+    A tensor scale without block scales is not available.
 
     With ``block_rows > 1`` a scale is shared by a *tile* of ``block_rows``
-    consecutive rows of ``block_size`` elements: rows along the axis before
-    the packed one, never across a batch dimension. A square tile
+    consecutive rows of ``block_size`` elements. The rows run along the axis
+    before the packed one, never across a batch dimension. A square tile
     (``block_rows == block_size``) quantizes a matrix to the same values
     whichever of its two axes is packed, in every deterministic rounding
-    mode, so one packed weight serves a layer's forward pass and its input
-    gradient (read transposed). ``dataclasses.replace(NVFP4, block_rows=16)``
-    is NVFP4 with 16 x 16 weight tiles.
+    mode. One packed weight can therefore serve a layer's forward pass and
+    its input gradient, which reads it transposed.
+    ``dataclasses.replace(NVFP4, block_rows=16)`` is NVFP4 with 16 x 16
+    weight tiles.
 
-    The block scale is chosen from the block's largest magnitude ``amax`` by
-    ``scale_rounding`` (:class:`ScaleRounding`). By default a power-of-two
-    scale (``scale.P == 1``, E8M0) is ``2**(floor(log2(amax)) - emax)``,
-    clamped to its codes, where ``emax = floor(log2(elem_max))``, as OCP MX
-    specifies; a ``BinaryK`` scale with a mantissa (E4M3) is ``amax /
-    (elem_max * tensor_scale)`` rounded to nearest even by the scale format's
-    cast, as NVFP4 specifies; and a ``SuperFP`` scale rounds that ratio the
-    same way unless the block's largest element would then saturate past
-    what rounding to nearest allows, where it takes the next scale up. A
-    cast scale is clamped to its largest value and raised to its smallest
-    positive one; the tensor scale defaults to ``max(|x|) / (elem_max *
-    scale_max)`` over the whole tensor ``x``. Each element is divided by its
-    scale and rounded, in the call's rounding mode, by ``elem``'s cast (a
-    binaryK or a superfp one) under ``SaturationMode.SAT_FINITE``, then
-    clamped to ``elem_max`` (``elem``'s own ``saturation`` is not read; its
-    ``subnormals`` and ``prng_bits`` are). An infinite input saturates to
-    ``elem_max``. A NaN input takes ``nan_code`` when the element format has
-    one; otherwise the block's scale becomes the scale format's NaN, so the
-    whole block (every element of a 2D tile) decodes to NaN; with neither
-    (``scale=None`` and no ``nan_code``) it becomes ``elem_max``. No value
-    decodes to ``-0.0``.
+    **Choosing the scale.** The block scale is chosen from the block's
+    largest magnitude ``amax`` by ``scale_rounding``
+    (:class:`ScaleRounding`). The defaults are:
 
-    A superfp code is laid out as its format is: the normal binades' codes as
-    a binaryK's, and below them, from code 1, the supernormal powers of two
-    (see :class:`SuperFP`). It spends no code on NaN or infinity unless
-    ``nan_code``/``inf_code`` say so, as for a binaryK element, and a superfp
-    scale spends its all-ones code on NaN, as every cast scale does.
+    - A power-of-two scale (``scale.P == 1``, E8M0) is
+      ``2**(floor(log2(amax)) - emax)``, clamped to its codes, where
+      ``emax = floor(log2(elem_max))``. This is OCP MX's rule.
+    - A ``BinaryK`` scale with a mantissa (E4M3) is
+      ``amax / (elem_max * tensor_scale)`` rounded to nearest even by the
+      scale format's cast. This is NVFP4's rule.
+    - A ``SuperFP`` scale rounds that ratio the same way, except where the
+      block's largest element would then saturate further than rounding to
+      nearest allows. There it takes the next scale up.
+
+    A cast scale is clamped to its largest value and raised to its smallest
+    positive one. The tensor scale defaults to
+    ``max(|x|) / (elem_max * top_scale)`` over the whole tensor ``x``.
+
+    **Rounding the elements.** Each element is divided by its scale and
+    rounded, in the call's rounding mode, by ``elem``'s cast (binaryK or
+    superfp) under ``SaturationMode.SAT_FINITE``. It is then clamped to
+    ``elem_max``. ``elem``'s own ``saturation`` is not read; its
+    ``subnormals`` and ``prng_bits`` are.
+
+    **Special values.** An infinite input saturates to ``elem_max``. A NaN
+    input takes ``nan_code`` when the element format has one. Otherwise the
+    block's scale becomes the scale format's NaN, and the whole block (every
+    element of a 2D tile) decodes to NaN. With neither (``scale=None`` and no
+    ``nan_code``) the NaN becomes ``elem_max``. No value decodes to ``-0.0``.
+
+    **Superfp codes.** A superfp code follows its format's layout: the normal
+    binades' codes as in a binaryK, and below them, from code 1, the
+    supernormal powers of two (see :class:`SuperFP`). It spends no code on
+    NaN or infinity unless ``nan_code`` or ``inf_code`` says so, as for a
+    binaryK element. A superfp scale spends its all-ones code on NaN, like
+    every cast scale.
 
     Args:
-        elem (BinaryK or SuperFP): the element format, at most 16 bits, one
-            binary32 holds entirely.
-        scale (BinaryK or SuperFP, optional): the scale format, one byte: E8M0
-            (``BinaryK(8, 1, bias=127, is_signed=False,
+        elem (BinaryK or SuperFP): the element format. At most 16 bits, and a
+            format that binary32 holds entirely.
+        scale (BinaryK or SuperFP, optional): the scale format, one byte. It
+            is E8M0 (``BinaryK(8, 1, bias=127, is_signed=False,
             subnormals=SubnormalsMode.EXTENDED_NORMALS)``), a binaryK with a
-            mantissa such as E4M3, or a superfp; the last two also bring a
+            mantissa such as E4M3, or a superfp. The last two also bring a
             per-tensor scale. ``None`` stores the element codes unscaled.
-        block_size (int): elements per block along the packed axis, a power
-            of two in [2, 128] with ``elem_bits * block_size`` a multiple of
+        block_size (int): elements per block along the packed axis. A power
+            of two in [2, 128], with ``elem_bits * block_size`` a multiple of
             8.
-        block_rows (int): rows per scale tile, a power of two in [1, 128]
+        block_rows (int): rows per scale tile. A power of two in [1, 128],
             with ``block_rows * block_size <= 16384``; 1 without a scale.
             Default: ``1``
         elem_max (float, optional): the largest magnitude an element takes, a
             value of ``elem``. Default: ``None``, ``elem``'s largest finite
             value under ``SAT_FINITE``.
-        nan_code (int, optional): the magnitude code (sign bit clear) the
-            element format spends on NaN, above ``elem_max``'s. Default:
+        nan_code (int, optional): the magnitude code (sign bit clear) that
+            the element format spends on NaN, above ``elem_max``'s. Default:
             ``None``
-        inf_code (int, optional): the magnitude code it spends on infinity,
-            decoded but never produced. Default: ``None``
+        inf_code (int, optional): the magnitude code it spends on infinity.
+            It is decoded but never produced. Default: ``None``
         scale_rounding (ScaleRounding, optional): how a block's scale is
-            chosen; ``OCP`` needs a power-of-two scale. Default: ``None``,
-            the scale's own rule: ``OCP`` for a power-of-two scale,
+            chosen. ``OCP`` needs a power-of-two scale. A ``FOUR_OVER_SIX``
+            rule needs a cast scale and ``block_rows == 1``. Default:
+            ``None``, the scale's own rule: ``OCP`` for a power-of-two scale,
             ``NEAREST`` for a binaryK with a mantissa, ``SELECTIVE`` for a
-            superfp. It is resolved against the scale each time the format
-            is built, so ``dataclasses.replace(NVFP4, scale=SuperFP(...))``
-            takes the superfp's rule.
+            superfp. The default is resolved against the scale each time the
+            format is built, so
+            ``dataclasses.replace(NVFP4, scale=SuperFP(...))`` takes the
+            superfp's rule.
 
-    Derived when the format is built, and read-only: ``scale_rule``, the
-    :class:`ScaleRounding` in effect (``None`` without a scale), which is
-    what formats compare by, so leaving ``scale_rounding`` to its default and
-    naming the default make equal formats; ``elem_bits``, the
-    bits per element code, the sign's included (``elem.K`` for a binaryK);
-    ``emax``, ``floor(log2(elem_max))``; ``scale_max``, the largest scale, the
-    value of the code below the scale's NaN (448 for E4M3, ``2**127`` for
-    E8M0, 0 without a scale); ``has_tensor_scale``, whether the scale is cast
-    (anything but E8M0-style), which brings the per-tensor float32 scale;
-    ``bytes_per_block``,
-    the bytes of element codes in one row of a block; and ``is_square``,
-    ``block_rows == block_size``.
+    These attributes are derived when the format is built and are read-only:
+
+    - ``scale_rule``: the :class:`ScaleRounding` in effect (``None`` without
+      a scale). Formats compare by it, so leaving ``scale_rounding`` at its
+      default and naming that default give equal formats.
+    - ``elem_bits``: the bits per element code, sign included (``elem.K`` for
+      a binaryK).
+    - ``emax``: ``floor(log2(elem_max))``.
+    - ``scale_max``: the largest scale, the value of the code below the
+      scale's NaN (448 for E4M3, ``2**127`` for E8M0, 0 without a scale).
+    - ``top_scale``: the scale that the default tensor scale gives the
+      tensor's largest block. It is ``scale_max``, or under a
+      ``FOUR_OVER_SIX`` rule the largest scale ``v`` for which
+      ``v * elem_max / 2**emax`` is also a scale (256 for E4M3, since 384 is
+      one).
+    - ``has_tensor_scale``: whether the scale is cast (anything but
+      E8M0-style), which brings the per-tensor float32 scale.
+    - ``bytes_per_block``: the bytes of element codes in one row of a block.
+    - ``is_square``: ``block_rows == block_size``.
 
     Raises:
-        ValueError: for sizes outside the ranges above, an element over 16
-            bits or a scale over 8, an element or cast scale binary32 does not
-            hold entirely, an ``elem_max`` that is not a value of ``elem``, a
-            ``nan_code`` or ``inf_code`` at or below ``elem_max``'s code, a
-            power-of-two scale that is signed or reaches past ``2**-127`` or
-            ``2**127`` (the pack multiplies by its reciprocal), or a
-            ``scale_rounding`` of ``OCP`` on a cast scale or of anything
-            without a scale.
+        ValueError: for any of the following: sizes outside the ranges above;
+            an element over 16 bits or a scale over 8; an element or cast
+            scale that binary32 does not hold entirely; an ``elem_max`` that
+            is not a value of ``elem``; a ``nan_code`` or ``inf_code`` at or
+            below ``elem_max``'s code; a power-of-two scale that is signed or
+            reaches past ``2**-127`` or ``2**127`` (the pack multiplies by
+            its reciprocal); ``scale_rounding=OCP`` on a cast scale; a
+            ``FOUR_OVER_SIX`` rule on a power-of-two scale or with
+            ``block_rows > 1``; or any ``scale_rounding`` without a scale.
         TypeError: if ``elem`` or ``scale`` is not a ``BinaryK`` or a
             ``SuperFP``.
 
@@ -2021,6 +2117,7 @@ class BlockFormat(Number):
     elem_bits: int = field(init=False, repr=False, compare=False)
     emax: int = field(init=False, repr=False, compare=False)
     scale_max: float = field(init=False, repr=False, compare=False)
+    top_scale: float = field(init=False, repr=False, compare=False)
     has_tensor_scale: bool = field(init=False, repr=False, compare=False)
     bytes_per_block: int = field(init=False, repr=False, compare=False)
     is_square: bool = field(init=False, repr=False, compare=False)
@@ -2111,6 +2208,12 @@ class BlockFormat(Number):
                         "multiplies by as well"
                     )
                 scale_max, tensor_scaled = 2.0**hi, False
+                if rounding is not None and rounding.is_four_over_six:
+                    raise ValueError(
+                        f"ScaleRounding.{rounding.name} chooses between two scales a factor of "
+                        "elem_max / 2**emax apart (1.5 for E2M1), which a power-of-two scale "
+                        "cannot hold: it takes a cast scale, such as NVFP4's E4M3"
+                    )
             else:
                 error = _block_part_error("scale", scale)
                 if error is not None:
@@ -2133,6 +2236,28 @@ class BlockFormat(Number):
                     rounding = ScaleRounding.SELECTIVE
                 else:
                     rounding = ScaleRounding.NEAREST
+            if rounding.is_four_over_six and br != 1:
+                raise ValueError(
+                    f"ScaleRounding.{rounding.name} runs on 1D blocks (block_rows=1) so far, "
+                    f"got block_rows={br}"
+                )
+
+        # The scale the default tensor scale gives the tensor's largest block.
+        # Under Four Over Six that block needs its second candidate too, a
+        # factor of elem_max / 2^emax up, so it is the largest scale whose
+        # multiple by that factor is still a scale (256 for E4M3: 384 is one,
+        # and 288 * 1.5 = 432 is not).
+        top_scale = scale_max
+        if scale is not None and rounding is not None and rounding.is_four_over_six:
+            smf = _minifloat(scale)
+            factor = elem_max / Fraction(2) ** _floor_log2(elem_max)
+            for mag in range((1 << (smf.bits - int(scale.is_signed))) - 2, 0, -1):
+                value = _minifloat_value(smf, mag)
+                if value * factor <= Fraction(scale_max) and (
+                    _minifloat_code(smf, value * factor) is not None
+                ):
+                    top_scale = float(value)
+                    break
 
         derived = {
             "scale_rule": rounding,
@@ -2140,6 +2265,7 @@ class BlockFormat(Number):
             "elem_bits": bits,
             "emax": _floor_log2(elem_max),
             "scale_max": scale_max,
+            "top_scale": top_scale,
             "has_tensor_scale": tensor_scaled,
             "bytes_per_block": bits * bs // 8,
             "is_square": br == bs,

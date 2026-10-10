@@ -19,7 +19,9 @@ import torch
 
 from mptorch import (
     E2M1,
+    E2M3,
     E4M3,
+    E5M2,
     E8M0,
     MXFP4_E2M1,
     MXFP6_E2M3,
@@ -92,7 +94,50 @@ RULES = {
     )
     for rule in rules
 }
-FORMATS = PRESETS | SUPERFP | RULES
+# BinaryK scales other than the presets' two. With a mantissa, each with a
+# tensor scale like NVFP4's E4M3: E5M2 (a shorter mantissa, a longer range), a
+# 6-bit code, P3109's default bias, an unsigned one (five exponent bits), and
+# E4M3's layout under the two subnormal modes that are not P3109's, where the
+# scale's bottom moves. Then a 4-bit power of two, 2^-7 .. 2^7, which like
+# E8M0 has none. The E2M3 element's top step is finer than E2M1's, so a
+# scale's rounding shows in the block's largest element.
+_E4M3_NORMALS = BinaryK(8, 4, bias=7, subnormals=SubnormalsMode.NORMALS)
+_E4M3_EXTENDED = BinaryK(8, 4, bias=7, subnormals=SubnormalsMode.EXTENDED_NORMALS)
+_E4M0 = BinaryK(4, 1, bias=7, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
+SCALES = {
+    "e2m1_e5m2_scale": BlockFormat(E2M1, E5M2, 16),
+    "e2m3_e5m2_scale": BlockFormat(E2M3, E5M2, 32),
+    "e2m1_6bit_scale": BlockFormat(E2M1, BinaryK(6, 3, bias=3), 16),
+    "e2m1_p3109_scale": BlockFormat(E2M1, BinaryK(8, 4), 16),
+    "e2m3_unsigned_scale": BlockFormat(E2M3, BinaryK(8, 4, is_signed=False), 32),
+    "e2m1_normals_scale": BlockFormat(E2M1, _E4M3_NORMALS, 16),
+    "e2m1_extended_scale": BlockFormat(E2M1, _E4M3_EXTENDED, 16),
+    "e2m1_e4m0_scale": BlockFormat(E2M1, _E4M0, 32),
+    "e2m3_e4m0_scale": BlockFormat(E2M3, _E4M0, 32),
+}
+SCALE_RULES = {
+    f"{name}_{rule.name.lower()}": dataclasses.replace(SCALES[name], scale_rounding=rule)
+    for name, rules in (
+        ("e2m1_e5m2_scale", (_R.UP, _R.SELECTIVE)),
+        ("e2m3_unsigned_scale", (_R.SELECTIVE,)),
+        ("e2m1_e4m0_scale", (_R.NEAREST, _R.UP, _R.SELECTIVE)),
+    )
+    for rule in rules
+}
+# Four Over Six (arXiv:2512.02010): each error measure on NVFP4, then the rule
+# on other elements and scales. E2M3's two targets are 7.5 and 4, a factor of
+# 1.875 apart; E5M2's two mantissa bits still hold NVFP4's 1.5; a superfp
+# scale holds it in its normal binades and not below them.
+FOUR_OVER_SIX = {
+    "nvfp4_fos_mse": dataclasses.replace(NVFP4, scale_rounding=_R.FOUR_OVER_SIX_MSE),
+    "nvfp4_fos_mae": dataclasses.replace(NVFP4, scale_rounding=_R.FOUR_OVER_SIX_MAE),
+    "nvfp4_fos_abs_max": dataclasses.replace(NVFP4, scale_rounding=_R.FOUR_OVER_SIX_ABS_MAX),
+    "e2m3_e4m3_fos_mse": BlockFormat(E2M3, E4M3, 32, scale_rounding=_R.FOUR_OVER_SIX_MSE),
+    "e2m1_e5m2_fos_mae": BlockFormat(E2M1, E5M2, 16, scale_rounding=_R.FOUR_OVER_SIX_MAE),
+    "e2m1_sfp_fos_mse": BlockFormat(E2M1, SFP_SCALE, 16, scale_rounding=_R.FOUR_OVER_SIX_MSE),
+    "e2m1_128_fos_abs_max": BlockFormat(E2M1, E4M3, 128, scale_rounding=_R.FOUR_OVER_SIX_ABS_MAX),
+}
+FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
 # The kernels are CPU and CUDA; MPS raises (phase H) and is tested for that.
@@ -242,8 +287,23 @@ def test_nibble_order():
         (dataclasses.replace(MXFP8_E4M3, block_rows=32), (3, 70, 33)),  # 3D: tiles per batch
         (dataclasses.replace(MXFP6_E3M2, block_size=128, block_rows=128), (130, 129)),
         (dataclasses.replace(MXFP4_E2M1, block_size=8, block_rows=128), (129, 17)),
+        # the scales of SCALES, shared by a tile
+        (dataclasses.replace(SCALES["e2m1_e5m2_scale"], block_rows=16), (40, 50)),
+        (dataclasses.replace(SCALES["e2m3_unsigned_scale"], block_rows=4), (7, 70)),
+        (dataclasses.replace(SCALES["e2m1_normals_scale"], block_rows=2), (2, 9, 40)),
+        (dataclasses.replace(SCALES["e2m1_e4m0_scale"], block_rows=32), (3, 70, 33)),
     ],
-    ids=["nvfp4_16x16", "mxfp8_2x32", "mxfp8_32x32_3d", "mxfp6_128x128", "mxfp4_128x8"],
+    ids=[
+        "nvfp4_16x16",
+        "mxfp8_2x32",
+        "mxfp8_32x32_3d",
+        "mxfp6_128x128",
+        "mxfp4_128x8",
+        "e5m2_scale_16x16",
+        "unsigned_scale_4x32",
+        "normals_scale_2x16_3d",
+        "e4m0_scale_32x32_3d",
+    ],
 )
 def test_tiles_equal_the_reference(device, mode, fmt, shape):
     x = _inputs(shape, device, seed=3)
@@ -257,7 +317,19 @@ def test_tiles_equal_the_reference(device, mode, fmt, shape):
 
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("mode", DETERMINISTIC)
-@pytest.mark.parametrize("name", ["mxfp8_e4m3", "nvfp4", "mxfp4_e2m1", "sfp8", "sfp6_sfp_scale"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "mxfp8_e4m3",
+        "nvfp4",
+        "mxfp4_e2m1",
+        "sfp8",
+        "sfp6_sfp_scale",
+        "e2m1_e5m2_scale",
+        "e2m3_unsigned_scale",
+        "e2m1_e4m0_scale",
+    ],
+)
 def test_square_tiles_are_transpose_invariant(device, mode, name):
     """A square tile quantizes a matrix the same along either axis; a
     non-square one does not (the control)."""
@@ -408,6 +480,9 @@ def _boundary_amax(fmt: BlockFormat) -> torch.Tensor:
         "e2m1_sfp_scale_up",
         "sfp6_sfp_scale",
         "e4m3_sfp_m0_scale",
+        *SCALES,
+        *SCALE_RULES,
+        *FOUR_OVER_SIX,
     ],
 )
 def test_scale_rules_at_their_boundaries(device, name):
@@ -434,7 +509,7 @@ WINDOWS = {
 
 
 @pytest.mark.parametrize("device", devices)
-@pytest.mark.parametrize("rule", list(ScaleRounding))
+@pytest.mark.parametrize("rule", list(WINDOWS))
 @pytest.mark.parametrize("scale", ["e8m0", "superfp"])
 def test_scale_rule_windows(device, rule, scale):
     """The rules' documented windows for amax / scale, and that each is
@@ -514,6 +589,43 @@ def test_nearest_from_a_power_of_two_is_not_idempotent():
         assert block_quantize(q, fmt)[0, 0].item() == second
 
 
+def _top_step_absorbs(fmt: BlockFormat) -> bool:
+    """Whether a block's largest element comes back as elem_max under a scale
+    with ``m`` mantissa bits. Rounded to nearest, such a scale lands within
+    half its step of amax / elem_max, a factor of at most 1 + 2^-(m+1) in its
+    normals, so the largest element lands within that factor of elem_max;
+    SELECTIVE can also move it down by a whole step, 1 + 2^-m, from the fit
+    threshold. Above elem_max it is clamped, so it comes back as elem_max
+    where the low end of that window is above the midpoint between elem_max
+    and the value below it. The second pass then finds the same ratio, and the
+    same scale. E2M1 (4 and 6, midpoint 5) absorbs any mantissa; E2M3 (7 and
+    7.5, midpoint 7.25) does not absorb three bits, 7.5 / 1.0625 = 7.06."""
+    assert fmt.elem_max is not None and fmt.scale is not None
+    m = ref.Layout(fmt.scale).m
+    grid = ref.elem_grid(fmt)[0]
+    midpoint = (float(grid[-1]) + float(grid[-2])) / 2
+    low = fmt.elem_max / (1 + 2.0 ** -(m + 1))
+    if fmt.scale_rule is ScaleRounding.SELECTIVE:
+        low = min(low, ref.fit_threshold(fmt) / (1 + 2.0**-m))
+    return low > midpoint
+
+
+def _power_of_two_absorbs(fmt: BlockFormat) -> bool:
+    """The same for Four Over Six's second candidate: whether a block's
+    largest element, which lands within the scale's half step of elem_max's
+    power of two, comes back as that power of two (E2M1's 4, between 3 and 6:
+    anything from 3.5 to 5)."""
+    assert fmt.elem_max is not None and fmt.scale is not None
+    h = 2.0 ** -(ref.Layout(fmt.scale).m + 1)
+    grid = [float(v) for v in ref.elem_grid(fmt)[0]]
+    at = grid.index(2.0**fmt.emax)
+    if at + 1 == len(grid):
+        return True  # elem_max is the power of two: one candidate
+    return (grid[at] / (1 + h) > (grid[at] + grid[at - 1]) / 2) and (
+        grid[at] * (1 + h) < (grid[at] + grid[at + 1]) / 2
+    )
+
+
 def _idempotent(fmt: BlockFormat) -> bool:
     """Whether quantizing again is expected to change nothing, on these inputs.
     A power of two scale under OCP, UP or SELECTIVE, whose largest element
@@ -524,9 +636,20 @@ def _idempotent(fmt: BlockFormat) -> bool:
     it treats as a power-of-two scale. Not NEAREST from a power of two (its
     largest element can round below elem_max, to a ratio that rounds a binade
     down, under which it saturates), nor UP from a cast scale (an element
-    rounded down makes a ratio that rounds up to a smaller scale)."""
+    rounded down makes a ratio that rounds up to a smaller scale), nor any
+    rule from a scale with a mantissa under an element whose top step does not
+    absorb its rounding (``_top_step_absorbs``: E2M3 under E4M3's or E5M2's
+    layout). Four Over Six from a scale with a mantissa, where both targets
+    absorb it: a block comes back with its largest element on the target its
+    scale was chosen for, so the same two candidates, and the one chosen now
+    has no error at all."""
     pow2 = not fmt.has_tensor_scale
     rule = fmt.scale_rule
+    assert rule is not None
+    if not pow2 and ref.Layout(fmt.scale).m > 0 and not _top_step_absorbs(fmt):
+        return False
+    if rule.is_four_over_six:
+        return not isinstance(fmt.scale, SuperFP) and _power_of_two_absorbs(fmt)
     if rule is ScaleRounding.NEAREST:
         return not pow2 and not isinstance(fmt.scale, SuperFP)
     if rule is ScaleRounding.UP:
@@ -554,6 +677,135 @@ def test_empty_and_odd_shapes(device):
         assert block_unpack(block_pack(x, MXFP8_E4M3)).shape == x.shape
     x = _inputs((33,), device)
     assert torch.equal(block_unpack(block_pack(x, MXFP8_E4M3)), block_quantize(x, MXFP8_E4M3))
+
+
+# --- Four Over Six ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("measure", ["mse", "mae", "abs_max"])
+def test_four_over_six_on_the_papers_block(device, measure):
+    """Table 2 of arXiv:2512.02010: [10, 20, 30, 40] scaled to 6 has the scale
+    6.5 and decodes as [9.75, 19.5, 26, 39]; scaled to 4 it has the scale 10
+    and is exact, so every measure takes it. A block that is exact under the
+    first scale keeps it: a tie goes to 6."""
+    fmt = FOUR_OVER_SIX[f"nvfp4_fos_{measure}"]
+    x = torch.zeros(3, 16, device=device)
+    x[0, :4] = torch.tensor([10.0, 20.0, 30.0, 40.0])
+    x[1, :4] = torch.tensor([9.75, 19.5, 26.0, 39.0])  # exact under 6.5, and not under 10
+    x[2, :3] = torch.tensor([1.0, 2.0, 3.0]) * 13  # exact under both: 39 = 6 * 6.5 = 3 * 13
+    assert block_quantize(x, NVFP4, tensor_scale=1.0)[0, :4].tolist() == [9.75, 19.5, 26.0, 39.0]
+    p = block_pack(x, fmt, tensor_scale=1.0)
+    scales = [ref.scale_value(fmt, int(c), 1.0) for c in p.scales.flatten().cpu()]
+    assert scales == [10.0, 6.5, 6.5]
+    assert torch.equal(block_unpack(p), x)
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("name", list(FOUR_OVER_SIX))
+def test_four_over_six_never_does_worse_than_nearest(device, mode, name):
+    """The first candidate is NEAREST's scale, so a block's error under the
+    rule's own measure is never above NEAREST's, and is strictly below it
+    wherever the rule took the other scale. Both happen. Checked in float64,
+    apart from the kernels' fixed point, so with a margin of a few units."""
+    fmt = FORMATS[name]
+    nearest = dataclasses.replace(fmt, scale_rounding=ScaleRounding.NEAREST)
+    x = _inputs((400, fmt.block_size), device, seed=17)
+    got, base = (
+        block_pack(x, fmt, rounding=mode, tensor_scale=0.05),
+        block_pack(x, nearest, rounding=mode, tensor_scale=0.05),
+    )
+    xd = x.cpu().double()
+    amax = xd.abs().amax(1)
+    unit = torch.exp2(torch.floor(torch.log2(amax.clamp_min(1e-30))) - 22)
+    eg = (block_unpack(got).cpu().double() - xd).abs() / unit[:, None]
+    eb = (block_unpack(base).cpu().double() - xd).abs() / unit[:, None]
+    if fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MSE:
+        eg, eb, slack = (eg**2).sum(1), (eb**2).sum(1), 2.0**26 * fmt.block_size
+    elif fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MAE:
+        eg, eb, slack = eg.sum(1), eb.sum(1), 2.0 * fmt.block_size
+    else:
+        eg, eb, slack = eg.amax(1), eb.amax(1), 2.0
+    moved = (got.scales != base.scales).flatten().cpu()
+    assert bool((eg <= eb + slack).all())
+    assert bool((eg[moved] < eb[moved] + slack).all())
+    took_low = moved.float().mean().item()
+    assert 0.0 < took_low < 1.0
+    if mode is RoundMode.RNE:
+        assert 0.05 < took_low < 0.95
+
+
+@pytest.mark.parametrize("device", devices)
+def test_four_over_six_tensor_scale(device):
+    """The default tensor scale gives the tensor's largest block the scale
+    256, not 448, so that it too can take its second candidate, 384."""
+    fmt = FOUR_OVER_SIX["nvfp4_fos_mse"]
+    assert (NVFP4.top_scale, fmt.top_scale, fmt.scale_max) == (448.0, 256.0, 448.0)
+    assert ref.top_scale(NVFP4) == 448.0 and ref.top_scale(fmt) == 256.0
+    for name, f in FOUR_OVER_SIX.items():
+        assert f.top_scale == ref.top_scale(f), name
+    x = _inputs((4, 64), device, seed=2)
+    x[0, :4] = torch.tensor([10.0, 20.0, 30.0, 40.0]) * 100  # the largest block, better at 4
+    p = block_pack(x, fmt)
+    assert p.tensor_scale == ref.tensor_scale_of(x, fmt)
+    assert abs(p.tensor_scale - 4000.0 / (6 * 256)) < 1e-6
+    assert ref.scale_value(fmt, int(_as3(p.scales)[0, 0, 0]), 1.0) == 384.0
+    assert torch.equal(p.unpack()[0, :4], x[0, :4])
+    _, scales, values = ref.reference(x, fmt, -1, RoundMode.RNE)
+    np.testing.assert_array_equal(_as3(p.scales).cpu().numpy(), scales)
+    assert torch.equal(p.unpack().cpu(), values)
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("name", ["nvfp4_fos_mse", "nvfp4_fos_mae", "nvfp4_fos_abs_max"])
+def test_four_over_six_edges(device, name):
+    """Non-finite elements, zero and tiny blocks, a partial last block and the
+    ends of the scale's range, where the two candidates clamp to one scale;
+    and a narrow dtype. All against the reference."""
+    fmt = FOUR_OVER_SIX[name]
+    inf, nan = float("inf"), float("nan")
+    x = _inputs((8, 70), device, seed=23)
+    x[0, 3] = nan  # no element NaN code: the block's scale becomes NaN
+    x[1, 20] = inf
+    x[2] = 0.0
+    x[3] = x[3] * 2.0**-140  # binary32 subnormals
+    x[4] = x[4] * 1e-9  # far below the tensor's largest block: the smallest scale
+    x[5] = x[5] * 1e9  # far above: the largest
+    for ts in (0.05, 1e-6, 1e6):
+        p = block_pack(x, fmt, tensor_scale=ts)
+        codes, scales, values = ref.reference(x, fmt, -1, RoundMode.RNE, tensor_scale=ts)
+        np.testing.assert_array_equal(_as3(p.scales).cpu().numpy(), scales)
+        np.testing.assert_array_equal(_as3(p.data).cpu().numpy(), ref.pack_bytes(codes, fmt))
+        got = block_unpack(p).cpu()
+        assert torch.equal(torch.isnan(got), torch.isnan(values))
+        assert torch.equal(torch.nan_to_num(got), torch.nan_to_num(values))
+    h = _inputs((4, 48), device, seed=5).to(torch.float16)
+    _, _, values = ref.reference(h, fmt, -1, RoundMode.RNE, tensor_scale=0.05)
+    assert torch.equal(block_quantize(h, fmt, tensor_scale=0.05).cpu(), values.to(torch.float16))
+
+
+def test_four_over_six_sr_is_reproducible_and_thread_count_independent():
+    """Under stochastic rounding both candidates, and the encode after them,
+    round each element with the draw its index keys, so a call draws nothing
+    more than NEAREST's would and does not depend on the thread count."""
+    base = FOUR_OVER_SIX["nvfp4_fos_mae"]
+    fmt = dataclasses.replace(base, elem=dataclasses.replace(E2M1, prng_bits=10))
+    x = _inputs((128, 256), "cpu", seed=4)
+    threads = torch.get_num_threads()
+    try:
+        torch.set_num_threads(1)
+        torch.manual_seed(9)
+        one = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+        torch.set_num_threads(max(threads, 4))
+        torch.manual_seed(9)
+        many = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+        torch.manual_seed(10)
+        other = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+    finally:
+        torch.set_num_threads(threads)
+    assert torch.equal(one.data, many.data) and torch.equal(one.scales, many.scales)
+    assert not torch.equal(one.data, other.data)
 
 
 # --- axes, ranks, dtypes, views ---------------------------------------------------
@@ -608,7 +860,19 @@ def test_narrow_dtypes(device, dtype, name):
 
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("mode", list(RoundMode))
-@pytest.mark.parametrize("name", ["mxfp8_e4m3", "nvfp4", "sfp8", "sfp6_sfp_scale", "sfp4_m0"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "mxfp8_e4m3",
+        "nvfp4",
+        "sfp8",
+        "sfp6_sfp_scale",
+        "sfp4_m0",
+        "nvfp4_fos_mse",
+        "nvfp4_fos_mae",
+        "e2m3_e4m3_fos_mse",
+    ],
+)
 def test_quantize_equals_pack_then_unpack(device, mode, name):
     base = FORMATS[name]
     prng = min(8, 23 - ref.Layout(base.elem).m)
@@ -700,6 +964,13 @@ def test_descriptor():
         *(16, 1),
     )
     assert _block_format_ints(RULES["mxfp4_e2m1_up"])[19] == 2
+    assert [
+        _block_format_ints(FOUR_OVER_SIX[f"nvfp4_fos_{m}"])[19] for m in ("mse", "mae", "abs_max")
+    ] == [
+        4,
+        5,
+        6,
+    ]
 
 
 def test_scale_rounding_mirrors_the_header():
@@ -768,6 +1039,10 @@ def test_format_validation():
         BlockFormat(E4M3, None, 32, scale_rounding=ScaleRounding.NEAREST)
     with pytest.raises(TypeError, match="ScaleRounding"):
         BlockFormat(E2M1, E8M0, 32, scale_rounding="up")  # type: ignore
+    with pytest.raises(ValueError, match="takes a cast scale"):
+        BlockFormat(E2M1, E8M0, 32, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
+    with pytest.raises(ValueError, match="1D blocks"):
+        BlockFormat(E2M1, E4M3, 16, block_rows=16, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE)
     # the pack multiplies by the reciprocal of a power-of-two scale, so both
     # must be binary32 values: 2^-127 .. 2^127
     low = BinaryK(8, 1, bias=128, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
@@ -806,7 +1081,7 @@ def test_raw_op_validates_its_descriptor():
     sfp[7] = 16  # normal_binades: every binade normal, no supernormal code left
     with pytest.raises(RuntimeError, match="superfp layout"):
         torch.ops.mptorch.block_pack.default(x, sfp, 448.0, 2.0**127, 1.0, 0)
-    for rule in (4, -1):
+    for rule in (7, -1):
         bad = list(_block_format_ints(MXFP8_E4M3))
         bad[19] = rule
         with pytest.raises(RuntimeError, match="scale_rounding"):
@@ -814,6 +1089,15 @@ def test_raw_op_validates_its_descriptor():
     nv = list(_block_format_ints(NVFP4))
     nv[19] = 0  # OCP on a cast scale
     with pytest.raises(RuntimeError, match="scale_rounding"):
+        torch.ops.mptorch.block_pack.default(x, nv, 6.0, 448.0, 1.0, 0)
+    # Four Over Six on a power-of-two scale, and on a 2D tile
+    mx = list(_block_format_ints(MXFP4_E2M1))
+    mx[19] = 4
+    with pytest.raises(RuntimeError, match="Four Over Six"):
+        torch.ops.mptorch.block_pack.default(x, mx, 6.0, 2.0**127, 1.0, 0)
+    nv = list(_block_format_ints(FOUR_OVER_SIX["nvfp4_fos_mse"]))
+    nv[21] = 2  # block_rows
+    with pytest.raises(RuntimeError, match="Four Over Six"):
         torch.ops.mptorch.block_pack.default(x, nv, 6.0, 448.0, 1.0, 0)
 
 

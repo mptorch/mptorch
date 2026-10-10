@@ -249,14 +249,15 @@ CustomArithConv2d = CustomArithConvNd
 class QConv1d(nn.Conv1d):
     """``torch.nn.Conv1d`` with per-tensor quantization and custom arithmetic.
 
-    Holds the same parameters as ``nn.Conv1d`` and computes the same
-    convolution, but through :class:`CustomArithConvNd`, so the input, weight,
-    bias and each gradient can be rounded by the ``formats``' quantizers and
-    each convolution can run in custom arithmetic. With ``formats`` left
-    ``None``, or a ``QAffineFormats`` with every slot ``None``, the layer is
-    numerically identical to ``nn.Conv1d``. A ``padding_mode`` other than
-    ``"zeros"`` is applied with ``F.pad`` before the Function, as
-    ``nn.Conv1d`` does, so the Function only ever sees zero padding.
+    It holds the same parameters as ``nn.Conv1d`` and computes the same
+    convolution, but through :class:`CustomArithConvNd`. The input, the
+    weight, the bias and each gradient can therefore be rounded by the
+    quantizers in ``formats``, and each convolution can run in custom
+    arithmetic. With ``formats`` left ``None``, or with a ``QAffineFormats``
+    whose slots are all ``None``, the layer is numerically identical to
+    ``nn.Conv1d``. A ``padding_mode`` other than ``"zeros"`` is applied with
+    ``F.pad`` before the Function, as ``nn.Conv1d`` does, so the Function
+    only ever sees zero padding.
 
     Args:
         in_channels (int): channels of the input.
@@ -352,10 +353,11 @@ class QConv1d(nn.Conv1d):
 class QConv2d(nn.Conv2d):
     """``torch.nn.Conv2d`` with per-tensor quantization and custom arithmetic.
 
-    The 2D twin of :class:`QConv1d`: the same parameters as ``nn.Conv2d``,
-    the same convolution, computed through :class:`CustomArithConvNd` so the
-    ``formats``' quantizers and math hooks apply. Numerically identical to
-    ``nn.Conv2d`` with empty formats.
+    The 2D twin of :class:`QConv1d`. It has the same parameters as
+    ``nn.Conv2d`` and computes the same convolution, through
+    :class:`CustomArithConvNd`, so the quantizers and math hooks in
+    ``formats`` apply. With empty formats it is numerically identical to
+    ``nn.Conv2d``.
 
     Args:
         in_channels (int): channels of the input.
@@ -449,10 +451,11 @@ class QConv2d(nn.Conv2d):
 class QConv3d(nn.Conv3d):
     """``torch.nn.Conv3d`` with per-tensor quantization and custom arithmetic.
 
-    The 3D twin of :class:`QConv1d`: the same parameters as ``nn.Conv3d``,
-    the same convolution, computed through :class:`CustomArithConvNd` so the
-    ``formats``' quantizers and math hooks apply. Numerically identical to
-    ``nn.Conv3d`` with empty formats.
+    The 3D twin of :class:`QConv1d`. It has the same parameters as
+    ``nn.Conv3d`` and computes the same convolution, through
+    :class:`CustomArithConvNd`, so the quantizers and math hooks in
+    ``formats`` apply. With empty formats it is numerically identical to
+    ``nn.Conv3d``.
 
     Args:
         in_channels (int): channels of the input.

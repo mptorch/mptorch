@@ -152,15 +152,18 @@ def binaryK_gemm_formats(
     """Build a ``QAffineFormats`` whose dot products run in a binaryK GEMM.
 
     The returned formats set ``fwd_math``, ``bwd_igrad_math`` and
-    ``bwd_wgrad_math`` so that a Linear layer's forward and both of its
-    gradient GEMMs run through :func:`mptorch.quant.ops.binaryK_matmul`, whose
-    arguments these are: every product is rounded to the ``mul_*`` format and,
-    when ``accumulate_quant`` is set, every partial sum to the ``acc_*``
-    format. The format is resolved once here, so each pass pays only the op.
-    Every pass holds the formats to the carrier of the tensors it runs on,
+    ``bwd_wgrad_math``. A Linear layer's forward GEMM and both of its
+    gradient GEMMs then run through
+    :func:`mptorch.quant.ops.binaryK_matmul`, which takes these same
+    arguments. Every product is rounded to the ``mul_*`` format. When
+    ``accumulate_quant`` is set, every partial sum is rounded to the
+    ``acc_*`` format.
+
+    The format is resolved once, here, so each pass costs only the op. Every
+    pass checks the formats against the carrier of the tensors it runs on:
     binary64 for a float64 layer and binary32 otherwise, unless ``carrier``
-    names one, and warns with :class:`mptorch.FormatRangeWarning` about a
-    range the carrier cannot hold.
+    names one. It warns with :class:`mptorch.FormatRangeWarning` about a
+    range that the carrier cannot hold.
 
     Args:
         mul_K (int): total width in bits of the multiply format.
@@ -297,12 +300,12 @@ def binaryK_gemm_formats_fma(
 ) -> QAffineFormats:
     """Fused-multiply-add analog of :func:`binaryK_gemm_formats`.
 
-    Each dot-product step is one fused multiply-add ``round_fma(s + a * b)``,
-    rounded once to the ``fma_*`` format
-    (:func:`mptorch.quant.ops.binaryK_matmul_fma`), rather than a rounded
-    multiply followed by a separately rounded add. The general contract
-    (resolution at construction, the carrier, the warnings) is
-    :func:`binaryK_gemm_formats`'s.
+    Each dot-product step is one fused multiply-add,
+    ``round_fma(s + a * b)``, rounded once to the ``fma_*`` format
+    (:func:`mptorch.quant.ops.binaryK_matmul_fma`). It replaces a rounded
+    multiply followed by a separately rounded add. The general contract is
+    that of :func:`binaryK_gemm_formats`: resolution at construction, the
+    carrier and the warnings.
 
     Args:
         fma_K (int): total width in bits of the fused format.
@@ -408,14 +411,14 @@ def superfp_gemm_formats(
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats`.
 
-    The dot products run through :func:`mptorch.quant.ops.superfp_matmul`:
-    products rounded to the ``mul_*`` superfp format and, when
-    ``accumulate_quant`` is set, partial sums to the ``acc_*`` one. A superfp
-    format keeps a mantissa in the top ``normal_binades`` binades of its
-    range and spends the rest of its codes on supernormal values, powers of
-    two with no mantissa; it has no subnormals, so there is no
-    ``subnormals_mode``.
-    See :func:`superfp_gemm_formats_fma` for the fused-multiply-add analog.
+    The dot products run through :func:`mptorch.quant.ops.superfp_matmul`.
+    Products are rounded to the ``mul_*`` superfp format. When
+    ``accumulate_quant`` is set, partial sums are rounded to the ``acc_*``
+    one. A superfp format keeps a mantissa in the top ``normal_binades``
+    binades of its range and spends the rest of its codes on supernormal
+    values, which are powers of two with no mantissa. It has no subnormals,
+    so there is no ``subnormals_mode``.
+    :func:`superfp_gemm_formats_fma` is the fused-multiply-add analog.
 
     Args:
         mul_man_bits (int): mantissa bits of the multiply format.
@@ -536,11 +539,11 @@ def superfp_gemm_formats_fma(
 ) -> QAffineFormats:
     """superfp analog of :func:`binaryK_gemm_formats_fma`.
 
-    Each dot-product step is one fused multiply-add rounded once to the
+    Each dot-product step is one fused multiply-add, rounded once to the
     ``fma_*`` superfp format (:func:`mptorch.quant.ops.superfp_matmul_fma`).
-    The arguments are :func:`superfp_gemm_formats`'s multiply-format arguments
-    under the ``fma_`` prefix, plus ``fma_quant``, which is
-    :func:`binaryK_gemm_formats_fma`'s.
+    The arguments are the multiply-format arguments of
+    :func:`superfp_gemm_formats` under the ``fma_`` prefix, plus
+    ``fma_quant``, as in :func:`binaryK_gemm_formats_fma`.
 
     Args:
         fma_man_bits (int): mantissa bits of the fused format.
@@ -680,15 +683,19 @@ def matmul_formats(
 ) -> QMatmulFormats:
     """Build a ``QMatmulFormats`` whose three passes run in ``mac``'s arithmetic.
 
-    The forward ``a @ b``, ``a``'s gradient ``grad @ b^T`` and ``b``'s gradient
-    ``a^T @ grad`` each run through the GEMM op ``mac`` resolves to. A palette
-    in any of ``mac``'s slots selects the per-output-element op, which needs a
-    ``prec_idx`` map per pass; the maps are bound into the hooks here rather
-    than threaded through every call, and a gradient pass whose map is missing
-    raises when it is reached rather than falling back to unquantized
-    arithmetic. Like the four ``*_gemm_formats`` factories, this sets only the
-    math hooks; elementwise operand quantization (``a_quant``, ``b_quant``,
-    ``agrad_quant``, ``bgrad_quant``) is layered on by the caller.
+    The forward product ``a @ b``, ``a``'s gradient ``grad @ b^T`` and ``b``'s
+    gradient ``a^T @ grad`` each run through the GEMM op that ``mac`` resolves
+    to.
+
+    A palette in any of ``mac``'s slots selects the per-output-element op,
+    which needs one ``prec_idx`` map per pass. The maps are bound into the
+    hooks here instead of being passed through every call. A gradient pass
+    whose map is missing raises when it is reached; it does not fall back to
+    unquantized arithmetic.
+
+    Like the four ``*_gemm_formats`` factories, this sets only the math
+    hooks. The caller adds elementwise operand quantization (``a_quant``,
+    ``b_quant``, ``agrad_quant``, ``bgrad_quant``) separately.
 
     Args:
         mac (SplitMac or FusedMac): the dot-product arithmetic, resolved once
@@ -792,16 +799,21 @@ def block_matmul_formats(
 ) -> QMatmulFormats:
     """Build a ``QMatmulFormats`` whose three passes are block GEMMs.
 
-    The forward ``a @ b`` packs ``a`` along its last dimension and ``b`` along
-    its second-to-last (their K) in ``mac``'s two formats; ``a``'s gradient
-    ``grad @ b^T`` packs ``grad`` along its last dimension and ``b`` along its
-    last; ``b``'s gradient ``a^T @ grad`` packs ``a`` along its second-to-last
-    and ``grad`` along its second-to-last. A gradient pass takes the formats
-    of the slots it fills from ``agrad_mac`` / ``bgrad_mac``, which default to
-    ``mac``. An operand whose format has square tiles is packed once, by the
-    ``a_quant`` / ``b_quant`` slot this sets for it, and the gradient passes
-    read that packing through :attr:`mptorch.quant.BlockPacked.mT`. Each
-    pass's result is float32, stored in the operands' dtype.
+    Each pass packs its operands along the dimension it sums over:
+
+    - The forward product ``a @ b`` packs ``a`` along its last dimension and
+      ``b`` along its second-to-last (their K), in ``mac``'s two formats.
+    - ``a``'s gradient ``grad @ b^T`` packs ``grad`` along its last dimension
+      and ``b`` along its last.
+    - ``b``'s gradient ``a^T @ grad`` packs ``a`` along its second-to-last
+      dimension and ``grad`` along its second-to-last.
+
+    A gradient pass takes the formats of the slots it fills from
+    ``agrad_mac`` / ``bgrad_mac``, which default to ``mac``. An operand whose
+    format has square tiles is packed once, by the ``a_quant`` / ``b_quant``
+    slot that this function sets for it. The gradient passes read that
+    packing through :attr:`mptorch.quant.BlockPacked.mT`. Each pass's result
+    is float32, stored in the operands' dtype.
 
     Args:
         mac (BlockMac): the forward's operand formats and arithmetic.
@@ -875,26 +887,33 @@ def block_gemm_formats(
 ) -> QAffineFormats:
     """Build a ``QAffineFormats`` whose three Linear GEMMs are block GEMMs.
 
-    Each hook packs what it multiplies along the dimension it reduces over, in
-    the format of the tensor's role: the forward ``x @ w^T`` packs the input
-    along its features in ``input``'s format and the weight along its input
-    features in ``weight``'s; the input gradient ``g @ w`` packs the output
-    gradient along its features in ``grad``'s format (``input``'s by default)
-    and the weight along its output features; the weight gradient ``g^T @ x``
-    packs both along the batch. The arithmetic (``acc``, ``fused``,
-    ``rounding``, the accumulate algorithm) is :func:`mptorch.quant.block_matmul`'s,
-    shared by the three. Results are float32, stored in the input's dtype.
+    Each hook packs what it multiplies along the dimension it sums over, in
+    the format of the tensor's role:
 
-    A weight that arrives packed, from ``weight_quant = BlockQuant(fmt,
-    axis=1).pack``, is used as it is: that packs it once per optimizer step
-    (the memo sees the step's in-place write) instead of in each hook, and in
-    inference once for good. With square tiles
+    - The forward product ``x @ w^T`` packs the input along its features in
+      ``input``'s format, and the weight along its input features in
+      ``weight``'s.
+    - The input gradient ``g @ w`` packs the output gradient along its
+      features in ``grad``'s format (``input``'s by default), and the weight
+      along its output features.
+    - The weight gradient ``g^T @ x`` packs both along the batch.
+
+    The arithmetic (``acc``, ``fused``, ``rounding``, the accumulate
+    algorithm) is that of :func:`mptorch.quant.block_matmul` and is shared by
+    the three passes. Results are float32, stored in the input's dtype.
+
+    A weight that arrives already packed, from
+    ``weight_quant = BlockQuant(fmt, axis=1).pack``, is used as it is. It is
+    then packed once per optimizer step instead of in each hook (the memo
+    sees the step's in-place write), and in inference only once.
+
+    With square tiles
     (``dataclasses.replace(fmt, block_rows=fmt.block_size)``, NVFP4's 16 x 16
     weights) the input gradient reads that packing transposed, so the forward
-    and backward passes see the same quantized weight; a 1D or non-square
-    weight format quantizes differently along the other axis, so a weight
-    packed in one raises in the input gradient, and training with one leaves
-    ``weight_quant`` unset.
+    and backward passes see the same quantized weight. A 1D or non-square
+    weight format quantizes differently along the other axis. A weight packed
+    in such a format therefore raises in the input gradient. To train with
+    one, leave ``weight_quant`` unset.
 
     Args:
         input (BlockFormat or BlockQuant): the input's format (a

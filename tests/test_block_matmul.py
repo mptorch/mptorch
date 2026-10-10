@@ -21,6 +21,8 @@ import torch
 
 from mptorch import (
     E2M1,
+    E2M3,
+    E5M2,
     E8M0,
     MXFP4_E2M1,
     MXFP6_E2M3,
@@ -33,6 +35,7 @@ from mptorch import (
     BlockFormat,
     RoundMode,
     ScaleRounding,
+    SubnormalsMode,
     SuperFP,
 )
 from mptorch.quant import (
@@ -59,6 +62,23 @@ SFP4 = BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32)
 SFP8 = BlockFormat(SuperFP(3, 4, 2, 7), E8M0, 32, elem_max=448.0, nan_code=0x7F)
 SQ_SFP6 = BlockFormat(SuperFP(2, 3, 2, 3), SuperFP(3, 4, 2, 7), 16, block_rows=16)
 
+# binaryK scales other than E8M0 and E4M3 (tests/test_block_pack.py's SCALES
+# holds each to the reference): E5M2, an unsigned one, a 6-bit one, P3109's
+# default bias and E4M3's layout under the two other subnormal modes, each with
+# a tensor scale, and a 4-bit power of two without one
+_E4M0 = BinaryK(4, 1, bias=7, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
+E5M2_SCALE = BlockFormat(E2M1, E5M2, 16)
+UNSIGNED_SCALE = BlockFormat(E2M3, BinaryK(8, 4, is_signed=False), 32)
+SIX_BIT_SCALE = BlockFormat(E2M1, BinaryK(6, 3, bias=3), 16)
+P3109_SCALE = BlockFormat(E2M1, BinaryK(8, 4), 16)
+NORMALS_SCALE = BlockFormat(E2M1, BinaryK(8, 4, bias=7, subnormals=SubnormalsMode.NORMALS), 16)
+EXTENDED_SCALE = BlockFormat(
+    E2M1, BinaryK(8, 4, bias=7, subnormals=SubnormalsMode.EXTENDED_NORMALS), 16
+)
+E4M0_SCALE = BlockFormat(E2M3, _E4M0, 32)
+SQ_E5M2_SCALE = dataclasses.replace(E5M2_SCALE, block_rows=16)
+SQ_E4M0_SCALE = dataclasses.replace(E4M0_SCALE, block_rows=32)
+
 PAIRS = {
     "mxfp8": (MXFP8_E4M3, MXFP8_E4M3),
     "mxfp4_mxfp8": (MXFP4_E2M1, MXFP8_E4M3),
@@ -72,6 +92,16 @@ PAIRS = {
     "scale_rules": (
         dataclasses.replace(MXFP4_E2M1, scale_rounding=ScaleRounding.UP),
         dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.SELECTIVE),
+    ),
+    "e5m2_unsigned_scales": (E5M2_SCALE, UNSIGNED_SCALE),
+    "6bit_p3109_scales": (SIX_BIT_SCALE, P3109_SCALE),
+    "normals_extended_scales": (NORMALS_SCALE, EXTENDED_SCALE),
+    "e4m0_scale_nvfp4": (E4M0_SCALE, NVFP4),
+    "tiled_scales": (SQ_E5M2_SCALE, dataclasses.replace(UNSIGNED_SCALE, block_rows=4)),
+    # scales chosen by Four Over Six, which the GEMM reads like any others
+    "four_over_six": (
+        dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE),
+        dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE),
     ),
 }
 ACCS = {"b8p4": BinaryK(8, 4), "b16p11": BinaryK(16, 11), "none": None}
@@ -135,6 +165,8 @@ SCALED_PAIRS = {
     "nvfp4": (NVFP4, NVFP4),
     "mxfp8_nvfp4": (MXFP8_E4M3, NVFP4),
     "sfp_scales": PAIRS["sfp_scales"],
+    "e5m2_unsigned_scales": PAIRS["e5m2_unsigned_scales"],
+    "6bit_scale_e4m0_scale": (SIX_BIT_SCALE, E4M0_SCALE),
 }
 
 
@@ -280,8 +312,13 @@ def test_accumulate_algorithms_equal_the_flat_gemm(device, mode, alg, block_size
 @pytest.mark.parametrize("tb", [False, True])
 @pytest.mark.parametrize(
     "fa,fb",
-    [(MXFP8_E4M3, MXFP4_E2M1), (SQ_NVFP4, SQ_MXFP8), (SFP8, SQ_SFP6)],
-    ids=["1d", "square", "superfp"],
+    [
+        (MXFP8_E4M3, MXFP4_E2M1),
+        (SQ_NVFP4, SQ_MXFP8),
+        (SFP8, SQ_SFP6),
+        (SQ_E5M2_SCALE, SQ_E4M0_SCALE),
+    ],
+    ids=["1d", "square", "superfp", "square_scales"],
 )
 def test_every_orientation(device, ta, tb, fa, fb):
     pa, pb = _ops(21, 96, 13, fa, fb, device, seed=6, ta=ta, tb=tb)

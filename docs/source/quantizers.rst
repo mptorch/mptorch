@@ -2,19 +2,19 @@ Quantizers
 ==========
 
 A quantizer rounds every element of a tensor to a format. It is the simplest
-thing MPTorch does and the building block of everything else: what a layer
-applies to its weights and activations, what a straight-through estimator
-wraps, what a quantization-aware-training observer sits in front of. An
-elementwise quantizer rounds each element independently,
+thing MPTorch does and the building block of everything else. A layer applies
+quantizers to its weights and activations, a straight-through estimator wraps
+one, and a quantization-aware-training observer sits in front of one. An
+elementwise quantizer rounds each element independently:
 
 .. math::
 
    \tilde{x}_i = Q_{F,\circ}(x_i) \qquad \text{for every element } i,
 
-and a block quantizer first chooses each block's scale from the block, then
-rounds each element of it (`Block quantization and packed storage`_). There
-are three spellings of the first, from the most explicit to the most
-convenient.
+A block quantizer first chooses each block's scale from the block's values
+and then rounds each of its elements (`Block quantization and packed
+storage`_). Elementwise quantizers have three spellings, described below from
+the most explicit to the most convenient.
 
 The functions
 -------------
@@ -33,67 +33,73 @@ parameters spelled out, and return a new tensor of the same shape and dtype.
 
 Some things to know about them:
 
-- ``bias`` is optional for ``binaryK_quantize`` (it defaults to IEEE P3109's,
-  :math:`2^{K-P-1}`, or :math:`2^{K-P}` unsigned) and required for
-  ``superfp_quantize``, for the reasons given in :doc:`concepts`.
+- ``bias`` is optional for ``binaryK_quantize``, because P3109 defines a
+  default: :math:`2^{K-P-1}`, or :math:`2^{K-P}` unsigned. It is required for
+  ``superfp_quantize``, because a superfp's bias is part of the format's
+  design and no rule derives it (:doc:`concepts`, "SuperFP: precision at the
+  top, range below").
 - Any floating dtype PyTorch trains in is accepted: float32, float64,
-  float16 and bfloat16. A float64 input is rounded in binary64, directly, and
-  the others on their float32 value, in binary32 unless the call names
-  binary64 -- `float64 and the carrier`_ below shows what that changes.
+  float16 and bfloat16. A float64 input is rounded directly in binary64. The
+  others are rounded on their float32 value, in binary32 unless the call
+  names binary64. `float64 and the carrier`_ below shows what that changes.
 - The result is stored back in the input's dtype, whichever carrier rounded
-  it, which rounds a float16 or bfloat16 result once more. The input is already a value of that dtype, so
-  only an edge of the format's range can miss, and the call warns when one
-  can -- the run shows the top of E5M2's layout meeting float16's. :doc:`concepts` gives
-  the rule, and the stricter one a GEMM's result is held to.
-- The result is a fresh tensor; the input is never modified. The in-place
-  twins, ``binaryK_quantize_`` and ``superfp_quantize_``, are the exception,
+  it, so a float16 or bfloat16 result is rounded once more. The input is
+  already a value of that dtype, so only an edge of the format's range can
+  miss the dtype's grid, and the call warns when one can. The run shows the
+  top of E5M2's layout meeting float16's. :doc:`concepts` gives the rule, and
+  the stricter one that a GEMM's result is held to.
+- The result is a new tensor, and the input is never modified. The in-place
+  twins, ``binaryK_quantize_`` and ``superfp_quantize_``, are the exception
   and have `a section of their own <In place_>`_.
 - NaN passes through with its payload. An infinity passes through too,
   except under ``SatFinite`` in either domain (``SaturationMode.SAT_FINITE``
   and ``SAT_FINITE_EXTENDED``), which clamps it to the largest finite value
   like any other overflow.
 - ``prng_bits`` only matters under ``RoundMode.SR``. The random bits are
-  drawn in the carrier, below the format's mantissa, so the two share its
-  mantissa bits: 23 in binary32 and 52 in binary64, as the run shows.
-- Every function here also takes ``carrier``, below.
+  drawn in the carrier, below the format's mantissa, so the format's mantissa
+  and the random bits share the carrier's mantissa bits: 23 in binary32 and
+  52 in binary64, as the run shows.
+- Every function here also takes ``carrier``, described below.
 - CPU and CUDA produce bit-identical results under every deterministic mode.
-  Under ``SR`` CUDA draws from its own default generator, so
-  ``torch.manual_seed`` reproduces a CUDA run on CUDA. An Apple GPU (``"mps"``)
-  draws from the CPU's and matches it bit for bit in every mode, ``SR``
-  included (:ref:`apple-gpu` says where the two part).
+  Under ``SR``, CUDA draws from its own default generator, so
+  ``torch.manual_seed`` reproduces a CUDA run on CUDA. An Apple GPU
+  (``"mps"``) draws from the CPU's generator and matches the CPU bit for bit
+  in every mode, ``SR`` included (:ref:`apple-gpu` gives the exceptions).
 
 float64 and the carrier
 -----------------------
 
-The arithmetic a quantizer rounds in is its *carrier* (:doc:`concepts`): by
-default binary64 for a float64 tensor and binary32 for the other three dtypes.
-For a float64 tensor binary64 has three consequences, and
-``carrier=torch.float64`` gives the other dtypes the ones their values can
-use.
+A quantizer rounds in its *carrier* (:doc:`concepts`): by default binary64
+for a float64 tensor and binary32 for the other three dtypes. For a float64
+tensor, binary64 has three consequences. ``carrier=torch.float64`` gives the
+other dtypes those of the three that their values can use.
 
 - **Wider formats.** The format is held to binary64's bounds, so up to 53
-  bits of precision and ten exponent bits are simulated exactly -- where the
-  same call on a float32 tensor raises, because binary32 has only 24 bits to
-  round in.
-- **Rounded once.** A value float32 cannot hold is rounded on its own bits.
-  ``1.0625 + 2**-30`` is above the tie between ``1.0`` and ``1.125`` on
-  Binary8p4's grid, and rounds up; narrowed to float32 it *is* the tie, and
+  bits of precision and ten exponent bits are simulated exactly. The same
+  call on a float32 tensor raises, because binary32 has only 24 bits to round
+  in.
+- **Rounded once.** A value that float32 cannot hold is rounded on its own
+  bits. ``1.0625 + 2**-30`` is above the tie between ``1.0`` and ``1.125`` on
+  Binary8p4's grid, and rounds up. Narrowed to float32 it *is* the tie, and
   round-to-nearest-even takes it down.
 - **Wider random draws.** Stochastic rounding takes its random bits below the
-  format's mantissa in the carrier, so ``P - 1 + prng_bits`` may reach 52
-  rather than 23, and each element draws two words of its random stream.
+  format's mantissa in the carrier. ``P - 1 + prng_bits`` may therefore reach
+  52 instead of 23, and each element draws two words of its random stream.
 
 ``carrier=torch.float64`` rounds a float32, float16 or bfloat16 tensor in
-binary64: the tensor is widened, rounded under binary64's bounds, and the
-result narrowed back to the tensor's dtype -- bit for bit the float64 call on
-the widened tensor, stored with one rounding. For an elementwise quantizer
-that buys the wider formats and the wider random draws, but not the rounding
-once: the tensor's values are its dtype's already, and a format binary32
-carries rounds them to the same answer in either carrier, as the run checks.
-The result is held to what its dtype can store (:doc:`concepts`), which for
-float32 is 24 bits of precision and binary32's range at the edges.
-``carrier=torch.float32`` names binary32, which a float64 tensor refuses --
-the carrier is never narrower than the tensor -- and
+binary64. The tensor is widened, rounded under binary64's bounds, and the
+result is narrowed back to the tensor's dtype. This is bit for bit the
+float64 call on the widened tensor, stored with one rounding.
+
+For an elementwise quantizer this gives the wider formats and the wider
+random draws, but not the single rounding. The tensor's values are already
+values of its dtype, and a format that binary32 carries rounds them to the
+same answer in either carrier, as the run checks. The result is held to what
+its dtype can store (:doc:`concepts`). For float32 that is 24 bits of
+precision and binary32's range at the edges.
+
+``carrier=torch.float32`` names binary32. A float64 tensor refuses it,
+because the carrier is never narrower than the tensor.
 :class:`~mptorch.quant.Quant` takes the same keyword.
 
 .. literalinclude:: ../snippets/quantizers_float64.py
@@ -108,9 +114,9 @@ Quant: a format and a rounding mode, as a function
 --------------------------------------------------
 
 :class:`~mptorch.quant.Quant` binds a format object and a rounding mode into
-a callable. It is what the ``*_quant`` slots of a layer's formats are meant
-to hold, and it is exactly the function call above with the arguments filled
-in from the format -- the run checks the two are equal to the bit.
+a callable. The ``*_quant`` slots of a layer's formats are meant to hold one.
+It is the function call above with the arguments filled in from the format,
+and the run checks that the two are equal to the bit.
 
 .. literalinclude:: ../snippets/quantizers_quant.py
    :language: python
@@ -120,42 +126,44 @@ in from the format -- the run checks the two are equal to the bit.
    :language: text
    :caption: output
 
-Formats and Quants are frozen dataclasses: they compare and hash by value,
-which is what lets a layer resolve its format once and the library memoize
-on it. Build them once and hold them, rather than constructing one per call.
+Formats and Quants are frozen dataclasses, so they compare and hash by value.
+This lets a layer resolve its format once and lets the library memoize on it.
+Build them once and keep them, instead of constructing one per call.
 
 In place
 --------
 
 :func:`~mptorch.quant.binaryK_quantize_` and
 :func:`~mptorch.quant.superfp_quantize_` take the arguments of the functions
-above and write the result over the tensor, which they return. They run the
-same kernels with the output pointer set to the input's, so the result is the
-out-of-place one bit for bit, under ``RoundMode.SR`` and one seed as well; what
-changes is that no result is allocated. They are for a tensor the caller
-owns -- a weight rounded once when a model is loaded, an activation nothing
-else will read -- and ``Quant(fmt, rounding, inplace=True)`` is the same thing
-as a value.
+above, write the result over the tensor, and return it. They run the same
+kernels with the output pointer set to the input's. The result is therefore
+the out-of-place one bit for bit, including under ``RoundMode.SR`` with the
+same seed; the only difference is that no result is allocated. They are meant
+for a tensor the caller owns, such as a weight rounded once when a model is
+loaded, or an activation that nothing else will read.
+``Quant(fmt, rounding, inplace=True)`` is the same thing as a value.
 
-What the out-of-place functions handle by making a copy, these refuse,
-because the kernel would round the copy and the caller's tensor would come
-back as it was:
+The out-of-place functions handle some inputs by making a copy. The in-place
+ones refuse those inputs, because the kernel would round the copy and leave
+the caller's tensor unchanged:
 
 - a tensor that is not contiguous;
 - on CUDA, a contiguous view that does not start on a 16-byte boundary
-  (``x[1:]``): the kernel moves 16 bytes at a time and cannot address one;
+  (``x[1:]``), because the kernel moves 16 bytes at a time and cannot address
+  such a view;
 - ``carrier=torch.float64`` on a float32, float16 or bfloat16 tensor, which
-  rounds a float64 copy of it and narrows the result. A float64 tensor rounds
-  in binary64 in place, since that is its own carrier.
+  rounds a float64 copy and narrows the result. A float64 tensor does round
+  in place in binary64, since that is its own carrier.
 
-Each error names the out-of-place function, which takes all three. The ops
-are no more differentiable than their twins, and raise the same way on a
-tensor that requires grad; on one that does not, the write bumps the tensor's
-version counter like any in-place op of PyTorch's own, so autograd notices a
-tensor it had saved being rounded under it. That is also why a layer's
-``*_quant`` slots should never hold an in-place ``Quant``: a layer's input
-belongs to the graph of whatever produced it. There is no Apple GPU kernel
-yet, and the ops say so on an ``"mps"`` tensor.
+Each error names the out-of-place function, which accepts all three.
+
+The in-place ops are not differentiable, like their twins, and raise the same
+way on a tensor that requires grad. On a tensor that does not, the write
+bumps the tensor's version counter, like any in-place op of PyTorch's own, so
+autograd notices if a tensor it had saved is rounded. A layer's ``*_quant``
+slots should never hold an in-place ``Quant``, because a layer's input
+belongs to the graph of whatever produced it, and autograd may have saved it.
+There is no Apple GPU kernel yet, and the ops say so on an ``"mps"`` tensor.
 
 .. literalinclude:: ../snippets/quantizers_inplace.py
    :language: python
@@ -165,39 +173,42 @@ yet, and the ops say so on an ``"mps"`` tensor.
    :language: text
    :caption: output
 
-The saving is memory rather than time, since the kernel reads and writes the
+The saving is in memory, not time, because the kernel reads and writes the
 same bytes either way. On CUDA the two take the same time at every size
-measured. On the CPU they do too while the allocator recycles the result's
-block, but a result large enough to be mapped fresh from the system on every
-call pays for its pages on first touch, which can cost more than the rounding
-(``dev/benchmarks/cpu_quantize_elementwise.py`` pairs the two).
+measured. On the CPU they also do, as long as the allocator recycles the
+result's block. A result large enough to be mapped fresh from the system on
+every call pays for its pages on first touch, which can cost more than the
+rounding (``dev/benchmarks/cpu_quantize_elementwise.py`` compares the two).
 
 Block quantization and packed storage
 -------------------------------------
 
-A block format (:ref:`block-formats`) is quantized a block at a time: the
-block's scale is chosen from its largest magnitude, by the format's
-``scale_rounding`` rule, and each element is divided by it and rounded to the
-element format in the call's rounding mode. :func:`~mptorch.quant.block_quantize`
-returns the decoded values in the input's dtype, like an elementwise
-quantizer; its ``axis`` argument names the packed axis, and
-``tensor_scale`` gives a format with a per-tensor scale (NVFP4) a static one
-instead of the default, the tensor's largest magnitude over the largest value
-the format can decode.
+A block format (:ref:`block-formats`) is quantized one block at a time. The
+block's scale is chosen from the block's values by the format's
+``scale_rounding`` rule. Each element is then divided by the scale and
+rounded to the element format in the call's rounding mode.
 
-:func:`~mptorch.quant.block_pack` rounds a tensor along one axis and returns a
-:class:`~mptorch.quant.BlockPacked`: ``data``, the element codes, and
-``scales``, the scale codes, both ``uint8``. Each row of ``data`` is the
-tensor with its packed axis moved last, a little-endian bit stream per block
-in which the :math:`w`-bit code of element :math:`i` holds bits
-:math:`[i\,w, (i+1)\,w)`. So two 4-bit codes share a byte, the first in the low
-nibble (the order of ``torch.float4_e2m1fn_x2`` and CUTLASS), and four 6-bit
-codes fill three bytes. :func:`~mptorch.quant.block_unpack` decodes a packed
-tensor, and :func:`~mptorch.quant.block_quantize` is the two fused, the
-decoded values with no packed intermediate: the fake quantizer a layer's
-``*_quant`` slot takes. :class:`~mptorch.quant.BlockQuant` is its value
-spelling, and so is :class:`~mptorch.quant.Quant` with a block format, along
-the last axis.
+:func:`~mptorch.quant.block_quantize` returns the decoded values in the
+input's dtype, like an elementwise quantizer. Its ``axis`` argument names the
+packed axis. For a format with a per-tensor scale (NVFP4), ``tensor_scale``
+gives a static scale in place of the default, which is the tensor's largest
+magnitude over the largest value the format can decode.
+
+:func:`~mptorch.quant.block_pack` rounds a tensor along one axis and returns
+a :class:`~mptorch.quant.BlockPacked`. It holds ``data``, the element codes,
+and ``scales``, the scale codes, both ``uint8``. Each row of ``data`` is the
+tensor with its packed axis moved last, stored as a little-endian bit stream
+per block: the :math:`w`-bit code of element :math:`i` occupies bits
+:math:`[i\,w, (i+1)\,w)`. Two 4-bit codes therefore share a byte, the first in
+the low nibble (the order of ``torch.float4_e2m1fn_x2`` and CUTLASS), and
+four 6-bit codes fill three bytes.
+
+:func:`~mptorch.quant.block_unpack` decodes a packed tensor.
+:func:`~mptorch.quant.block_quantize` is the two fused: it returns the
+decoded values with no packed intermediate, and is the fake quantizer that a
+layer's ``*_quant`` slot takes. :class:`~mptorch.quant.BlockQuant` is its
+value spelling. :class:`~mptorch.quant.Quant` with a block format is another,
+along the last axis.
 
 .. literalinclude:: ../snippets/block_formats.py
    :language: python
@@ -207,27 +218,27 @@ the last axis.
    :language: text
    :caption: output
 
-A strided input packs through its strides, so packing a weight along its
-first axis copies nothing. Under ``RoundMode.SR`` an element's random bits are
-keyed on its index in the packed orientation, so ``block_quantize`` and
-``block_pack`` under one generator state draw the same bits, whatever the
-thread count.
+A strided input is packed through its strides, so packing a weight along its
+first axis copies nothing. Under ``RoundMode.SR`` an element's random bits
+are keyed on its index in the packed orientation. ``block_quantize`` and
+``block_pack`` therefore draw the same bits from the same generator state,
+whatever the thread count.
 
-The block kernels round in binary32 only: a float64 tensor, or
-``carrier=torch.float64``, raises, and a float16 or bfloat16 result is held to
+The block kernels round in binary32 only. A float64 tensor, or
+``carrier=torch.float64``, raises. A float16 or bfloat16 result is held to
 what its dtype can store (:doc:`concepts`, "What a narrower tensor can
 store"). ``block_quantize_`` writes over its input, under the rules of `In
-place`_, and a block format is multiplied, packed, by :doc:`kernels/block`.
+place`_. :doc:`kernels/block` covers multiplying packed block-format tensors.
 
 Quantizer: a straight-through estimator
 ---------------------------------------
 
 Rounding is a step function. Its derivative is zero almost everywhere and
-undefined at the steps, so a gradient "through" a quantizer is not something
-autograd can derive -- it is a modelling choice, and the standard choice is
-the **straight-through estimator** (STE): pretend, in the backward pass, that
-the quantizer was the identity. :class:`~mptorch.quant.Quantizer` is that
-choice, with one refinement -- the gradient that passes through can itself be
+undefined at the steps, so autograd cannot derive a gradient "through" a
+quantizer. That gradient is a modelling choice, and the standard choice is
+the **straight-through estimator** (STE): in the backward pass, pretend that
+the quantizer was the identity. :class:`~mptorch.quant.Quantizer` implements
+it, with one refinement: the gradient that passes through can itself be
 rounded, to a format of its own:
 
 .. math::
@@ -237,9 +248,9 @@ rounded, to a format of its own:
 
 Either format may be ``None`` (that direction is left alone), a format object
 (wrapped in a ``Quant`` with round-to-nearest), or any callable
-``Tensor -> Tensor`` of your own. The asymmetry is the point: a
-quantization-aware forward pass usually wants a narrow format, and the
-gradient a wider one.
+``Tensor -> Tensor`` of your own. The two directions are separate on
+purpose: a quantization-aware forward pass usually wants a narrow format,
+and the gradient a wider one.
 
 .. literalinclude:: ../snippets/quantizers_quantizer.py
    :language: python
@@ -249,26 +260,26 @@ gradient a wider one.
    :language: text
    :caption: output
 
-Being an ``nn.Module``, a ``Quantizer`` can sit anywhere in a model -- between
-two layers, in a ``*_quant`` slot of a layer's formats -- and is registered
-with its parent, so any state it carries travels with the model's
+A ``Quantizer`` is an ``nn.Module``, so it can sit anywhere in a model:
+between two layers, or in a ``*_quant`` slot of a layer's formats. It is
+registered with its parent, so any state it carries travels with the model's
 ``state_dict``.
 
 The rule for gradients
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The run above also shows what the raw functions do when handed a tensor that
+The run above also shows what the raw functions do with a tensor that
 requires a gradient: they raise. None of MPTorch's operators is
-differentiable in autograd's sense -- a quantizer has a zero derivative, and a
+differentiable in autograd's sense. A quantizer has a zero derivative, and a
 GEMM that simulates its own arithmetic has no derivative the framework could
-infer -- so instead of returning a tensor whose gradient would silently be
-dropped (leaving ``.grad`` as ``None`` after ``.backward()``, and a model that
-silently does not train), each raw operator names the entry point that does
-carry a gradient: ``Quantizer`` for the quantizers, ``qmatmul`` /
-``QMatmul`` for the matrix products.
+infer. Returning a tensor anyway would silently drop its gradient: ``.grad``
+would be ``None`` after ``.backward()``, and the model would not train. So
+each raw operator raises and names the entry point that does carry a
+gradient: ``Quantizer`` for the quantizers, and ``qmatmul`` / ``QMatmul`` for
+the matrix products.
 
-The check is *gradient mode and* ``requires_grad``, which is why the layers
-are unaffected: a ``torch.autograd.Function``'s forward runs with gradient
-mode off, so ``QLinear`` and friends call the raw operators on tensors that
-require grad without tripping it. Under ``torch.no_grad()``, or on a detached
+The check is *gradient mode and* ``requires_grad``, so the layers are
+unaffected. A ``torch.autograd.Function``'s forward runs with gradient mode
+off, so ``QLinear`` and the other layers can call the raw operators on
+tensors that require grad. Under ``torch.no_grad()``, or on a detached
 tensor, the raw functions simply run.

@@ -131,10 +131,12 @@ def _float32(v: float) -> float:
 def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None) -> float:
     """The per-tensor scale a call packs with: 1 for a format without one.
 
-    NVFP4's default is ``max(|x|) / (elem_max * scale_max)`` over the finite
+    NVFP4's default is ``max(|x|) / (elem_max * top_scale)`` over the finite
     elements, in float32 arithmetic, so that the tensor's largest block takes
-    the largest scale; a tensor with no nonzero finite element takes 1. A
-    caller-supplied (static) scale is rounded to float32.
+    the scale ``top_scale``: the largest one, or under a Four Over Six rule
+    the largest that leaves the block its second candidate (256 for E4M3). A
+    tensor with no nonzero finite element takes 1. A caller-supplied (static)
+    scale is rounded to float32.
     """
     if not fmt.has_tensor_scale:
         if tensor_scale is not None:
@@ -158,7 +160,7 @@ def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None)
         a = x.detach().abs().float()
         amax = torch.where(torch.isfinite(a), a, torch.zeros((), device=a.device)).amax().cpu()
     assert fmt.elem_max is not None  # resolved by BlockFormat.__post_init__
-    ts = (amax / torch.tensor(fmt.elem_max * fmt.scale_max, dtype=torch.float32)).item()
+    ts = (amax / torch.tensor(fmt.elem_max * fmt.top_scale, dtype=torch.float32)).item()
     return ts if ts > 0 else 1.0
 
 
@@ -208,18 +210,22 @@ def _storage_view(x: torch.Tensor, axis: int, op: str, in_place: bool = False) -
 class BlockPacked:
     """A tensor stored in a :class:`mptorch.BlockFormat`: ``uint8`` codes and scales.
 
-    What :func:`block_pack` returns. ``data`` holds the element codes of the
-    logical tensor with its packed axis moved last, ``[..., rows, row_bytes]``
-    (the leading dimensions folded into one, a 1D tensor stored as one row),
-    and ``scales`` the scale codes, ``[..., row_tiles, n_blocks]`` (no columns
-    for a format without a scale). ``shape``, ``axis`` and ``dtype`` describe
-    the logical tensor: its shape, the axis packed along, and the dtype it was
-    packed from, which :meth:`unpack` returns. ``tensor_scale`` is the
-    per-tensor scale it was packed with (1 for a format without one).
+    This is what :func:`block_pack` returns. Its fields are:
 
-    :attr:`mT` is the logical transpose of the last two dimensions, the same
-    codes read the other way: nothing is copied, only ``shape`` and ``axis``
-    change, which is what lets :func:`block_matmul` read one packed weight in
+    - ``data``: the element codes of the logical tensor with its packed axis
+      moved last, ``[..., rows, row_bytes]``. The leading dimensions are
+      folded into one, and a 1D tensor is stored as one row.
+    - ``scales``: the scale codes, ``[..., row_tiles, n_blocks]``. A format
+      without a scale has no columns.
+    - ``shape``, ``axis`` and ``dtype``: the logical tensor's shape, the axis
+      it was packed along, and the dtype it was packed from, which
+      :meth:`unpack` returns.
+    - ``tensor_scale``: the per-tensor scale it was packed with (1 for a
+      format without one).
+
+    :attr:`mT` is the logical transpose of the last two dimensions. It reads
+    the same codes the other way: nothing is copied, and only ``shape`` and
+    ``axis`` change. This lets :func:`block_matmul` read one packed weight in
     both a layer's forward pass and its input gradient.
 
     Example::
@@ -273,7 +279,8 @@ class BlockPacked:
 
     @property
     def cols(self) -> int:
-        """The length of the packed axis, which ``data``'s rows round up to whole blocks."""
+        """The length of the packed axis. The rows of ``data`` round it up to whole
+        blocks."""
         return self.shape[self.axis]
 
     @property
@@ -330,29 +337,31 @@ def block_pack(
 ) -> BlockPacked:
     """Round ``x`` to a block format along ``axis`` and store it packed.
 
-    Each run of ``fmt.block_size`` consecutive elements along ``axis`` (times
-    ``fmt.block_rows`` rows along the axis before it, for a 2D format) shares
-    one scale, chosen from its largest magnitude as :class:`mptorch.BlockFormat`
-    states, and each element is divided by it and rounded in ``rounding`` to
-    the element format. The result stores the codes, a quarter to an eighth
-    of float32's bytes: :class:`BlockPacked` says how. A transposed view packs
-    without a copy, and so does any ``axis``: the kernel reads ``x`` through
-    its strides.
+    Each run of ``fmt.block_size`` consecutive elements along ``axis`` shares
+    one scale. For a 2D format the run also spans ``fmt.block_rows`` rows
+    along the axis before it. The scale is chosen from the block's values as
+    :class:`mptorch.BlockFormat` describes. Each element is then divided by
+    the scale and rounded to the element format in ``rounding``. The result
+    stores the codes, which take a quarter to an eighth of float32's bytes;
+    :class:`BlockPacked` describes the layout. A transposed view is packed
+    without a copy, and so is any ``axis``, because the kernel reads ``x``
+    through its strides.
 
     Under ``RoundMode.SR`` an element's random bits are keyed on its index in
-    the packed orientation (the tensor with ``axis`` moved last), so
-    :func:`block_quantize` with the same generator state draws the same bits.
+    the packed orientation (the tensor with ``axis`` moved last).
+    :func:`block_quantize` with the same generator state therefore draws the
+    same bits.
 
     Args:
         x (Tensor): float32, float16 or bfloat16, of any rank.
         fmt (BlockFormat): the format.
         axis (int): the axis to pack along. Default: ``-1``
-        rounding (RoundMode): the elements' rounding mode; the scale is
+        rounding (RoundMode): the elements' rounding mode. The scale is
             always chosen by the format's rule. Default: ``RoundMode.RNE``
         tensor_scale (float, optional): the per-tensor scale of a format whose
-            block scale has a mantissa (NVFP4); ``None`` takes ``max(|x|) /
-            (elem_max * scale_max)``, which reads ``x`` once more and, on a
-            GPU, synchronizes with it. Default: ``None``
+            block scale has a mantissa (NVFP4). ``None`` takes
+            ``max(|x|) / (elem_max * top_scale)``, which reads ``x`` once
+            more and, on a GPU, synchronizes with it. Default: ``None``
         carrier (torch.dtype, optional): the arithmetic the rounding runs in.
             Block formats have binary32 kernels only so far, so ``None`` and
             ``torch.float32`` work and ``torch.float64`` raises. Default:
@@ -400,11 +409,12 @@ def block_unpack(
     """Decode a :class:`BlockPacked` into a tensor of its logical shape.
 
     Each element is its code's value times its block's scale (times the
-    tensor scale), one binary32 product, stored in ``dtype``; a float16 or
-    bfloat16 result rounds that product a second time where the dtype does not
-    hold it, which :class:`mptorch.FormatRangeWarning` reports.
-    ``block_unpack(block_pack(x, fmt, axis))`` equals ``block_quantize(x, fmt,
-    axis)`` element for element, under the same generator state.
+    tensor scale), one binary32 product, stored in ``dtype``. A float16 or
+    bfloat16 result rounds that product a second time where the dtype does
+    not hold it, and :class:`mptorch.FormatRangeWarning` reports it.
+    ``block_unpack(block_pack(x, fmt, axis))`` equals
+    ``block_quantize(x, fmt, axis)`` element for element, under the same
+    generator state.
 
     Args:
         p (BlockPacked): the packed tensor.
@@ -479,12 +489,13 @@ def block_quantize(
 ) -> torch.Tensor:
     """Round ``x`` to a block format along ``axis`` and return the decoded values.
 
-    :func:`block_pack` and :func:`block_unpack` fused, with no packed
-    intermediate: the fake quantizer a ``*_quant`` slot of a layer's formats
-    takes (:class:`mptorch.quant.BlockQuant` is its value spelling). The
-    arguments are :func:`block_pack`'s, and the result has ``x``'s shape,
-    dtype and layout. Not differentiable: wrap it in
-    :class:`mptorch.quant.Quantizer` for a straight-through gradient.
+    This is :func:`block_pack` and :func:`block_unpack` fused, with no packed
+    intermediate. It is the fake quantizer that a ``*_quant`` slot of a
+    layer's formats takes, and :class:`mptorch.quant.BlockQuant` is its value
+    spelling. The arguments are those of :func:`block_pack`, and the result
+    has ``x``'s shape, dtype and layout. The function is not differentiable:
+    wrap it in :class:`mptorch.quant.Quantizer` for a straight-through
+    gradient.
 
     Example::
 
@@ -508,11 +519,12 @@ def block_quantize_(
 ) -> torch.Tensor:
     """:func:`block_quantize`, written over ``x`` in place; returns ``x``.
 
-    For a tensor the caller owns (a weight quantized once at load), never for
-    a ``*_quant`` slot, whose input belongs to the graph of whatever produced
-    it. ``x`` must have no overlapping elements, and a rank-4-or-more tensor
-    must fold its leading dimensions as a view with ``axis`` moved last; the
-    out-of-place op takes anything. The result equals :func:`block_quantize`'s
+    Use it for a tensor the caller owns, such as a weight quantized once at
+    load. Never use it in a ``*_quant`` slot, because a layer's input belongs
+    to the graph of whatever produced it. ``x`` must have no overlapping
+    elements. A tensor of rank 4 or more must be able to fold its leading
+    dimensions as a view with ``axis`` moved last. The out-of-place op has
+    neither restriction. The result equals that of :func:`block_quantize`
     word for word.
 
     Example::
@@ -740,34 +752,38 @@ def block_matmul(
 ) -> torch.Tensor:
     """Multiply two block-format tensors: ``a @ b`` of their logical values.
 
-    ``a`` is logically ``[..., M, K]`` and ``b`` ``[..., K, N]``; the kernel
-    decodes each element as it loads it (its value times its block's scale,
-    as :func:`block_unpack` would) and multiplies in binary32. A split mac
-    (``fused=False``) rounds each product to binary32 and the running sum to
-    ``acc``; a fused one rounds each fused multiply-add to ``acc``; ``acc=None``
-    leaves the sum in binary32. Each operand is read along K: packed along its
-    K (``a`` along its last axis, ``b`` along its second-to-last) or along its
-    other dimension, which the kernel reads transposed, so a packed weight
-    serves ``x @ w.T`` and ``g @ w`` both (:attr:`BlockPacked.mT` is the
-    transpose, without a copy). The two may be of different formats. Leading
-    dimensions must be equal, or absent on one side. Not differentiable: see
-    :func:`mptorch.quant.qmatmul` with a :class:`mptorch.quant.BlockMac`.
+    ``a`` is logically ``[..., M, K]`` and ``b`` is ``[..., K, N]``. The
+    kernel decodes each element as it loads it (its value times its block's
+    scale, as :func:`block_unpack` would) and multiplies in binary32. A split
+    mac (``fused=False``) rounds each product to binary32 and the running sum
+    to ``acc``. A fused mac rounds each fused multiply-add to ``acc``.
+    ``acc=None`` leaves the sum in binary32.
+
+    Each operand is read along K. It may be packed along its K (``a`` along
+    its last axis, ``b`` along its second-to-last) or along its other
+    dimension, which the kernel reads transposed. One packed weight therefore
+    serves both ``x @ w.T`` and ``g @ w``; :attr:`BlockPacked.mT` is the
+    transpose, without a copy. The two operands may have different formats.
+    Leading dimensions must be equal, or absent on one side. The function is
+    not differentiable: see :func:`mptorch.quant.qmatmul` with a
+    :class:`mptorch.quant.BlockMac`.
 
     A format with a per-tensor scale (NVFP4's E4M3, or a superfp scale)
     decodes each element as its value times its block's scale times the
     tensor scale, inside the loop. ``tensor_scale_epilogue=True`` does what
-    NVIDIA's NVFP4 GEMMs do instead: the loop sees the elements times their
+    NVIDIA's NVFP4 GEMMs do instead. The loop sees the elements times their
     block scales only, and the float32 result is multiplied once by the
     float32 product of the two tensor scales. The two agree in exact
-    arithmetic and round differently; in the second the accumulate format
-    sees the products unscaled by the tensor scales, so it needs their range.
+    arithmetic and round differently. In the second, the accumulate format
+    sees products that the tensor scales have not scaled, so it needs their
+    range.
 
     Args:
         a (BlockPacked): the left operand.
         b (BlockPacked): the right operand.
         acc (BinaryK, optional): the accumulate format. Default: ``None``
-        fused (bool): one rounding per step (a fused multiply-add) rather
-            than two. Default: ``False``
+        fused (bool): one rounding per step (a fused multiply-add) instead of
+            two. Default: ``False``
         rounding (RoundMode): the rounding mode of the sum. Default:
             ``RoundMode.RNE``
         accumulate_algorithm (AccumulateAlgorithm): as for
@@ -777,11 +793,11 @@ def block_matmul(
             ``None``
         outer (BinaryK, optional): BLOCK's and TREE's outer format. Default:
             ``None``
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``;
+        carrier (torch.dtype, optional): ``None`` or ``torch.float32``.
             ``torch.float64`` raises (binary32 only so far). Default: ``None``
         tensor_scale_epilogue (bool): apply the operands' tensor scales to
-            the result rather than in the decode. No effect on formats
-            without one (E8M0). Default: ``False``
+            the result instead of in the decode. It has no effect on formats
+            without a tensor scale (E8M0). Default: ``False``
 
     Returns:
         Tensor: float32, ``[..., M, N]``.

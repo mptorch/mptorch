@@ -142,14 +142,15 @@ class CustomArithLinear(torch.autograd.Function):
 class QLinear(nn.Linear):
     """``torch.nn.Linear`` with per-tensor quantization and custom arithmetic.
 
-    Holds the same parameters as ``nn.Linear`` and computes the same
-    ``input @ weight.T + bias``, but through :class:`CustomArithLinear`, so
-    the input, weight, bias and each gradient can be rounded by the
-    ``formats``' quantizers and each GEMM can run in custom arithmetic
+    It holds the same parameters as ``nn.Linear`` and computes the same
+    ``input @ weight.T + bias``, but through :class:`CustomArithLinear`. The
+    input, the weight, the bias and each gradient can therefore be rounded by
+    the quantizers in ``formats``, and each GEMM can run in custom arithmetic
     (see :func:`mptorch.quant.binaryK_gemm_formats`). With ``formats`` left
-    ``None``, or a ``QAffineFormats`` with every slot ``None``, the layer is
-    numerically identical to ``nn.Linear``. ``formats`` is a submodule, so a
-    stateful quantizer in it appears in the layer's ``state_dict``.
+    ``None``, or with a ``QAffineFormats`` whose slots are all ``None``, the
+    layer is numerically identical to ``nn.Linear``. ``formats`` is a
+    submodule, so a stateful quantizer in it appears in the layer's
+    ``state_dict``.
 
     Args:
         in_features (int): size of each input sample.
