@@ -1591,15 +1591,16 @@ tensor under ``carrier=torch.float64``, whose result is rounded in binary64.
 That conversion is a second rounding, onto the dtype's grid, and MPTorch
 rounds it correctly to nearest.
 
-For a float64 result stored as float16 or bfloat16, MPTorch uses its own
-conversion instead of PyTorch's ``.to()``. PyTorch converts float64 to
-bfloat16, and on most platforms to float16, in two steps: first to float32,
-then to the dtype. Two roundings can give a different result from one. Take
-the float64 value :math:`1 + 2^{-8} + 2^{-30}`. It lies just above the
-midpoint of the bfloat16 values :math:`1` and :math:`1 + 2^{-7}`, so it
-should become :math:`1 + 2^{-7}`. The first step rounds it to
-:math:`1 + 2^{-8}`, which is exactly the midpoint, and the second step then
-rounds that tie to :math:`1`.
+For a float64 result stored as float16 or bfloat16, MPTorch rounds once,
+directly from float64 onto the dtype's grid. It does not use PyTorch's
+``.to()``, which converts float64 to bfloat16, and on most platforms to
+float16, in two steps: first to float32, then to the dtype. Two roundings
+can give a different result from one. Take the float64 value
+:math:`1 + 2^{-8} + 2^{-30}`. It lies just above the midpoint of the
+bfloat16 values :math:`1` and :math:`1 + 2^{-7}`, so it should become
+:math:`1 + 2^{-7}`. PyTorch's first step rounds it to :math:`1 + 2^{-8}`,
+which is exactly the midpoint, and its second step then rounds that tie to
+:math:`1`.
 
 A format whose results are not all values of the dtype is quantized
 partially, as in the previous section, with one difference: a result above

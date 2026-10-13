@@ -96,8 +96,9 @@ def ensure_ninja_on_path() -> bool:
     directory, so the lookup succeeds with the virtualenv activated and fails
     when its interpreter is invoked by path (``.venv/bin/pip3 install -e .``).
     Torch then falls back to distutils without an error, and distutils compiles
-    the roughly thirty translation units one at a time: about 360 s instead of
-    about 66 s on 16 threads. Prepending the package's ``BIN_DIR`` makes the
+    the translation units one at a time: about 360 s instead of about 66 s on
+    16 threads when there were thirty of them, and there are seventy-nine now
+    (about 170 s with ninja). Prepending the package's ``BIN_DIR`` makes the
     choice independent of how the interpreter was reached.
 
     Returns:

@@ -132,7 +132,7 @@ Requirements:
 
 - Python >= 3.12
 - PyTorch >= 2.1
-- GCC >= 4.9 on Linux
+- GCC >= 10 on Linux (the extension is compiled with `-std=c++20`)
 - CUDA >= 12.0 on Linux (only needed to build the CUDA kernels)
 - Apple clang on macOS (OpenMP comes from the runtime bundled with PyTorch). The Apple GPU (MPS) kernels are built with the rest and compiled for the GPU at first use, so Xcode is not needed
 

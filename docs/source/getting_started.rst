@@ -5,7 +5,7 @@ Requirements
 ------------
 
 - Python >= 3.12 and PyTorch >= 2.1
-- A C++ compiler (GCC >= 4.9 on Linux)
+- A C++ compiler (GCC >= 10 on Linux: the extension is compiled as C++20)
 - CUDA >= 12.0, only if the CUDA kernels are wanted
 - On macOS, nothing more. The Apple GPU (MPS) kernels are built with the rest and compiled for the GPU when first used, so Xcode is not needed.
 
