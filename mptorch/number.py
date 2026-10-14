@@ -1885,13 +1885,17 @@ class ScaleRounding(Enum):
     The block is quantized under both, in the call's rounding mode, and takes
     the second scale if its error is strictly the smaller. The three rules
     differ in the error they compare. They need a cast scale, because a power
-    of two cannot hold the factor of 1.5 between the candidates, and they run
-    on 1D blocks (``block_rows == 1``) so far. Under these rules the default
-    tensor scale gives the tensor's largest block the scale ``top_scale``
-    instead of ``scale_max`` (256 instead of 448 for E4M3), so that this
-    block also has both candidates. Errors are counted in fixed point, in
-    units of ``2**(floor(log2(amax)) - 22)``. A block's error is therefore
-    exact, and the choice is the same on every backend.
+    of two cannot hold the factor of 1.5 between the candidates. With
+    ``block_rows > 1`` the block is the whole tile: it has one pair of
+    candidates, the error is taken over all of its elements, and it makes
+    one choice. Under these rules the default tensor scale gives the
+    tensor's largest block the scale ``top_scale`` instead of ``scale_max``
+    (256 instead of 448 for E4M3), so that this block also has both
+    candidates. Errors are counted in fixed point, in units of
+    ``2**(floor(log2(amax)) - 22)``. A block's error is therefore exact, and
+    the choice is the same on every backend, in whatever order the elements
+    are added up. A square tile therefore also makes the same choice
+    whichever of its two axes the tensor is packed along.
 
     Example::
 
@@ -2045,7 +2049,7 @@ class BlockFormat(Number):
             It is decoded but never produced. Default: ``None``
         scale_rounding (ScaleRounding, optional): how a block's scale is
             chosen. ``OCP`` needs a power-of-two scale. A ``FOUR_OVER_SIX``
-            rule needs a cast scale and ``block_rows == 1``. Default:
+            rule needs a cast scale. Default:
             ``None``, the scale's own rule: ``OCP`` for a power-of-two scale,
             ``NEAREST`` for a binaryK with a mantissa, ``SELECTIVE`` for a
             superfp. The default is resolved against the scale each time the
@@ -2081,8 +2085,8 @@ class BlockFormat(Number):
             below ``elem_max``'s code; a power-of-two scale that is signed or
             reaches past ``2**-127`` or ``2**127`` (the pack multiplies by
             its reciprocal); ``scale_rounding=OCP`` on a cast scale; a
-            ``FOUR_OVER_SIX`` rule on a power-of-two scale or with
-            ``block_rows > 1``; or any ``scale_rounding`` without a scale.
+            ``FOUR_OVER_SIX`` rule on a power-of-two scale; or any
+            ``scale_rounding`` without a scale.
         TypeError: if ``elem`` or ``scale`` is not a ``BinaryK`` or a
             ``SuperFP``.
 
@@ -2236,11 +2240,6 @@ class BlockFormat(Number):
                     rounding = ScaleRounding.SELECTIVE
                 else:
                     rounding = ScaleRounding.NEAREST
-            if rounding.is_four_over_six and br != 1:
-                raise ValueError(
-                    f"ScaleRounding.{rounding.name} runs on 1D blocks (block_rows=1) so far, "
-                    f"got block_rows={br}"
-                )
 
         # The scale the default tensor scale gives the tensor's largest block.
         # Under Four Over Six that block needs its second candidate too, a

@@ -1083,8 +1083,15 @@ Four things are specific to these rules:
 The rule rounds every element a second time in each block whose two scales
 differ. On a CPU, ``block_quantize`` takes about 2.2 times as long as under
 ``NEAREST``. For pre-training the paper recommends the rule for activations
-only (its Appendix A.4). It runs on 1D blocks so far, and raises with
-``block_rows > 1``.
+only (its Appendix A.4).
+
+With `2D tiles`_ (below) the block is the whole tile. The tile has one pair
+of candidate scales, from its largest magnitude; the error is taken over all
+of its elements; and it makes one choice. The paper's `reference
+implementation <https://github.com/mit-han-lab/fouroversix>`__ does the same
+for 16 x 16 tiles (its ``block_scale_2d``). Since the errors are integers,
+the choice does not depend on the order in which they are added up, and a
+square tile makes the same choice whichever axis the tensor is packed along.
 
 Rounding the elements
 ^^^^^^^^^^^^^^^^^^^^^
@@ -1172,7 +1179,11 @@ rule, over Gaussian blocks of every magnitude.
 The last part is Four Over Six on NVFP4. It shows the paper's block under
 ``NEAREST`` and under ``FOUR_OVER_SIX_MSE``. Then, over Gaussian blocks, it
 shows how often each measure takes the second scale and the mean relative
-error that leaves, next to ``NEAREST``'s.
+error that leaves, next to ``NEAREST``'s. The same table follows for 16 x 16
+tiles of Gaussian values. A tile of 256 such values has most of them far
+below its largest, where the first scale's grid is the finer one, so the MSE
+and MAE measures rarely take the second scale there; the last column says
+that a tile's choice is the same along either axis.
 
 .. literalinclude:: ../snippets/block_scale_rounding.py
    :language: python
@@ -1244,7 +1255,8 @@ has one row per tile. Two examples:
 
 A *square* tile covers the same elements whichever of a matrix's two axes is
 packed, so it quantizes the matrix to the same values either way, in every
-deterministic rounding mode. One packed weight can therefore serve both a
+deterministic rounding mode and under every scale rule, the `Four Over
+Six`_ rules included. One packed weight can therefore serve both a
 layer's forward pass and its input gradient, which reads the weight
 transposed. A 1D block runs along one axis only and quantizes the two
 orientations differently. A matrix product needs its operands blocked along

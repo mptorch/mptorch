@@ -55,6 +55,7 @@ from .markers import float64_devices, requires_mps
 devices = float64_devices
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 SQ_NVFP4 = dataclasses.replace(NVFP4, block_rows=16)
+SQ_FOS = dataclasses.replace(SQ_NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
 SQ_MXFP8 = dataclasses.replace(MXFP8_E4M3, block_rows=32)
 
 # superfp elements and scales (tests/test_block_pack.py has their layouts)
@@ -102,6 +103,11 @@ PAIRS = {
     "four_over_six": (
         dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE),
         dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE),
+    ),
+    # and chosen per 2D tile, against a 1D operand under the rule
+    "four_over_six_tiled": (
+        SQ_FOS,
+        dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_ABS_MAX),
     ),
 }
 ACCS = {"b8p4": BinaryK(8, 4), "b16p11": BinaryK(16, 11), "none": None}
@@ -317,8 +323,9 @@ def test_accumulate_algorithms_equal_the_flat_gemm(device, mode, alg, block_size
         (SQ_NVFP4, SQ_MXFP8),
         (SFP8, SQ_SFP6),
         (SQ_E5M2_SCALE, SQ_E4M0_SCALE),
+        (SQ_FOS, SQ_NVFP4),
     ],
-    ids=["1d", "square", "superfp", "square_scales"],
+    ids=["1d", "square", "superfp", "square_scales", "square_four_over_six"],
 )
 def test_every_orientation(device, ta, tb, fa, fb):
     pa, pb = _ops(21, 96, 13, fa, fb, device, seed=6, ta=ta, tb=tb)

@@ -197,11 +197,15 @@ input's). There are two recipes for the weight:
   ``weight_quant = BlockQuant(w16, axis=1).pack``. The weight is packed once,
   and the input gradient reads that packing transposed, so the forward and
   backward passes see the same quantized weight. The packing is memoized on
-  the weight and its version counter, so it is redone once per optimizer
-  step (which writes the weight in place). A weight packed in a 1D or
-  non-square format cannot serve the input gradient. It raises there, with a
-  message that names the square-tile spelling. For inference there is no
-  backward pass, and a 1D packed weight is fine.
+  the weight, its version counter, its device and its dtype, so it is redone
+  once per optimizer step (which writes the weight in place) and after the
+  layer is moved or converted (``.to()``, ``.half()``). A weight packed in a
+  1D or non-square format cannot serve the input gradient. It raises there,
+  with a message that names the square-tile spelling. For inference there is
+  no backward pass, and a 1D packed weight is fine. The tile may carry any
+  scale rule, a Four Over Six one included
+  (``dataclasses.replace(w16, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)``):
+  each tile then makes its choice between two scales once, for both passes.
 
 .. literalinclude:: ../snippets/block_layers.py
    :language: python
@@ -211,11 +215,17 @@ input's). There are two recipes for the weight:
    :language: text
    :caption: output
 
-Packing the weight once does not save memory in training. The float weight
-that a 1D layer saves for its backward pass is the parameter itself. The
-16 x 16 packing (0.504 bytes per element) is an extra allocation, kept alive
-from the forward pass to the input gradient. Each GEMM's result is float32,
-stored in the input's dtype.
+Packing the weight once does not save memory, in training or in inference.
+The layer's parameter stays the float weight, and the packing is a second
+copy beside it, held by the ``BlockQuant``: 0.504 bytes per element for
+NVFP4's 16 x 16 tiles and 1.03 for MXFP8, next to float32's 4. In training,
+the float weight that a 1D layer saves for its backward pass is the parameter
+itself, and the 16 x 16 packing is an extra allocation, kept alive from the
+forward pass to the input gradient. In inference the packing is made once and
+kept for as long as the weight does not change. A ``BlockQuant`` remembers
+one weight, so give each layer its own. What packing once buys is time and
+consistency: the weight is quantized once, and every product reads the same
+codes. Each GEMM's result is float32, stored in the input's dtype.
 
 ``tensor_scale_epilogue=True`` applies a format's per-tensor scales to each
 product's result instead of in the decode, as NVIDIA's NVFP4 GEMMs do

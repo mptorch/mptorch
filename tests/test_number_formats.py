@@ -1013,6 +1013,107 @@ def test_a_packed_1d_weight_refuses_the_input_gradient():
         assert layer(torch.randn(4, 64)).shape == (4, 8)
 
 
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+def test_a_square_weight_under_four_over_six_serves_both_passes(device):
+    """A Four Over Six rule on a 16 x 16 weight tile. The tile's choice between
+    its two scales is made on integer errors, so it does not depend on the axis
+    the weight is packed along, and the packing the forward made is the one
+    the input gradient would make from the float weight."""
+    import dataclasses
+
+    from mptorch import NVFP4, ScaleRounding
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats, block_matmul, block_pack
+
+    act = dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
+    w16 = dataclasses.replace(act, block_rows=16)
+    acc = BinaryK(16, 11)
+    formats = block_gemm_formats(act, w16, acc=acc)
+    formats.weight_quant = BlockQuant(w16, axis=1).pack
+    layer = QLinear(64, 32, formats=formats).to(device)
+    x = torch.randn(8, 64, device=device, requires_grad=True)
+    y = layer(x)
+    w, bias = layer.weight.detach(), layer.bias.detach()
+    assert torch.equal(block_pack(w, w16, 0).unpack(), block_pack(w, w16, 1).unpack())
+    # the control: 1D blocks under the rule quantize the weight differently along its two axes
+    assert not torch.equal(block_pack(w, act, 0).unpack(), block_pack(w, act, 1).unpack())
+    want = block_matmul(block_pack(x.detach(), act), block_pack(w, w16, 1).mT, acc=acc) + bias
+    assert torch.equal(y, want)
+    g = torch.randn_like(y)
+    y.backward(g)
+    assert x.grad is not None
+    assert torch.equal(x.grad, block_matmul(block_pack(g, act), block_pack(w, w16, 0), acc=acc))
+
+
+def test_the_packing_memo_sees_a_converted_weight():
+    """``nn.Module``'s conversions swap a parameter's data and keep the object
+    and its version counter, so the memo keys on the dtype as well. Without it
+    ``.half()`` was answered with the float32 weight's packing."""
+    import dataclasses
+
+    from mptorch import NVFP4
+    from mptorch.quant import BlockQuant, block_pack
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    q = BlockQuant(w16, axis=1)
+    lin = torch.nn.Linear(64, 32)
+    with torch.no_grad():
+        first = q.pack(lin.weight)
+        assert first.dtype == torch.float32
+        lin.half()
+        second = q.pack(lin.weight)
+        assert second is not first and second.dtype == torch.float16
+        fresh = block_pack(lin.weight, w16, 1)
+        assert torch.equal(second.data, fresh.data) and torch.equal(second.scales, fresh.scales)
+        assert q.pack(lin.weight) is second
+        lin.float()
+        third = q.pack(lin.weight)
+        assert third is not second and third.dtype == torch.float32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+def test_a_packed_weight_follows_its_layer_to_another_device():
+    """The same for the device: a layer that had run on the CPU raised a device
+    mismatch after ``.cuda()``, the memo handing its GEMM the CPU's packing."""
+    import dataclasses
+
+    from mptorch import NVFP4
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    acc = BinaryK(16, 11)
+
+    def packed_layer():
+        q = BlockQuant(w16, axis=1)
+        f = block_gemm_formats(NVFP4, w16, acc=acc)
+        f.weight_quant = q.pack
+        return QLinear(64, 32, formats=f), q
+
+    layer, q = packed_layer()
+    x = torch.randn(8, 64)
+    with torch.no_grad():
+        y_cpu = layer(x)
+        on_cpu = q.pack(layer.weight)
+        layer.cuda()
+        y_cuda = layer(x.cuda())
+        on_cuda = q.pack(layer.weight)
+        assert on_cuda is not on_cpu and on_cuda.data.device.type == "cuda"
+        # a layer that has only ever been on the device
+        want, _ = packed_layer()
+        want.load_state_dict(layer.state_dict())
+        assert torch.equal(y_cuda, want.cuda()(x.cuda()))
+        layer.cpu()
+        assert q.pack(layer.weight).data.device.type == "cpu"
+        assert torch.equal(layer(x), y_cpu)
+
+
 def test_qmatmul_with_superfp_block_formats():
     """A BlockMac over superfp elements and a superfp scale runs the forward and
     both gradients, and its forward is the block GEMM of the packed operands."""

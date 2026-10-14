@@ -327,10 +327,12 @@ class BlockQuant:
     :func:`mptorch.quant.block_matmul_formats` multiply without decoding them
     first. Use ``BlockQuant(fmt, axis=1).pack`` as a ``QLinear``'s
     ``weight_quant`` to pack its weight once instead of in every hook. The
-    packing is memoized on the tensor and its version counter. It is
-    therefore redone after each optimizer step (which writes the weight in
-    place) and not otherwise. The memo does not see a write that the version
-    counter does not see (one made through ``.data``).
+    packing is memoized on the tensor, its version counter, its device and
+    its dtype. It is therefore redone after each optimizer step (which writes
+    the weight in place) and after the module is moved or converted
+    (``.to()``, ``.cuda()``, ``.half()``, which keep the parameter and its
+    version), and not otherwise. The memo does not see a write that the
+    version counter does not see (one made through ``.data``).
 
     Args:
         fmt (BlockFormat): the format.
@@ -362,8 +364,10 @@ class BlockQuant:
     axis: int = -1
     tensor_scale: float | None = None
     carrier: torch.dtype | None = None
-    # The last packing, as (tensor, its version, axis, result): one entry,
-    # since a BlockQuant packs one weight.
+    # The last packing, as (tensor, its version, axis, device, dtype, result):
+    # one entry, since a BlockQuant packs one weight. The device and the dtype
+    # are there because nn.Module's conversions swap a parameter's data and
+    # leave the object and its version as they were.
     _memo: list = field(default_factory=lambda: [None], init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -383,12 +387,19 @@ class BlockQuant:
 
     def pack(self, x: torch.Tensor, axis: int | None = None) -> BlockPacked:
         """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, memoized on
-        ``x`` and its version. ``axis`` defaults to this quantizer's."""
+        ``x``, its version, its device and its dtype. ``axis`` defaults to this
+        quantizer's."""
         axis = self.axis if axis is None else axis
         memo = self._memo[0]
         if memo is not None:
-            ref, version, memo_axis, packed = memo
-            if ref() is x and x._version == version and memo_axis == axis:
+            ref, version, memo_axis, device, dtype, packed = memo
+            if (
+                ref() is x
+                and x._version == version
+                and memo_axis == axis
+                and x.device == device
+                and x.dtype == dtype
+            ):
                 return packed
         packed = block_pack(
             x,
@@ -398,7 +409,7 @@ class BlockQuant:
             tensor_scale=self.tensor_scale,
             carrier=self.carrier,
         )
-        self._memo[0] = (weakref.ref(x), x._version, axis, packed)
+        self._memo[0] = (weakref.ref(x), x._version, axis, x.device, x.dtype, packed)
         return packed
 
     def pack_fresh(self, x: torch.Tensor, axis: int) -> BlockPacked:

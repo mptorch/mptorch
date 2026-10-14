@@ -554,4 +554,4 @@ def test_finite_domain_admits_only_sat_finite():
         8, 4, saturation=SaturationMode.SAT_FINITE
     )
     with pytest.raises(TypeError, match="domain must be a Domain"):
-        BinaryK(8, 4, domain="finite")  # type: ignore[arg-type]
+        BinaryK(8, 4, domain="finite")  # type: ignore

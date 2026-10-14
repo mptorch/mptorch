@@ -19,3 +19,9 @@ FOUR_OVER_SIX_MSE         45.4%   0.0862
 FOUR_OVER_SIX_MAE         33.8%   0.0873
 FOUR_OVER_SIX_ABS_MAX     60.1%   0.0884
 default tensor scale: NVFP4's block of the largest value takes the scale 448.0 and Four Over Six's 256.0
+
+NVFP4, 16 x 16 tiles    takes 4    error   same along both axes
+NEAREST                    0.0%   0.1117   True
+FOUR_OVER_SIX_MSE          3.2%   0.1116   True
+FOUR_OVER_SIX_MAE          0.0%   0.1117   True
+FOUR_OVER_SIX_ABS_MAX     85.0%   0.1236   True

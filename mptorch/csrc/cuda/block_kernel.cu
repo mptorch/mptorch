@@ -24,6 +24,9 @@
 // completes before any write, and the encode pass reads element i before it
 // writes it. A tile of up to 16,384 elements does not fit in registers, so
 // the encode pass reads its input a second time (from L2 for the largest).
+// Under a Four Over Six rule a third pass sits between the two, behind a
+// barrier of its own (four_over_six_tile): the whole tile's errors under the
+// two candidate scales, combined as the amax is, so the tile makes one choice.
 //
 // Every element's stochastic draw is word (i & 3) of Philox block i >> 2 of
 // the call's (seed, offset), i its logical index in the packed orientation,
@@ -152,6 +155,79 @@ namespace mptorch::block_cuda
             return err_low < err_six ? low : six;
         }
 
+        // Four Over Six's choice for a whole 2D tile, by its CTA, between the
+        // amax pass and the encode pass of block_pack_tile_kernel. `six` is
+        // tile_scale's candidate, the same in every thread, as is the second
+        // one. Each thread adds up the errors of the elements it took in the
+        // amax pass, under both candidates and with the draws encode_segment
+        // will give them; the warp reduces the sums by shuffles, the warps
+        // combine through shared memory, and every thread takes the same
+        // choice. The reduction and its barrier run whether or not the two
+        // candidates differ, so no thread ever skips a barrier. The errors are
+        // integers, so the choice is the CPU's whatever the order, and a
+        // square tile's does not depend on the axis it is packed along. The
+        // pass only reads, which keeps the in-place quantizer sound. The
+        // slots are declared here, so a kernel of another rule holds none.
+        template <typename scalar_t, RoundMode RM>
+        __device__ __forceinline__ TileScale<float> four_over_six_tile(
+            const BlockPackJob &j, const BlockFormatParams &p, const BlockCast &c, const TileScale<float> &six,
+            uint32_t amax, uint64_t seed, uint64_t offset, int64_t b, int64_t r0, int64_t c0, int64_t nrows,
+            int64_t ncols, int tile_elems, int threads, int warps)
+        {
+            __shared__ uint64_t warp_err_six[WARPS];
+            __shared__ uint64_t warp_err_low[WARPS];
+            const float a = block_float<float>(amax);
+            const TileScale<float> low = four_over_six_low<float>(a, six, p, c);
+            uint64_t err_six = 0, err_low = 0;
+            if (low.code != six.code)
+            {
+                const int amax_exp = block_floor_log2(a);
+                for (int i = threadIdx.x; i < tile_elems; i += threads)
+                {
+                    const int rr = i >> p.log2_block_size;
+                    const int cc = i & (p.block_size - 1);
+                    if (rr >= nrows || cc >= ncols)
+                        continue;
+                    const float v =
+                        load_as_float<scalar_t>(j.x, b * j.xs0 + (r0 + rr) * j.xs1 + (c0 + cc) * j.xs2);
+                    uint32_t rv = 0;
+                    if constexpr (RM == RoundMode::SR)
+                    {
+                        const int64_t idx = (b * j.rows + r0 + rr) * j.cols + c0 + cc;
+                        rv = philox_block(seed, static_cast<uint64_t>(idx >> 2), offset).word(static_cast<int>(idx & 3));
+                    }
+                    uint32_t code; // encode_segment casts again under the scale chosen
+                    err_six = add_block_error(
+                        err_six, candidate_error_units<float, RM>(v, six, amax_exp, c.elem_signed, rv, p, c, code),
+                        c.scale_rounding);
+                    err_low = add_block_error(
+                        err_low, candidate_error_units<float, RM>(v, low, amax_exp, c.elem_signed, rv, p, c, code),
+                        c.scale_rounding);
+                }
+            }
+            for (int off = 16; off > 0; off >>= 1)
+            {
+                const uint64_t other_six = __shfl_xor_sync(0xffffffffu, err_six, off);
+                const uint64_t other_low = __shfl_xor_sync(0xffffffffu, err_low, off);
+                err_six = merge_block_error(err_six, other_six, c.scale_rounding);
+                err_low = merge_block_error(err_low, other_low, c.scale_rounding);
+            }
+            if (threadIdx.x % 32 == 0)
+            {
+                warp_err_six[threadIdx.x / 32] = err_six;
+                warp_err_low[threadIdx.x / 32] = err_low;
+            }
+            __syncthreads();
+            err_six = 0;
+            err_low = 0;
+            for (int w = 0; w < warps; ++w)
+            {
+                err_six = merge_block_error(err_six, warp_err_six[w], c.scale_rounding);
+                err_low = merge_block_error(err_low, warp_err_low[w], c.scale_rounding);
+            }
+            return err_low < err_six ? low : six;
+        }
+
         // One row segment's encode, by its group: the E elements `v` a lane
         // loaded (cols past the row's end are not elements), their codes, and
         // either the decoded values written back (quantize) or the block's
@@ -273,7 +349,8 @@ namespace mptorch::block_cuda
             }
         }
 
-        template <typename scalar_t, RoundMode RM>
+        // FOS as on block_pack_kernel: the launch of a Four Over Six rule.
+        template <typename scalar_t, RoundMode RM, bool FOS>
         __global__ __launch_bounds__(THREADS) void block_pack_tile_kernel(BlockPackJob j, BlockFormatParams p,
                                                                           BlockCast c, at::PhiloxCudaState rng)
         {
@@ -341,7 +418,10 @@ namespace mptorch::block_cuda
                     amax = warp_amax[w] > amax ? warp_amax[w] : amax;
                     nan = nan || warp_nan[w] != 0;
                 }
-                const TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+                TileScale<float> s = tile_scale<float>(block_float<float>(amax), nan, p, c);
+                if constexpr (FOS)
+                    s = four_over_six_tile<scalar_t, RM>(j, p, c, s, amax, seed, offset, b, r0, c0, nrows, ncols,
+                                                         tile_elems, threads, warps);
 
                 // The encode pass: the tile's rows as row segments, a group
                 // each, as the 1D kernel encodes them.
@@ -361,7 +441,7 @@ namespace mptorch::block_cuda
                 }
                 if (!j.quant && threadIdx.x == 0 && p.scale_cols != 0)
                     j.scales[(b * p.row_tiles + rt) * p.scale_cols + blk] = static_cast<uint8_t>(s.code);
-                // The shared amax slots are the next tile's.
+                // The shared amax slots, and the rule's, are the next tile's.
                 __syncthreads();
             }
         }
@@ -416,8 +496,11 @@ namespace mptorch::block_cuda
                 // both passes and the barrier between them.
                 const int tile_elems = p.block_rows * p.block_size;
                 const int threads = tile_elems / 4 < 32 ? 32 : (tile_elems / 4 > THREADS ? THREADS : tile_elems / 4);
-                block_pack_tile_kernel<scalar_t, RM>
-                    <<<grid_of(j.batch * p.row_tiles * p.n_blocks), threads, 0, stream>>>(j, p, c, rng);
+                const unsigned grid = grid_of(j.batch * p.row_tiles * p.n_blocks);
+                if (is_four_over_six(c.scale_rounding))
+                    block_pack_tile_kernel<scalar_t, RM, true><<<grid, threads, 0, stream>>>(j, p, c, rng);
+                else
+                    block_pack_tile_kernel<scalar_t, RM, false><<<grid, threads, 0, stream>>>(j, p, c, rng);
             }
         }
 

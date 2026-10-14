@@ -70,3 +70,24 @@ for rule in (R.NEAREST, R.FOUR_OVER_SIX_MSE, R.FOUR_OVER_SIX_MAE, R.FOUR_OVER_SI
     print(f"{rule.name:<22}{took:>9.1%}{err:>9.4f}")
 print("default tensor scale: NVFP4's block of the largest value takes the scale", end=" ")
 print(NVFP4.top_scale, "and Four Over Six's", fmt.top_scale)
+
+# On 2D tiles the block is the tile: one choice, from all 256 of its elements.
+# A square tile makes it the same way whichever axis the matrix is packed along.
+torch.manual_seed(0)
+w = torch.randn(20, 20, 16, 16) * torch.exp2(torch.rand(20, 20, 1, 1) * 8 - 4)
+w = w.permute(0, 2, 1, 3).reshape(320, 320)
+tiled = dataclasses.replace(NVFP4, block_rows=16)
+nearest = block_pack(w, tiled)
+print(f"\n{'NVFP4, 16 x 16 tiles':<22}{'takes 4':>9}{'error':>9}   same along both axes")
+for rule in (R.NEAREST, R.FOUR_OVER_SIX_MSE, R.FOUR_OVER_SIX_MAE, R.FOUR_OVER_SIX_ABS_MAX):
+    fmt = dataclasses.replace(tiled, scale_rounding=rule)
+    ts = nearest.tensor_scale
+    p = block_pack(w, fmt, tensor_scale=ts)
+    took = (p.scales != nearest.scales).float().mean().item()
+    diff = (block_unpack(p) - w).reshape(20, 16, 20, 16).permute(0, 2, 1, 3).reshape(400, 256)
+    ref = w.reshape(20, 16, 20, 16).permute(0, 2, 1, 3).reshape(400, 256)
+    err = (diff.norm(dim=1) / ref.norm(dim=1)).mean().item()
+    same = torch.equal(
+        block_quantize(w, fmt, 0, tensor_scale=ts), block_quantize(w, fmt, 1, tensor_scale=ts)
+    )
+    print(f"{rule.name:<22}{took:>9.1%}{err:>9.4f}   {same}")

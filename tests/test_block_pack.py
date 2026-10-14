@@ -137,6 +137,24 @@ FOUR_OVER_SIX = {
     "e2m1_sfp_fos_mse": BlockFormat(E2M1, SFP_SCALE, 16, scale_rounding=_R.FOUR_OVER_SIX_MSE),
     "e2m1_128_fos_abs_max": BlockFormat(E2M1, E4M3, 128, scale_rounding=_R.FOUR_OVER_SIX_ABS_MAX),
 }
+# The rule on 2D tiles, where the block is the tile: one pair of candidates and
+# one choice, from all of its elements. NVFP4's 16 x 16 under each measure, a
+# tile that is not square, the other elements and scales, and the largest tile.
+FOUR_OVER_SIX_TILES = {
+    "nvfp4_16x16_fos_mse": dataclasses.replace(FOUR_OVER_SIX["nvfp4_fos_mse"], block_rows=16),
+    "nvfp4_16x16_fos_mae": dataclasses.replace(FOUR_OVER_SIX["nvfp4_fos_mae"], block_rows=16),
+    "nvfp4_16x16_fos_abs_max": dataclasses.replace(
+        FOUR_OVER_SIX["nvfp4_fos_abs_max"], block_rows=16
+    ),
+    "e2m1_4x16_fos_mse": dataclasses.replace(FOUR_OVER_SIX["nvfp4_fos_mse"], block_rows=4),
+    "e2m3_e4m3_32x32_fos_mae": BlockFormat(
+        E2M3, E4M3, 32, block_rows=32, scale_rounding=_R.FOUR_OVER_SIX_MAE
+    ),
+    "e2m1_sfp_8x16_fos_mse": dataclasses.replace(FOUR_OVER_SIX["e2m1_sfp_fos_mse"], block_rows=8),
+    "e2m1_128x128_fos_mse": BlockFormat(
+        E2M1, E4M3, 128, block_rows=128, scale_rounding=_R.FOUR_OVER_SIX_MSE
+    ),
+}
 FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
@@ -292,6 +310,14 @@ def test_nibble_order():
         (dataclasses.replace(SCALES["e2m3_unsigned_scale"], block_rows=4), (7, 70)),
         (dataclasses.replace(SCALES["e2m1_normals_scale"], block_rows=2), (2, 9, 40)),
         (dataclasses.replace(SCALES["e2m1_e4m0_scale"], block_rows=32), (3, 70, 33)),
+        # Four Over Six: the tile's own choice, partial tiles and batches included
+        (FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_mse"], (40, 50)),
+        (FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_mae"], (3, 40, 50)),
+        (FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_abs_max"], (40, 50)),
+        (FOUR_OVER_SIX_TILES["e2m1_4x16_fos_mse"], (7, 70)),
+        (FOUR_OVER_SIX_TILES["e2m3_e4m3_32x32_fos_mae"], (70, 33)),
+        (FOUR_OVER_SIX_TILES["e2m1_sfp_8x16_fos_mse"], (2, 20, 40)),
+        (FOUR_OVER_SIX_TILES["e2m1_128x128_fos_mse"], (130, 257)),
     ],
     ids=[
         "nvfp4_16x16",
@@ -303,10 +329,33 @@ def test_nibble_order():
         "unsigned_scale_4x32",
         "normals_scale_2x16_3d",
         "e4m0_scale_32x32_3d",
+        "fos_mse_16x16",
+        "fos_mae_16x16_3d",
+        "fos_abs_max_16x16",
+        "fos_mse_4x16",
+        "fos_mae_32x32",
+        "fos_mse_sfp_scale_8x16_3d",
+        "fos_mse_128x128",
     ],
 )
 def test_tiles_equal_the_reference(device, mode, fmt, shape):
     x = _inputs(shape, device, seed=3)
+    p = block_pack(x, fmt, rounding=mode)
+    codes, scales, values = ref.reference(x, fmt, -1, mode)
+    np.testing.assert_array_equal(_as3(p.data).cpu().numpy(), ref.pack_bytes(codes, fmt))
+    np.testing.assert_array_equal(_as3(p.scales).cpu().numpy(), scales)
+    assert torch.equal(block_unpack(p).cpu(), values)
+    assert torch.equal(block_quantize(x, fmt, rounding=mode).cpu(), values)
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("name", list(FOUR_OVER_SIX_TILES))
+def test_four_over_six_tiles_equal_the_reference(device, mode, name):
+    """The rule on a tile, in every deterministic mode: the reference rounds
+    the whole tile under both scales and adds its errors up in integers."""
+    fmt = FOUR_OVER_SIX_TILES[name]
+    x = _inputs((2 * fmt.block_rows + 3, 3 * fmt.block_size + 5), device, seed=sum(map(ord, name)))
     p = block_pack(x, fmt, rounding=mode)
     codes, scales, values = ref.reference(x, fmt, -1, mode)
     np.testing.assert_array_equal(_as3(p.data).cpu().numpy(), ref.pack_bytes(codes, fmt))
@@ -328,11 +377,17 @@ def test_tiles_equal_the_reference(device, mode, fmt, shape):
         "e2m1_e5m2_scale",
         "e2m3_unsigned_scale",
         "e2m1_e4m0_scale",
+        "nvfp4_fos_mse",
+        "nvfp4_fos_mae",
+        "nvfp4_fos_abs_max",
+        "e2m3_e4m3_fos_mse",
     ],
 )
 def test_square_tiles_are_transpose_invariant(device, mode, name):
     """A square tile quantizes a matrix the same along either axis; a
-    non-square one does not (the control)."""
+    non-square one does not (the control). Under a Four Over Six rule that
+    includes the tile's choice between its two scales: its error is a sum
+    of integers, the same in either order."""
     base = FORMATS[name]
     sq = dataclasses.replace(base, block_rows=base.block_size)
     w = _inputs((70, 45), device, seed=11)
@@ -357,8 +412,16 @@ def test_whole_tile_nan(device):
 
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR])
-def test_in_place_equals_out_of_place_on_the_largest_tile(device, mode):
-    fmt = dataclasses.replace(MXFP8_E4M3, block_size=128, block_rows=128)
+@pytest.mark.parametrize("name", ["mxfp8_128x128", "e2m1_128x128_fos_mse"])
+def test_in_place_equals_out_of_place_on_the_largest_tile(device, mode, name):
+    """The encode pass reads its input again, after the amax pass and, under a
+    Four Over Six rule, after the pass that compares the two scales: every
+    read of a tile has to come before its first write."""
+    fmt = (
+        dataclasses.replace(MXFP8_E4M3, block_size=128, block_rows=128)
+        if name == "mxfp8_128x128"
+        else FOUR_OVER_SIX_TILES[name]
+    )
     x = _inputs((256, 256), device, seed=5)
     torch.manual_seed(1)
     want = block_quantize(x, fmt, rounding=mode)
@@ -646,6 +709,7 @@ def _idempotent(fmt: BlockFormat) -> bool:
     pow2 = not fmt.has_tensor_scale
     rule = fmt.scale_rule
     assert rule is not None
+    assert fmt.scale is not None
     if not pow2 and ref.Layout(fmt.scale).m > 0 and not _top_step_absorbs(fmt):
         return False
     if rule.is_four_over_six:
@@ -743,7 +807,7 @@ def test_four_over_six_tensor_scale(device):
     fmt = FOUR_OVER_SIX["nvfp4_fos_mse"]
     assert (NVFP4.top_scale, fmt.top_scale, fmt.scale_max) == (448.0, 256.0, 448.0)
     assert ref.top_scale(NVFP4) == 448.0 and ref.top_scale(fmt) == 256.0
-    for name, f in FOUR_OVER_SIX.items():
+    for name, f in (FOUR_OVER_SIX | FOUR_OVER_SIX_TILES).items():
         assert f.top_scale == ref.top_scale(f), name
     x = _inputs((4, 64), device, seed=2)
     x[0, :4] = torch.tensor([10.0, 20.0, 30.0, 40.0]) * 100  # the largest block, better at 4
@@ -806,6 +870,144 @@ def test_four_over_six_sr_is_reproducible_and_thread_count_independent():
         torch.set_num_threads(threads)
     assert torch.equal(one.data, many.data) and torch.equal(one.scales, many.scales)
     assert not torch.equal(one.data, other.data)
+
+
+def _tiles(t: torch.Tensor, fmt: BlockFormat) -> torch.Tensor:
+    """``[rows, cols]`` of whole tiles as ``[tiles, block_rows * block_size]``,
+    the tiles in the order of their scales."""
+    br, bs = fmt.block_rows, fmt.block_size
+    return (
+        t.reshape(t.shape[0] // br, br, t.shape[1] // bs, bs)
+        .permute(0, 2, 1, 3)
+        .reshape(-1, br * bs)
+    )
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("name", list(FOUR_OVER_SIX_TILES))
+def test_four_over_six_on_tiles_never_does_worse_than_nearest(device, mode, name):
+    """The same claim for a tile: under the rule's own measure, taken over all
+    of the tile's elements, its error is never above NEAREST's and is below it
+    wherever the tile took the other scale. A big tile of one distribution
+    makes one choice, so the tiles here are of two kinds: values in the upper
+    half of the tile's range, which the finer top of the second scale suits,
+    and values crowded near zero under one large one, which it does not."""
+    fmt = FOUR_OVER_SIX_TILES[name]
+    nearest = dataclasses.replace(fmt, scale_rounding=ScaleRounding.NEAREST)
+    br, bs = fmt.block_rows, fmt.block_size
+    tr, tc = (8, 12) if br * bs <= 1024 else (4, 5)
+    g = torch.Generator().manual_seed(29)
+    high = (0.5 + 0.5 * torch.rand(tr * tc, br * bs, generator=g)) * torch.sign(
+        torch.randn(tr * tc, br * bs, generator=g)
+    )
+    low = 0.08 * torch.randn(tr * tc, br * bs, generator=g)
+    low[:, 0] = 1.0
+    kind = torch.arange(tr * tc) % 2 == 0
+    tiles = (
+        torch.where(kind[:, None], high, low)
+        * torch.exp2(torch.randint(-2, 3, (tr * tc, 1), generator=g).float())
+        * (1.0 + torch.rand(tr * tc, 1, generator=g))
+    )
+    x = (
+        tiles.reshape(tr, tc, br, bs)
+        .permute(0, 2, 1, 3)
+        .reshape(tr * br, tc * bs)
+        .contiguous()
+        .to(device)
+    )
+    got, base = (
+        block_pack(x, fmt, rounding=mode, tensor_scale=0.05),
+        block_pack(x, nearest, rounding=mode, tensor_scale=0.05),
+    )
+    xd = _tiles(x.cpu().double(), fmt)
+    unit = torch.exp2(torch.floor(torch.log2(xd.abs().amax(1))) - 22)
+    eg = (_tiles(block_unpack(got).cpu().double(), fmt) - xd).abs() / unit[:, None]
+    eb = (_tiles(block_unpack(base).cpu().double(), fmt) - xd).abs() / unit[:, None]
+    if fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MSE:
+        eg, eb, slack = (eg**2).sum(1), (eb**2).sum(1), 2.0**26 * br * bs
+    elif fmt.scale_rule is ScaleRounding.FOUR_OVER_SIX_MAE:
+        eg, eb, slack = eg.sum(1), eb.sum(1), 2.0 * br * bs
+    else:
+        eg, eb, slack = eg.amax(1), eb.amax(1), 2.0
+    moved = (got.scales != base.scales).flatten().cpu()
+    assert bool((eg <= eb + slack).all())
+    assert bool((eg[moved] < eb[moved] + slack).all())
+    if mode is RoundMode.RNE:  # both happen; a directed mode may leave a format one choice
+        assert 0.0 < moved.float().mean().item() < 1.0
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("name", ["e2m1_4x16_fos_mse", "nvfp4_16x16_fos_abs_max"])
+def test_four_over_six_tile_edges(device, name):
+    """``test_four_over_six_edges`` with a tile to each case: a NaN (the whole
+    tile's scale becomes NaN), an infinity, zeros, binary32 subnormals, tiles
+    far below and far above the tensor's largest, and partial tiles on both
+    sides. All against the reference."""
+    fmt = FOUR_OVER_SIX_TILES[name]
+    br = fmt.block_rows
+    inf, nan = float("inf"), float("nan")
+    x = _inputs((6 * br + 2, 70), device, seed=23)
+    x[1, 3] = nan
+    x[br + 1, 20] = inf
+    x[2 * br : 3 * br] = 0.0
+    x[3 * br : 4 * br] *= 2.0**-140
+    x[4 * br : 5 * br] *= 1e-9
+    x[5 * br : 6 * br] *= 1e9
+    for ts in (0.05, 1e-6, 1e6):
+        p = block_pack(x, fmt, tensor_scale=ts)
+        codes, scales, values = ref.reference(x, fmt, -1, RoundMode.RNE, tensor_scale=ts)
+        np.testing.assert_array_equal(_as3(p.scales).cpu().numpy(), scales)
+        np.testing.assert_array_equal(_as3(p.data).cpu().numpy(), ref.pack_bytes(codes, fmt))
+        got = block_unpack(p).cpu()
+        assert torch.equal(torch.isnan(got), torch.isnan(values))
+        assert torch.equal(torch.nan_to_num(got), torch.nan_to_num(values))
+    h = _inputs((2 * br + 1, 48), device, seed=5).to(torch.float16)
+    _, _, values = ref.reference(h, fmt, -1, RoundMode.RNE, tensor_scale=0.05)
+    assert torch.equal(block_quantize(h, fmt, tensor_scale=0.05).cpu(), values.to(torch.float16))
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("name", ["nvfp4_16x16_fos_mae", "e2m1_128x128_fos_mse"])
+def test_four_over_six_tiles_under_sr(device, name):
+    """A tile under stochastic rounding: the same seed gives the same codes and
+    scales, another seed other codes, and every scale is one of the tile's two
+    candidates, NEAREST's or the one the rule adds."""
+    base = FOUR_OVER_SIX_TILES[name]
+    fmt = dataclasses.replace(base, elem=dataclasses.replace(E2M1, prng_bits=10))
+    x = _inputs((2 * fmt.block_rows + 3, 4 * fmt.block_size + 5), device, seed=4)
+    torch.manual_seed(9)
+    one = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+    torch.manual_seed(9)
+    again = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+    torch.manual_seed(10)
+    other = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+    assert torch.equal(one.data, again.data) and torch.equal(one.scales, again.scales)
+    assert not torch.equal(one.data, other.data)
+    # the candidates do not depend on the draws: the deterministic packings have them
+    six = block_pack(
+        x, dataclasses.replace(fmt, scale_rounding=ScaleRounding.NEAREST), tensor_scale=0.05
+    ).scales
+    rne = block_pack(x, fmt, tensor_scale=0.05).scales
+    assert bool(((one.scales == six) | (one.scales == rne) | (rne == six)).all())
+
+
+def test_four_over_six_tiles_sr_is_thread_count_independent():
+    fmt = dataclasses.replace(
+        FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_mse"], elem=dataclasses.replace(E2M1, prng_bits=10)
+    )
+    x = _inputs((130, 250), "cpu", seed=4)
+    threads = torch.get_num_threads()
+    try:
+        torch.set_num_threads(1)
+        torch.manual_seed(9)
+        one = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+        torch.set_num_threads(max(threads, 4))
+        torch.manual_seed(9)
+        many = block_pack(x, fmt, rounding=RoundMode.SR, tensor_scale=0.05)
+    finally:
+        torch.set_num_threads(threads)
+    assert torch.equal(one.data, many.data) and torch.equal(one.scales, many.scales)
 
 
 # --- axes, ranks, dtypes, views ---------------------------------------------------
@@ -871,10 +1073,12 @@ def test_narrow_dtypes(device, dtype, name):
         "nvfp4_fos_mse",
         "nvfp4_fos_mae",
         "e2m3_e4m3_fos_mse",
+        "nvfp4_16x16_fos_mse",
+        "e2m1_4x16_fos_mse",
     ],
 )
 def test_quantize_equals_pack_then_unpack(device, mode, name):
-    base = FORMATS[name]
+    base = (FORMATS | FOUR_OVER_SIX_TILES)[name]
     prng = min(8, 23 - ref.Layout(base.elem).m)
     fmt = dataclasses.replace(base, elem=dataclasses.replace(base.elem, prng_bits=prng))
     x = _inputs((5, 80), device)
@@ -1041,8 +1245,10 @@ def test_format_validation():
         BlockFormat(E2M1, E8M0, 32, scale_rounding="up")  # type: ignore
     with pytest.raises(ValueError, match="takes a cast scale"):
         BlockFormat(E2M1, E8M0, 32, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
-    with pytest.raises(ValueError, match="1D blocks"):
-        BlockFormat(E2M1, E4M3, 16, block_rows=16, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE)
+    # the rule on a 2D tile is a format like any other
+    assert BlockFormat(
+        E2M1, E4M3, 16, block_rows=16, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE
+    ).is_square
     # the pack multiplies by the reciprocal of a power-of-two scale, so both
     # must be binary32 values: 2^-127 .. 2^127
     low = BinaryK(8, 1, bias=128, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
@@ -1090,15 +1296,11 @@ def test_raw_op_validates_its_descriptor():
     nv[19] = 0  # OCP on a cast scale
     with pytest.raises(RuntimeError, match="scale_rounding"):
         torch.ops.mptorch.block_pack.default(x, nv, 6.0, 448.0, 1.0, 0)
-    # Four Over Six on a power-of-two scale, and on a 2D tile
+    # Four Over Six on a power-of-two scale
     mx = list(_block_format_ints(MXFP4_E2M1))
     mx[19] = 4
     with pytest.raises(RuntimeError, match="Four Over Six"):
         torch.ops.mptorch.block_pack.default(x, mx, 6.0, 2.0**127, 1.0, 0)
-    nv = list(_block_format_ints(FOUR_OVER_SIX["nvfp4_fos_mse"]))
-    nv[21] = 2  # block_rows
-    with pytest.raises(RuntimeError, match="Four Over Six"):
-        torch.ops.mptorch.block_pack.default(x, nv, 6.0, 448.0, 1.0, 0)
 
 
 @requires_mps

@@ -21,6 +21,15 @@ namespace mptorch::block
   constexpr int BLOCK_FMT_COUNT = static_cast<int>(BlockFmtField::COUNT);
   using Fmt = std::array<int64_t, BLOCK_FMT_COUNT>;
 
+  // The most elements one scale covers, block_rows * block_size. A Four Over
+  // Six rule adds a tile's errors up in 64 bits, each at most ERROR_UNITS_MAX
+  // and squared under the MSE measure (block_decode.h), so the largest tile's
+  // sum has to fit: 2^48 a term, 2^62 in all.
+  constexpr int64_t MAX_TILE_ELEMS = 16384;
+  static_assert(static_cast<uint64_t>(ERROR_UNITS_MAX) * ERROR_UNITS_MAX <=
+                    UINT64_MAX / static_cast<uint64_t>(MAX_TILE_ELEMS),
+                "a Four Over Six error sum over the largest tile must fit in 64 bits");
+
   inline bool is_pow2_in(int64_t v, int64_t lo, int64_t hi)
   {
     return v >= lo && v <= hi && (v & (v - 1)) == 0;
@@ -143,10 +152,9 @@ namespace mptorch::block
                 op, ": scale_rounding must be 0 (OCP, a power-of-two scale only), 1 (nearest), 2 (up), "
                     "3 (selective) or 4 to 6 (Four Over Six), got ", rule, " for scale kind ", kind);
     TORCH_CHECK(!is_four_over_six(static_cast<int32_t>(rule)) ||
-                    (kind == static_cast<int64_t>(ScaleKind::MINIFLOAT) && br == 1),
+                    kind == static_cast<int64_t>(ScaleKind::MINIFLOAT),
                 op, ": a Four Over Six scale_rounding (4 to 6) takes a cast scale, which can hold the "
-                    "factor between its two candidates, and 1D blocks (block_rows = 1) so far, got "
-                    "scale kind ", kind, " and block_rows=", br);
+                    "factor between its two candidates, got scale kind ", kind);
     if (kind == static_cast<int64_t>(ScaleKind::POW2))
     {
       // the pack multiplies by the reciprocal, 2^-X, which is a binary32
@@ -176,7 +184,7 @@ namespace mptorch::block
     TORCH_CHECK(is_pow2_in(bs, 2, 128) && (bits * bs) % 8 == 0, op,
                 ": block_size must be a power of two in [2, 128] whose block fills whole bytes, got ",
                 bs, " for ", bits, "-bit codes");
-    TORCH_CHECK(is_pow2_in(br, 1, 128) && br * bs <= 16384 &&
+    TORCH_CHECK(is_pow2_in(br, 1, 128) && br * bs <= MAX_TILE_ELEMS &&
                     (br == 1 || kind != static_cast<int64_t>(ScaleKind::NONE)),
                 op, ": block_rows must be a power of two in [1, 128] with block_rows * block_size <= "
                     "16384, and 1 without a scale, got ", br);
