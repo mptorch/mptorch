@@ -57,24 +57,28 @@
 #define MPTORCH_FAST_CAST 1
 #endif
 
-// Of the four fast paths the contract admits, three pay on both backends and
-// one pays only on the device. cast_superfp_rne_fast trades the integer
-// path's ~17 branches for a Veltkamp split plus a region branch, but
-// superfp's integer path is not the expensive one binaryK's is: its
-// supernormal arm, where ordinary data lives (normal_binades is usually 1 or
-// 2), is already five operations. On a GPU the fast path still wins, because
-// warps are close to region-uniform and the branch is nearly free. On a host
-// it runs 1.11x faster with the operands in the normal region and 0.74x with
-// them in the supernormal one, which is where ordinary data goes, so the host
-// keeps the integer path for that one cast. The function itself stays defined
-// whenever MPTORCH_FAST_CAST is, so the host sweeps still verify it: it is
-// rejected on speed, not on correctness, and the two are worth telling apart.
-// The Apple GPU does not take it either, and that one is correctness: its
-// underflow test compares against fast_super_half, which for a format with
-// no underflow region is a binary32 subnormal, and the GPU flushes a
-// subnormal operand of a compare to zero (see "The Apple GPU's flush of
-// binary32 subnormals" below).
-#if defined(MPTORCH_FAST_CAST) && defined(__CUDA_ARCH__)
+// The contract admits four fast paths, and the CUDA device and the host take
+// all four. One of them, cast_superfp_rne_fast, is spelled differently on
+// each, because superfp's integer path is not the expensive one binaryK's
+// is: its supernormal arm, where ordinary data lives (normal_binades is
+// usually 1 or 2), is a branch on the exponent field and five operations.
+// The device's spelling still wins there, because warps are close to
+// region-uniform and its selects are nearly free; on a host the same
+// spelling ran at 0.85-0.98x of the integer path on supernormal operands
+// (0.74x when first measured) and 0.77-0.84x under KAHAN, so until phase F
+// the host kept the integer path for that cast. Its own spelling, the
+// integer path's shape with the fast path's arithmetic, measured 1.05-1.32x
+// on supernormal operands in the superfp GEMMs (split, FMA, KAHAN), parity
+// in the cross-family one whose products are binaryK's, and 1.04-1.40x
+// elementwise; normal-region operands 0.97x or better, except bfloat16
+// elementwise on one thread, 0.90-0.95x, a path slow in every rounding mode
+// for reasons of its own (cast_superfp.h, at the function;
+// dev/gemm_roadmap.md, C5b). The Apple GPU does not take it, and that one is correctness: Metal
+// compiles the device's spelling, whose underflow test compares against
+// fast_super_half, which for a format with no underflow region is a
+// binary32 subnormal, and the GPU flushes a subnormal operand of a compare
+// to zero (see "The Apple GPU's flush of binary32 subnormals" below).
+#if defined(MPTORCH_FAST_CAST) && !defined(__METAL_VERSION__)
 #define MPTORCH_FAST_CAST_SUPERFP_RNE 1
 #endif
 

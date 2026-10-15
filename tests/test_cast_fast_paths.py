@@ -9,15 +9,15 @@ subtraction into one FMA nor evaluates them wider than float. The device pass
 has that guarantee from the ``_rn`` intrinsics; a host build has it only when
 setup.py passes ``-ffp-contract=off`` together with ``-DMPTORCH_FAST_CAST=1``
 and ``FLT_EVAL_METHOD == 0`` holds (mptorch/csrc/common/bit_helper.h states
-the contract). The host also declines one fast path on speed alone:
-``cast_superfp_rne_fast`` is exact there but slower than the integer path it
-would replace.
+the contract). And ``cast_superfp_rne_fast`` is spelled twice, once for each
+backend: the device's form was slower than the integer path on a host, so
+the host has a form of its own (dev/gemm_roadmap.md, C5b).
 
 So for one format and one rounding mode the two backends can be running
-different code: binaryK RNE is the float path on both, superfp RNE is the
-float path on the device and the bitwise one on the host, and the directed
-modes take the integer path on both. All are meant to be the same function of
-the input, and this file is what says so. The exhaustive proof is
+different code: binaryK RNE is the same float path on both, superfp RNE is
+the float path in two different spellings, and the directed modes take the
+integer path on both. All are meant to be the same function of the input,
+and this file is what says so. The exhaustive proof is
 dev/benchmarks/gemm_cast_{float,superfp,sr}_arith.cu, which compare every one
 of the 2^32 float inputs against a reference and build for the host as well
 as the device, but that runs in minutes rather than in a test suite, and it
@@ -59,7 +59,10 @@ SIZE = 100_003
 # parametrization thus covers both sides of the gate without naming which is
 # which; that is make_binaryK_params' business and not this file's.
 BINARYK_FORMATS = [(8, 4), (11, 5), (6, 3), (24, 8)]
-SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7)]
+# (3, 4, 15, 7) keeps one supernormal binade, from 2**-13 to the normal region
+# at 2**-6, so ``x`` reaches every arm of superfp's RNE fast path, the flush
+# and the floor's binade included, which the others put below 2**-100.
+SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7), (3, 4, 15, 7)]
 # binary64's own: precision and exponent fields past binary32's, one on its edge
 BINARYK_FORMATS64 = [(8, 4), (24, 8), (40, 30), (63, 53)]
 SUPERFP_FORMATS64 = [(3, 4, 1, 7), (5, 5, 1, 15), (20, 10, 1020, 511), (40, 8, 254, 127)]

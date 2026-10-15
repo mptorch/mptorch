@@ -266,16 +266,6 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // branchless integer operations, against the ~17 data-dependent branches the
 // fast path replaces overall.
 //
-// One float compare places `ax` in a region, and unlike the binaryK twin the
-// two arms stay behind a real branch rather than being computed and selected
-// between. That is a measurement, not a preference: the region below
-// 2^normal_cutoff, where ordinary data lives (normal_binades is usually 1 or
-// 2), is already five operations in the integer path, so computing the
-// normal arm as well and selecting it away costs 7% in the GEMM
-// (dev/benchmarks/gemm_cast_superfp_arith.cu measures both forms). Warps are
-// close to region-uniform for real operand distributions, so the branch is
-// nearly free where the extra arm is not.
-//
 //   ax >= 2^normal_cutoff            normal      -> Veltkamp split, saturate
 //   2^(supernormal_cutoff - 1) < ax  supernormal -> nearest power of two, at
 //                                                   least 2^supernormal_cutoff
@@ -288,10 +278,40 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 //
 // NaN passes through unchanged and inf is handled as the integer path's
 // target_exp == 128 arm does (saturate_nonfinite: inf under SAT_NONE, the
-// largest finite value under both SatFinite modes). Neither needs a branch of its own:
-// `inf >= fast_normal_min` is true so inf takes the normal arm, where the
-// clamp and the saturating compare produce exactly fast_ovf, and every
-// compare against NaN is false so NaN takes the supernormal one.
+// largest finite value under both SatFinite modes).
+//
+// The function has two spellings, one per kind of processor, and both
+// shapes are measurements. On the device one float compare places `ax` in a
+// region, and unlike the binaryK twin the two arms stay behind a real branch
+// rather than being computed and selected between: the region below
+// 2^normal_cutoff, where ordinary data lives (normal_binades is usually 1 or
+// 2), is already five operations in the integer path, so computing the
+// normal arm as well and selecting it away costs 7% in the GEMM
+// (dev/benchmarks/gemm_cast_superfp_arith.cu measures both forms). Warps are
+// close to region-uniform for real operand distributions, so the branch is
+// nearly free where the extra arm is not. Its supernormal arm rounds the
+// magnitude, signs it with a copysign and selects the floor, the flush and
+// NaN over it, and neither NaN nor inf needs a branch of its own: `inf >=
+// fast_normal_min` is true so inf takes the normal arm, where the clamp and
+// the saturating compare produce exactly fast_ovf, and every compare against
+// NaN is false so NaN takes the supernormal one.
+//
+// On a host this spelling ran at 0.85-0.98x of the integer path on
+// supernormal operands in the shipped kernels, and 0.77-0.84x under KAHAN
+// (dev/gemm_roadmap.md, C5 and C5b): the integer path's supernormal arm is
+// a branch on the exponent field and a round of the signed word, and the
+// selects cost a host what they do not cost a GPU. So the host's spelling is
+// the integer path's shape with the fast path's arithmetic: one unsigned
+// range test on |x|'s word sends everything from 1.5 * 2^supernormal_cutoff
+// to 2^normal_cutoff to a round of the signed word, five operations with
+// the tie folded into the add; a second, bounded by inf's word, sends the
+// normal region to the device's Veltkamp arm; and what is left (NaN, the
+// flush, and the binade under the floor, where the round alone would fall
+// below it) is a branch ordinary data does not take. Against the integer
+// path, in the shipped kernels: split-mac GEMMs 1.24-1.32x on supernormal
+// operands and 1.08-1.10x on normal ones, FMA 1.05-1.12x and 0.97-1.05x,
+// elementwise binary32 1.24-1.31x and 0.98-1.73x (C5b). The sweep checks
+// each spelling over all 2^32 inputs on the backend that compiles it.
 //
 // binary32's only, like the binaryK twin, and behind MPTORCH_FAST_CAST for
 // the same reason: the split's `t` must be a separately rounded value.
@@ -299,6 +319,62 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const MPTORCH_THREAD SuperfpParams &p)
 {
     using F = FloatTraits<float>;
+    // MPTORCH_SUPERFP_RNE_HOST_SPELLING is for the sweeps alone: it lets a
+    // device pass compile the host's spelling, so the GPU can run its format
+    // grids over it (dev/benchmarks/gemm_cast_superfp_arith.cu). Nothing the
+    // extension builds defines it.
+#if (!defined(__CUDA_ARCH__) && !defined(__METAL_VERSION__)) || defined(MPTORCH_SUPERFP_RNE_HOST_SPELLING)
+    // The host's spelling (see the note above). Everything is read off the
+    // word: |x|'s for the region tests, the signed one for the round.
+    const uint32_t w = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(origin_float);
+    const uint32_t ab = w & 0x7FFFFFFFu;
+    const uint32_t normal_bits = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(p.fast_normal_min);
+    const uint32_t min_bits = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(p.fast_super_min);
+    // Below lo the round would land under the region's floor: lo is 1.5 *
+    // 2^supernormal_cutoff (min_bits has no significand bits), or 2^-127
+    // when there is no underflow region (min_bits is 0), below which the
+    // round gives a signed zero. The gate keeps supernormal_cutoff below
+    // normal_cutoff, so lo < normal_bits and the range is not empty.
+    const uint32_t lo = min_bits | 0x00400000u;
+    if (ab - lo < normal_bits - lo)
+    {
+        // supernormal region, the common case: the nearest power of two,
+        // on the signed word. Below 2^normal_cutoff <= 2^127 the exponent
+        // field is at most 0xFD, so the carry stops inside it and the sign
+        // rides along. The tie is folded into the add: 0x3FFFFF, plus one
+        // when the biased field is even, carries out of the significand
+        // when it is above half, and at exactly half only from an even
+        // field, whose exponent is odd (the bias is odd), so a tie lands on
+        // the even exponent: round_bitwise_nearest_even's zero-argument rule.
+        const uint32_t q = (w + 0x003FFFFFu + ((~w >> 23) & 1u)) & 0xFF800000u;
+        return reinterpret_cast<const MPTORCH_THREAD float &>(q);
+    }
+    if (ab - normal_bits <= 0x7F800000u - normal_bits)
+    {
+        // normal region, inf included and NaN not: the device's arm, except
+        // that |x| comes from the word and the sign goes back on the word.
+        // Taking |x| as fabsf(origin_float) and signing with copysignf asks
+        // for the input in both register files, which g++ met for a
+        // bfloat16 input (born in an integer register) with a store and two
+        // reloads, one 16 bytes wide, that the store cannot forward: 0.64x
+        // on bfloat16 normal-region data at eight threads.
+        const float ax = reinterpret_cast<const MPTORCH_THREAD float &>(ab);
+        float xc = F::fmin_nonneg(ax, p.fast_clamp_hi);
+        float t = F::rn_mul(p.fast_split_c, xc);
+        float nrm = F::rn_sub(t, F::rn_sub(t, xc));
+        if (nrm > p.fast_max_finite)
+            nrm = p.fast_ovf;
+        const uint32_t out = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(nrm) | (w & 0x80000000u);
+        return reinterpret_cast<const MPTORCH_THREAD float &>(out);
+    }
+    // The rare cases, as the integer path keeps its underflow arm: a NaN
+    // returns its own bits; at or below the flush midpoint, a bare +0.0;
+    // between it and lo, the region's floor, signed (only the topmost
+    // underflow binade and the floor's own lower half get here).
+    const uint32_t half_bits = reinterpret_cast<const MPTORCH_THREAD uint32_t &>(p.fast_super_half);
+    const uint32_t out = (ab > 0x7F800000u) ? w : (ab > half_bits) ? (min_bits | (w & 0x80000000u)) : 0u;
+    return reinterpret_cast<const MPTORCH_THREAD float &>(out);
+#else
     float ax = fabsf(origin_float);
     const uint32_t inf_bits = F::INF_BITS;
     const float inf = reinterpret_cast<const MPTORCH_THREAD float &>(inf_bits);
@@ -341,6 +417,7 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const MP
     // Every compare against a NaN is false, so a NaN falls through to the
     // input itself: exact bit pattern, payload and all.
     return (ax < inf) ? out : origin_float;
+#endif
 }
 #endif
 
@@ -360,9 +437,10 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
 #if defined(MPTORCH_FAST_CAST_SUPERFP_RNE)
     // Warp-uniform in the single-format kernels and per-slot uniform in the
     // mixed ones, so the test costs a predicated compare and the integer body
-    // below is jumped over, not fetched. See cast_binaryK_nearest_even for
-    // why the test stands outside the `if constexpr`, and bit_helper.h for
-    // why this is the one fast path the host does not take.
+    // below is jumped over, not fetched (on a host, a branch on a value fixed
+    // for the whole call). See cast_binaryK_nearest_even for why the test
+    // stands outside the `if constexpr`, and bit_helper.h for why the Apple
+    // GPU does not take it.
     if (p.fast_rne)
     {
         if constexpr (F::HAS_FAST_CAST)
