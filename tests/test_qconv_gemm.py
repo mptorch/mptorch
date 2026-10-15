@@ -15,7 +15,10 @@ for a palette. The input gradient is also held to the transposed convolution
 that sums the zeros a stride inserts: bit for bit where a zero term changes
 nothing (a NAIVE sum, deterministic rounding), and to the same accuracy
 against a float64 reference where it does. Tier 1 holds ``QConv*d`` with a
-format wide enough to be exact on these inputs to ``nn.Conv*d``.
+format wide enough to be exact on these inputs to ``nn.Conv*d``. float64
+operands run the binary64 kernels and are held to the binary64 GEMM the same
+way, and ``carrier=torch.float64`` on float32 operands to the float64 passes
+on the widened operands.
 """
 
 import itertools
@@ -37,7 +40,7 @@ from mptorch.quant import (
     conv_formats,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _run_gemm, _run_gemm_mixed
+from mptorch.quant.ops import _narrowed, _run_gemm, _run_gemm_mixed
 
 from .markers import float64_devices, requires_cuda, requires_mps
 
@@ -720,23 +723,74 @@ def test_empty_batch():
 
 
 @pytest.mark.parametrize("device", devices)
-def test_float64_raises_naming_phase_g(device):
-    fwd, _, _ = _hooks(conv_formats(SplitMac(B8, B12)))
+@pytest.mark.parametrize("mode", list(RoundMode), ids=lambda m: m.name)
+def test_tier3_binary64(device, mode):
+    """float64 operands run the binary64 kernels: every mac kind, the three
+    accumulate algorithms and a palette, each pass against the binary64 GEMM
+    over the unfolded operands."""
+    f64 = torch.float64
+    for mac in _macs(mode).values():
+        _check_three_passes(mac, device, stride=(2, 1), padding=(1, 0), dtype=f64)
+    if mode in (RoundMode.RNE, RoundMode.SR):
+        for mac in _accumulated(mode):
+            _check_three_passes(
+                mac, device, C=4, Cout=6, size=(9, 7), kernel=(3, 3), padding=1, dtype=f64
+            )
+        pal = SplitMac([B8, BinaryK(8, 5)], [B12, BinaryK(12, 8)], rounding=mode)
+        g = torch.Generator().manual_seed(3)
+        maps = (
+            torch.randint(0, 2, (6, 4 * 3), generator=g).to(device),
+            torch.randint(0, 2, (4, 9 * 7), generator=g).to(device),
+            torch.randint(0, 2, (6, 2 * 9), generator=g).to(device),
+        )
+        _check_three_passes(
+            pal, device, C=4, Cout=6, size=(9, 7), kernel=(3, 3), stride=2, padding=0,
+            groups=2, dtype=f64, maps=maps,
+        )  # fmt: skip
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=str)
+def test_widened_carrier_is_the_float64_passes(device, mode, dtype):
+    """``carrier=torch.float64`` on narrower operands: each pass is the
+    float64 pass on the widened operands, narrowed back once, SR included."""
+    geo = dict(stride=2, padding=1, dilation=1, groups=1, nd=2)
+    x, w = _operands(2, 3, 4, 1, (8, 7), (3, 3), device, dtype)
+    dy = torch.randn(2, 4, 4, 4, generator=torch.Generator().manual_seed(1)).to(device, dtype)
+    X, W, DY = x.double(), w.double(), dy.double()
+    calls = (
+        (lambda f: f(x, w, None, **geo), lambda f: f(X, W, None, **geo)),
+        (
+            lambda f: f(dy, w, input_size=x.shape, **geo),
+            lambda f: f(DY, W, input_size=x.shape, **geo),
+        ),
+        (
+            lambda f: f(dy, x, weight_size=w.shape, **geo),
+            lambda f: f(DY, X, weight_size=w.shape, **geo),
+        ),
+    )
+    for mul, acc in ((B8, B12), (S8, B12), (B8, S12)):
+        extra: dict[str, Any] = dict(rounding=mode, accumulate_algorithm=BLOCK, block_size=4)
+        named = _hooks(conv_formats(SplitMac(mul, acc, carrier=torch.float64, **extra)))
+        plain = _hooks(conv_formats(SplitMac(mul, acc, **extra)))
+        for hook, wide, (call, call64) in zip(named, plain, calls, strict=True):
+            _seeded(device)
+            got = call(hook)
+            _seeded(device)
+            expect = _narrowed(call64(wide), dtype)
+            assert got.dtype is dtype
+            assert torch.equal(got, expect), (mul, acc, mode)
+
+
+@pytest.mark.parametrize("device", devices)
+def test_raw_op_runs_float64(device):
+    """The raw op takes float64 operands itself: the binary64 forward."""
     x, w = _operands(1, 2, 3, 1, (5, 5), (3, 3), device, torch.float64)
-    with pytest.raises(ValueError, match="phase G"):
-        fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
-    with pytest.raises(ValueError, match="phase G"):
-        conv_formats(SplitMac(B8, B12, carrier=torch.float64))
-    # The raw op refuses a float64 call too, with the same pointer.
-    with pytest.raises(RuntimeError, match="phase G|MPTORCH_NO_FP64"):
-        _raw_fwd(x, w)
-    # And so do the cross-family conv ops, whose GEMM twins are binary32 only.
-    for mac in (SplitMac(B8, S12), SplitMac(S8, B12, accumulate_algorithm=KAHAN)):
-        fwd, _, _ = _hooks(conv_formats(mac))
-        with pytest.raises(ValueError, match="phase G"):
-            fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
-    with pytest.raises(ValueError, match="cross-family.*phase G"):
-        conv_formats(SplitMac(B8, S12, carrier=torch.float64))
+    fwd, _, _ = _hooks(conv_formats(SplitMac(B8, B12)))
+    y = fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
+    assert y.dtype is torch.float64
+    assert torch.equal(_raw_fwd(x, w), y)
 
 
 def _raw_fwd(x, w, conv_pass=0, out_size=(3, 3), groups=1, **over):

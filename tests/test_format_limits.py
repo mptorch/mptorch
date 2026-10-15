@@ -1187,10 +1187,21 @@ def test_block_storage_findings(dtype):
         _silent(lambda: block_quantize(x, wide))
 
 
-def test_block_element_must_fit_binary32():
+def test_block_element_must_fit_the_carrier():
+    """A block format's element must be one the call's carrier holds entirely:
+    binary64's bounds are checked when the format is built, binary32's by a
+    call that rounds in binary32."""
     from mptorch import E8M0, BlockFormat
+    from mptorch.quant import block_quantize
 
-    with pytest.raises(ValueError, match="binary32 holds entirely"):
-        BlockFormat(BinaryK(12, 3, bias=1), E8M0, 32)  # a smallest value of 2^-2 ... top 2^1022
-    with pytest.raises(ValueError, match="binary32 holds entirely"):
-        BlockFormat(BinaryK(8, 4, bias=130), E8M0, 32)  # a floor below 2^-125
+    with pytest.raises(ValueError, match="binary64 holds entirely"):
+        BlockFormat(BinaryK(16, 3), E8M0, 32)  # 13 exponent bits: no carrier
+    x = torch.randn(4, 32)
+    for elem in (
+        BinaryK(12, 3, bias=1),  # a smallest value of 2^-2, top 2^510
+        BinaryK(8, 4, bias=130),  # a floor below 2^-125
+    ):
+        fmt = BlockFormat(elem, E8M0, 32)
+        with pytest.raises(ValueError, match="binary32 holds entirely.*binary64 holds it"):
+            block_quantize(x, fmt)
+        assert block_quantize(x.double(), fmt).dtype is torch.float64

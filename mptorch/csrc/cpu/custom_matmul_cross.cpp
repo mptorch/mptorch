@@ -8,11 +8,10 @@
 //
 // One of four such files, one per algorithm, mirroring the single-family
 // GEMMs' layout; both directions share each file, since each direction's
-// kernels compile both families' casts anyway. They are files of their own
-// so that no file that compiled a kernel before these ops existed compiles
-// anything new. There is no *_f64 twin yet: the cross-family ops are binary32
-// only until dev/continuation_plan.md's phase G. The entry points are in
-// custom_matmul_cross_entry.cpp.
+// kernels compile both families' casts anyway. They are files of their own so
+// that no file that compiled a kernel before these ops existed compiles
+// anything new. Its binary64 twin is custom_matmul_cross_f64.cpp. The entry
+// points are in custom_matmul_cross_entry.cpp.
 
 namespace mptorch::gemm_cpu
 {

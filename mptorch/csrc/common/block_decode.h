@@ -39,9 +39,14 @@
 //
 // Numbers are assembled on the carrier's word (FloatTraits), not computed:
 // which also keeps an Apple GPU's flush of binary32 subnormals away from them
-// when phase H decodes with this header. What the kernels round in is
-// binary32 only so far (dev/continuation_plan.md, phase G); the functions are
-// written on the carrier T all the same.
+// when phase H decodes with this header. Every function is written on the
+// carrier T, binary32 or binary64, and so is the parameter block
+// (BlockFormatParamsT): a format's largest element, its scales and its tensor
+// scale are values of the carrier, so a format only binary64 holds (an
+// element with nine or ten exponent bits, a power-of-two scale past 2^127, a
+// tensor scale that is no float32 value) has binary64 parameters and binary64
+// kernels, and the validation (block_host.h) holds each format to the
+// carrier of the call.
 //
 // ATen-free, and MSL-legal like the other common/ headers, so the GEMM .cu
 // files that include it pay no ATen front end and phase H ports rather than
@@ -136,7 +141,7 @@ namespace mptorch::block
   // absolute errors (MAE) or the largest absolute error (ABS_MAX), over the
   // tile's elements, of the decoded value against the input (four_over_six_
   // low, candidate_error_units). A MINIFLOAT scale only: a power of two
-  // cannot hold the factor between the candidates. 1D blocks only so far.
+  // cannot hold the factor between the candidates. 1D blocks and 2D tiles.
   enum class ScaleRounding : int
   {
     OCP = 0,
@@ -160,8 +165,11 @@ namespace mptorch::block
   // aggregate replicated across the GEMM's instantiations is what once took
   // nvcc's cicc from 18 s to ten minutes; cast_binaryK.h) and by value: the
   // block GEMM carries one per operand in its policy, where the kernel reads
-  // it from the parameter bank in the tile load and nowhere else.
-  struct BlockFormatParams
+  // it from the parameter bank in the tile load and nowhere else. The four
+  // values are the carrier's, T: binary32's layout is the one the struct had
+  // before binary64 had block kernels, field for field.
+  template <class T>
+  struct BlockFormatParamsT
   {
     // the element code
     int32_t elem_bits;
@@ -175,7 +183,7 @@ namespace mptorch::block
     bool elem_extended;
     uint32_t elem_super_codes;  // superfp: magnitude codes below it are supernormals (0: binaryK)
     int32_t elem_super_cutoff;  // superfp: the exponent of the smallest supernormal
-    float elem_max;
+    T elem_max;
     int32_t emax; // floor(log2(elem_max))
     // the scale code
     int32_t scale_kind;
@@ -190,9 +198,9 @@ namespace mptorch::block
     int32_t scale_super_cutoff;
     bool scale_extended;
     bool scale_signed;
-    float scale_max;
-    float scale_min; // MINIFLOAT: the smallest positive scale
-    float tensor_scale;
+    T scale_max;
+    T scale_min; // MINIFLOAT: the smallest positive scale
+    T tensor_scale;
     // the layout
     int32_t block_size;
     int32_t log2_block_size;
@@ -210,6 +218,8 @@ namespace mptorch::block
     bool trans;
   };
 
+  using BlockFormatParams = BlockFormatParamsT<float>;
+
   // --- words and powers of two -------------------------------------------
 
   template <class T>
@@ -225,8 +235,9 @@ namespace mptorch::block
   }
 
   // 2^e for e from the carrier's smallest subnormal exponent to its largest,
-  // [-149, 127] in binary32, built on the word: FloatTraits::pow2 stops at the
-  // smallest normal, and an E8M0 scale reaches 2^-127.
+  // [-149, 127] in binary32 and [-1074, 1023] in binary64, built on the word:
+  // FloatTraits::pow2 stops at the smallest normal, and an E8M0 scale reaches
+  // 2^-127.
   template <class T>
   CUDA_HOST_DEVICE_INLINE T block_pow2(int e)
   {
@@ -364,7 +375,7 @@ namespace mptorch::block
   // then the sign, on the word. The sign-only code decodes to +0.0 (no cast
   // in the library returns -0.0), and a NaN code to the canonical quiet NaN.
   template <class T>
-  CUDA_HOST_DEVICE_INLINE T decode_elem(uint32_t code, const MPTORCH_THREAD BlockFormatParams &p)
+  CUDA_HOST_DEVICE_INLINE T decode_elem(uint32_t code, const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     using F = FloatTraits<T>;
     const uint32_t mag = code & p.elem_mag_mask;
@@ -389,7 +400,7 @@ namespace mptorch::block
   // the tensor scale, in that order. The scale's NaN code decodes to NaN, and
   // so does any POW2 code past its largest.
   template <class T>
-  CUDA_HOST_DEVICE_INLINE T decode_scale(uint32_t sc, const MPTORCH_THREAD BlockFormatParams &p)
+  CUDA_HOST_DEVICE_INLINE T decode_scale(uint32_t sc, const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::POW2))
       return static_cast<int32_t>(sc) > p.scale_code_max ? block_quiet_nan<T>()
@@ -403,12 +414,12 @@ namespace mptorch::block
   }
 
   // The value an element code and its tile's scale code decode to:
-  // decode_elem(code) * decode_scale(scale), one binary32 product, which is
-  // exact for every OCP format. A product that underflows is +0.0, never
-  // -0.0.
+  // decode_elem(code) * decode_scale(scale), one product in the carrier,
+  // which is exact for every OCP format. A product that underflows is +0.0,
+  // never -0.0.
   template <class T>
   CUDA_HOST_DEVICE_INLINE T decode_value(uint32_t code, uint32_t sc,
-                                         const MPTORCH_THREAD BlockFormatParams &p)
+                                         const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     using F = FloatTraits<T>;
     T v = decode_elem<T>(code, p);
@@ -477,7 +488,7 @@ namespace mptorch::block
   template <class T>
   CUDA_HOST_DEVICE_INLINE T load_block_elem(const MPTORCH_BLOCK_DEVICE uint8_t *data,
                                             const MPTORCH_BLOCK_DEVICE uint8_t *scales, int64_t r,
-                                            int64_t c, const MPTORCH_THREAD BlockFormatParams &p)
+                                            int64_t c, const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     const int64_t blk = c >> p.log2_block_size;
     const uint32_t code = extract_code(data + r * p.row_bytes + blk * p.block_bytes,
@@ -497,7 +508,7 @@ namespace mptorch::block
   template <class T>
   CUDA_HOST_DEVICE_INLINE T load_block_operand(const MPTORCH_BLOCK_DEVICE uint8_t *data,
                                                const MPTORCH_BLOCK_DEVICE uint8_t *scales, int64_t i,
-                                               int64_t k, const MPTORCH_THREAD BlockFormatParams &p)
+                                               int64_t k, const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     return p.trans ? load_block_elem<T>(data, scales, k, i, p) : load_block_elem<T>(data, scales, i, k, p);
   }
@@ -587,7 +598,7 @@ namespace mptorch::block
   // A MINIFLOAT scale's cast of `ratio`, to nearest even or up, then clamped:
   // at most scale_max, and the smallest positive scale for a zero.
   template <class T>
-  CUDA_HOST_DEVICE_INLINE T cast_scale(T ratio, bool up, const MPTORCH_THREAD BlockFormatParams &p,
+  CUDA_HOST_DEVICE_INLINE T cast_scale(T ratio, bool up, const MPTORCH_THREAD BlockFormatParamsT<T> &p,
                                        const MPTORCH_THREAD BlockCastT<T> &c)
   {
     const bool superfp = c.scale_family == static_cast<int32_t>(BlockFamily::SUPERFP);
@@ -620,7 +631,7 @@ namespace mptorch::block
   //              An element is v / (s * S_t).
   template <class T>
   CUDA_HOST_DEVICE_INLINE TileScale<T> tile_scale(T amax, bool has_nan,
-                                                  const MPTORCH_THREAD BlockFormatParams &p,
+                                                  const MPTORCH_THREAD BlockFormatParamsT<T> &p,
                                                   const MPTORCH_THREAD BlockCastT<T> &c)
   {
     using F = FloatTraits<T>;
@@ -664,14 +675,16 @@ namespace mptorch::block
   }
 
   // An element taken onto its format's grid by the tile's scale. A POW2
-  // product is exact unless it leaves binary32's normals, which takes a block
-  // spanning more than 2^125; one that underflows to zero keeps its sign and a
-  // nonzero magnitude, so that the directed modes still round it away from
-  // zero as they would the exact value (every element format's smallest value
-  // is at least 2^-125, so every such input is below half of it).
+  // product is exact unless it leaves the carrier's normals, which takes a
+  // block spanning more than 2^125 in binary32 (2^1021 in binary64); one that
+  // underflows to zero keeps its sign and a nonzero magnitude, so that the
+  // directed modes still round it away from zero as they would the exact
+  // value (every element format's smallest value is at least 2^-125 in
+  // binary32 and 2^-1021 in binary64, so every such input is below half of
+  // it).
   template <class T>
   CUDA_HOST_DEVICE_INLINE T scaled_elem(T v, const MPTORCH_THREAD TileScale<T> &s,
-                                        const MPTORCH_THREAD BlockFormatParams &p)
+                                        const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     using F = FloatTraits<T>;
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::POW2))
@@ -750,7 +763,7 @@ namespace mptorch::block
   // infinity, onto elem_max. A NaN input takes the element's NaN code, or
   // code 0 under a scale that has become NaN, or elem_max without either.
   template <class T>
-  CUDA_HOST_DEVICE_INLINE uint32_t encode_elem(T v, T rounded, const MPTORCH_THREAD BlockFormatParams &p)
+  CUDA_HOST_DEVICE_INLINE uint32_t encode_elem(T v, T rounded, const MPTORCH_THREAD BlockFormatParamsT<T> &p)
   {
     using F = FloatTraits<T>;
     using W = typename F::word_t;
@@ -783,7 +796,7 @@ namespace mptorch::block
   // and skips the error pass then.
   template <class T>
   CUDA_HOST_DEVICE_INLINE TileScale<T> four_over_six_low(T amax, const MPTORCH_THREAD TileScale<T> &six,
-                                                         const MPTORCH_THREAD BlockFormatParams &p,
+                                                         const MPTORCH_THREAD BlockFormatParamsT<T> &p,
                                                          const MPTORCH_THREAD BlockCastT<T> &c)
   {
     using F = FloatTraits<T>;
@@ -842,7 +855,7 @@ namespace mptorch::block
   CUDA_HOST_DEVICE_INLINE uint32_t candidate_error_units(T v, const MPTORCH_THREAD TileScale<T> &s,
                                                          int amax_exp, bool is_signed,
                                                          typename FloatTraits<T>::word_t rbits,
-                                                         const MPTORCH_THREAD BlockFormatParams &p,
+                                                         const MPTORCH_THREAD BlockFormatParamsT<T> &p,
                                                          const MPTORCH_THREAD BlockCastT<T> &c,
                                                          MPTORCH_THREAD uint32_t &code)
   {
@@ -894,15 +907,17 @@ namespace mptorch::block
     cutoff = superfp_region_cutoffs(man_bits, exp_bits, normal_binades, bias).supernormal_cutoff;
   }
 
-  // The parameters of one operand from its descriptor (`f`, BlockFmtField's
-  // order, validated by the caller), its three floats and its extents: `cols`
-  // along the packed axis, `rows` across it.
-  inline BlockFormatParams make_block_format_params(const int64_t *f, double elem_max, double scale_max,
-                                                    double tensor_scale, int64_t cols, int64_t rows,
-                                                    bool trans = false)
+  // The parameters of one operand in carrier T from its descriptor (`f`,
+  // BlockFmtField's order, validated by the caller for that carrier), its
+  // three floats and its extents: `cols` along the packed axis, `rows` across
+  // it.
+  template <class T>
+  BlockFormatParamsT<T> make_block_format_params(const int64_t *f, double elem_max, double scale_max,
+                                                 double tensor_scale, int64_t cols, int64_t rows,
+                                                 bool trans = false)
   {
     auto at = [f](BlockFmtField k) { return f[static_cast<int>(k)]; };
-    BlockFormatParams p{};
+    BlockFormatParamsT<T> p{};
     p.elem_bits = static_cast<int32_t>(at(BlockFmtField::ELEM_BITS));
     const bool elem_signed = at(BlockFmtField::ELEM_SIGNED) != 0;
     p.elem_man_bits = static_cast<int32_t>(at(BlockFmtField::ELEM_MAN_BITS));
@@ -922,7 +937,7 @@ namespace mptorch::block
       p.elem_special_min = p.elem_nan_code;
     if (p.elem_inf_code < p.elem_special_min)
       p.elem_special_min = p.elem_inf_code;
-    p.elem_max = static_cast<float>(elem_max);
+    p.elem_max = static_cast<T>(elem_max);
     p.emax = block_floor_log2(p.elem_max);
 
     p.scale_kind = static_cast<int32_t>(at(BlockFmtField::SCALE_KIND));
@@ -939,8 +954,8 @@ namespace mptorch::block
         p.scale_family == static_cast<int32_t>(BlockFamily::SUPERFP))
       set_supernormals(p.scale_super_codes, p.scale_super_cutoff, p.scale_man_bits, s_exp,
                        static_cast<int>(at(BlockFmtField::SCALE_NORMAL_BINADES)), p.scale_bias);
-    p.scale_max = static_cast<float>(scale_max);
-    p.tensor_scale = 1.0f;
+    p.scale_max = static_cast<T>(scale_max);
+    p.tensor_scale = T(1);
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::POW2))
     {
       p.scale_mag_mask = (1u << s_exp) - 1u;
@@ -958,9 +973,9 @@ namespace mptorch::block
       const uint32_t first = p.scale_super_codes == 0 && s_sub == static_cast<int64_t>(SubnormalsMode::NORMALS)
                                  ? (1u << p.scale_man_bits)
                                  : 1u;
-      p.scale_min = decode_minifloat<float>(first, p.scale_man_bits, p.scale_bias, p.scale_extended,
-                                            p.scale_super_codes, p.scale_super_cutoff);
-      p.tensor_scale = static_cast<float>(tensor_scale);
+      p.scale_min = decode_minifloat<T>(first, p.scale_man_bits, p.scale_bias, p.scale_extended,
+                                        p.scale_super_codes, p.scale_super_cutoff);
+      p.tensor_scale = static_cast<T>(tensor_scale);
     }
 
     p.block_size = static_cast<int32_t>(at(BlockFmtField::BLOCK_SIZE));

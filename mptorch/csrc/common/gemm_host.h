@@ -127,20 +127,6 @@ namespace mptorch::gemm
   template <class Base>
   uint64_t draws_per_k_step_of(const AccumulateArgs<Base> &args) { return args.draws_per_k_step(); }
 
-  // The carriers an Args has kernels in. KAHAN, BLOCK and TREE are
-  // instantiated in binary32 only so far.
-  template <class Args>
-  void check_carrier(const Args &, const char *, mptorch::GemmDtype) {}
-
-  template <class Base>
-  void check_carrier(const AccumulateArgs<Base> &, const char *op_name, mptorch::GemmDtype dt)
-  {
-    TORCH_CHECK(dt != mptorch::GemmDtype::Double, op_name,
-                ": AccumulateAlgorithm KAHAN, BLOCK and TREE have binary32 kernels only so far, "
-                "and float64 operands round in binary64 (dev/continuation_plan.md, phase G); "
-                "use float32 operands, or AccumulateAlgorithm.NAIVE");
-  }
-
   // Derives (M, K, N), the batch size, the two operand batch strides and
   // whether the output is rank 3, and rejects mismatched inner or batch
   // dimensions.
@@ -473,7 +459,6 @@ namespace mptorch::gemm
     s.use_rng = (s.rm == RoundMode::SR);
 
     s.dt = mptorch::gemm_dtype_of(a_c, b_c, op_name);
-    check_carrier(args, op_name, s.dt);
     typename Backend::LaunchContext ctx = Backend::make_context(
         s.use_rng, draws_per_k_step_of(args) * words_per_draw(s.dt) * static_cast<uint64_t>(K));
 

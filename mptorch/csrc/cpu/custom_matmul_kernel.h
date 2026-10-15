@@ -240,7 +240,7 @@ namespace mptorch::gemm_cpu
   // from a packed operand, once per tile as every pack converts once per
   // tile. `off` is the batch element's offset into the data, in bytes.
   template <class T>
-  void pack_block_a(const void *A, T *__restrict__ dst, const mptorch::gemm::BlockOperand &o,
+  void pack_block_a(const void *A, T *__restrict__ dst, const mptorch::gemm::BlockOperandT<T> &o,
                     int64_t bId, int64_t off, int64_t i0, int64_t k0, int64_t ti, int64_t tk)
   {
     for (int64_t i = 0; i < ti; ++i)
@@ -249,7 +249,7 @@ namespace mptorch::gemm_cpu
   }
 
   template <class T>
-  void pack_block_b(const void *B, T *__restrict__ dst, const mptorch::gemm::BlockOperand &o,
+  void pack_block_b(const void *B, T *__restrict__ dst, const mptorch::gemm::BlockOperandT<T> &o,
                     int64_t bId, int64_t off, int64_t k0, int64_t j0, int64_t tk, int64_t tj)
   {
     for (int64_t k = 0; k < tk; ++k)
@@ -278,6 +278,32 @@ namespace mptorch::gemm_cpu
                                  int64_t i0, int64_t j0, int64_t ti, int64_t tj, int64_t off)
   {
     store_tile_impl<double, double>(C, src, N, i0, j0, ti, tj, off);
+  }
+
+  // The conv ops' gathered packs and result tile likewise: without these the
+  // primary templates' switch would read a float64 operand as float.
+  template <>
+  inline void pack_gather_a<double>(const void *A, mptorch::GemmDtype, double *dst,
+                                    const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t i0,
+                                    int64_t k0, int64_t ti, int64_t tk)
+  {
+    pack_gather_a_impl<double, double>(A, dst, g, bId, i0, k0, ti, tk);
+  }
+
+  template <>
+  inline void pack_gather_b<double>(const void *B, mptorch::GemmDtype, double *dst,
+                                    const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t k0,
+                                    int64_t j0, int64_t tk, int64_t tj)
+  {
+    pack_gather_b_impl<double, double>(B, dst, g, bId, k0, j0, tk, tj);
+  }
+
+  template <>
+  inline void store_gather_tile<double>(void *C, mptorch::GemmDtype, const double *src,
+                                        const mptorch::gemm::ConvGeom &g, int64_t bId, int64_t M,
+                                        int64_t i0, int64_t j0, int64_t ti, int64_t tj)
+  {
+    store_gather_tile_impl<double, double>(C, src, g, bId, M, i0, j0, ti, tj);
   }
 
   // Cache-tiled batched GEMM: C[b] = op(A[b]) @ op(B[b]) for each batch
@@ -640,7 +666,8 @@ namespace mptorch::gemm_cpu
         args.inner.template with_accumulator<T, RM>([&](auto acc)
         {
           matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
-                                 s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                 s.stride_a, s.stride_b,
+                                 Blocked<decltype(acc)>{acc, args.template operand_a<T>(), args.template operand_b<T>()},
                                  s.use_rng, ctx.seed);
         });
       }
@@ -649,7 +676,8 @@ namespace mptorch::gemm_cpu
         args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
         {
           matmul_cpu_kernel_impl(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
-                                 s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                 s.stride_a, s.stride_b,
+                                 Blocked<decltype(acc)>{acc, args.template operand_a<T>(), args.template operand_b<T>()},
                                  s.use_rng, ctx.seed);
         });
       }

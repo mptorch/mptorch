@@ -357,10 +357,6 @@ namespace mptorch::gemm
     s.use_rng = (s.rm == RoundMode::SR);
 
     s.dt = mptorch::gemm_dtype_of(a_c, b_c, op_name);
-    TORCH_CHECK(s.dt != mptorch::GemmDtype::Double, op_name,
-                ": the conv ops have binary32 kernels only so far, and float64 operands round in "
-                "binary64 (dev/continuation_plan.md, phase G); use float32, float16 or bfloat16 "
-                "operands");
     s.a = a_c.data_ptr();
     s.b = b_c.data_ptr();
     s.c = c.data_ptr();

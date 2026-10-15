@@ -432,8 +432,9 @@ def test_validation(device):
     bad = BlockPacked(pa.data[:, :-1], pa.scales, pa.fmt, pa.shape, pa.axis, 1.0, torch.float32)
     with pytest.raises(RuntimeError, match="pack into"):
         block_matmul(bad, pb)
-    with pytest.raises(ValueError, match="phase G"):
-        block_matmul(pa, pb, carrier=torch.float64)
+    with pytest.raises(ValueError, match="narrower than binary64"):
+        block_matmul(pa, block_pack(torch.randn(64, 4, device=device).double(), MXFP8_E4M3, 0),
+                     carrier=torch.float32)  # fmt: skip
     with pytest.raises(ValueError, match="sums products pairwise"):
         block_matmul(pa, pb, fused=True, accumulate_algorithm=AccumulateAlgorithm.TREE)
     with pytest.raises(ValueError, match="packed along one of its last two"):

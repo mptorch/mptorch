@@ -30,6 +30,7 @@ operand rounding and dot-product arithmetic stay independently composable.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 
 import torch
@@ -197,8 +198,7 @@ def binaryK_gemm_formats(
             sum. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
             summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
-            the three past ``NAIVE`` in binary32 only so far.
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding for both formats; one mode for
             both because the kernels take it as a template parameter.
@@ -325,8 +325,7 @@ def binaryK_gemm_formats_fma(
             when ``rounding_mode`` is ``RoundMode.SR``. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
             summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
-            the three past ``NAIVE`` in binary32 only so far.
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
@@ -450,8 +449,7 @@ def superfp_gemm_formats(
             sum. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
             summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
-            the three past ``NAIVE`` in binary32 only so far.
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding for both formats.
             Default: ``RoundMode.RNE``
@@ -562,8 +560,7 @@ def superfp_gemm_formats_fma(
             Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
             summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac),
-            the three past ``NAIVE`` in binary32 only so far.
+            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): rounding of each fused step.
             Default: ``RoundMode.RNE``
@@ -661,8 +658,7 @@ def binaryK_superfp_gemm_formats(
     argument: products are rounded to the binaryK ``mul_*`` format and partial
     sums to the superfp ``acc_*`` format, which is required (an unrounded sum
     is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With
-    ``BLOCK`` or ``TREE`` the outer format is a superfp one. binary32 only so
-    far: a float64 layer and ``carrier=torch.float64`` raise.
+    ``BLOCK`` or ``TREE`` the outer format is a superfp one.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -745,8 +741,7 @@ def superfp_binaryK_gemm_formats(
     argument: products are rounded to the superfp ``mul_*`` format and partial
     sums to the binaryK ``acc_*`` format, which is required (an unrounded sum
     is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With
-    ``BLOCK`` or ``TREE`` the outer format is a binaryK one. binary32 only so
-    far: a float64 layer and ``carrier=torch.float64`` raise.
+    ``BLOCK`` or ``TREE`` the outer format is a binaryK one.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -986,7 +981,8 @@ def block_matmul_formats(
     format has square tiles is packed once, by the ``a_quant`` / ``b_quant``
     slot that this function sets for it. The gradient passes read that
     packing through :attr:`mptorch.quant.BlockPacked.mT`. Each pass's result
-    is float32, stored in the operands' dtype.
+    is in the carrier (float32, or float64 in binary64), stored in the
+    operands' dtype.
 
     Args:
         mac (BlockMac): the forward's operand formats and arithmetic.
@@ -1073,7 +1069,8 @@ def block_gemm_formats(
 
     The arithmetic (``acc``, ``fused``, ``rounding``, the accumulate
     algorithm) is that of :func:`mptorch.quant.block_matmul` and is shared by
-    the three passes. Results are float32, stored in the input's dtype.
+    the three passes. Results are in the carrier (float32, or float64 in
+    binary64), stored in the input's dtype.
 
     A weight that arrives already packed, from
     ``weight_quant = BlockQuant(fmt, axis=1).pack``, is used as it is. It is
@@ -1103,8 +1100,11 @@ def block_gemm_formats(
         block_size (int, optional): BLOCK's and TREE's. Default: ``None``
         outer (BinaryK, optional): BLOCK's and TREE's outer format.
             Default: ``None``
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``.
-            Default: ``None``
+        carrier (torch.dtype, optional): ``torch.float64`` packs and
+            multiplies in binary64 whatever the layer's dtype, as for
+            :class:`mptorch.quant.BlockMac` (a ``BlockQuant`` that names its
+            own carrier keeps it). Default: ``None``, the layer's: binary64
+            for a float64 layer, binary32 otherwise.
         tensor_scale_epilogue (bool): apply the operands' per-tensor scales
             to each GEMM's result rather than in the decode, as NVIDIA's NVFP4
             GEMMs do (:func:`mptorch.quant.block_matmul`). Default: ``False``
@@ -1124,9 +1124,17 @@ def block_gemm_formats(
         >>> layer = QLinear(64, 32, formats=formats)
         >>> layer(torch.randn(8, 64)).sum().backward()
     """
-    qi = _as_block_quant(input, "input")
-    qw = _as_block_quant(weight, "weight")
-    qg = qi if grad is None else _as_block_quant(grad, "grad")
+
+    def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+        q = _as_block_quant(slot, name)
+        # the factory's carrier packs too, unless the operand names its own
+        if carrier is torch.float64 and q.carrier is None:
+            q = replace(q, carrier=torch.float64)
+        return q
+
+    qi = operand(input, "input")
+    qw = operand(weight, "weight")
+    qg = qi if grad is None else operand(grad, "grad")
     spec = _block_gemm_spec(
         acc,
         fused,

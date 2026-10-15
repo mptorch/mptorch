@@ -10,8 +10,7 @@
 // exactly what they compiled before the three algorithms existed, and from
 // each other because the build is throughput-bound: this one holds fourteen
 // kernels per mac (seven round modes, with and without an accumulate or fused
-// format). There is no *_f64 twin yet: the three algorithms are binary32 only
-// until dev/continuation_plan.md's phase G.
+// format). Its binary64 twin is custom_matmul_binaryK_block_f64.cu.
 
 namespace mptorch::gemm_cuda
 {

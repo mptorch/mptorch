@@ -107,10 +107,9 @@ The two formats of a ``SplitMac`` may come from different families:
 a :class:`~mptorch.SuperFP`, or the reverse. The equation is the one above,
 each rounding in its own format, and the result holds the accumulate format's
 values. Such a mac holds one format per slot (the palette kernels are
-single-family), its sum is always rounded (with ``acc=None`` the mac has one
-family again), and it has binary32 kernels only so far. Every algorithm of
-the next section applies, with an ``outer`` format of the accumulate's
-family.
+single-family), and its sum is always rounded (with ``acc=None`` the mac has
+one family again). Every algorithm of the next section applies, with an
+``outer`` format of the accumulate's family, in either carrier.
 
 .. literalinclude:: ../../snippets/gemm_cross_family.py
    :language: python
@@ -190,14 +189,17 @@ that. The other two tables show them with formats:
   products' error. An ``outer`` format *narrower* than the carrier costs a
   little, as expected: it is one more rounding, and in exchange the total is
   a value of a format you chose.
+- **Fourth table.** The second, in binary64 (``carrier=torch.float64``). A
+  product of two float32 operands is exact there, so the multiply format
+  rounds it once instead of twice. The errors are the second table's to three
+  digits: the formats round every intermediate far more than binary32 does.
 
 The price is kernel time, in proportion to the roundings per step. On an RTX
 4060 laptop GPU a 1024\ :sup:`3` split-mac GEMM takes 1.2 times ``NAIVE``'s
 time under ``BLOCK``, 1.3 under ``TREE`` and 2.2 under ``KAHAN``
 (``dev/gemm_roadmap.md``, R-2). The three are implemented for the
-single-format ops, on the CPU and CUDA. A palette, an ``"mps"`` tensor,
-float64 operands and ``carrier=torch.float64`` raise. The last two raise
-because the binary64 kernels are not built yet (next section).
+single-format ops, on the CPU and CUDA, in both carriers (next section). A
+palette and an ``"mps"`` tensor raise.
 
 float64 and the carrier
 -----------------------
@@ -240,10 +242,9 @@ The carrier is never narrower than the operands. ``carrier=torch.float32``
 on float64 operands raises, and a float32 and a float64 operand cannot be
 mixed in one call under either carrier.
 
-Binary64 does not have ``KAHAN``, ``BLOCK`` and ``TREE`` yet. Their kernels
-exist for binary32 only. A mac that names one of them refuses float64
-operands and ``carrier=torch.float64``, with an error that says so, instead
-of silently summing in a different order.
+Every accumulate algorithm runs in binary64 as ``NAIVE`` does, and so do the
+cross-family macs and the convolutions (:doc:`convolutions`). A ``KAHAN``
+compensation in binary64 carries the bits a binary64 sum drops.
 
 .. literalinclude:: ../../snippets/gemm_float64.py
    :language: python
@@ -252,6 +253,11 @@ of silently summing in a different order.
 .. literalinclude:: ../../snippets/gemm_float64.out
    :language: text
    :caption: output
+
+In the float64 table, ``KAHAN`` adds nothing to a 40-bit accumulator, which
+already keeps what the 30-bit products carry, and a cross-family mac (a
+superfp multiply into a 40-bit binaryK sum) runs in binary64 like the
+single-family ones.
 
 The float32 table shows the other side of the choice. Where the formats round
 every intermediate the carrier would (24 bits, or Binary8p4's four on either

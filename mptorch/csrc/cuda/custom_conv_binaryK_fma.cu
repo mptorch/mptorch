@@ -10,8 +10,7 @@
 // GEMM's: a gathered kernel is its GEMM kernel's instantiation over a
 // Gathered policy, so it costs what its GEMM kernel costs to compile, and
 // keeping these apart from the GEMM files is what leaves those compiling
-// exactly what they did. binary32 only until dev/continuation_plan.md's
-// phase G.
+// exactly what they did. Its binary64 twin is custom_conv_binaryK_fma_f64.cu.
 
 namespace mptorch::gemm_cuda
 {

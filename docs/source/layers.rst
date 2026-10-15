@@ -272,12 +272,15 @@ arithmetic for the matrix products (:doc:`kernels/calling`, "Performance
 notes").
 
 The convolutions of :func:`~mptorch.quant.conv_formats` and the block
-products are binary32 only so far. A float64 model, or a mac with
-``carrier=torch.float64``, raises there.
+products follow the same rule. A float64 model computes them in binary64:
+its block operands are packed, decoded and multiplied there. A float32 model
+does so too when its mac (or :func:`~mptorch.quant.block_gemm_formats`) names
+``carrier=torch.float64``.
 
 The run compares one float64 reference with a float64 layer in a 30-bit
-arithmetic that only binary64 can hold. It then compares the reference with
-a float32 layer in each carrier, in three arithmetics:
+arithmetic that only binary64 can hold, and a float64 convolution in the same
+arithmetic with ``nn.Conv2d``'s float64 one. It then compares the reference
+with a float32 layer in each carrier, in three arithmetics:
 
 - a 30-bit multiply format under a 24-bit accumulator, which only binary64
   can give a float32 layer;

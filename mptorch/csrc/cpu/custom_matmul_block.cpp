@@ -7,7 +7,7 @@
 // One of four such files, one per algorithm, mirroring the GEMM's: a blocked
 // kernel is its GEMM kernel's instantiation over a Blocked policy, and keeping
 // these apart from the GEMM files is what leaves those compiling exactly what
-// they did. binary32 only until dev/continuation_plan.md's phase G.
+// they did. Its binary64 twin is custom_matmul_block_f64.cpp.
 
 namespace mptorch::gemm_cpu
 {

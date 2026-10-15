@@ -1,4 +1,5 @@
 float64 layer, 30/40-bit: output 4.0e-10, weight grad 3.9e-10
+float64 conv,  30/40-bit: output 3.9e-10
 float32 layer, carrier=None: BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
 float32 layer, carrier=torch.float64: BinaryK(K=48, P=40, bias=128) has 40 bits of precision, and a float32 result holds 24
 float32 layer, 30/24-bit, binary64: output 2.9e-07, grad 1.5e-07

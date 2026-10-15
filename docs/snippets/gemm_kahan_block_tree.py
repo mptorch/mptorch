@@ -87,8 +87,17 @@ report(
     },
 )
 
-# The three are binary32-only for now, and say so.
-try:
-    qmatmul(a.double(), b.double(), SplitMac(binary8p4, binary16p8, accumulate_algorithm=KAHAN))
-except ValueError as error:
-    print("float64 operands:", str(error).split(", so they")[0])
+# The second table in binary64 (carrier=torch.float64 on these float32 operands):
+# each product is exact there, so the multiply format rounds it once, not twice.
+wide = torch.float64
+report(
+    "binary64: Binary8p4 products, Binary16p8 sums",
+    {
+        "NAIVE": SplitMac(binary8p4, binary16p8, carrier=wide),
+        "KAHAN": SplitMac(binary8p4, binary16p8, accumulate_algorithm=KAHAN, carrier=wide),
+        "TREE, 256 per block": SplitMac(
+            binary8p4, binary16p8, accumulate_algorithm=TREE, block_size=256, carrier=wide
+        ),
+        "the products' own error (acc=None)": SplitMac(binary8p4, None, carrier=wide),
+    },
+)

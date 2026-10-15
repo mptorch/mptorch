@@ -273,10 +273,8 @@ def test_accumulate_algorithms_resolve_to_the_flat_spec(carrier, algorithm, bloc
     # format's, a total is the outer format's, or nobody's.
     stored = [fmt_args[:2] for _, fmt_args in spec.stored]
     assert stored == ([(8, 4)] if kahan else [(16, 11)] if with_outer else [])
-    # binary64 has no kernels for them yet, and says so before anything else.
-    assert spec.findings[1][0][0] is not None
-    assert "phase G" in spec.findings[1][0][0]
-    assert spec.findings[0] == ()
+    # Both carriers hold these formats, so neither has anything to say.
+    assert spec.findings == ((), ())
 
     if not tree:
         assert spec_for_mac(

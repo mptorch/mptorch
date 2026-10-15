@@ -1,0 +1,6 @@
+packed in torch.float64 -> unpacks to torch.float64
+its tensor scale is a float64 quotient: 0.0011701251016083085
+float32, carrier=torch.float64 == the float64 call, narrowed: True
+binary32 refuses it: binary64 holds it: pack a float64 tensor, or pass carrier=torch.float64
+binary64: relative error 0.05399427464908147
+block_matmul: torch.float64 (4, 8)

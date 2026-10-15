@@ -19,4 +19,13 @@ namespace mptorch::block_cuda
 
   void launch_block_unpack(const mptorch::block::BlockUnpackJob &j,
                            const mptorch::block::BlockFormatParams &p, cudaStream_t stream);
+
+  // The same in binary64, for a float64 tensor (block_kernel_f64.cu, which
+  // MPTORCH_NO_FP64=1 leaves out).
+  void launch_block_pack(const mptorch::block::BlockPackJob &j,
+                         const mptorch::block::BlockFormatParamsT<double> &p,
+                         const mptorch::block::BlockCastT<double> &c, at::PhiloxCudaState rng, cudaStream_t stream);
+
+  void launch_block_unpack(const mptorch::block::BlockUnpackJob &j,
+                           const mptorch::block::BlockFormatParamsT<double> &p, cudaStream_t stream);
 } // namespace mptorch::block_cuda

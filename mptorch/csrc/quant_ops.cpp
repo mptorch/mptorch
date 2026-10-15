@@ -215,7 +215,10 @@ TORCH_LIBRARY(mptorch, m)
   // with no packed intermediate. custom_matmul_block multiplies two packed
   // operands, A [M, K] and B [N, K] (or stored with K as their rows), in the
   // binaryK accumulate format given, under any AccumulateAlgorithm: the
-  // accumulation tail is the *_accumulated ops'.
+  // accumulation tail is the *_accumulated ops'. Its operands carry no float
+  // dtype to choose a carrier by, so `binary64` names it: a float64 result
+  // computed in binary64, or a float32 one in binary32. Every block op reads
+  // its format in that carrier.
   m.def("block_pack(Tensor x, int[] fmt, float elem_max, float scale_max, float tensor_scale, "
         "int round_mode) -> (Tensor, Tensor)");
   m.def("block_unpack(Tensor data, Tensor scales, int cols, int[] fmt, float elem_max, "
@@ -233,7 +236,7 @@ TORCH_LIBRARY(mptorch, m)
         "int acc_subnormals_mode, int acc_prng_bits, "
         "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
         "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
-        "int outer_prng_bits) -> Tensor");
+        "int outer_prng_bits, bool binary64=False) -> Tensor");
   // The cross-family ops (common/gemm_cross.h, common/gemm_cross_host.h): a
   // split mac whose products are rounded to a format of one family and whose
   // partial sums to a format of the other, named multiply family first. The

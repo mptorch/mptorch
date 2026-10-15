@@ -224,11 +224,24 @@ are keyed on its index in the packed orientation. ``block_quantize`` and
 ``block_pack`` therefore draw the same bits from the same generator state,
 whatever the thread count.
 
-The block kernels round in binary32 only. A float64 tensor, or
-``carrier=torch.float64``, raises. A float16 or bfloat16 result is held to
-what its dtype can store (:doc:`concepts`, "What a narrower tensor can
-store"). ``block_quantize_`` writes over its input, under the rules of `In
+The block kernels round in the carrier: binary64 for a float64 tensor, or
+for a narrower one with ``carrier=torch.float64`` (it is widened, and a
+decoded result narrowed back once), binary32 otherwise. A
+:class:`~mptorch.quant.BlockPacked` remembers the carrier it was packed in,
+and :func:`~mptorch.quant.block_unpack` decodes in that carrier or a wider
+one. A format only binary64 holds, such as one whose elements have nine
+exponent bits, is refused in binary32 with an error that says so. A result
+narrower than its carrier is held to what its dtype can store
+(:doc:`concepts`, "What a narrower tensor can store"). ``block_quantize_`` writes over its input, under the rules of `In
 place`_. :doc:`kernels/block` covers multiplying packed block-format tensors.
+
+.. literalinclude:: ../snippets/block_float64.py
+   :language: python
+   :caption: docs/snippets/block_float64.py
+
+.. literalinclude:: ../snippets/block_float64.out
+   :language: text
+   :caption: output
 
 Quantizer: a straight-through estimator
 ---------------------------------------

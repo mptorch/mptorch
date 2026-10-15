@@ -10,10 +10,10 @@ statement checked. Tier 3 holds the CPU and CUDA kernels to them with
 the two API tiers (the flat wrappers and ``SplitMac``) are held to each other,
 the layer factories to a hand-written baseline, and stochastic rounding to the
 bracket the directed modes put around it. The conv ops are in
-``test_qconv_gemm``.
+``test_qconv_gemm``. float64 operands run the binary64 kernels and are held to
+the same references in float64.
 
-binary32 kernels only, and no MPS kernel: a float64 call and an MPS call are
-each held to the error that names the follow-up.
+No MPS kernel yet: an MPS call is held to the error that names the follow-up.
 """
 
 from typing import Any
@@ -34,6 +34,7 @@ from mptorch.quant import (
     superfp_binaryK_matmul,
 )
 from mptorch.quant.mac import spec_for_mac
+from mptorch.quant.ops import _narrowed
 
 from .markers import float64_devices, requires_mps
 from .test_accumulators import (
@@ -77,7 +78,8 @@ def _check(device, direction, algorithm, mode, block_size, with_outer, K, dtype=
         outer=outer,
     )
     out = qmm(a, b, mac)
-    ref = _Reference(a.cpu().float(), b.cpu().float(), mul, acc, outer, mode).run(
+    carrier = torch.float64 if dtype is torch.float64 else torch.float32
+    ref = _Reference(a.cpu().to(carrier), b.cpu().to(carrier), mul, acc, outer, mode).run(
         algorithm, block_size
     )
     assert out.dtype is dtype
@@ -164,6 +166,20 @@ def test_tier3_narrow_storage(device, direction, dtype, algorithm):
     and stored back with one conversion."""
     block_size = 8 if algorithm in (BLOCK, TREE) else None
     _check(device, direction, algorithm, RoundMode.RNE, block_size, False, 40, dtype)
+
+
+@pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("direction", list(DIRECTIONS))
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_tier3_binary64(device, direction, mode):
+    """float64 operands run the binary64 kernels, every algorithm."""
+    f64 = torch.float64
+    for K in (17, 40):
+        _check(device, direction, NAIVE, mode, None, False, K, f64)
+        _check(device, direction, KAHAN, mode, None, False, K, f64)
+        for block_size in (4, 32):
+            _check(device, direction, BLOCK, mode, block_size, True, K, f64)
+            _check(device, direction, TREE, mode, block_size, False, K, f64)
 
 
 @pytest.mark.parametrize("device", kernel_devices)
@@ -380,10 +396,11 @@ def _sr_mac(direction, algorithm=NAIVE):
 @pytest.mark.parametrize("device", kernel_devices)
 @pytest.mark.parametrize("direction", list(DIRECTIONS))
 @pytest.mark.parametrize("algorithm", [NAIVE, KAHAN, BLOCK, TREE], ids=lambda a: a.name)
-def test_sr_is_seeded_and_keyed_on_the_element(device, direction, algorithm):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_sr_is_seeded_and_keyed_on_the_element(device, direction, algorithm, dtype):
     mac = _sr_mac(direction, algorithm)
-    a = torch.randn(3, 33, 45, device=device)
-    b = torch.randn(45, 17, device=device)
+    a = torch.randn(3, 33, 45, device=device, dtype=dtype)
+    b = torch.randn(45, 17, device=device, dtype=dtype)
 
     def run(x, seed):
         torch.manual_seed(seed)
@@ -396,9 +413,10 @@ def test_sr_is_seeded_and_keyed_on_the_element(device, direction, algorithm):
 
 
 @pytest.mark.parametrize("direction", list(DIRECTIONS))
-def test_sr_is_independent_of_the_thread_count(direction):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_sr_is_independent_of_the_thread_count(direction, dtype):
     mac = _sr_mac(direction, BLOCK)
-    a, b = _operands(70, 45, 66, "cpu")
+    a, b = _operands(70, 45, 66, "cpu", dtype)
     before = torch.get_num_threads()
     try:
         results = []
@@ -442,24 +460,28 @@ def _same(mac, mode):
 
 
 @pytest.mark.parametrize("device", kernel_devices)
-@pytest.mark.parametrize("algorithm", [NAIVE, KAHAN], ids=lambda a: a.name)
-def test_binary64_is_refused(device, algorithm):
-    """float64 operands and ``carrier=torch.float64`` name phase G, before
-    anything is widened or launched; the raw op refuses float64 too."""
-    mac = SplitMac(B8, S12, accumulate_algorithm=algorithm)
-    a = torch.randn(3, 5, device=device)
-    b = torch.randn(5, 2, device=device)
-    with pytest.raises(ValueError, match="cross-family ops.*binary32 kernels only.*phase G"):
-        qmm(a.double(), b.double(), mac)
-    wide = SplitMac(B8, S12, accumulate_algorithm=algorithm, carrier=torch.float64)
-    with pytest.raises(ValueError, match="cross-family ops.*binary32 kernels only.*phase G"):
-        qmm(a, b, wide)
-    # (In a build with no float64 GEMM kernels at all, by naming that flag.)
-    spec = spec_for_mac(mac)
-    with pytest.raises(
-        RuntimeError, match="cross-family ops have binary32 kernels.*phase G|MPTORCH_NO_FP64"
-    ):
-        spec.op(a.double(), b.double(), False, False, *spec.args)
+@pytest.mark.parametrize("direction", list(DIRECTIONS))
+@pytest.mark.parametrize("algorithm", [NAIVE, KAHAN, BLOCK, TREE], ids=lambda a: a.name)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+def test_widened_carrier_is_the_float64_call(device, direction, algorithm, mode):
+    """``carrier=torch.float64`` on float32 operands is the float64 call on
+    the widened operands, narrowed back once, SR draws included; and the raw
+    op runs float64 operands itself."""
+    mac = _sr_mac(direction, algorithm)
+    extra = _same(mac, mode)
+    plain = SplitMac(mac.mul, mac.acc, **extra)
+    named = SplitMac(mac.mul, mac.acc, carrier=torch.float64, **extra)
+    a, b = _operands(8, 37, 5, device)
+
+    def run(fn):
+        torch.manual_seed(9)
+        return fn()
+
+    expect = _narrowed(run(lambda: qmm(a.double(), b.double(), plain)), torch.float32)
+    assert torch.equal(run(lambda: qmm(a, b, named)), expect)
+    spec = spec_for_mac(plain)
+    raw = run(lambda: spec.op(a.double(), b.double(), False, False, *spec.args))
+    assert torch.equal(_narrowed(raw, torch.float32), expect)
 
 
 @requires_mps

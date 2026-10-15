@@ -16,8 +16,8 @@ and keep them; the library memoizes their resolution.
    ``mul`` and ``acc`` are each a format or a sequence of formats (a palette,
    :doc:`arithmetic`). ``acc`` can also be ``None``. The two may be of
    different families (a BinaryK multiply with a SuperFP accumulate, or the
-   reverse) when each holds one format; such a mac runs in binary32 only so
-   far. ``carrier`` is ``None`` (the operands' own), ``torch.float32``
+   reverse) when each holds one format. ``carrier`` is ``None`` (the
+   operands' own), ``torch.float32``
    (binary32) or ``torch.float64`` (binary64).
 :class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None)``
    ``fma`` is a format, a palette, or ``None``.

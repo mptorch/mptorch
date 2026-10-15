@@ -1,15 +1,13 @@
 #pragma once
 
 // The host side of the six cross-family ops (common/gemm_cross.h): their
-// schemas packed into a CrossSplitArgs, and the carriers those Args have
-// kernels in. They go through the shared drivers otherwise: run_custom_matmul
+// schemas packed into a CrossSplitArgs. They go through the shared drivers otherwise: run_custom_matmul
 // for the NAIVE pair, run_custom_matmul_accumulated for the *_accumulated
 // twins and run_custom_conv_single for the conv pair.
 //
 // A header of its own, which only {cpu,cuda}/custom_matmul_cross_entry.cpp
 // include, so that the entry points of every other op compile to what they
-// compiled before. The two check_carrier overloads below are found from the
-// drivers by argument-dependent lookup, as they would be from gemm_host.h.
+// compiled before.
 //
 // The schemas are the single-family split op's with the accumulate format
 // spelled in its own family, and without accumulate_quant (the sum is always
@@ -38,27 +36,6 @@
 
 namespace mptorch::gemm
 {
-
-  // binary32 only so far, NAIVE included: a float64 call has no kernel to
-  // run, and says which phase brings one.
-  template <class MulW, class MulC, class AccW, class AccC>
-  void check_carrier(const CrossSplitArgs<MulW, MulC, AccW, AccC> &, const char *op_name,
-                     mptorch::GemmDtype dt)
-  {
-    TORCH_CHECK(dt != mptorch::GemmDtype::Double, op_name,
-                ": the cross-family ops have binary32 kernels only so far, and float64 operands "
-                "round in binary64 (dev/continuation_plan.md, phase G); use float32, float16 or "
-                "bfloat16 operands");
-  }
-
-  // More specialized than gemm_host.h's AccumulateArgs overload, whose
-  // message offers NAIVE as the way out, which these ops do not have.
-  template <class MulW, class MulC, class AccW, class AccC>
-  void check_carrier(const AccumulateArgs<CrossSplitArgs<MulW, MulC, AccW, AccC>> &args,
-                     const char *op_name, mptorch::GemmDtype dt)
-  {
-    check_carrier(args.base, op_name, dt);
-  }
 
   inline BinaryKSuperfpArgs pack_binaryK_superfp(
       int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, int64_t acc_man_bits,

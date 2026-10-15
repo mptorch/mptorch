@@ -1671,16 +1671,23 @@ the dtype's smallest. Such a tensor could store nothing of the format but
 zero.
 
 **A block format's decoded values** are an element value times its block's
-scale. So far the block kernels compute these in binary32 only:
+scale, computed in the carrier: binary64 for a float64 tensor or
+``carrier=torch.float64``, binary32 otherwise.
 
-- A float64 tensor, or ``carrier=torch.float64``, raises.
-- A :class:`~mptorch.BlockFormat`'s element and scale must be formats that
-  binary32 holds entirely. The format checks this when it is built.
+- A :class:`~mptorch.BlockFormat`'s element and cast scale must be formats
+  the carrier holds entirely, and a power-of-two scale's codes must lie in
+  its range (:math:`2^{\pm 127}` in binary32, :math:`2^{\pm 1023}` in
+  binary64). Building the format checks binary64's bounds. A call that
+  rounds in binary32 checks binary32's, so an element with nine or ten
+  exponent bits is a format of float64 tensors.
+- A packed tensor remembers the carrier it was packed in, and unpacking or
+  multiplying it runs in that carrier or a wider one.
 
-A float16 or bfloat16 result rounds the decoded values a second time wherever
-the dtype does not hold them, and :class:`~mptorch.FormatRangeWarning`
-reports it. That is always the case for a format with a tensor scale (NVFP4),
-whose decoded values are float32 products. For an E8M0 format it happens only
+A result narrower than its carrier (float16 or bfloat16, and float32 too in
+binary64) rounds the decoded values a second time wherever the dtype does not
+hold them, and :class:`~mptorch.FormatRangeWarning` reports it. That is always
+the case for a format with a tensor scale (NVFP4), whose decoded values are
+products in the carrier. For an E8M0 format it happens only
 when its largest element value has more significant bits than the dtype.
 
 .. code-block:: python

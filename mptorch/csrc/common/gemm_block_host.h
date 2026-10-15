@@ -17,7 +17,8 @@
 //                       b_fmt, b_elem_max, b_scale_max, b_tensor_scale,
 //                       fused, accumulate_quant, acc_K, acc_P, acc_bias, acc_is_signed,
 //                       accumulate_algorithm, round_mode, acc_saturation_mode,
-//                       acc_subnormals_mode, acc_prng_bits, <the *_accumulated tail>)
+//                       acc_subnormals_mode, acc_prng_bits, <the *_accumulated tail>,
+//                       binary64)
 //
 // computes C [batch, M, N] = A @ B^T, A logically [M, K] and B [N, K], each
 // stored as block_pack wrote it: data [.., rows, row_bytes] and scales
@@ -25,7 +26,10 @@
 // the operand's packed axis, which row_bytes rounds up to whole blocks, and
 // `trans_*` says the operand is stored with K as its rows: A as [K, M], B as
 // [K, N]. Each operand has its own format, so any pairing is allowed. The
-// result is float32, the carrier's.
+// operands are codes, with no float dtype to choose a carrier by, so
+// `binary64` names it: the result is float64, decoded, multiplied and summed
+// in binary64, or float32 in binary32, and each format is held to that
+// carrier.
 
 #include "block_host.h"
 #include "gemm_block.h"
@@ -35,20 +39,21 @@ namespace mptorch::gemm
 {
   using at::Tensor;
 
-  // One packed operand, checked, made contiguous and described.
+  // One packed operand, checked, made contiguous and described in carrier T.
+  template <class T>
   struct BlockGemmOperand
   {
     Tensor data;
     Tensor scales;
-    mptorch::block::BlockFormatParams p{};
+    mptorch::block::BlockFormatParamsT<T> p{};
     int64_t batch = 1;
     bool batched = false;
   };
 
-  inline BlockGemmOperand block_gemm_operand(const Tensor &data, const Tensor &scales, int64_t cols,
-                                             bool trans, c10::IntArrayRef fmt, double elem_max,
-                                             double scale_max, double tensor_scale,
-                                             const char *op_name, const char *which)
+  template <class T>
+  BlockGemmOperand<T> block_gemm_operand(const Tensor &data, const Tensor &scales, int64_t cols, bool trans,
+                                         c10::IntArrayRef fmt, double elem_max, double scale_max,
+                                         double tensor_scale, const char *op_name, const char *which)
   {
     using namespace mptorch::block;
     TORCH_CHECK(data.scalar_type() == at::kByte && scales.scalar_type() == at::kByte, op_name, ": ",
@@ -58,13 +63,13 @@ namespace mptorch::gemm
                 which, "'s data and scales are both 2D or both 3D, got ", data.dim(), "D and ",
                 scales.dim(), "D");
     TORCH_CHECK(cols >= 0, op_name, ": ", which, "_cols must not be negative, got ", cols);
-    const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op_name);
-    BlockGemmOperand o;
+    const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op_name, std::is_same_v<T, double>);
+    BlockGemmOperand<T> o;
     o.batched = data.dim() == 3;
     o.batch = o.batched ? data.size(0) : 1;
     TORCH_CHECK(!o.batched || scales.size(0) == o.batch, op_name, ": ", which, "'s data has ",
                 o.batch, " batch elements and its scales ", scales.size(0));
-    o.p = block_params(f, elem_max, scale_max, tensor_scale, cols, data.size(-2), trans);
+    o.p = block_params<T>(f, elem_max, scale_max, tensor_scale, cols, data.size(-2), trans);
     constexpr int64_t LIM = (int64_t(1) << 31) - 1;
     TORCH_CHECK(o.p.rows <= LIM && o.p.cols <= LIM && o.p.row_bytes <= LIM && o.p.scale_cols <= LIM,
                 op_name, ": ", which, " has ", o.p.rows, " rows of ", o.p.cols,
@@ -97,22 +102,22 @@ namespace mptorch::gemm
     double a_elem_max, a_scale_max, a_tensor_scale;
     c10::IntArrayRef b_fmt;
     double b_elem_max, b_scale_max, b_tensor_scale;
+    bool binary64 = false;
   };
 
-  // Runs the block GEMM on the Args of its mac (BlockSplitArgs,
+  // Runs the block GEMM in carrier T on the Args of its mac (BlockSplitArgs,
   // BinaryKFusedArgs, or an AccumulateArgs of either). The order is the GEMM
   // driver's: the checks, the output, the empty return, the RNG draw.
-  template <class Backend, class Inner>
-  Tensor run_custom_matmul_block(const char *op_name, const Inner &inner, const BlockGemmCall &call,
-                                 int64_t round_mode)
+  template <class Backend, class T, class Inner>
+  Tensor run_custom_matmul_block_in(const char *op_name, const Inner &inner, const BlockGemmCall &call,
+                                    int64_t round_mode)
   {
-    TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode, " is not a RoundMode");
-    const BlockGemmOperand A = block_gemm_operand(call.a_data, call.a_scales, call.a_cols, call.trans_a,
-                                                  call.a_fmt, call.a_elem_max, call.a_scale_max,
-                                                  call.a_tensor_scale, op_name, "a");
-    const BlockGemmOperand B = block_gemm_operand(call.b_data, call.b_scales, call.b_cols, call.trans_b,
-                                                  call.b_fmt, call.b_elem_max, call.b_scale_max,
-                                                  call.b_tensor_scale, op_name, "b");
+    const BlockGemmOperand<T> A = block_gemm_operand<T>(call.a_data, call.a_scales, call.a_cols, call.trans_a,
+                                                        call.a_fmt, call.a_elem_max, call.a_scale_max,
+                                                        call.a_tensor_scale, op_name, "a");
+    const BlockGemmOperand<T> B = block_gemm_operand<T>(call.b_data, call.b_scales, call.b_cols, call.trans_b,
+                                                        call.b_fmt, call.b_elem_max, call.b_scale_max,
+                                                        call.b_tensor_scale, op_name, "b");
     TORCH_CHECK(A.data.device() == A.scales.device() && B.data.device() == A.data.device() &&
                     B.scales.device() == A.data.device(),
                 op_name, ": every operand tensor must be on one device");
@@ -135,7 +140,9 @@ namespace mptorch::gemm
                   B.batch, ")");
     const bool batched = A.batched || B.batched;
 
-    Tensor c = at::empty(matmul_output_sizes(batch, M, N, batched), A.data.options().dtype(at::kFloat));
+    constexpr bool wide = std::is_same_v<T, double>;
+    Tensor c = at::empty(matmul_output_sizes(batch, M, N, batched),
+                         A.data.options().dtype(wide ? at::kDouble : at::kFloat));
     if (batch == 0 || M == 0 || N == 0)
       return c;
 
@@ -152,12 +159,24 @@ namespace mptorch::gemm
     s.trans_b = call.trans_b;
     s.rm = static_cast<RoundMode>(round_mode);
     s.use_rng = (s.rm == RoundMode::SR);
-    s.dt = mptorch::GemmDtype::Float;
+    s.dt = wide ? mptorch::GemmDtype::Double : mptorch::GemmDtype::Float;
 
     BlockGemmArgs<Inner> args;
     args.inner = inner;
-    args.a = BlockOperand{A.p, A.scales.data_ptr<uint8_t>(), A.batch == 1 ? 0 : A.p.row_tiles * A.p.scale_cols};
-    args.b = BlockOperand{B.p, B.scales.data_ptr<uint8_t>(), B.batch == 1 ? 0 : B.p.row_tiles * B.p.scale_cols};
+    const BlockOperandT<T> oa{A.p, A.scales.template data_ptr<uint8_t>(),
+                              A.batch == 1 ? 0 : A.p.row_tiles * A.p.scale_cols};
+    const BlockOperandT<T> ob{B.p, B.scales.template data_ptr<uint8_t>(),
+                              B.batch == 1 ? 0 : B.p.row_tiles * B.p.scale_cols};
+    if constexpr (wide)
+    {
+      args.a64 = oa;
+      args.b64 = ob;
+    }
+    else
+    {
+      args.a = oa;
+      args.b = ob;
+    }
 
     typename Backend::LaunchContext ctx = Backend::make_context(
         s.use_rng, draws_per_k_step_of(inner) * words_per_draw(s.dt) * static_cast<uint64_t>(K));
@@ -167,6 +186,23 @@ namespace mptorch::gemm
     bind_tensors(ctx, A.data, B.data, c, nullptr);
     Backend::launch(s, args, ctx);
     return c;
+  }
+
+  // The carrier the call names, binary64 or binary32. A build with
+  // MPTORCH_NO_FP64 has no binary64 block kernels and says so.
+  template <class Backend, class Inner>
+  Tensor run_custom_matmul_block(const char *op_name, const Inner &inner, const BlockGemmCall &call,
+                                 int64_t round_mode)
+  {
+    TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode, " is not a RoundMode");
+#if defined(MPTORCH_NO_FP64)
+    TORCH_CHECK(!call.binary64, op_name, ": this build has no float64 GEMM kernels (it was built with "
+                                         "MPTORCH_NO_FP64=1); use binary32, or rebuild without it");
+#else
+    if (call.binary64)
+      return run_custom_matmul_block_in<Backend, double>(op_name, inner, call, round_mode);
+#endif
+    return run_custom_matmul_block_in<Backend, float>(op_name, inner, call, round_mode);
   }
 
   // The whole schema: the mac packed from its arguments (split or fused),

@@ -1225,14 +1225,15 @@ def test_format_validation():
         BlockFormat(E4M3, E8M0, 32, elem_max=447.0)
     with pytest.raises(ValueError, match="nan_code"):
         BlockFormat(E4M3, E8M0, 32, nan_code=0x7E)  # the code of 448, a value
-    with pytest.raises(ValueError, match="binary32"):
-        BlockFormat(BinaryK(16, 3), E8M0, 32)
+    with pytest.raises(ValueError, match="binary64"):
+        BlockFormat(BinaryK(16, 3), E8M0, 32)  # 13 exponent bits: no carrier holds them
     with pytest.raises(ValueError, match="unsigned"):
         BlockFormat(E4M3, BinaryK(8, 1, bias=127), 32)
     with pytest.raises(TypeError, match="phase K"):
         BlockFormat(1, E8M0, 32)  # type: ignore
-    with pytest.raises(ValueError, match="binary32 holds entirely"):
-        BlockFormat(SuperFP(3, 5, 1, 7), E8M0, 32)  # supernormals down to 2^-240
+    # supernormals down to 2^-240: binary64 holds them, binary32 does not
+    # (tests/test_block_binary64.py runs it)
+    assert BlockFormat(SuperFP(3, 5, 1, 7), E8M0, 32)._binary32_error is not None
     with pytest.raises(ValueError, match="one byte"):
         BlockFormat(E4M3, SuperFP(4, 4, 2, 7), 32)  # a 9-bit scale
     with pytest.raises(ValueError, match="nan_code"):
@@ -1250,19 +1251,24 @@ def test_format_validation():
         E2M1, E4M3, 16, block_rows=16, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE
     ).is_square
     # the pack multiplies by the reciprocal of a power-of-two scale, so both
-    # must be binary32 values: 2^-127 .. 2^127
+    # must be values of the carrier: 2^-1023 .. 2^1023 for any format, and
+    # 2^-127 .. 2^127 for a call in binary32
     low = BinaryK(8, 1, bias=128, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
-    with pytest.raises(ValueError, match=r"2\^-127 \.\. 2\^127"):
-        BlockFormat(E2M1, low, 32)
+    assert "2^-127 .. 2^127" in str(BlockFormat(E2M1, low, 32)._binary32_error)
+    far = BinaryK(8, 1, bias=1100, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
+    with pytest.raises(ValueError, match=r"2\^-1023 \.\. 2\^1023"):
+        BlockFormat(E2M1, far, 32)
 
 
 @pytest.mark.parametrize("device", devices)
-def test_binary32_only(device):
+def test_binary32_finding_per_call(device):
+    """A format binary32 does not hold is refused only by a call that rounds
+    in binary32 (tests/test_block_binary64.py holds the binary64 calls)."""
+    fmt = BlockFormat(SuperFP(3, 5, 1, 7), E8M0, 32)
     x = torch.randn(4, 32, device=device)
-    with pytest.raises(ValueError, match="phase G"):
-        block_pack(x.double(), MXFP8_E4M3)
-    with pytest.raises(ValueError, match="phase G"):
-        block_quantize(x, MXFP8_E4M3, carrier=torch.float64)
+    with pytest.raises(ValueError, match="binary64 holds it"):
+        block_pack(x, fmt)
+    assert block_pack(x.double(), fmt).carrier is torch.float64
 
 
 def test_requires_grad_raises():

@@ -33,7 +33,9 @@ decoded:
    \tilde b_{kj} = e^B_{kj}\, \sigma^B_{\lfloor j/\rho \rfloor,\, \lfloor k/\beta \rfloor},
 
 This is an element value times its block's scale, the value that
-:func:`~mptorch.quant.block_unpack` returns, computed in binary32.
+:func:`~mptorch.quant.block_unpack` returns, computed in the carrier:
+binary32, or binary64 when either operand was packed in binary64 or the call
+names ``carrier=torch.float64``.
 
 **The sum, at every step.** The loop is the core routine's, with two
 specifics. There is no multiply format: the product is the carrier's own,
@@ -47,9 +49,10 @@ The sum is rounded to the accumulate format:
    s_k = Q_{\text{acc}}\big(\tilde a_{ik}\, \tilde b_{kj} + s_{k-1}\big)
    \quad \text{(fused)},
 
-Here :math:`\operatorname{fl}` is a binary32 product. :math:`Q_{\text{acc}}`
-rounds to a :class:`~mptorch.BinaryK` accumulate format in the call's
-rounding mode; without an accumulate format it is binary32's own addition.
+Here :math:`\operatorname{fl}` is a product in the carrier.
+:math:`Q_{\text{acc}}` rounds to a :class:`~mptorch.BinaryK` accumulate format
+in the call's rounding mode; without an accumulate format it is the carrier's
+own addition.
 Every accumulate algorithm of :doc:`arithmetic` applies, and
 :math:`c_{ij} = s_K`.
 
@@ -211,8 +214,8 @@ How the kernel decodes
 When it starts, each thread block fills two tables per operand from the
 operand's format: the values of its 256 element codes and of its 256 scale
 codes. The scale table has the tensor scale folded in, unless that scale is
-applied after the loop. A tile load is then two table reads, one binary32
-product, and a test that keeps a zero unsigned.
+applied after the loop. A tile load is then two table reads, one product
+in the carrier, and a test that keeps a zero unsigned.
 
 Because of the tables, the block product takes element codes of at most 8
 bits. That covers every OCP and NVFP4 format and every superfp element up to
@@ -234,5 +237,5 @@ on the decoded float32 operands (``dev/benchmarks/benchmark_block.py``):
 - with a split mac, less than half as long, because the flat product also
   rounds every product to a multiply format and the block product does not.
 
-The kernels compute in binary32 on the CPU and CUDA. A float64 operand and
-an Apple GPU tensor raise.
+The kernels compute in binary32 or binary64 on the CPU and CUDA, and return
+a float32 or a float64 result accordingly. An Apple GPU tensor raises.

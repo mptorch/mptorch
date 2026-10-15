@@ -2,7 +2,7 @@
 
 import torch
 
-from mptorch import BinaryK
+from mptorch import AccumulateAlgorithm, BinaryK, SuperFP
 from mptorch.quant import FusedMac, SplitMac, binaryK_matmul, qmatmul
 
 F32, F64 = torch.float32, torch.float64
@@ -32,10 +32,13 @@ def error(out: torch.Tensor, exact: torch.Tensor) -> str:
 
 wide = SplitMac(BinaryK(40, 30), BinaryK(48, 40))
 p24 = BinaryK(31, 24)
+kahan = AccumulateAlgorithm.KAHAN
 macs = [
     ("SplitMac(P=30, P=40)", wide),
+    ("  KAHAN", SplitMac(BinaryK(40, 30), BinaryK(48, 40), accumulate_algorithm=kahan)),
     ("FusedMac(P=40)", FusedMac(BinaryK(48, 40))),
     ("SplitMac(P=24, P=24)", SplitMac(p24, p24)),
+    ("SplitMac(superfp, P=40)", SplitMac(SuperFP(8, 6, 62, 31), BinaryK(48, 40))),
     ("SplitMac(P=4, P=4)", SplitMac(BinaryK(8, 4), BinaryK(8, 4))),
 ]
 print("\nrelative error against a @ b, float64 operands")

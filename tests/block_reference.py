@@ -14,7 +14,9 @@ definitions and the value sets instead.
 
 float64 is exact for everything MX computes here (every value is a dyadic
 rational well inside its range); NVFP4's tensor-scaled arithmetic is what the
-format defines in float32, so that part is computed in numpy float32.
+format defines in the carrier, so that part is computed in the carrier's numpy
+type, ``F``: float32 for a binary32 call (the default) and float64 for a
+binary64 one.
 """
 
 from fractions import Fraction
@@ -143,10 +145,10 @@ def decode_elem(fmt: BlockFormat, codes: np.ndarray) -> np.ndarray:
     return out
 
 
-def scale_value(fmt: BlockFormat, code: int, tensor_scale: float) -> float:
+def scale_value(fmt: BlockFormat, code: int, tensor_scale: float, F=np.float32) -> float:
     """A scale code's factor. E8M0 (no mantissa): ``2^(code - bias)``, its
     all-ones code NaN. A scale with a mantissa: its value times the tensor
-    scale, one float32 product, its all-ones magnitude code NaN."""
+    scale, one product in the carrier ``F``, its all-ones magnitude code NaN."""
     s = fmt.scale
     assert s is not None
     lay = Layout(s)
@@ -155,7 +157,7 @@ def scale_value(fmt: BlockFormat, code: int, tensor_scale: float) -> float:
         return float("nan")
     if isinstance(s, BinaryK) and s.P == 1:
         return float(np.ldexp(1.0, code - lay.bias))
-    return float(np.float32(np.float32(lay.magnitude(code & nan)) * np.float32(tensor_scale)))
+    return float(F(F(lay.magnitude(code & nan)) * F(tensor_scale)))
 
 
 def _round_magnitude(
@@ -299,18 +301,20 @@ def top_scale(fmt: BlockFormat) -> float:
     return float(max(v for v in values if v > 0 and v * top_factor(fmt) in values))
 
 
-def tensor_scale_of(x: torch.Tensor, fmt: BlockFormat) -> float:
+def tensor_scale_of(x: torch.Tensor, fmt: BlockFormat, F=np.float32) -> float:
     """NVFP4's default per-tensor scale: ``amax(|x|) / (elem_max * top_scale)``
-    over the finite elements, in float32; 1 for a tensor with none."""
+    over the finite elements, in the carrier ``F``; 1 for a tensor with none."""
     assert fmt.elem_max is not None
-    a = x.detach().abs().float().cpu().numpy()
+    a = x.detach().abs().double().cpu().numpy().astype(F)
     a = a[np.isfinite(a)]
-    amax = np.float32(a.max()) if a.size else np.float32(0)
-    ts = float(amax / np.float32(fmt.elem_max * top_scale(fmt)))
+    amax = F(a.max()) if a.size else F(0)
+    ts = float(amax / F(fmt.elem_max * top_scale(fmt)))
     return ts if ts > 0 else 1.0
 
 
-def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple[int, float, str]:
+def tile_scale(
+    fmt: BlockFormat, amax: float, has_nan: bool, ts: float, F=np.float32
+) -> tuple[int, float, str]:
     """A tile's scale code and how an element meets it: ``("mul", 2^-X)`` for
     E8M0, ``("div", d)`` for a mantissa scale, ``("none", 1)`` without one.
 
@@ -320,8 +324,8 @@ def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple
     ``amax / (elem_max * S_t)`` rounded to nearest even in the scale format
     (NVFP4's rule), or up, or, for SELECTIVE, to nearest unless the block's
     largest element at that scale is above the fit threshold, then up; at
-    most its largest value, at least its smallest positive one, all in
-    float32. A Four Over Six rule starts from the scale rounded to nearest
+    most its largest value, at least its smallest positive one, all in the
+    carrier ``F``. A Four Over Six rule starts from the scale rounded to nearest
     here, and ``four_over_six`` then chooses from the tile's elements. A NaN
     in a format with no element NaN code makes the scale the scale's NaN."""
     s = fmt.scale
@@ -340,7 +344,7 @@ def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple
         code, how = X + lay.bias, ("mul", float(np.ldexp(1.0, -X)))
     else:
         grid, codes, pow2 = _grid(lay, fmt.scale_max, set())
-        ratio = np.float32(amax) / np.float32(np.float32(fmt.elem_max) * np.float32(ts))
+        ratio = F(amax) / F(F(fmt.elem_max) * F(ts))
 
         def rounded(up: bool) -> int:
             mode = RoundMode.RU if up else RoundMode.RNE
@@ -352,12 +356,12 @@ def tile_scale(fmt: BlockFormat, amax: float, has_nan: bool, ts: float) -> tuple
         rule = fmt.scale_rule
         idx = rounded(rule is ScaleRounding.UP)
         if rule is ScaleRounding.SELECTIVE:
-            factor = np.float32(np.float32(grid[idx]) * np.float32(ts))
+            factor = F(F(grid[idx]) * F(ts))
             with np.errstate(over="ignore"):
-                if np.float32(amax) / factor > fit_threshold(fmt):
+                if F(amax) / factor > fit_threshold(fmt):
                     idx = rounded(True)
         code = int(codes[idx])
-        how = ("div", float(np.float32(np.float32(grid[idx]) * np.float32(ts))))
+        how = ("div", float(F(F(grid[idx]) * F(ts))))
     if has_nan and fmt.nan_code is None:
         code = nan_code
     return code, how[1], how[0]
@@ -381,6 +385,7 @@ def four_over_six(
     ts: float,
     six: tuple[int, float],
     mode: RoundMode,
+    F=np.float32,
 ) -> tuple[int, float]:
     """Four Over Six's choice for a tile (arXiv:2512.02010): ``six``, the scale
     ``tile_scale`` returned (its code and the factor an element is divided
@@ -392,23 +397,23 @@ def four_over_six(
     ``error_units``. NaN elements count for nothing."""
     assert fmt.scale is not None and fmt.elem_max is not None
     grid, codes, pow2 = _grid(Layout(fmt.scale), fmt.scale_max, set())
-    ratio = np.float32(amax) / np.float32(np.float32(fmt.elem_max) * np.float32(ts))
+    ratio = F(amax) / F(F(fmt.elem_max) * F(ts))
     with np.errstate(over="ignore"):
-        low_ratio = np.float32(ratio * np.float32(float(top_factor(fmt))))
+        low_ratio = F(ratio * F(float(top_factor(fmt))))
     i = _round_magnitude(
         np.array([float(low_ratio)]), grid, codes, pow2, RoundMode.RNE, np.zeros(1, bool)
     )[0]
     i = 1 if grid[i] == 0 else int(i)
-    low = (int(codes[i]), float(np.float32(np.float32(grid[i]) * np.float32(ts))))
+    low = (int(codes[i]), float(F(F(grid[i]) * F(ts))))
     if low[0] == six[0]:
         return six
-    x32 = tile.astype(np.float32)
+    xf = tile.astype(F)
     errors = []
     for code, factor in (six, low):
-        scaled = (x32 / np.float32(factor)).astype(np.float64)
+        scaled = (xf / F(factor)).astype(np.float64)
         c = round_elements(fmt, np.where(nan, 0.0, scaled), mode)
-        decoded = (decode_elem(fmt, c) * scale_value(fmt, code, ts)).astype(np.float32)
-        err = np.abs(decoded - x32)  # one binary32 subtraction
+        decoded = (decode_elem(fmt, c) * scale_value(fmt, code, ts, F)).astype(F)
+        err = np.abs(decoded - xf)  # one subtraction in the carrier
         units = [
             error_units(e, amax)
             for e, skip in zip(err.ravel(), nan.ravel(), strict=True)
@@ -429,16 +434,18 @@ def reference(
     axis: int,
     mode: RoundMode,
     tensor_scale: float | None = None,
+    F=np.float32,
 ):
-    """``x`` quantized to ``fmt`` along ``axis`` in a deterministic ``mode``.
+    """``x`` quantized to ``fmt`` along ``axis`` in a deterministic ``mode``,
+    in the carrier ``F`` (``np.float64`` for binary64).
 
     Returns ``(codes, scales, values)``: the element codes ``[B, R, C]`` and
     scale codes ``[B, R_tiles, n_blocks]`` of the tensor with ``axis`` moved
     last and its leading dimensions folded (numpy integer arrays), and the
-    decoded values as a float32 tensor of ``x``'s shape.
+    decoded values as a tensor of ``x``'s shape in the carrier's dtype.
     """
     assert mode is not RoundMode.SR
-    xs = x.detach().float().cpu().numpy().astype(np.float64)
+    xs = x.detach().double().cpu().numpy()
     axis = axis % xs.ndim
     moved = np.moveaxis(xs, axis, -1)
     mshape = moved.shape
@@ -448,7 +455,7 @@ def reference(
     nb, rt = -(-C // bs), -(-R // br)
     ts = 1.0
     if fmt.has_tensor_scale:
-        ts = tensor_scale_of(x, fmt) if tensor_scale is None else float(np.float32(tensor_scale))
+        ts = tensor_scale_of(x, fmt, F) if tensor_scale is None else float(F(tensor_scale))
     codes = np.zeros((B, R, C), dtype=np.int64)
     scales = np.zeros((B, rt, nb if fmt.scale is not None else 0), dtype=np.int64)
     values = np.zeros((B, R, C), dtype=np.float64)
@@ -459,16 +466,16 @@ def reference(
                 nan = np.isnan(tile)
                 finite_abs = np.abs(tile[~nan])
                 amax = float(finite_abs.max()) if finite_abs.size else 0.0
-                sc, factor, how = tile_scale(fmt, amax, bool(nan.any()), ts)
+                sc, factor, how = tile_scale(fmt, amax, bool(nan.any()), ts, F)
                 nan_scale = bool(nan.any()) and fmt.nan_code is None
                 if fmt.scale_rule in FOUR_OVER_SIX and how == "div" and not nan_scale:
-                    sc, factor = four_over_six(fmt, tile, nan, amax, ts, (sc, factor), mode)
+                    sc, factor = four_over_six(fmt, tile, nan, amax, ts, (sc, factor), mode, F)
                 if fmt.scale is not None:
                     scales[b, t, j] = sc
                 if how == "mul":
                     scaled = tile * factor
                 elif how == "div":
-                    scaled = (tile.astype(np.float32) / np.float32(factor)).astype(np.float64)
+                    scaled = (tile.astype(F) / F(factor)).astype(np.float64)
                 else:
                     scaled = tile.copy()
                 c = round_elements(fmt, np.where(nan, 0.0, scaled), mode)
@@ -480,10 +487,10 @@ def reference(
                 codes[b, t * br : (t + 1) * br, j * bs : (j + 1) * bs] = c
                 v = decode_elem(fmt, c)
                 if fmt.scale is not None:
-                    with np.errstate(over="ignore", invalid="ignore"):  # past binary32: inf
-                        v = (v * scale_value(fmt, sc, ts)).astype(np.float32).astype(np.float64)
+                    with np.errstate(over="ignore", invalid="ignore"):  # past the carrier: inf
+                        v = (v * scale_value(fmt, sc, ts, F)).astype(F).astype(np.float64)
                 values[b, t * br : (t + 1) * br, j * bs : (j + 1) * bs] = np.where(v == 0, 0.0, v)
-    out = torch.from_numpy(values.astype(np.float32).reshape(mshape))
+    out = torch.from_numpy(values.astype(F).reshape(mshape))
     out = torch.from_numpy(np.ascontiguousarray(np.moveaxis(out.numpy(), -1, axis)))
     return codes, scales, out
 

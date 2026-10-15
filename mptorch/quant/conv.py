@@ -30,7 +30,14 @@ from mptorch.number import Number
 
 from .mac import FusedMac, Mac, SplitMac, spec_for_mac
 from .modules.format import QAffineFormats
-from .ops import _NARROW_STORAGE, _check_stored, _GemmSpec, _report_findings
+from .ops import (
+    _NARROW_STORAGE,
+    _check_stored,
+    _GemmSpec,
+    _named_carrier_operands,
+    _narrowed,
+    _report_findings,
+)
 
 __all__ = ["conv_formats"]
 
@@ -45,11 +52,6 @@ _NAIVE_TAIL = {
     "binaryK": (0, False, 0, 0, 0, True, 0, 0, 0),
     "superfp": (0, False, 0, 0, 0, 0, True, 0, 0),
 }
-
-_BINARY32_ONLY = (
-    "the conv ops have binary32 kernels only so far, so they take float32, float16 or "
-    "bfloat16 operands and no carrier=torch.float64 (dev/continuation_plan.md, phase G)"
-)
 
 
 @lru_cache(maxsize=1)
@@ -140,8 +142,10 @@ class _ConvOp:
 
     ``args`` are the spec's arguments with whatever the conv op takes after
     them, ``prec_idx`` the pass's map for a palette op. The per-call part is
-    the GEMM's: the carrier's findings and the storage check for the operand
-    dtype, and a refusal of float64, which has no conv kernels yet.
+    the GEMM's (``ops._run_gemm``): the carrier's findings and the storage
+    check for the operand dtype, and for a spec that names
+    ``carrier=torch.float64`` the widening of narrower operands and the
+    narrowing of the result back to their dtype.
     """
 
     __slots__ = ("op", "args", "spec", "prec_idx")
@@ -163,19 +167,23 @@ class _ConvOp:
         dilation: tuple[int, ...],
         groups: int,
     ) -> torch.Tensor:
-        dtype = a.dtype
-        if dtype is torch.float64:
-            raise ValueError(_BINARY32_ONLY)
         spec = self.spec
-        found = spec.findings[0]
-        if found:
-            _report_findings(found)
-        if spec.stored and dtype in _NARROW_STORAGE:
-            _check_stored(spec.stored, dtype)
+        narrow = None
+        if spec.carrier is not None:
+            a, b, narrow = _named_carrier_operands(spec, a, b)
+        else:
+            dtype = a.dtype
+            found = spec.findings[dtype is torch.float64]
+            if found:
+                _report_findings(found)
+            if spec.stored and dtype in _NARROW_STORAGE:
+                _check_stored(spec.stored, dtype)
         geometry = (conv_pass, out_size, stride, padding, dilation, groups)
         if self.prec_idx is None:
-            return self.op(a, b, *geometry, *self.args)
-        return self.op(a, b, self.prec_idx, *geometry, *self.args)
+            out = self.op(a, b, *geometry, *self.args)
+        else:
+            out = self.op(a, b, self.prec_idx, *geometry, *self.args)
+        return out if narrow is None else _narrowed(out, narrow)
 
 
 def _missing_map(pass_name: str, argument: str):
@@ -310,10 +318,12 @@ def conv_formats(
     adds operand quantization (``weight_quant``, ``input_quant`` and the
     other ``*_quant`` slots) separately.
 
-    The kernels compute in binary32. The operands may be float32, float16 or
-    bfloat16. A float64 model, or a mac with ``carrier=torch.float64``,
-    raises (the binary64 kernels are phase G of
-    ``dev/continuation_plan.md``). MPS tensors raise too (phase H).
+    The carrier is the GEMM's: a float64 model rounds in binary64, and float32,
+    float16 and bfloat16 ones in binary32, unless the mac names
+    ``carrier=torch.float64``. Then narrower operands are widened, each pass
+    runs the binary64 kernels, and its result is narrowed back to their
+    dtype, bit-identical to the pass on the widened operands. MPS tensors
+    raise (phase H of ``dev/continuation_plan.md``).
 
     Args:
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,
@@ -342,8 +352,8 @@ def conv_formats(
         ``bwd_wgrad_math`` set and every ``*_quant`` slot left ``None``.
 
     Raises:
-        ValueError: for a palette ``mac`` without ``prec_idx``, a map given
-            to a ``mac`` without a palette, or ``carrier=torch.float64``.
+        ValueError: for a palette ``mac`` without ``prec_idx``, or a map given
+            to a ``mac`` without a palette.
 
     Example:
 
@@ -391,8 +401,6 @@ def conv_formats(
     if not isinstance(mac, SplitMac | FusedMac):
         raise TypeError(f"mac must be a SplitMac, a FusedMac or a Number, got {type(mac).__name__}")
     spec = spec_for_mac(mac)
-    if spec.carrier is torch.float64:
-        raise ValueError(_BINARY32_ONLY)
     maps = (prec_idx, igrad_prec_idx, wgrad_prec_idx)
     if spec.mixed and prec_idx is None:
         raise ValueError(

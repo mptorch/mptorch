@@ -361,19 +361,6 @@ class _GemmSpec(NamedTuple):
 # and defaulted, the nine measured 1.0-1.4 us on a NAIVE call through
 # `torch.ops` (`dev/gemm_roadmap.md`, R-2). A NAIVE spec is therefore the op
 # and the `args` it was before the three existed.
-#
-# They have binary32 kernels only so far (`dev/continuation_plan.md`, phase
-# G). A spec that names `carrier=torch.float64` therefore raises when it is
-# built, and one that leaves the carrier to its operands carries the refusal
-# as the first of binary64's findings, which is where a float64 call looks
-# before it does anything else. That costs a NAIVE call nothing, and a
-# float32 call of the three nothing either.
-
-_BINARY32_ONLY = (
-    "AccumulateAlgorithm.KAHAN, BLOCK and TREE have binary32 kernels only so far, so they "
-    "take float32, float16 or bfloat16 operands and no carrier=torch.float64 "
-    "(dev/continuation_plan.md, phase G); AccumulateAlgorithm.NAIVE rounds in binary64"
-)
 
 
 class _Accumulation(NamedTuple):
@@ -543,24 +530,15 @@ def _superfp_accumulation(
 
 
 def _accumulated(
-    spec: _GemmSpec,
-    op: Callable[..., torch.Tensor],
-    accumulation: _Accumulation,
-    refusal: str | None = _BINARY32_ONLY,
+    spec: _GemmSpec, op: Callable[..., torch.Tensor], accumulation: _Accumulation
 ) -> _GemmSpec:
     """A NAIVE single-format spec turned into its algorithm's.
 
     ``spec`` is what the NAIVE builder returns for the same formats (its
     ``args`` already name the algorithm). ``op`` is the NAIVE op's
     ``*_accumulated`` twin, whose schema is the NAIVE op's followed by
-    ``accumulation.tail``. The outer format's findings join the spec's, and
-    binary64's open with ``refusal``. A cross-family spec passes ``None``:
-    its NAIVE op has no binary64 kernels either, so its findings open with
-    that op's own refusal already, and its builder has raised it for a named
-    binary64 carrier.
+    ``accumulation.tail``. The outer format's findings join the spec's.
     """
-    if refusal is not None and spec.carrier is torch.float64:
-        raise ValueError(refusal)
     found32, found64 = spec.findings
     if accumulation.rounded:
         outer32, outer64 = _format_findings(accumulation.rounded)
@@ -570,7 +548,7 @@ def _accumulated(
         op=op,
         args=spec.args + accumulation.tail,
         stored=spec.stored if accumulation.stored is None else accumulation.stored,
-        findings=(found32, found64 if refusal is None else ((refusal, None), *found64)),
+        findings=(found32, found64),
     )
 
 
@@ -1670,9 +1648,8 @@ def binaryK_matmul(
             products pairwise, rounding every pair's sum to the accumulate
             format, and adds the block's root to the total in the same way.
             :class:`mptorch.AccumulateAlgorithm` states each precisely.
-            ``KAHAN``, ``BLOCK`` and ``TREE`` have binary32 kernels only so
-            far: float64 operands, ``carrier=torch.float64`` and an MPS
-            tensor raise. Default: ``AccumulateAlgorithm.NAIVE``
+            ``KAHAN``, ``BLOCK`` and ``TREE`` raise on an MPS tensor.
+            Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): the rounding of both formats. There is
             one mode per op, because the kernel is instantiated on it.
             Default: ``RoundMode.RNE``
@@ -3316,17 +3293,6 @@ def superfp_matmul_fma_mixed(
 # its sign and saturation still default to the multiply format's, and a binaryK
 # accumulate under a superfp multiply has no multiply subnormals mode to take,
 # so its own defaults to `SUBNORMALS`.
-#
-# binary32 kernels only so far, NAIVE included (phase G): a spec that names
-# `carrier=torch.float64` raises when it is built, and every other one carries
-# the refusal as the first of binary64's findings, as the accumulated specs do.
-
-_CROSS_BINARY32_ONLY = (
-    "the cross-family ops (binaryK_superfp_matmul, superfp_binaryK_matmul, a SplitMac whose "
-    "multiply and accumulate formats are of different families) have binary32 kernels only so "
-    "far, so they take float32, float16 or bfloat16 operands and no carrier=torch.float64 "
-    "(dev/continuation_plan.md, phase G)"
-)
 
 
 def _cross_spec(
@@ -3336,17 +3302,13 @@ def _cross_spec(
     stored: tuple[_Stored, ...],
     carrier: torch.dtype | None,
 ) -> _GemmSpec:
-    """A cross-family op's spec: binary32 only, with binary64's refusal first."""
-    carrier = _checked_carrier(carrier)
-    if carrier is torch.float64:
-        raise ValueError(_CROSS_BINARY32_ONLY)
-    found32, found64 = _format_findings(rounded)
+    """A cross-family op's spec, from its two formats' findings."""
     return _GemmSpec(
         op,
         args,
         stored,
-        carrier=carrier,
-        findings=(found32, ((_CROSS_BINARY32_ONLY, None), *found64)),
+        carrier=_checked_carrier(carrier),
+        findings=_format_findings(rounded),
     )
 
 
@@ -3495,7 +3457,6 @@ def _binaryK_superfp_accumulated_spec(
         spec,
         torch.ops.mptorch.custom_matmul_binaryK_superfp_accumulated.default,
         accumulation,
-        refusal=None,
     )
 
 
@@ -3534,7 +3495,6 @@ def _superfp_binaryK_accumulated_spec(
         spec,
         torch.ops.mptorch.custom_matmul_superfp_binaryK_accumulated.default,
         accumulation,
-        refusal=None,
     )
 
 
@@ -3585,13 +3545,12 @@ def binaryK_superfp_matmul(
     accumulate format's values, or with ``BLOCK`` or ``TREE`` and an outer
     format, the outer format's, which is of the accumulate's family.
 
-    binary32 kernels only so far: float64 operands, ``carrier=torch.float64``
-    and an MPS tensor raise. :class:`mptorch.quant.SplitMac` with a
+    An MPS tensor raises (phase H). :class:`mptorch.quant.SplitMac` with a
     :class:`mptorch.BinaryK` multiply and a :class:`mptorch.SuperFP`
     accumulate resolves to this op.
 
     Args:
-        a (Tensor): the left operand; float32, float16 or bfloat16.
+        a (Tensor): the left operand; float32, float64, float16 or bfloat16.
         b (Tensor): the right operand, of ``a``'s dtype and device.
         trans_a (bool): read ``a`` transposed in its last two dimensions.
             Default: ``False``
@@ -3643,8 +3602,11 @@ def binaryK_superfp_matmul(
             outer rounding. Default: ``0``
         outer_saturation_mode (SaturationMode, optional): the outer format's
             overflow behavior. Default: ``None``, the accumulate format's.
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``; the
-            operands' own carrier, which is binary32. Default: ``None``
+        carrier (torch.dtype, optional): as for :func:`binaryK_quantize`.
+            ``torch.float64`` widens narrower operands to binary64 and
+            narrows the result back to their dtype with one rounding.
+            ``torch.float32`` refuses float64 operands. Default: ``None``,
+            the operands' own carrier.
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -3775,13 +3737,12 @@ def superfp_binaryK_matmul(
     each partial sum to the binaryK format ``acc_K``/``acc_P``, which is
     required (a sum left in the carrier is :func:`superfp_matmul` with
     ``accumulate_quant=False``). With ``BLOCK`` or ``TREE`` the outer format
-    is a binaryK one, as :func:`binaryK_matmul`'s. binary32 kernels only so
-    far: float64 operands, ``carrier=torch.float64`` and an MPS tensor raise.
-    :class:`mptorch.quant.SplitMac` with a :class:`mptorch.SuperFP` multiply
-    and a :class:`mptorch.BinaryK` accumulate resolves to this op.
+    is a binaryK one, as :func:`binaryK_matmul`'s. An MPS tensor raises
+    (phase H). :class:`mptorch.quant.SplitMac` with a :class:`mptorch.SuperFP`
+    multiply and a :class:`mptorch.BinaryK` accumulate resolves to this op.
 
     Args:
-        a (Tensor): the left operand; float32, float16 or bfloat16.
+        a (Tensor): the left operand; float32, float64, float16 or bfloat16.
         b (Tensor): the right operand, of ``a``'s dtype and device.
         trans_a (bool): read ``a`` transposed in its last two dimensions.
             Default: ``False``
@@ -3832,8 +3793,11 @@ def superfp_binaryK_matmul(
             overflow behavior. Default: ``None``, the accumulate format's.
         outer_subnormals_mode (SubnormalsMode, optional): the outer format's
             bottom of range. Default: ``None``, the accumulate format's.
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``; the
-            operands' own carrier, which is binary32. Default: ``None``
+        carrier (torch.dtype, optional): as for :func:`binaryK_quantize`.
+            ``torch.float64`` widens narrower operands to binary64 and
+            narrows the result back to their dtype with one rounding.
+            ``torch.float32`` refuses float64 operands. Default: ``None``,
+            the operands' own carrier.
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape

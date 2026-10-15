@@ -11,8 +11,7 @@
 // those compile exactly what they compiled before the three algorithms
 // existed, and from each other because the build is throughput-bound: this one
 // holds fourteen kernels (seven round modes, with and without an accumulate
-// format). There is no *_f64 twin yet: the three algorithms are binary32 only
-// until dev/continuation_plan.md's phase G.
+// format). Its binary64 twin is custom_matmul_binaryK_tree_f64.cpp.
 
 namespace mptorch::gemm_cpu
 {

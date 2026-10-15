@@ -9,8 +9,8 @@
 // One of four such files, one per algorithm, mirroring the cross-family
 // GEMM's (custom_matmul_cross.cpp): a gathered kernel is its GEMM kernel's
 // instantiation over a Gathered policy, and keeping the two apart is what
-// leaves every earlier file compiling exactly what it did. binary32 only
-// until dev/continuation_plan.md's phase G.
+// leaves every earlier file compiling exactly what it did. Its binary64
+// twin is custom_conv_cross_f64.cpp.
 
 namespace mptorch::gemm_cpu
 {

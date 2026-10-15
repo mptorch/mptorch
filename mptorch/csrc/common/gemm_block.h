@@ -2,8 +2,9 @@
 
 // The block GEMM (custom_matmul_block): C = op(A) @ op(B)^T over two packed
 // block-format operands (common/block_decode.h), each decoded in the tile
-// load, in binary32, and multiplied and summed by the GEMM kernel's own K-loop
-// and Mac/Accumulator policies. So every rounding mode and every accumulate
+// load, in the carrier (binary32, or binary64 when the call asks for it), and
+// multiplied and summed by the GEMM kernel's own K-loop and Mac/Accumulator
+// policies. So every rounding mode and every accumulate
 // algorithm applies, and the SR keying, the batch dimension and the grid-z
 // chunking are the GEMM's.
 //
@@ -86,24 +87,29 @@ namespace mptorch::gemm
     static constexpr MPTORCH_CONSTANT bool has_product = true;
   };
 
-  // One packed operand as the tile load reads it: its format and layout, and
-  // its scales with their batch stride in scale bytes (the data's batch
-  // stride is the kernel's own stride_a / stride_b, in bytes here).
-  struct BlockOperand
+  // One packed operand as the tile load reads it in carrier T: its format and
+  // layout, and its scales with their batch stride in scale bytes (the data's
+  // batch stride is the kernel's own stride_a / stride_b, in bytes here).
+  template <class T>
+  struct BlockOperandT
   {
-    mptorch::block::BlockFormatParams p;
+    mptorch::block::BlockFormatParamsT<T> p;
     const MPTORCH_BLOCK_DEVICE uint8_t *scales;
     int64_t scale_stride;
   };
 
+  using BlockOperand = BlockOperandT<float>;
+
   // An Accumulator policy whose operands are packed block formats. It is the
-  // wrapped policy in every other respect, like Gathered.
+  // wrapped policy in every other respect, like Gathered. The operands'
+  // parameters are in the accumulator's carrier: a member type, so the kernel
+  // a Blocked runs keeps the name it had before binary64 had block kernels.
   template <class Acc>
   struct Blocked : Acc
   {
     static constexpr MPTORCH_CONSTANT bool blocked = true;
-    BlockOperand block_a;
-    BlockOperand block_b;
+    BlockOperandT<typename Acc::value_t> block_a;
+    BlockOperandT<typename Acc::value_t> block_b;
   };
 
 #if !defined(__METAL_VERSION__)
@@ -112,15 +118,37 @@ namespace mptorch::gemm
 
   // The Args of the block GEMM: the Args of the mac it runs (BlockSplitArgs,
   // BinaryKFusedArgs, or their AccumulateArgs for KAHAN, BLOCK and TREE) and
-  // the two operands. The backends' launch_block_as builds `inner`'s policy
-  // and wraps it in a Blocked.
+  // the two operands, in the carrier the call runs in: `a` and `b` for
+  // binary32, `a64` and `b64` for binary64 (the driver fills one pair). The
+  // backends' launch_block_as builds `inner`'s policy and wraps it in a
+  // Blocked over the pair of its carrier, operand_a<T>() and operand_b<T>().
   template <class Inner>
   struct BlockGemmArgs
   {
     static constexpr bool mixed = false;
     Inner inner{};
-    BlockOperand a{};
-    BlockOperand b{};
+    BlockOperandT<float> a{};
+    BlockOperandT<float> b{};
+    BlockOperandT<double> a64{};
+    BlockOperandT<double> b64{};
+
+    template <class T>
+    const BlockOperandT<T> &operand_a() const
+    {
+      if constexpr (std::is_same_v<T, double>)
+        return a64;
+      else
+        return a;
+    }
+
+    template <class T>
+    const BlockOperandT<T> &operand_b() const
+    {
+      if constexpr (std::is_same_v<T, double>)
+        return b64;
+      else
+        return b;
+    }
   };
 #endif
 
@@ -142,7 +170,7 @@ namespace mptorch::gemm
   // [BLOCK_TABLE, 2 * BLOCK_TABLE) its scale factors (1 without a scale).
   template <class T>
   CUDA_HOST_DEVICE_INLINE void fill_block_table(MPTORCH_THREAD T *table, int i,
-                                                const MPTORCH_THREAD mptorch::block::BlockFormatParams &p)
+                                                const MPTORCH_THREAD mptorch::block::BlockFormatParamsT<T> &p)
   {
     using mptorch::block::ScaleKind;
     table[i] = p.elem_bits <= BLOCK_TABLE_BITS && i < (1 << p.elem_bits)
@@ -158,7 +186,7 @@ namespace mptorch::gemm
   // element's offset in bytes, and `bId` that batch element.
   template <class T>
   CUDA_HOST_DEVICE_INLINE T block_load(const MPTORCH_BLOCK_DEVICE void *data,
-                                         const MPTORCH_THREAD BlockOperand &o, int64_t bId,
+                                         const MPTORCH_THREAD BlockOperandT<T> &o, int64_t bId,
                                          int64_t data_off, int64_t i, int64_t k)
   {
     return mptorch::block::load_block_operand<T>(
@@ -173,11 +201,11 @@ namespace mptorch::gemm
   // is at most BLOCK_TABLE_BITS bits (the driver's check).
   template <class T>
   CUDA_HOST_DEVICE_INLINE T block_load_table(const MPTORCH_BLOCK_DEVICE void *data,
-                                             const MPTORCH_THREAD BlockOperand &o,
+                                             const MPTORCH_THREAD BlockOperandT<T> &o,
                                              const MPTORCH_THREAD T *table, int64_t bId,
                                              int64_t data_off, int64_t i, int64_t k)
   {
-    const MPTORCH_THREAD mptorch::block::BlockFormatParams &p = o.p;
+    const MPTORCH_THREAD mptorch::block::BlockFormatParamsT<T> &p = o.p;
     // 32-bit coordinates, widened only where they meet a stride: the driver
     // holds a batch element's rows, columns and row bytes below 2^31.
     const int32_t r = static_cast<int32_t>(p.trans ? k : i);

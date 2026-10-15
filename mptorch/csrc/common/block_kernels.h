@@ -4,12 +4,14 @@
 // in-place twin) as their kernels see them: raw pointers, extents and element
 // strides, with no ATen, so the CUDA kernels compile without its front end
 // (the tensors stay in cuda/block_entry.cpp, as the GEMM's stay in
-// cuda/custom_matmul_entry.cpp). The format arrives as a BlockFormatParams
-// and the casts' constants, built once per call (common/block_host.h).
+// cuda/custom_matmul_entry.cpp). The format arrives as a BlockFormatParamsT
+// and the casts' constants, built once per call in the call's carrier
+// (common/block_host.h): binary64 for a float64 tensor, binary32 otherwise.
 
 #include "block_decode.h"
 #include "gemm_dtype.h"
 #include "gemm_gather.h" // FastDivmod
+#include "philox.h"
 #include <cstdint>
 
 namespace mptorch::block
@@ -19,15 +21,28 @@ namespace mptorch::block
   // (block_decode.h's BlockCastT), in binary32.
   using BlockCast = BlockCastT<float>;
 
+  // Element i's random word under RoundMode::SR in carrier T comes from
+  // Philox block i >> block_draw_shift<T> of the call's stream (philox.h's
+  // layout): word i & 3 of block i >> 2 in binary32, and in binary64 the
+  // 64-bit word made of words 2 (i & 1) and the one after of block i >> 1.
+  // The kernels read the word with an `if constexpr` per carrier, which keeps
+  // the binary32 code the word read it was (a helper taking the block by
+  // reference moved the SR kernels' stack slots on the CPU).
+  template <class T>
+  inline constexpr int block_draw_shift = 2;
+
+  template <>
+  inline constexpr int block_draw_shift<double> = 1;
+
   // block_pack (quant = false: codes into data, scale codes into scales) and
   // block_quantize (quant = true: the decoded values into o, which is x
   // itself for the in-place op). x is [batch, rows, cols] with the packed
   // axis last, read through its element strides, so a transposed view packs
   // with no copy; o is written through its own. data is [batch, rows,
   // row_bytes] and scales [batch, row_tiles, scale_cols], contiguous. The
-  // stochastic draw of element (b, r, c) is word (i & 3) of Philox block
-  // i >> 2 of (seed, offset), i = (b * rows + r) * cols + c: the packed
-  // orientation's logical index, the same in all three ops.
+  // stochastic draw of element (b, r, c) is BlockDraw's for the carrier, at
+  // i = (b * rows + r) * cols + c of (seed, offset): the packed orientation's
+  // logical index, the same in all three ops.
   struct BlockPackJob
   {
     const void *x = nullptr;

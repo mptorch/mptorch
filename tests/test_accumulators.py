@@ -5,12 +5,16 @@ here are written from that statement rather than from the kernels: plain
 Python over ``[M, N]`` tensors, one K-step at a time, with the elementwise
 quantizers standing in for the three roundings (``mul``, ``add``, ``outer``)
 and a Python list standing in for TREE's levels. Tier 3 holds the CPU and CUDA
-kernels to them with ``torch.equal`` in every deterministic rounding mode.
+kernels to them with ``torch.equal`` in every deterministic rounding mode, in
+binary32 and, on float64 operands, in binary64, where the references compute
+in float64 and the quantizers round in binary64.
 
-The three are binary32-only so far and have no MPS kernel, so a float64 call
-and an MPS call are each held to the error that names the follow-up.
+The three have no MPS kernel yet, so an MPS call is held to the error that
+names the follow-up.
 """
 
+import math
+from fractions import Fraction
 from typing import Any, cast
 
 import numpy as np
@@ -30,6 +34,7 @@ from mptorch.quant import (
     superfp_matmul_fma,
 )
 from mptorch.quant.mac import spec_for_mac
+from mptorch.quant.ops import _narrowed
 
 from .markers import float64_devices, requires_mps
 
@@ -51,6 +56,12 @@ _SUPERFP_FAMILIES = (SuperFP(3, 4, 8, 7), SuperFP(5, 5, 16, 15), SuperFP(8, 6, 3
 FAMILIES: dict[str, tuple[Any, ...]] = {
     "binaryK": _BINARYK_FAMILIES,
     "superfp": _SUPERFP_FAMILIES,
+}
+# Formats only binary64 holds: significands past binary32's 24 bits, and a
+# superfp whose supernormals reach below binary32's subnormals.
+FAMILIES64: dict[str, tuple[Any, ...]] = {
+    "binaryK_wide": (BinaryK(32, 27), BinaryK(40, 33), BinaryK(48, 40)),
+    "superfp_wide": (SuperFP(3, 8, 8, 127), SuperFP(26, 6, 32, 31), SuperFP(30, 9, 256, 255)),
 }
 
 # K values that leave partial 16-step slabs and partial blocks of every size.
@@ -86,12 +97,46 @@ def _fma32(a, b, c):
     return torch.from_numpy(wide.astype(np.float32))
 
 
+def _fma1(x: float, y: float, z: float) -> float:
+    """x*y + z with one rounding to float64.
+
+    Exact in rationals: a ``Fraction``'s conversion to float rounds to
+    nearest even once (``math.fma`` is Python 3.13's, newer than CI's). A
+    non-finite operand takes IEEE's rules, which float arithmetic has, and a
+    finite result past binary64's range is an infinity.
+    """
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+        return x * y + z
+    exact = Fraction(x) * Fraction(y) + Fraction(z)
+    try:
+        return float(exact)
+    except OverflowError:
+        return math.copysign(math.inf, exact)
+
+
+def _fma64(a, b, c):
+    """a*b + c with one rounding to float64, elementwise."""
+    out = [
+        _fma1(x, y, z)
+        for x, y, z in zip(
+            a.flatten().tolist(), b.flatten().tolist(), c.flatten().tolist(), strict=True
+        )
+    ]
+    return torch.tensor(out, dtype=torch.float64).reshape(a.shape)
+
+
+def _fma(a, b, c):
+    """The carrier's fused multiply-add: float64 operands round in binary64."""
+    return _fma64(a, b, c) if a.dtype is torch.float64 else _fma32(a, b, c)
+
+
 class _Reference:
     """One dot-product reduction over ``[M, N]`` outputs at once.
 
-    ``a`` is ``[M, K]`` and ``b`` ``[K, N]``, float32 on the CPU (the values a
-    kernel loads, whatever dtype they were stored in). ``mul`` is ``None`` for
-    a fused mac, whose step is then one FMA rounded by ``add``.
+    ``a`` is ``[M, K]`` and ``b`` ``[K, N]`` on the CPU, in the carrier: float32
+    (the values a binary32 kernel loads, whatever dtype they were stored in) or
+    float64. ``mul`` is ``None`` for a fused mac, whose step is then one FMA
+    rounded by ``add``.
     """
 
     def __init__(self, a, b, mul, add, outer, mode):
@@ -101,7 +146,7 @@ class _Reference:
         self.add = _rounding(add, mode)
         self.outer = _rounding(outer, mode)
         self.K = a.shape[1]
-        self.zero = torch.zeros(a.shape[0], b.shape[1])
+        self.zero = torch.zeros(a.shape[0], b.shape[1], dtype=a.dtype)
 
     def operands(self, k):
         return self.a[:, k, None].expand_as(self.zero), self.b[None, k, :].expand_as(self.zero)
@@ -114,7 +159,7 @@ class _Reference:
         """NAIVE's step: the sum ``s`` after product ``k``."""
         if self.fused:
             x, y = self.operands(k)
-            return self.add(_fma32(x, y, s))
+            return self.add(_fma(x, y, s))
         return self.add(s + self.product(k))
 
     def naive(self):
@@ -128,7 +173,7 @@ class _Reference:
         for k in range(self.K):
             if self.fused:
                 x, y = self.operands(k)
-                y = self.add(_fma32(x, y, -c))
+                y = self.add(_fma(x, y, -c))
             else:
                 y = self.add(self.product(k) - c)
             t = self.add(s + y)
@@ -179,7 +224,7 @@ class _Reference:
 
 def _mac(kind, family, algorithm, mode, block_size=None, outer=None):
     """The mac of one of the four kinds, and the reference's (mul, add)."""
-    narrow, wide, _ = FAMILIES[family]
+    narrow, wide, _ = {**FAMILIES, **FAMILIES64}[family]
     extra: dict[str, Any] = dict(
         rounding=mode, accumulate_algorithm=algorithm, block_size=block_size, outer=outer
     )
@@ -199,7 +244,8 @@ def _check(device, kind, family, algorithm, mode, block_size, outer, K, dtype=to
     a, b = _operands(5, K, 3, device, dtype)
     mac, (mul, add) = _mac(kind, family, algorithm, mode, block_size, outer)
     out = qmm(a, b, mac)
-    ref = _Reference(a.cpu().float(), b.cpu().float(), mul, add, outer, mode).run(
+    carrier = torch.float64 if dtype is torch.float64 else torch.float32
+    ref = _Reference(a.cpu().to(carrier), b.cpu().to(carrier), mul, add, outer, mode).run(
         algorithm, block_size
     )
     assert out.dtype is dtype
@@ -311,6 +357,24 @@ def test_tier3_narrow_storage(device, dtype, algorithm):
 
 
 @pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("family", [*FAMILIES, *FAMILIES64])
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_tier3_binary64(device, family, kind, mode):
+    """float64 operands run the binary64 kernels: the three algorithms in
+    every deterministic mode against the references in float64, on the
+    families binary32 holds and on formats only binary64 does."""
+    outer = {**FAMILIES, **FAMILIES64}[family][2]
+    f64 = torch.float64
+    for K in (17, 40):
+        _check(device, kind, family, KAHAN, mode, None, None, K, f64)
+        for block_size in (4, 32):
+            _check(device, kind, family, BLOCK, mode, block_size, outer, K, f64)
+            if kind in ("split", "split_exact_sum"):
+                _check(device, kind, family, TREE, mode, block_size, None, K, f64)
+
+
+@pytest.mark.parametrize("device", kernel_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
 def test_tier3_flat_wrappers_and_layouts(device, algorithm):
     """The schema tier, a transposed operand and a batch, against the mac tier."""
@@ -411,13 +475,14 @@ def _sr_mac(algorithm):
 
 @pytest.mark.parametrize("device", kernel_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
-def test_sr_is_seeded_and_keyed_on_the_element(device, algorithm):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_sr_is_seeded_and_keyed_on_the_element(device, algorithm, dtype):
     """One seed, one result; another seed, another; and batch element 0 of a
     batched call is the 2D call, since a stream is keyed on the element's
-    index into the whole output."""
+    index into the whole output. In binary64 a draw is two Philox words."""
     mac = _sr_mac(algorithm)
-    a = torch.randn(3, 33, 45, device=device)
-    b = torch.randn(45, 17, device=device)
+    a = torch.randn(3, 33, 45, device=device, dtype=dtype)
+    b = torch.randn(45, 17, device=device, dtype=dtype)
 
     def run(x, seed):
         torch.manual_seed(seed)
@@ -430,9 +495,10 @@ def test_sr_is_seeded_and_keyed_on_the_element(device, algorithm):
 
 
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
-def test_sr_is_independent_of_the_thread_count(algorithm):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_sr_is_independent_of_the_thread_count(algorithm, dtype):
     mac = _sr_mac(algorithm)
-    a, b = _operands(70, 45, 66, "cpu")
+    a, b = _operands(70, 45, 66, "cpu", dtype)
     before = torch.get_num_threads()
     try:
         results = []
@@ -471,26 +537,65 @@ def test_sr_is_bracketed_and_unbiased(device, algorithm):
 
 @pytest.mark.parametrize("device", kernel_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
-def test_binary64_is_refused(device, algorithm):
-    """float64 operands and ``carrier=torch.float64`` name phase G, before
-    anything is widened or launched."""
-    block_size = None if algorithm is KAHAN else 4
-    fmt = BinaryK(8, 4)
-    mac = SplitMac(fmt, fmt, accumulate_algorithm=algorithm, block_size=block_size)
-    a = torch.randn(3, 5, device=device)
-    b = torch.randn(5, 2, device=device)
-    with pytest.raises(ValueError, match="binary32 kernels only.*phase G"):
-        qmm(a.double(), b.double(), mac)
-    wide = SplitMac(
-        fmt, fmt, accumulate_algorithm=algorithm, block_size=block_size, carrier=torch.float64
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16], ids=str)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+def test_widened_carrier_is_the_float64_call(device, algorithm, dtype, mode):
+    """``carrier=torch.float64`` on narrower operands is the float64 call on
+    the widened operands, narrowed back with one rounding: bit for bit, SR
+    draws included, for the mac tier and for the flat wrapper."""
+    # the outer format is the accumulate's, which a bfloat16 result holds
+    narrow, wide = (BinaryK(f.K, f.P, prng_bits=8) for f in _BINARYK_FAMILIES[:2])
+    outer = wide
+    block_size = None if algorithm is KAHAN else 8
+    extra: dict[str, Any] = dict(
+        rounding=mode,
+        accumulate_algorithm=algorithm,
+        block_size=block_size,
+        outer=None if algorithm is KAHAN else outer,
     )
-    with pytest.raises(ValueError, match="binary32 kernels only.*phase G"):
-        qmm(a, b, wide)
-    # The op itself refuses too, for a caller that goes around the wrappers
-    # (in a build with no float64 GEMM kernels at all, by naming that flag).
-    spec = spec_for_mac(mac)
-    with pytest.raises(RuntimeError, match="binary32 kernels only.*phase G|MPTORCH_NO_FP64"):
-        spec.op(a.double(), b.double(), False, False, *spec.args)
+    a, b = _operands(9, 37, 6, device, dtype)
+
+    def run(fn, seed=5):
+        torch.manual_seed(seed)
+        return fn()
+
+    plain = SplitMac(narrow, wide, **extra)
+    named = SplitMac(narrow, wide, carrier=torch.float64, **extra)
+    expect = _narrowed(run(lambda: qmm(a.double(), b.double(), plain)), dtype)
+    got = run(lambda: qmm(a, b, named))
+    assert got.dtype is dtype
+    assert torch.equal(got, expect)
+    flat = run(
+        lambda: binaryK_matmul(
+            a,
+            b,
+            mul_K=narrow.K,
+            mul_P=narrow.P,
+            mul_prng_bits=8,
+            acc_K=wide.K,
+            acc_P=wide.P,
+            acc_prng_bits=8,
+            rounding_mode=mode,
+            accumulate_algorithm=algorithm,
+            block_size=block_size,
+            outer_K=None if algorithm is KAHAN else outer.K,
+            outer_P=None if algorithm is KAHAN else outer.P,
+            outer_prng_bits=0 if algorithm is KAHAN else 8,
+            carrier=torch.float64,
+        )
+    )
+    assert torch.equal(flat, expect)
+
+
+def test_binary64_findings():
+    """A format binary32 cannot carry is refused on float32 operands with the
+    finding that names binary64, and runs on float64 ones."""
+    narrow, wide, _ = FAMILIES64["binaryK_wide"]
+    mac = SplitMac(narrow, wide, accumulate_algorithm=KAHAN)
+    a, b = _operands(3, 9, 2, "cpu", torch.float64)
+    assert qmm(a, b, mac).dtype is torch.float64
+    with pytest.raises(ValueError, match="binary64"):
+        qmm(a.float(), b.float(), mac)
 
 
 @requires_mps

@@ -19,10 +19,12 @@ The value tier is :class:`mptorch.quant.BlockQuant` and
 :func:`mptorch.quant.block_matmul_formats` and
 :func:`mptorch.quant.block_gemm_formats`.
 
-The kernels round in binary32 only so far (``dev/continuation_plan.md``, phase
-G): a float64 tensor or ``carrier=torch.float64`` raises, and so does an MPS
-tensor (phase H). Every entry point takes ``carrier`` all the same, as every
-computing entry point of the library does.
+The kernels round in the carrier: binary64 for a float64 tensor or
+``carrier=torch.float64`` (a narrower tensor is widened first and the result
+narrowed back with one rounding), and binary32 otherwise. A
+:class:`BlockPacked` remembers the carrier it was packed in, and unpacking it
+or multiplying it runs in that carrier or a wider one. An MPS tensor raises
+(``dev/continuation_plan.md``, phase H).
 """
 
 from dataclasses import dataclass
@@ -48,6 +50,7 @@ from mptorch.number import (
 )
 
 from .ops import (
+    _BELOW_BINARY64,
     _CARRIER,
     _NARROW_STORAGE,
     _call_carrier,
@@ -56,6 +59,7 @@ from .ops import (
     _checked_carrier,
     _Findings,
     _format_findings,
+    _narrowed,
     _report_findings,
     _Stored,
 )
@@ -128,15 +132,18 @@ def _float32(v: float) -> float:
     return torch.tensor(v, dtype=torch.float32).item()
 
 
-def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None) -> float:
+def _tensor_scale(
+    x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None, wide: bool = False
+) -> float:
     """The per-tensor scale a call packs with: 1 for a format without one.
 
     NVFP4's default is ``max(|x|) / (elem_max * top_scale)`` over the finite
-    elements, in float32 arithmetic, so that the tensor's largest block takes
-    the scale ``top_scale``: the largest one, or under a Four Over Six rule
-    the largest that leaves the block its second candidate (256 for E4M3). A
-    tensor with no nonzero finite element takes 1. A caller-supplied (static)
-    scale is rounded to float32.
+    elements, in the carrier's arithmetic (float32, or float64 when ``wide``),
+    so that the tensor's largest block takes the scale ``top_scale``: the
+    largest one, or under a Four Over Six rule the largest that leaves the
+    block its second candidate (256 for E4M3). A tensor with no nonzero
+    finite element takes 1. A caller-supplied (static) scale is rounded to
+    the carrier's precision (float32 or float64).
     """
     if not fmt.has_tensor_scale:
         if tensor_scale is not None:
@@ -146,12 +153,21 @@ def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None)
             )
         return 1.0
     if tensor_scale is not None:
-        ts = _float32(float(tensor_scale))
+        ts = float(tensor_scale) if wide else _float32(float(tensor_scale))
         if not ts > 0 or ts == float("inf"):
             raise ValueError(f"tensor_scale must be a positive finite float, got {tensor_scale}")
         return ts
     if x.numel() == 0:
         return 1.0
+    assert fmt.elem_max is not None  # resolved by BlockFormat.__post_init__
+    if wide:
+        amax = torch.linalg.vector_norm(x.detach(), float("inf"), dtype=torch.float64).cpu()
+        if not torch.isfinite(amax):
+            a = x.detach().abs().double()
+            zero = torch.zeros((), dtype=a.dtype, device=a.device)
+            amax = torch.where(torch.isfinite(a), a, zero).amax().cpu()
+        ts = amax.item() / (fmt.elem_max * fmt.top_scale)
+        return ts if ts > 0 else 1.0
     # max |x| as a reduction, with no |x|-sized temporary (a weight's worth of
     # memory at the peak of a layer's step); the non-finite elements are left
     # out only when there are some, which costs the temporaries.
@@ -159,20 +175,19 @@ def _tensor_scale(x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None)
     if not torch.isfinite(amax):
         a = x.detach().abs().float()
         amax = torch.where(torch.isfinite(a), a, torch.zeros((), device=a.device)).amax().cpu()
-    assert fmt.elem_max is not None  # resolved by BlockFormat.__post_init__
     ts = (amax / torch.tensor(fmt.elem_max * fmt.top_scale, dtype=torch.float32)).item()
     return ts if ts > 0 else 1.0
 
 
-def _prologue(x: torch.Tensor, fmt: BlockFormat, carrier: torch.dtype | None, op: str) -> None:
-    """What every elementwise call checks first: the format, the carrier (binary32
-    only), and a tensor dtype the kernels read."""
+def _prologue(x: torch.Tensor, fmt: BlockFormat, carrier: torch.dtype | None, op: str) -> bool:
+    """What every elementwise call checks first: the format, and the carrier the
+    call rounds in, which the format must be one of; returns whether that is
+    binary64."""
     if not isinstance(fmt, BlockFormat):
         raise TypeError(f"{op} takes a BlockFormat, got {type(fmt).__name__}")
-    if x.dtype is torch.float64:
-        check_block_carrier(fmt, carrier=torch.float64)
     wide, _ = _call_carrier(_checked_carrier(carrier), x.dtype)
     check_block_carrier(fmt, carrier=_CARRIER[wide])
+    return wide
 
 
 # --- a packed tensor --------------------------------------------------------
@@ -222,6 +237,10 @@ class BlockPacked:
       :meth:`unpack` returns.
     - ``tensor_scale``: the per-tensor scale it was packed with (1 for a
       format without one).
+    - ``carrier``: the carrier it was packed in, ``torch.float32`` (binary32)
+      or ``torch.float64`` (binary64). :meth:`unpack` and
+      :func:`block_matmul` decode it in that carrier or a wider one. It
+      defaults to ``dtype``'s: binary64 for float64, binary32 otherwise.
 
     :attr:`mT` is the logical transpose of the last two dimensions. It reads
     the same codes the other way: nothing is copied, and only ``shape`` and
@@ -241,7 +260,7 @@ class BlockPacked:
         ((256, 64), 0, True)
     """
 
-    __slots__ = ("data", "scales", "fmt", "shape", "axis", "tensor_scale", "dtype")
+    __slots__ = ("data", "scales", "fmt", "shape", "axis", "tensor_scale", "dtype", "carrier")
 
     def __init__(
         self,
@@ -252,6 +271,7 @@ class BlockPacked:
         axis: int,
         tensor_scale: float,
         dtype: torch.dtype,
+        carrier: torch.dtype | None = None,
     ):
         self.data = data
         self.scales = scales
@@ -260,6 +280,9 @@ class BlockPacked:
         self.axis = axis
         self.tensor_scale = tensor_scale
         self.dtype = dtype
+        if carrier is None:
+            carrier = torch.float64 if dtype is torch.float64 else torch.float32
+        self.carrier = carrier
 
     def __repr__(self) -> str:
         return (
@@ -295,7 +318,14 @@ class BlockPacked:
         shape = (*self.shape[:-2], self.shape[-1], self.shape[-2])
         axis = n - 1 if self.axis == n - 2 else n - 2
         return BlockPacked(
-            self.data, self.scales, self.fmt, shape, axis, self.tensor_scale, self.dtype
+            self.data,
+            self.scales,
+            self.fmt,
+            shape,
+            axis,
+            self.tensor_scale,
+            self.dtype,
+            self.carrier,
         )
 
     def to(self, device: torch.device | str) -> "BlockPacked":
@@ -308,6 +338,7 @@ class BlockPacked:
             self.axis,
             self.tensor_scale,
             self.dtype,
+            self.carrier,
         )
 
     def unpack(self, dtype: torch.dtype | None = None) -> torch.Tensor:
@@ -353,7 +384,7 @@ def block_pack(
     same bits.
 
     Args:
-        x (Tensor): float32, float16 or bfloat16, of any rank.
+        x (Tensor): float32, float64, float16 or bfloat16, of any rank.
         fmt (BlockFormat): the format.
         axis (int): the axis to pack along. Default: ``-1``
         rounding (RoundMode): the elements' rounding mode. The scale is
@@ -362,17 +393,21 @@ def block_pack(
             block scale has a mantissa (NVFP4). ``None`` takes
             ``max(|x|) / (elem_max * top_scale)``, which reads ``x`` once
             more and, on a GPU, synchronizes with it. Default: ``None``
-        carrier (torch.dtype, optional): the arithmetic the rounding runs in.
-            Block formats have binary32 kernels only so far, so ``None`` and
-            ``torch.float32`` work and ``torch.float64`` raises. Default:
-            ``None``
+        carrier (torch.dtype, optional): the arithmetic the rounding runs in:
+            ``torch.float64`` packs any ``x`` in binary64, widening a narrower
+            one first (the default tensor scale is then a float64 quotient),
+            and ``torch.float32`` names binary32, which a float64 ``x``
+            refuses. Default: ``None``, ``x``'s own: binary64 for float64,
+            binary32 otherwise.
 
     Returns:
         BlockPacked: the codes, the scales and what describes them.
 
     Raises:
-        ValueError: for a float64 ``x`` or ``carrier=torch.float64`` (binary32
-            only so far), or a ``tensor_scale`` given to a format without one.
+        ValueError: for a format the carrier does not hold
+            (:func:`mptorch.number.check_block_carrier`), ``carrier=torch.float32``
+            on a float64 ``x``, or a ``tensor_scale`` given to a format
+            without one.
         RuntimeError: on an MPS tensor (no Metal kernel yet), or on a tensor
             that requires grad under grad mode.
 
@@ -387,20 +422,21 @@ def block_pack(
         >>> p.unpack()[0, :4]
         tensor([ 0.5000, -1.0000,  2.0000,  6.0000])
     """
-    _prologue(x, fmt, carrier, "block_pack")
+    wide = _prologue(x, fmt, carrier, "block_pack")
     if x.dim() == 0:
         raise ValueError("block_pack needs a tensor with at least one dimension")
     axis = axis % x.dim()
-    ts = _tensor_scale(x, fmt, tensor_scale)
+    src = x.double() if wide and x.dtype is not torch.float64 else x
+    ts = _tensor_scale(src, fmt, tensor_scale, wide)
     data, scales = torch.ops.mptorch.block_pack.default(
-        _storage_view(x, axis, "block_pack"),
+        _storage_view(src, axis, "block_pack"),
         _block_format_ints(fmt),
         fmt.elem_max,
         fmt.scale_max,
         ts,
         rounding.value,
     )
-    return BlockPacked(data, scales, fmt, tuple(x.shape), axis, ts, x.dtype)
+    return BlockPacked(data, scales, fmt, tuple(x.shape), axis, ts, x.dtype, _CARRIER[wide])
 
 
 def block_unpack(
@@ -409,19 +445,24 @@ def block_unpack(
     """Decode a :class:`BlockPacked` into a tensor of its logical shape.
 
     Each element is its code's value times its block's scale (times the
-    tensor scale), one binary32 product, stored in ``dtype``. A float16 or
-    bfloat16 result rounds that product a second time where the dtype does
-    not hold it, and :class:`mptorch.FormatRangeWarning` reports it.
+    tensor scale), one product in the carrier, stored in ``dtype``. The
+    carrier is the one ``p`` was packed in, or binary64 when ``dtype`` is
+    float64 or ``carrier=torch.float64``. A result narrower than its carrier
+    rounds that product a second time where the dtype does not hold it (once:
+    a binary64 product reaches a narrower dtype through
+    ``narrow_float64``), and :class:`mptorch.FormatRangeWarning` reports it.
     ``block_unpack(block_pack(x, fmt, axis))`` equals
     ``block_quantize(x, fmt, axis)`` element for element, under the same
     generator state.
 
     Args:
         p (BlockPacked): the packed tensor.
-        dtype (torch.dtype, optional): float32, float16 or bfloat16. Default:
-            ``None``, the dtype ``p`` was packed from.
-        carrier (torch.dtype, optional): as for :func:`block_pack`.
-            Default: ``None``
+        dtype (torch.dtype, optional): float32, float64, float16 or bfloat16.
+            Default: ``None``, the dtype ``p`` was packed from.
+        carrier (torch.dtype, optional): ``torch.float64`` decodes in
+            binary64; ``torch.float32`` refuses a ``p`` packed in binary64 and
+            a float64 ``dtype``. Default: ``None``, ``p``'s carrier, or
+            binary64 for a float64 ``dtype``.
 
     Returns:
         Tensor: the decoded values, of shape ``p.shape`` (a view with the
@@ -437,12 +478,23 @@ def block_unpack(
         tensor([[ 1.0000,  0.1016, -3.2500, 96.0000]])
     """
     dtype = p.dtype if dtype is None else dtype
-    probe = torch.empty(0, dtype=dtype)
-    _prologue(probe, p.fmt, carrier, "block_unpack")
-    if dtype in _NARROW_STORAGE:
+    carrier = _checked_carrier(carrier)
+    if carrier is torch.float32 and p.carrier is torch.float64:
+        raise ValueError(
+            "carrier=torch.float32 is narrower than binary64, which this tensor was packed in "
+            "(its tensor scale and its format are binary64's); leave carrier unset"
+        )
+    wide, _ = _call_carrier(carrier, dtype)
+    wide = wide or p.carrier is torch.float64
+    check_block_carrier(p.fmt, carrier=_CARRIER[wide])
+    if dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_block_storage(p.fmt, storage=dtype)
     cols = p.cols
-    out = torch.ops.mptorch.block_unpack.default(p.data, p.scales, cols, *_format_args(p), dtype)
+    out_dtype = torch.float64 if wide else dtype
+    args = _format_args(p)
+    out = torch.ops.mptorch.block_unpack.default(p.data, p.scales, cols, *args, out_dtype)
+    if out_dtype is not dtype:
+        out = _narrowed(out, dtype)
     moved = _moved_shape(p.shape, p.axis)
     if tuple(out.shape) != moved:
         out = out.reshape(moved)
@@ -459,19 +511,28 @@ def _quantize(
     in_place: bool,
 ) -> torch.Tensor:
     op = "block_quantize"
-    _prologue(x, fmt, carrier, op)
+    wide = _prologue(x, fmt, carrier, op)
     if x.dim() == 0:
         raise ValueError(f"{op} needs a tensor with at least one dimension")
-    if x.dtype in _NARROW_STORAGE:
+    widen = wide and x.dtype is not torch.float64
+    if in_place and widen:
+        raise ValueError(
+            f"{op}_ with carrier=torch.float64 on a {x.dtype} tensor would round a float64 "
+            f"copy and leave the tensor as it was: use {op}, which returns the result"
+        )
+    if x.dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         check_block_storage(fmt, storage=x.dtype)
     axis = axis % x.dim()
-    ts = _tensor_scale(x, fmt, tensor_scale)
-    v = _storage_view(x, axis, op, in_place=in_place)
+    src = x.double() if widen else x
+    ts = _tensor_scale(src, fmt, tensor_scale, wide)
+    v = _storage_view(src, axis, op, in_place=in_place)
     args = (_block_format_ints(fmt), fmt.elem_max, fmt.scale_max, ts, rounding.value)
     if in_place:
         torch.ops.mptorch.block_quant_.default(v, *args)
         return x
     out = torch.ops.mptorch.block_quant.default(v, *args)
+    if widen:
+        out = _narrowed(out, x.dtype)
     moved = _moved_shape(tuple(x.shape), axis)
     if tuple(out.shape) != moved:
         out = out.reshape(moved)
@@ -547,16 +608,16 @@ class _BlockGemmSpec(NamedTuple):
 
     ``args`` is every schema argument after the two operands' formats, in
     order: the mac (fused or split, the accumulate format) and the
-    accumulation (algorithm, rounding, the ``*_accumulated`` tail).
-    ``findings`` is what binary32, the block kernels' carrier, says about the
-    formats it rounds with; ``stored`` the format a result narrower than
-    float32 holds. The operand formats travel with the operands. ``epilogue``
-    applies the operands' tensor scales to the result rather than in the
-    decode.
+    accumulation (algorithm, rounding, the ``*_accumulated`` tail), but for
+    the carrier, which is the call's. ``findings`` is what binary32 and
+    binary64 each say about the formats it rounds with; ``stored`` the format
+    a result narrower than its carrier holds. The operand formats travel with
+    the operands. ``epilogue`` applies the operands' tensor scales to the
+    result rather than in the decode.
     """
 
     args: tuple[Any, ...]
-    findings: _Findings = ()
+    findings: tuple[_Findings, _Findings] = ((), ())
     stored: tuple[_Stored, ...] = ()
     carrier: torch.dtype | None = None
     epilogue: bool = False
@@ -591,11 +652,6 @@ def _block_gemm_spec(
 ) -> _BlockGemmSpec:
     """Resolve a block GEMM's arithmetic once; memoized on the values."""
     carrier = _checked_carrier(carrier)
-    if carrier is torch.float64:
-        raise ValueError(
-            "block formats have binary32 kernels only so far, so the block GEMM takes no "
-            "carrier=torch.float64 (dev/continuation_plan.md, phase G)"
-        )
     for name, f in (("acc", acc), ("outer", outer)):
         if f is not None and not isinstance(f, BinaryK):
             raise TypeError(
@@ -607,7 +663,7 @@ def _block_gemm_spec(
         if f is not None:
             fmt = (f.K, f.P, f.bias, f.is_signed, f.saturation, f.subnormals)
             rounded.append((_binaryK_findings, (*fmt, f.prng_bits)))
-    found32, _ = _format_findings(rounded)
+    findings = _format_findings(rounded)
     last = (
         outer
         if accumulate_algorithm in (AccumulateAlgorithm.BLOCK, AccumulateAlgorithm.TREE)
@@ -645,7 +701,7 @@ def _block_gemm_spec(
         o[6] if outer is not None else SubnormalsMode.SUBNORMALS.value,
         o[7],
     )
-    return _BlockGemmSpec(args, found32, stored, carrier, bool(tensor_scale_epilogue))
+    return _BlockGemmSpec(args, findings, stored, carrier, bool(tensor_scale_epilogue))
 
 
 @dataclass(frozen=True)
@@ -684,19 +740,38 @@ def _operand(p: BlockPacked, role: str) -> _Operand:
     return _Operand(p.data, p.scales, p.cols, trans, p.shape[:-2])
 
 
+def _gemm_carrier(spec: _BlockGemmSpec, a: BlockPacked, b: BlockPacked) -> bool:
+    """Whether a block GEMM runs in binary64: when the spec names it, or when
+    either operand was packed in it (a carrier is never narrower than what it
+    reads). ``carrier=torch.float32`` on a binary64 operand raises."""
+    packed64 = a.carrier is torch.float64 or b.carrier is torch.float64
+    if spec.carrier is torch.float32 and packed64:
+        raise ValueError(
+            "carrier=torch.float32 is narrower than binary64, which an operand was packed in; "
+            "leave carrier unset"
+        )
+    return spec.carrier is torch.float64 or packed64
+
+
 def _run_block_gemm(spec: _BlockGemmSpec, a: BlockPacked, b: BlockPacked) -> torch.Tensor:
     """Call the block GEMM on two packed operands: ``a @ b`` of their logical
-    tensors, in float32, the leading dimensions broadcast when one side has
-    none or they are equal.
+    tensors, in the carrier (:func:`_gemm_carrier`), float32 or float64, the
+    leading dimensions broadcast when one side has none or they are equal.
 
     With ``spec.epilogue`` the kernel decodes each element with its block's
-    scale alone (a tensor scale of 1) and the float32 result is multiplied,
-    once, by ``alpha``, the float32 product of the two tensor scales: the
+    scale alone (a tensor scale of 1) and the result is multiplied, once, by
+    ``alpha``, the product of the two tensor scales in the carrier: the
     product of two float32 values is exact in a Python float, so rounding it
-    to float32 is the one rounding, and ``mul_`` by a float32 value is the
+    to float32 is the one rounding, a float64 product is rounded once by
+    Python's own multiply, and ``mul_`` by a value of the carrier is the
     other."""
-    if spec.findings:
-        _report_findings(spec.findings)
+    wide = _gemm_carrier(spec, a, b)
+    found = spec.findings[wide]
+    if found:
+        _report_findings(found)
+    if not wide:
+        check_block_carrier(a.fmt, carrier=torch.float32)
+        check_block_carrier(b.fmt, carrier=torch.float32)
     oa, ob = _operand(a, "a"), _operand(b, "b")
     if oa.lead and ob.lead and oa.lead != ob.lead:
         raise ValueError(
@@ -716,9 +791,12 @@ def _run_block_gemm(spec: _BlockGemmSpec, a: BlockPacked, b: BlockPacked) -> tor
         *_format_args(a, unit),
         *_format_args(b, unit),
         *spec.args,
+        wide,
     )
     if spec.epilogue:
-        alpha = _float32(a.tensor_scale * b.tensor_scale)
+        alpha = a.tensor_scale * b.tensor_scale
+        if not wide:
+            alpha = _float32(alpha)
         if alpha != 1.0:
             out.mul_(alpha)
     lead = oa.lead or ob.lead
@@ -728,13 +806,15 @@ def _run_block_gemm(spec: _BlockGemmSpec, a: BlockPacked, b: BlockPacked) -> tor
 
 
 def _stored_as(spec: _BlockGemmSpec, out: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
-    """The float32 result stored in ``dtype``, the operands', with the storage
-    check a narrower dtype asks for."""
-    if dtype is torch.float32:
+    """The result, float32 or float64 as its carrier, stored in ``dtype``, the
+    operands', with the storage check a narrower dtype asks for; a binary64
+    result is narrowed with one rounding (``ops._narrowed``)."""
+    if dtype is out.dtype:
         return out
-    if spec.stored and dtype in _NARROW_STORAGE:
+    wide = out.dtype is torch.float64
+    if spec.stored and dtype in (_BELOW_BINARY64 if wide else _NARROW_STORAGE):
         _check_stored(spec.stored, dtype)
-    return out.to(dtype)
+    return _narrowed(out, dtype) if wide else out.to(dtype)
 
 
 def block_matmul(
@@ -754,10 +834,12 @@ def block_matmul(
 
     ``a`` is logically ``[..., M, K]`` and ``b`` is ``[..., K, N]``. The
     kernel decodes each element as it loads it (its value times its block's
-    scale, as :func:`block_unpack` would) and multiplies in binary32. A split
-    mac (``fused=False``) rounds each product to binary32 and the running sum
-    to ``acc``. A fused mac rounds each fused multiply-add to ``acc``.
-    ``acc=None`` leaves the sum in binary32.
+    scale, as :func:`block_unpack` would) and multiplies in the carrier:
+    binary64 when ``carrier=torch.float64`` or either operand was packed in
+    binary64 (from a float64 tensor, or with that carrier), and binary32
+    otherwise. A split mac (``fused=False``) rounds each product to the
+    carrier and the running sum to ``acc``. A fused mac rounds each fused
+    multiply-add to ``acc``. ``acc=None`` leaves the sum in the carrier.
 
     Each operand is read along K. It may be packed along its K (``a`` along
     its last axis, ``b`` along its second-to-last) or along its other
@@ -772,8 +854,8 @@ def block_matmul(
     decodes each element as its value times its block's scale times the
     tensor scale, inside the loop. ``tensor_scale_epilogue=True`` does what
     NVIDIA's NVFP4 GEMMs do instead. The loop sees the elements times their
-    block scales only, and the float32 result is multiplied once by the
-    float32 product of the two tensor scales. The two agree in exact
+    block scales only, and the result is multiplied once by the product of
+    the two tensor scales, rounded to the carrier. The two agree in exact
     arithmetic and round differently. In the second, the accumulate format
     sees products that the tensor scales have not scaled, so it needs their
     range.
@@ -793,14 +875,15 @@ def block_matmul(
             ``None``
         outer (BinaryK, optional): BLOCK's and TREE's outer format. Default:
             ``None``
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``.
-            ``torch.float64`` raises (binary32 only so far). Default: ``None``
+        carrier (torch.dtype, optional): ``torch.float64`` multiplies in
+            binary64; ``torch.float32`` refuses an operand packed in
+            binary64. Default: ``None``, the operands' carrier.
         tensor_scale_epilogue (bool): apply the operands' tensor scales to
             the result instead of in the decode. It has no effect on formats
             without a tensor scale (E8M0). Default: ``False``
 
     Returns:
-        Tensor: float32, ``[..., M, N]``.
+        Tensor: ``[..., M, N]``, float32 in binary32 and float64 in binary64.
 
     Example::
 

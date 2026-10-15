@@ -39,7 +39,7 @@ sits over.
 
 import weakref
 from collections.abc import Callable, Sequence
-from dataclasses import KW_ONLY, dataclass, field
+from dataclasses import KW_ONLY, dataclass, field, replace
 from functools import lru_cache
 from typing import Any, cast
 
@@ -450,11 +450,11 @@ class BlockMac:
     even) or a :class:`BlockQuant` (which specifies the rounding and a tensor
     scale). ``b`` defaults to ``a``.
 
-    The product decodes both operands in binary32 and sums their products as
-    :func:`mptorch.quant.block_matmul` describes. In a split mac, each
-    product is rounded to binary32 and the sum to ``acc``. With
+    The product decodes both operands in the carrier and sums their products
+    as :func:`mptorch.quant.block_matmul` describes. In a split mac, each
+    product is rounded to the carrier and the sum to ``acc``. With
     ``fused=True``, each fused multiply-add is rounded to ``acc``.
-    ``acc=None`` leaves the sum in binary32. The accumulate algorithms are
+    ``acc=None`` leaves the sum in the carrier. The accumulate algorithms are
     those of :class:`SplitMac`.
 
     :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` accept a
@@ -472,8 +472,11 @@ class BlockMac:
             ``RoundMode.RNE``
         accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`
             (``TREE`` needs ``fused=False``). Default: ``AccumulateAlgorithm.NAIVE``
-        carrier (torch.dtype, optional): ``None`` or ``torch.float32``. Block
-            formats have binary32 kernels only so far. Default: ``None``
+        carrier (torch.dtype, optional): ``torch.float64`` packs the operands
+            and multiplies them in binary64, whatever their dtype (an operand
+            ``BlockQuant`` that names a carrier of its own keeps it).
+            Default: ``None``, the operands': binary64 for float64 tensors,
+            binary32 otherwise.
         block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
         outer (BinaryK, optional): as for :class:`SplitMac`. Default: ``None``
         tensor_scale_epilogue (bool): apply the operands' per-tensor scales
@@ -504,8 +507,15 @@ class BlockMac:
     tensor_scale_epilogue: bool = False
 
     def __post_init__(self) -> None:
-        a = _as_block_quant(self.a, "BlockMac's a")
-        b = a if self.b is None else _as_block_quant(self.b, "BlockMac's b")
+        def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+            q = _as_block_quant(slot, name)
+            # the mac's carrier packs too, unless the operand names its own
+            if self.carrier is torch.float64 and q.carrier is None:
+                q = replace(q, carrier=torch.float64)
+            return q
+
+        a = operand(self.a, "BlockMac's a")
+        b = a if self.b is None else operand(self.b, "BlockMac's b")
         object.__setattr__(self, "a", a)
         object.__setattr__(self, "b", b)
         spec_for_block_mac(self)  # every error the arithmetic can raise, raised now
@@ -581,8 +591,6 @@ class SplitMac:
     accumulate or the reverse, as long as each slot holds one format: the
     cross-family ops (:func:`mptorch.quant.binaryK_superfp_matmul`,
     :func:`mptorch.quant.superfp_binaryK_matmul`) have no palette variant.
-    They have binary32 kernels only so far: float64 operands and
-    ``carrier=torch.float64`` raise.
 
     ``rounding`` is one mode for both halves. The kernels take the rounding
     mode as a template parameter, because a runtime switch inside the

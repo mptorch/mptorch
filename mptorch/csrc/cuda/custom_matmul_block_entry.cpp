@@ -22,12 +22,12 @@ Tensor block_matmul_cuda(Tensor a_data, Tensor a_scales, int64_t a_cols, bool tr
                         int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K,
                         int64_t outer_P, int64_t outer_bias, bool outer_is_signed,
                         int64_t outer_saturation_mode, int64_t outer_subnormals_mode,
-                        int64_t outer_prng_bits)
+                        int64_t outer_prng_bits, bool binary64)
 {
   const BlockGemmCall call{a_data,     a_scales,    a_cols,         trans_a,  b_data,
                            b_scales,   b_cols,      trans_b,        a_fmt,    a_elem_max,
                            a_scale_max, a_tensor_scale, b_fmt,      b_elem_max, b_scale_max,
-                           b_tensor_scale};
+                           b_tensor_scale, binary64};
   return custom_matmul_block_entry<mptorch::gemm_cuda::CudaBackend>(
       call, fused, accumulate_quant, acc_K, acc_P, acc_bias, acc_is_signed, accumulate_algorithm,
       round_mode, acc_saturation_mode, acc_subnormals_mode, acc_prng_bits,

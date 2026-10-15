@@ -54,6 +54,14 @@ namespace mptorch::gemm_cuda
     // thread) in dev/cuda/custom_matmul.cu and came out slightly faster here.
     constexpr int BLOCKSIZE = 16;
 
+    // The K-loop's unroll factor for every binary64 kernel (see the loop for
+    // the measurements). A macro only so that dev/benchmarks/gemm_f64_unroll.cu
+    // can time the shipped kernels at other factors; nothing in the build
+    // defines it.
+#if !defined(MPTORCH_GEMM_F64_UNROLL)
+#define MPTORCH_GEMM_F64_UNROLL 2
+#endif
+
     // The K-loop's unroll factor for a single-format binary32 kernel: a
     // positional accumulator's own, and 16 for a NaiveAccumulator (see the
     // loop for the measurements).
@@ -423,7 +431,7 @@ namespace mptorch::gemm_cuda
             // of the 230 device functions that existed before compiles to
             // the same bytes (dev/gemm_roadmap.md, R-2).
             constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
-            constexpr int UNROLL = std::is_same_v<T, double> ? 2
+            constexpr int UNROLL = std::is_same_v<T, double> ? MPTORCH_GEMM_F64_UNROLL
                                    : MIXED                   ? 4
                                                              : unroll_of<Accumulator>();
             if constexpr (POSITIONAL)
@@ -671,7 +679,8 @@ namespace mptorch::gemm_cuda
                 args.inner.template with_accumulator<T, RM>([&](auto acc)
                 {
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
-                                         s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                         s.stride_a, s.stride_b,
+                                         Blocked<decltype(acc)>{acc, args.template operand_a<T>(), args.template operand_b<T>()},
                                          s.use_rng, ctx.rng, ctx.stream);
                 });
             }
@@ -680,7 +689,8 @@ namespace mptorch::gemm_cuda
                 args.inner.template with_accumulator<T, RM, ALG>([&](auto acc)
                 {
                     launch_custom_matmul(s.a, s.b, s.c, s.dt, s.M, s.K, s.N, s.trans_a, s.trans_b, s.batch,
-                                         s.stride_a, s.stride_b, Blocked<decltype(acc)>{acc, args.a, args.b},
+                                         s.stride_a, s.stride_b,
+                                         Blocked<decltype(acc)>{acc, args.template operand_a<T>(), args.template operand_b<T>()},
                                          s.use_rng, ctx.rng, ctx.stream);
                 });
             }

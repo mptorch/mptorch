@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from mptorch import BinaryK
-from mptorch.quant import QLinear, Quant, binaryK_gemm_formats
+from mptorch.quant import QConv2d, QLinear, Quant, SplitMac, binaryK_gemm_formats, conv_formats
 
 torch.manual_seed(0)
 F32, F64 = torch.float32, torch.float64
@@ -44,6 +44,14 @@ def rel(a: torch.Tensor, b: torch.Tensor) -> str:
 wide = binaryK_gemm_formats(40, 30, acc_K=48, acc_P=40)
 out, grad = run(wide, F64)
 print(f"float64 layer, 30/40-bit: output {rel(out, ref_out)}, weight grad {rel(grad, ref_grad)}")
+
+# The same arithmetic in a float64 convolution, against nn.Conv2d's float64 one.
+conv = nn.Conv2d(8, 16, 3, padding=1, dtype=F64)
+wide_conv = conv_formats(SplitMac(BinaryK(40, 30), BinaryK(48, 40)))
+qconv = QConv2d(8, 16, 3, padding=1, dtype=F64, formats=wide_conv)
+qconv.load_state_dict(conv.state_dict())
+img = torch.randn(4, 8, 12, 12, dtype=F64)
+print(f"float64 conv,  30/40-bit: output {rel(qconv(img).detach(), conv(img).detach())}")
 
 # A float32 layer cannot have it in binary32, nor store a 40-bit result in
 # binary64 -- each says so at the first call.

@@ -1712,11 +1712,13 @@ class SuperFP(FloatFormat):
 # cast; a scale with a mantissa is cast (to nearest even, under `SAT_FINITE`)
 # and spends its all-ones magnitude code on NaN in the same way.
 #
-# The block kernels round in binary32 only so far (`dev/continuation_plan.md`,
-# phase G), so a block format's element, and a scale that is cast, must be
-# formats binary32 holds entirely: those are what `BlockFormat` checks when it
-# is built, as `BinaryK` checks what no carrier can do. A call on float64
-# tensors, or with `carrier=torch.float64`, raises per call.
+# The block kernels round in binary32 or binary64, the call's carrier, and
+# assemble decoded values on its word, so a block format's element, and a
+# scale that is cast, must be formats that carrier holds entirely, and a
+# power-of-two scale's codes must lie in its range. `BlockFormat` raises when
+# it is built only for what binary64 cannot do, as `BinaryK` raises only for
+# what no carrier can, and keeps binary32's verdict, which a call that rounds
+# in binary32 raises (`check_block_carrier`).
 
 
 class _Minifloat(NamedTuple):
@@ -1815,12 +1817,13 @@ def _significant_bits(value: Fraction) -> int:
     return (num >> ((num & -num).bit_length() - 1)).bit_length()
 
 
-def _block_part_error(role: str, f: "BinaryK | SuperFP") -> str | None:
-    """Why a block format cannot use ``f`` as its element or cast scale, or ``None``.
+def _block_part_error(role: str, f: "BinaryK | SuperFP", carrier: torch.dtype) -> str | None:
+    """Why a block format cannot use ``f`` as its element or cast scale in
+    ``carrier``, or ``None``.
 
-    The block kernels round in binary32 only, and assemble decoded values on
-    the binary32 word, so the format rounded with (``f`` under ``SAT_FINITE``)
-    has to be one binary32 holds entirely: no error and no range warning.
+    The block kernels assemble decoded values on the carrier's word, so the
+    format rounded with (``f`` under ``SAT_FINITE``) has to be one the
+    carrier holds entirely: no error and no range warning.
     """
     if isinstance(f, SuperFP):
         error, warning = _superfp_findings(
@@ -1830,7 +1833,7 @@ def _block_part_error(role: str, f: "BinaryK | SuperFP") -> str | None:
             f.bias,
             SaturationMode.SAT_FINITE,
             f.prng_bits,
-            torch.float32,
+            carrier,
         )
     else:
         error, warning = _binaryK_findings(
@@ -1841,15 +1844,13 @@ def _block_part_error(role: str, f: "BinaryK | SuperFP") -> str | None:
             SaturationMode.SAT_FINITE,
             f.subnormals,
             f.prng_bits,
-            torch.float32,
+            carrier,
         )
     found = error or warning
     if found is None:
         return None
-    return (
-        f"a BlockFormat's {role} must be a format binary32 holds entirely, since the block "
-        f"kernels round in binary32 only so far (dev/continuation_plan.md, phase G): {found}"
-    )
+    name = _CARRIERS[carrier].name
+    return f"a BlockFormat's {role} must be a format {name} holds entirely: {found}"
 
 
 class ScaleRounding(Enum):
@@ -1969,9 +1970,10 @@ class BlockFormat(Number):
     - A *cast* scale is a binaryK with a mantissa (NVFP4's E4M3) or a
       superfp. It follows a block's largest magnitude more closely, but over
       a much shorter range (E4M3: ``2**-9`` to 448). The format therefore
-      also has one float32 scale per tensor, which brings the tensor into
-      that range. A block's scale is then its scale code's value times the
-      tensor scale, a float32 product. The functions that quantize or pack
+      also has one scale per tensor, a value of the carrier (float32 in
+      binary32, float64 in binary64), which brings the tensor into that
+      range. A block's scale is then its scale code's value times the tensor
+      scale, one product in the carrier. The functions that quantize or pack
       take it as ``tensor_scale`` (its default is given below).
       ``tensor_scale=1.0`` leaves the block scales alone.
     - ``scale=None`` stores the element codes unscaled.
@@ -2025,9 +2027,19 @@ class BlockFormat(Number):
     binaryK element. A superfp scale spends its all-ones code on NaN, like
     every cast scale.
 
+    **Carriers.** The block ops round in binary32, or in binary64 for a
+    float64 tensor or ``carrier=torch.float64``, and a format has to be one
+    the call's carrier holds: its element and a cast scale entirely, and a
+    power-of-two scale's codes within ``2**-127 .. 2**127`` in binary32 and
+    ``2**-1023 .. 2**1023`` in binary64. Building a format checks binary64's
+    bounds, and a call that rounds in binary32 checks binary32's, so an
+    element with nine or ten exponent bits, or an E8M0-style scale biased
+    past binary32's range, is a format of float64 tensors.
+
     Args:
         elem (BinaryK or SuperFP): the element format. At most 16 bits, and a
-            format that binary32 holds entirely.
+            format that binary64 holds entirely (binary32 too, for a call that
+            rounds in it).
         scale (BinaryK or SuperFP, optional): the scale format, one byte. It
             is E8M0 (``BinaryK(8, 1, bias=127, is_signed=False,
             subnormals=SubnormalsMode.EXTENDED_NORMALS)``), a binaryK with a
@@ -2073,17 +2085,17 @@ class BlockFormat(Number):
       ``v * elem_max / 2**emax`` is also a scale (256 for E4M3, since 384 is
       one).
     - ``has_tensor_scale``: whether the scale is cast (anything but
-      E8M0-style), which brings the per-tensor float32 scale.
+      E8M0-style), which brings the per-tensor scale.
     - ``bytes_per_block``: the bytes of element codes in one row of a block.
     - ``is_square``: ``block_rows == block_size``.
 
     Raises:
         ValueError: for any of the following: sizes outside the ranges above;
             an element over 16 bits or a scale over 8; an element or cast
-            scale that binary32 does not hold entirely; an ``elem_max`` that
+            scale that binary64 does not hold entirely; an ``elem_max`` that
             is not a value of ``elem``; a ``nan_code`` or ``inf_code`` at or
             below ``elem_max``'s code; a power-of-two scale that is signed or
-            reaches past ``2**-127`` or ``2**127`` (the pack multiplies by
+            reaches past ``2**-1023`` or ``2**1023`` (the pack multiplies by
             its reciprocal); ``scale_rounding=OCP`` on a cast scale; a
             ``FOUR_OVER_SIX`` rule on a power-of-two scale; or any
             ``scale_rounding`` without a scale.
@@ -2125,6 +2137,11 @@ class BlockFormat(Number):
     has_tensor_scale: bool = field(init=False, repr=False, compare=False)
     bytes_per_block: int = field(init=False, repr=False, compare=False)
     is_square: bool = field(init=False, repr=False, compare=False)
+    # Why binary32 cannot carry the format (its element, its cast scale, or a
+    # power-of-two scale's range), or None: what a call that rounds in
+    # binary32 raises (`check_block_carrier`). binary64's verdict raised when
+    # the format was built.
+    _binary32_error: str | None = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         elem, scale = self.elem, self.scale
@@ -2150,9 +2167,10 @@ class BlockFormat(Number):
                 f"block_rows must be a power of two in [1, 128] with block_rows * block_size "
                 f"<= 16384, got block_rows={br} and block_size={bs}"
             )
-        error = _block_part_error("element", elem)
+        error = _block_part_error("element", elem, torch.float64)
         if error is not None:
             raise ValueError(error)
+        binary32_error = _block_part_error("element", elem, torch.float32)
 
         # P3109's NaN at the top of an unsigned binaryK; superfp spends no code on one
         reserved = 0 if elem.is_signed or isinstance(elem, SuperFP) else 1
@@ -2205,12 +2223,16 @@ class BlockFormat(Number):
                         "a power-of-two scale (P=1, E8M0) is unsigned: its codes are exponents"
                     )
                 lo, hi = -_bias(scale), (1 << scale.K) - 2 - _bias(scale)
-                if lo < -127 or hi > 127:
-                    raise ValueError(
-                        f"a power-of-two scale's codes are 2^{lo} .. 2^{hi}, and must lie in "
-                        "2^-127 .. 2^127, where binary32 holds the reciprocal the pack "
-                        "multiplies by as well"
-                    )
+                for carrier in (_BINARY64, _BINARY32):
+                    if lo < -carrier.top_exp or hi > carrier.top_exp:
+                        error = (
+                            f"a power-of-two scale's codes are 2^{lo} .. 2^{hi}, and must lie in "
+                            f"2^-{carrier.top_exp} .. 2^{carrier.top_exp}, where {carrier.name} "
+                            "holds the reciprocal the pack multiplies by as well"
+                        )
+                        if carrier is _BINARY64:
+                            raise ValueError(error)
+                        binary32_error = binary32_error or error
                 scale_max, tensor_scaled = 2.0**hi, False
                 if rounding is not None and rounding.is_four_over_six:
                     raise ValueError(
@@ -2219,9 +2241,10 @@ class BlockFormat(Number):
                         "cannot hold: it takes a cast scale, such as NVFP4's E4M3"
                     )
             else:
-                error = _block_part_error("scale", scale)
+                error = _block_part_error("scale", scale, torch.float64)
                 if error is not None:
                     raise ValueError(error)
+                binary32_error = binary32_error or _block_part_error("scale", scale, torch.float32)
                 nan_mag = (1 << (smf.bits - int(scale.is_signed))) - 1
                 scale_max, tensor_scaled = float(_minifloat_value(smf, nan_mag - 1)), True
                 if scale_max <= 0:
@@ -2268,32 +2291,30 @@ class BlockFormat(Number):
             "has_tensor_scale": tensor_scaled,
             "bytes_per_block": bits * bs // 8,
             "is_square": br == bs,
+            "_binary32_error": binary32_error,
         }
         for name, value in derived.items():
             object.__setattr__(self, name, value)
 
 
-# The per-call findings of a block format. The carrier: block kernels exist in
-# binary32 only, which `BlockFormat` has already checked the format against.
-_BLOCK_BINARY32_ONLY = (
-    "block formats have binary32 kernels only so far, so they take float32, float16 or "
-    "bfloat16 tensors and no carrier=torch.float64 (dev/continuation_plan.md, phase G)"
-)
-
-
 def check_block_carrier(fmt: BlockFormat, *, carrier: torch.dtype) -> None:
     """Hold a block format against the carrier a call rounds in.
 
-    The element and scale formats were held against binary32 when ``fmt`` was
-    built; what is left per call is the carrier itself, and binary64 has no
-    block kernels yet.
+    binary64's verdict on the element, the scale and the scale's range was
+    given when ``fmt`` was built, which raised for anything binary64 cannot
+    carry. What is left per call is binary32's, kept on the format.
 
     Raises:
-        ValueError: for ``carrier=torch.float64``.
+        ValueError: for ``carrier=torch.float32`` when binary32 does not hold
+            the element or the cast scale entirely, or a power-of-two scale's
+            range; binary64 does, so a float64 tensor or
+            ``carrier=torch.float64`` takes the format.
     """
-    del fmt  # every BlockFormat binary32 holds was checked when it was built
-    if carrier is torch.float64:
-        raise ValueError(_BLOCK_BINARY32_ONLY)
+    if carrier is torch.float32 and fmt._binary32_error is not None:
+        raise ValueError(
+            f"{_block_label(fmt)} rounds in binary32 here, and {fmt._binary32_error}; "
+            "binary64 holds it: pack a float64 tensor, or pass carrier=torch.float64"
+        )
 
 
 def _block_label(fmt: BlockFormat) -> str:
@@ -2317,7 +2338,7 @@ def _block_storage_findings(
     elsewhere, a value of the dtype either way, except where a block
     saturates onto ``elem_max`` times its scale, which needs ``elem_max``'s
     significand to fit the dtype's. With a mantissa-bearing scale a decoded
-    value is a binary32 product the dtype does not hold in general. The
+    value is a product in the carrier the dtype does not hold in general. The
     value-set rule (``elementwise=False``) asks the same of every value the
     scale's range can produce.
     """
@@ -2326,7 +2347,7 @@ def _block_storage_findings(
     if fmt.has_tensor_scale:
         return None, (
             f"{label}'s values are an element times its block's scale times the tensor scale, "
-            f"products rounded in binary32 that {st.name} does not hold in general: a {st.name} "
+            f"products rounded in the carrier that {st.name} does not hold in general: a {st.name} "
             "result rounds them a second time when it is stored"
         )
     assert fmt.elem_max is not None  # resolved by __post_init__
@@ -2368,8 +2389,9 @@ def check_block_storage(
 ) -> None:
     """Hold a block format's decoded values against the dtype a result is written in.
 
-    ``storage`` is ``torch.float16`` or ``torch.bfloat16``, whose result
-    rounds a decoded value a second time where the dtype does not hold it.
+    ``storage`` is ``torch.float16`` or ``torch.bfloat16`` (or ``torch.float32``
+    for a result decoded in binary64), whose result rounds a decoded value a
+    second time where the dtype does not hold it.
     ``elementwise=True`` is the rule for :func:`mptorch.quant.block_quantize`
     and :func:`mptorch.quant.block_unpack` on a tensor of that dtype (its
     inputs are already the dtype's values); ``False`` holds every value the

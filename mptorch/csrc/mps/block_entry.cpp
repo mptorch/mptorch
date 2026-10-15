@@ -45,7 +45,7 @@ at::Tensor block_matmul_mps(at::Tensor, at::Tensor, int64_t, bool, at::Tensor, a
                             bool, c10::IntArrayRef, double, double, double, c10::IntArrayRef, double,
                             double, double, bool, bool, int64_t, int64_t, int64_t, bool, int64_t,
                             int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t,
-                            int64_t, bool, int64_t, int64_t, int64_t)
+                            int64_t, bool, int64_t, int64_t, int64_t, bool)
 {
   no_metal_kernel("custom_matmul_block");
 }

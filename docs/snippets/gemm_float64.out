@@ -4,8 +4,10 @@ float32, carrier=torch.float64   1.00048828125 torch.float32
 
 relative error against a @ b, float64 operands
   SplitMac(P=30, P=40)    3.9e-10
+    KAHAN                 3.9e-10
   FusedMac(P=40)          4.4e-12
   SplitMac(P=24, P=24)    2.9e-07
+  SplitMac(superfp, P=40) 8.1e-04
   SplitMac(P=4, P=4)      2.6e-01
 
 float32 operands            binary32  carrier=torch.float64
