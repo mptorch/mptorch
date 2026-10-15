@@ -193,5 +193,7 @@ class QMatmul(torch.nn.Module):
 
         self.formats = as_matmul_formats(formats)
 
-    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    # nn.Module declares forward as a writable Callable attribute, which ty
+    # reads a method override as narrowing; every direct subclass does this.
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         return CustomArithMatmul.apply(a, b, self.formats)
