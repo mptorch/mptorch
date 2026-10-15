@@ -102,6 +102,24 @@ The table shows three things:
   accumulator case shown in :doc:`/concepts` and the weight-update case in
   the :doc:`/tutorial`.
 
+The two formats of a ``SplitMac`` may come from different families:
+:math:`Q_{\text{mul}}` a :class:`~mptorch.BinaryK` and :math:`Q_{\text{acc}}`
+a :class:`~mptorch.SuperFP`, or the reverse. The equation is the one above,
+each rounding in its own format, and the result holds the accumulate format's
+values. Such a mac holds one format per slot (the palette kernels are
+single-family), its sum is always rounded (with ``acc=None`` the mac has one
+family again), and it has binary32 kernels only so far. Every algorithm of
+the next section applies, with an ``outer`` format of the accumulate's
+family.
+
+.. literalinclude:: ../../snippets/gemm_cross_family.py
+   :language: python
+   :caption: docs/snippets/gemm_cross_family.py
+
+.. literalinclude:: ../../snippets/gemm_cross_family.out
+   :language: text
+   :caption: output
+
 Summing differently: KAHAN, BLOCK and TREE
 ------------------------------------------
 

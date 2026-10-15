@@ -38,7 +38,8 @@ round-to-nearest and stochastic rounding. What an algorithm costs is its
 roundings per step, so the ratios are the thing to read: KAHAN's step is five
 roundings to NAIVE's two (four to one fused), BLOCK adds a fold per block, and
 TREE replaces the running sum's rounding by a little under one merge per
-product.
+product. Two more rows time the cross-family split macs (binaryK products
+with superfp sums, and the reverse), which have no fused form.
 
 Run: python3 dev/benchmarks/benchmark_qmatmul.py [--device cuda] [--n 1024]
 """
@@ -105,14 +106,21 @@ def accumulate_macs(family: str, rounding: RoundMode) -> dict[str, SplitMac | Fu
     """One mac per (kind, algorithm) column of the accumulate-algorithm table.
 
     Narrow products into a wider sum, with that wider format as the outer one
-    too, so every rounding an algorithm has is a real cast.
+    too, so every rounding an algorithm has is a real cast. A cross-family
+    ``family`` (``"binaryK_superfp"``, ``"superfp_binaryK"``: products of the
+    first, sums of the second) has the split columns only.
     """
     prng = 8 if rounding is RoundMode.SR else 0
-    if family == "binaryK":
-        mul, acc = BinaryK(8, 4, prng_bits=prng), BinaryK(16, 11, prng_bits=prng)
-    else:
-        mul = SuperFP(3, 4, 8, 7, prng_bits=prng)
-        acc = SuperFP(8, 6, 32, 31, prng_bits=prng)
+    narrow = {
+        "binaryK": BinaryK(8, 4, prng_bits=prng),
+        "superfp": SuperFP(3, 4, 8, 7, prng_bits=prng),
+    }
+    wide = {
+        "binaryK": BinaryK(16, 11, prng_bits=prng),
+        "superfp": SuperFP(8, 6, 32, 31, prng_bits=prng),
+    }
+    mul_family, _, acc_family = family.partition("_")
+    mul, acc = narrow[mul_family], wide[acc_family or mul_family]
     alg = AccumulateAlgorithm
 
     def split(**kw) -> SplitMac:
@@ -121,13 +129,17 @@ def accumulate_macs(family: str, rounding: RoundMode) -> dict[str, SplitMac | Fu
     def fused(**kw) -> FusedMac:
         return FusedMac(acc, rounding=rounding, **kw)
 
-    return {
+    macs: dict[str, SplitMac | FusedMac] = {
         "naive": split(),
         "kahan": split(accumulate_algorithm=alg.KAHAN),
         "block 8": split(accumulate_algorithm=alg.BLOCK, block_size=8, outer=acc),
         "block 64": split(accumulate_algorithm=alg.BLOCK, block_size=64, outer=acc),
         "tree 16": split(accumulate_algorithm=alg.TREE, block_size=16, outer=acc),
         "tree 256": split(accumulate_algorithm=alg.TREE, block_size=256, outer=acc),
+    }
+    if acc_family:
+        return macs
+    return macs | {
         "fma naive": fused(),
         "fma kahan": fused(accumulate_algorithm=alg.KAHAN),
         "fma block 8": fused(accumulate_algorithm=alg.BLOCK, block_size=8, outer=acc),
@@ -144,8 +156,8 @@ def accumulate_table(dev: str, n: int) -> None:
         a = torch.randn(*sa, device=dev)
         b = torch.randn(*sb, device=dev)
         print(label)
-        print(f"  {'':<14}" + "".join(f"{name:>13}" for name in names))
-        for family in ("binaryK", "superfp"):
+        print(f"  {'':<20}" + "".join(f"{name:>13}" for name in names))
+        for family in ("binaryK", "superfp", "binaryK_superfp", "superfp_binaryK"):
             for rounding in (RoundMode.RNE, RoundMode.SR):
                 macs = accumulate_macs(family, rounding)
                 ms = {
@@ -153,10 +165,13 @@ def accumulate_table(dev: str, n: int) -> None:
                     for k, m in macs.items()
                 }
                 row = f"{family} {rounding.name}"
-                print(f"  {row:<14}" + "".join(f"{ms[name]:>13.2f}" for name in names))
+                cells = [f"{ms[k]:>13.2f}" if k in ms else f"{'-':>13}" for k in names]
+                print(f"  {row:<20}" + "".join(cells))
                 base = {k: "fma naive" if k.startswith("fma") else "naive" for k in names}
-                ratios = [ms[k] / ms[base[k]] for k in names]
-                print(f"  {'':<14}" + "".join(f"{r:>12.2f}x" for r in ratios))
+                ratios = [
+                    f"{ms[k] / ms[base[k]]:>12.2f}x" if k in ms else f"{'':>13}" for k in names
+                ]
+                print(f"  {'':<20}" + "".join(ratios))
 
 
 def main() -> None:

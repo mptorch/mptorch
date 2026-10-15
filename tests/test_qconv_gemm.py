@@ -321,6 +321,9 @@ def _macs(mode):
         "bk_fused": FusedMac(B12, rounding=mode),
         "sf_split": SplitMac(S8, S12, rounding=mode),
         "sf_fused": FusedMac(S12, rounding=mode),
+        # the cross-family ops: products of one family, sums of the other
+        "bk_sf_split": SplitMac(B8, S12, rounding=mode),
+        "sf_bk_split": SplitMac(S8, B12, rounding=mode),
     }
 
 
@@ -384,6 +387,18 @@ def _accumulated(mode):
         if alg is not TREE:
             out.append(
                 FusedMac(S12, rounding=mode, accumulate_algorithm=alg, block_size=bs, outer=None)
+            )
+        # The cross-family twins, whose outer format is the accumulate's family.
+        for mul, acc in ((B8, S12), (S8, B12)):
+            out.append(
+                SplitMac(
+                    mul,
+                    acc,
+                    rounding=mode,
+                    accumulate_algorithm=alg,
+                    block_size=bs,
+                    outer=None if outer is None else acc,
+                )
             )
     return out
 
@@ -715,6 +730,13 @@ def test_float64_raises_naming_phase_g(device):
     # The raw op refuses a float64 call too, with the same pointer.
     with pytest.raises(RuntimeError, match="phase G|MPTORCH_NO_FP64"):
         _raw_fwd(x, w)
+    # And so do the cross-family conv ops, whose GEMM twins are binary32 only.
+    for mac in (SplitMac(B8, S12), SplitMac(S8, B12, accumulate_algorithm=KAHAN)):
+        fwd, _, _ = _hooks(conv_formats(mac))
+        with pytest.raises(ValueError, match="phase G"):
+            fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
+    with pytest.raises(ValueError, match="cross-family.*phase G"):
+        conv_formats(SplitMac(B8, S12, carrier=torch.float64))
 
 
 def _raw_fwd(x, w, conv_pass=0, out_size=(3, 3), groups=1, **over):
@@ -791,10 +813,11 @@ def test_raw_op_raises_on_grad():
 
 @requires_mps
 def test_mps_raises_naming_phase_h():
-    fwd, _, _ = _hooks(conv_formats(SplitMac(B8, B12)))
     x, w = _operands(1, 2, 3, 1, (5, 5), (3, 3), "mps")
-    with pytest.raises(RuntimeError, match="phase H"):
-        fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
+    for mac in (SplitMac(B8, B12), SplitMac(B8, S12)):
+        fwd, _, _ = _hooks(conv_formats(mac))
+        with pytest.raises(RuntimeError, match="phase H"):
+            fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
 
 
 # --- memory: no unfold buffer ----------------------------------------------------

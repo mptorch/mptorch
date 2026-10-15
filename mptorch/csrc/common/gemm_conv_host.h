@@ -8,7 +8,7 @@
 //
 // A header of its own so that the entry points of the other GEMM ops, which
 // include gemm_host.h, compile to what they compiled before these ops existed.
-// Only {cpu,cuda,mps}/custom_conv_entry.cpp include it.
+// Only the conv entry files include it, and the cross-family ops' (R-1).
 //
 // A conv op is its GEMM twin's schema with the operand pair and the geometry
 // in front of the format arguments:

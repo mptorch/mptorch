@@ -14,10 +14,11 @@ and keep them; the library memoizes their resolution.
 
 :class:`~mptorch.quant.SplitMac` ``(mul, acc=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None)``
    ``mul`` and ``acc`` are each a format or a sequence of formats (a palette,
-   :doc:`arithmetic`). ``acc`` can also be ``None``. Both must belong to the
-   same family (BinaryK with BinaryK, SuperFP with SuperFP). ``carrier`` is
-   ``None`` (the operands' own), ``torch.float32`` (binary32) or
-   ``torch.float64`` (binary64).
+   :doc:`arithmetic`). ``acc`` can also be ``None``. The two may be of
+   different families (a BinaryK multiply with a SuperFP accumulate, or the
+   reverse) when each holds one format; such a mac runs in binary32 only so
+   far. ``carrier`` is ``None`` (the operands' own), ``torch.float32``
+   (binary32) or ``torch.float64`` (binary64).
 :class:`~mptorch.quant.FusedMac` ``(fma=None, *, rounding=RNE, accumulate_algorithm=NAIVE, carrier=None, block_size=None, outer=None)``
    ``fma`` is a format, a palette, or ``None``.
 :class:`~mptorch.quant.Palette` ``(formats)``
@@ -35,8 +36,9 @@ and keep them; the library memoizes their resolution.
 :attr:`~mptorch.AccumulateAlgorithm.NAIVE`, the sequential recurrence, or
 ``KAHAN``, ``BLOCK`` or ``TREE`` (:doc:`arithmetic`, "Summing differently").
 ``block_size`` applies to ``BLOCK`` and ``TREE``. ``outer`` is the one format
-of the mac's family that they round the total to; ``None`` leaves the total
-in the carrier's precision. A mac with an algorithm other than ``NAIVE``
+that they round the total to, of the accumulate format's family (the
+multiply's when ``acc`` is ``None``); ``None`` leaves the total in the
+carrier's precision. A mac with an algorithm other than ``NAIVE``
 holds one format per slot, not a palette.
 
 qmatmul, qmm and qbmm
@@ -187,8 +189,9 @@ accepted by ``block_matmul``, by a ``BlockMac`` and by the layer factory
 Convolutions
 ------------
 
-The convolutions have eight operators of their own, ``custom_conv_*``, one
-per matrix-product operator family. They take the convolution's geometry in
+The convolutions have ten operators of their own, ``custom_conv_*``, one
+per matrix-product operator family (two of them for the cross-family
+``SplitMac``). They take the convolution's geometry in
 place of the transpose flags. There are no Python functions for them. A
 ``QConv1d``/``2d``/``3d`` reaches them through
 :func:`~mptorch.quant.conv_formats`, which fills the layer's three math
@@ -199,10 +202,12 @@ compute.
 The schema tier
 ---------------
 
-Below the value vocabulary there are eight functions, one per kernel. Each
+Below the value vocabulary there are ten functions, one per kernel. Each
 spells out every argument of the kernel's schema and has no autograd:
-``binaryK_matmul``, ``superfp_matmul``, their ``_fma`` variants, and the
-``_mixed`` (palette) variants of all four. They are for scripts that need to
+``binaryK_matmul``, ``superfp_matmul``, their ``_fma`` variants, the
+``_mixed`` (palette) variants of all four, and the two cross-family split
+macs, ``binaryK_superfp_matmul`` (BinaryK products, SuperFP sums) and
+``superfp_binaryK_matmul``. They are for scripts that need to
 state exactly what the kernel receives. The vocabulary resolves to them: the
 test suite asserts that a ``SplitMac`` and the equivalent flat call produce
 the same resolved kernel arguments.
@@ -215,11 +220,13 @@ the same resolved kernel arguments.
    :language: text
    :caption: output
 
-The eight functions share their conventions:
+The ten functions share their conventions:
 
 - ``mul_*`` and ``acc_*`` give the two formats of a split
   multiply-accumulate. ``acc_*`` default to the ``mul_*`` values, and
-  ``accumulate_quant=False`` leaves the sum unrounded.
+  ``accumulate_quant=False`` leaves the sum unrounded. In the two
+  cross-family functions the ``acc_*`` widths are the other family's, so
+  they are required, and there is no ``accumulate_quant``.
 - ``fma_*`` gives the one format of a fused step, and ``fma_quant=False``
   leaves it unrounded.
 - ``trans_a`` and ``trans_b`` transpose the last two dimensions of an
@@ -230,9 +237,9 @@ The eight functions share their conventions:
   for anything the palette shares, and ``prec_idx`` as the third positional
   argument.
 
-The four single-format functions also take ``accumulate_algorithm``, its
+The six single-format functions also take ``accumulate_algorithm``, its
 ``block_size`` and the outer format, spelled ``outer_*`` in the same way as
-the family's other formats. An algorithm other than ``NAIVE`` routes the
+the accumulate format. An algorithm other than ``NAIVE`` routes the
 call to the kernel's ``*_accumulated`` twin, which is a separate operator. A
 ``NAIVE`` call is therefore exactly the call it was before the other three
 algorithms existed.

@@ -15,7 +15,9 @@
 // at dispatch with a message that names nothing a caller can act on. So are
 // the four *_accumulated GEMMs (custom_matmul_accumulated_entry.cpp): KAHAN,
 // BLOCK and TREE have no Metal kernel yet either; and so are the eight conv
-// ops (custom_conv_entry.cpp), whose gathered tile loads Metal does not have.
+// ops (custom_conv_entry.cpp), whose gathered tile loads Metal does not have;
+// and so are the six cross-family ops (custom_matmul_cross_entry.cpp), whose
+// Args the Metal prelude has not seen.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>
@@ -61,4 +63,10 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("block_quant", TORCH_FN(block_quantize_mps));
   m.impl("block_quant_", TORCH_FN(block_quantize_mps_));
   m.impl("custom_matmul_block", TORCH_FN(block_matmul_mps));
+  m.impl("custom_matmul_binaryK_superfp", TORCH_FN(binaryK_superfp_matmul_mps));
+  m.impl("custom_matmul_superfp_binaryK", TORCH_FN(superfp_binaryK_matmul_mps));
+  m.impl("custom_matmul_binaryK_superfp_accumulated", TORCH_FN(binaryK_superfp_matmul_accumulated_mps));
+  m.impl("custom_matmul_superfp_binaryK_accumulated", TORCH_FN(superfp_binaryK_matmul_accumulated_mps));
+  m.impl("custom_conv_binaryK_superfp", TORCH_FN(binaryK_superfp_conv_mps));
+  m.impl("custom_conv_superfp_binaryK", TORCH_FN(superfp_binaryK_conv_mps));
 }

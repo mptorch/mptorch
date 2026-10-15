@@ -10,9 +10,11 @@ from .conv import conv_formats
 from .gemm import (
     binaryK_gemm_formats,
     binaryK_gemm_formats_fma,
+    binaryK_superfp_gemm_formats,
     block_gemm_formats,
     block_matmul_formats,
     matmul_formats,
+    superfp_binaryK_gemm_formats,
     superfp_gemm_formats,
     superfp_gemm_formats_fma,
 )
@@ -35,6 +37,8 @@ from .ops import (
     binaryK_matmul_mixed,
     binaryK_quantize,
     binaryK_quantize_,
+    binaryK_superfp_matmul,
+    superfp_binaryK_matmul,
     superfp_matmul,
     superfp_matmul_fma,
     superfp_matmul_fma_mixed,
@@ -60,6 +64,8 @@ __all__ = [
     "superfp_matmul_mixed",
     "binaryK_matmul_fma_mixed",
     "superfp_matmul_fma_mixed",
+    "binaryK_superfp_matmul",
+    "superfp_binaryK_matmul",
     # dot-product arithmetic, as values
     "SplitMac",
     "FusedMac",
@@ -89,6 +95,8 @@ __all__ = [
     "superfp_gemm_formats",
     "binaryK_gemm_formats_fma",
     "superfp_gemm_formats_fma",
+    "binaryK_superfp_gemm_formats",
+    "superfp_binaryK_gemm_formats",
     "matmul_formats",
     "conv_formats",
     "block_matmul_formats",

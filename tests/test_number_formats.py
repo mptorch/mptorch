@@ -469,11 +469,16 @@ def test_palette_rejects_empty_and_oversized():
         Palette([BinaryK(8, 4)] * 9)
 
 
-def test_split_mac_rejects_mixed_families_naming_r1():
-    """A multiply in one family and an accumulate in the other has no kernel, and
-    the error for that unimplemented mac carries the ``R-1`` tag matched here."""
-    with pytest.raises(TypeError, match="R-1"):
-        SplitMac(BinaryK(8, 4), SuperFP(3, 4, 8, 7))
+def test_split_mac_mixes_families_one_format_per_slot():
+    """A multiply in one family and an accumulate in the other is roadmap item
+    R-1's cross-family op (``tests/test_cross_family.py`` holds its numbers);
+    a palette in either slot has no op to select, and says so."""
+    bk, sf = BinaryK(8, 4), SuperFP(3, 4, 8, 7)
+    ops = torch.ops.mptorch
+    assert spec_for_mac(SplitMac(bk, sf)).op is ops.custom_matmul_binaryK_superfp.default
+    assert spec_for_mac(SplitMac(sf, bk)).op is ops.custom_matmul_superfp_binaryK.default
+    with pytest.raises(ValueError, match="different families.*no palette variant"):
+        SplitMac([bk, BinaryK(8, 3)], sf)
 
 
 def test_split_mac_rejects_unequal_palettes():

@@ -528,7 +528,7 @@ def test_validation():
             SplitMac(e, w, accumulate_algorithm=algorithm, block_size=4)
         with pytest.raises(ValueError, match="takes no block_size and no outer format"):
             FusedMac(e, accumulate_algorithm=algorithm, outer=w)
-    with pytest.raises(TypeError, match="outer must be of the mac's format family"):
+    with pytest.raises(TypeError, match="outer must be of the accumulate format's family"):
         SplitMac(e, None, accumulate_algorithm=BLOCK, block_size=4, outer=s)
     with pytest.raises(TypeError, match="one BinaryK or SuperFP format"):
         SplitMac(e, w, accumulate_algorithm=BLOCK, block_size=4, outer=cast(Any, [w, w]))

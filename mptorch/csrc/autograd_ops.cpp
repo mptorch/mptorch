@@ -134,6 +134,12 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("block_quant", kernel());
   m.impl("block_quant_", kernel());
   m.impl("custom_matmul_block", kernel());
+  m.impl("custom_matmul_binaryK_superfp", kernel());
+  m.impl("custom_matmul_superfp_binaryK", kernel());
+  m.impl("custom_matmul_binaryK_superfp_accumulated", kernel());
+  m.impl("custom_matmul_superfp_binaryK_accumulated", kernel());
+  m.impl("custom_conv_binaryK_superfp", kernel());
+  m.impl("custom_conv_superfp_binaryK", kernel());
 }
 
 // The two in-place quantizers also need the ADInplaceOrView key, which is

@@ -110,6 +110,10 @@ autograd. See :doc:`kernels/calling` for when to use these instead of
 
 .. autofunction:: mptorch.quant.superfp_matmul_fma_mixed
 
+.. autofunction:: mptorch.quant.binaryK_superfp_matmul
+
+.. autofunction:: mptorch.quant.superfp_binaryK_matmul
+
 Layers
 ------
 
@@ -136,6 +140,10 @@ Layer arithmetic factories
 .. autofunction:: mptorch.quant.superfp_gemm_formats
 
 .. autofunction:: mptorch.quant.superfp_gemm_formats_fma
+
+.. autofunction:: mptorch.quant.binaryK_superfp_gemm_formats
+
+.. autofunction:: mptorch.quant.superfp_binaryK_gemm_formats
 
 .. autofunction:: mptorch.quant.conv_formats
 

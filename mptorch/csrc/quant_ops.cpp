@@ -234,4 +234,56 @@ TORCH_LIBRARY(mptorch, m)
         "int block_size, bool outer_quant, int outer_K, int outer_P, int outer_bias, "
         "bool outer_is_signed, int outer_saturation_mode, int outer_subnormals_mode, "
         "int outer_prng_bits) -> Tensor");
+  // The cross-family ops (common/gemm_cross.h, common/gemm_cross_host.h): a
+  // split mac whose products are rounded to a format of one family and whose
+  // partial sums to a format of the other, named multiply family first. The
+  // single-family split op's schema with the accumulate format in its own
+  // family and no accumulate_quant: a sum left in the carrier has one family
+  // only, and is that family's op. A NAIVE pair, *_accumulated twins whose outer
+  // format is the accumulate's family, and conv ops on the twins' schema.
+  m.def("custom_matmul_binaryK_superfp(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, int acc_man_bits, "
+        "int acc_exp_bits, int acc_normal_binades, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, int mul_saturation_mode, "
+        "int mul_subnormals_mode, int acc_saturation_mode, int mul_prng_bits, "
+        "int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_binaryK(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_man_bits, int mul_exp_bits, int mul_normal_binades, int mul_bias, "
+        "bool mul_is_signed, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, int mul_saturation_mode, "
+        "int acc_saturation_mode, int acc_subnormals_mode, int mul_prng_bits, "
+        "int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_superfp_accumulated(Tensor a, Tensor b, bool trans_a, "
+        "bool trans_b, int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
+        "int acc_man_bits, int acc_exp_bits, int acc_normal_binades, int acc_bias, "
+        "bool acc_is_signed, int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int mul_subnormals_mode, int acc_saturation_mode, "
+        "int mul_prng_bits, int acc_prng_bits, int block_size, bool outer_quant, "
+        "int outer_man_bits, int outer_exp_bits, int outer_normal_binades, int outer_bias, "
+        "bool outer_is_signed, int outer_saturation_mode, int outer_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_binaryK_accumulated(Tensor a, Tensor b, bool trans_a, "
+        "bool trans_b, int mul_man_bits, int mul_exp_bits, int mul_normal_binades, "
+        "int mul_bias, bool mul_is_signed, int acc_K, int acc_P, int acc_bias, "
+        "bool acc_is_signed, int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int acc_saturation_mode, int acc_subnormals_mode, "
+        "int mul_prng_bits, int acc_prng_bits, int block_size, bool outer_quant, int outer_K, "
+        "int outer_P, int outer_bias, bool outer_is_signed, int outer_saturation_mode, "
+        "int outer_subnormals_mode, int outer_prng_bits) -> Tensor");
+  m.def("custom_conv_binaryK_superfp(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, int mul_K, int mul_P, "
+        "int mul_bias, bool mul_is_signed, int acc_man_bits, int acc_exp_bits, "
+        "int acc_normal_binades, int acc_bias, bool acc_is_signed, int accumulate_algorithm, "
+        "int round_mode, int mul_saturation_mode, int mul_subnormals_mode, "
+        "int acc_saturation_mode, int mul_prng_bits, int acc_prng_bits, int block_size, "
+        "bool outer_quant, int outer_man_bits, int outer_exp_bits, int outer_normal_binades, "
+        "int outer_bias, bool outer_is_signed, int outer_saturation_mode, "
+        "int outer_prng_bits) -> Tensor");
+  m.def("custom_conv_superfp_binaryK(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, int mul_man_bits, "
+        "int mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, "
+        "int acc_K, int acc_P, int acc_bias, bool acc_is_signed, int accumulate_algorithm, "
+        "int round_mode, int mul_saturation_mode, int acc_saturation_mode, "
+        "int acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits, int block_size, "
+        "bool outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor");
 }

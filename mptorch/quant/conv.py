@@ -75,6 +75,12 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed").default,
                 (),
             )
+    # The cross-family ops, named multiply family first, whose outer format
+    # (and so NAIVE's tail) is the accumulate family's.
+    for mul, acc in (("binaryK", "superfp"), ("superfp", "binaryK")):
+        conv = getattr(ops, f"custom_conv_{mul}_{acc}").default
+        table[getattr(ops, f"custom_matmul_{mul}_{acc}").default] = (conv, _NAIVE_TAIL[acc])
+        table[getattr(ops, f"custom_matmul_{mul}_{acc}_accumulated").default] = (conv, ())
     return table
 
 
@@ -313,8 +319,10 @@ def conv_formats(
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,
             resolved once through :func:`mptorch.quant.mac.spec_for_mac`. A
             bare ``Number`` means ``SplitMac(fmt, fmt)``. Every
-            ``accumulate_algorithm`` applies. A palette selects the
-            per-output-element ops, which need one map per pass.
+            ``accumulate_algorithm`` applies, and a ``SplitMac`` may round
+            its products and its sums in formats of two families, as for a
+            GEMM. A palette selects the per-output-element ops, which need
+            one map per pass.
         prec_idx (Tensor, optional): the forward's palette map, indexed like
             the output with its spatial dimensions flattened: ``[Cout, OUT]``
             with ``OUT`` the number of output positions, ``[Cout, 1]`` (one

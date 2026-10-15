@@ -98,6 +98,9 @@ products of the core routine (:doc:`kernels/index`):
   BinaryK format. It takes ``fma_*`` arguments.
 - :func:`~mptorch.quant.superfp_gemm_formats` and
   :func:`~mptorch.quant.superfp_gemm_formats_fma`: the same for SuperFP.
+- :func:`~mptorch.quant.binaryK_superfp_gemm_formats` and
+  :func:`~mptorch.quant.superfp_binaryK_gemm_formats`: a ``SplitMac`` whose
+  products are of one family and whose sums are of the other.
 
 Each returns a ``QAffineFormats`` with *only* the math hooks set. Operand
 quantizers are assigned afterwards, so the two choices stay independent. The

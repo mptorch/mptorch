@@ -1,0 +1,6 @@
+float32 torch.matmul           : -0.526053
+Binary8p4 products, SuperFP sum: -0.554688   by hand equal: True
+binaryK_superfp_matmul         : -0.554688   equal: True
+SuperFP products, Binary16p11  : -0.539062   by hand equal: True
+
+ValueError: a SplitMac whose multiply and accumulate formats are of different families (BinaryK and SuperFP) takes one format per slot: the cross-family ops have no palette variant

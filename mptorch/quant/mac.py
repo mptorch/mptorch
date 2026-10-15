@@ -25,7 +25,9 @@ Two things follow from spelling a reduction as a value:
 * the palette stops being a separate op family. Any format slot takes a
   ``Number`` or a sequence of them, and a sequence anywhere selects the
   ``_mixed`` op and requires a ``prec_idx``; op choice is a table keyed on
-  ``(family, mac kind, is palette)`` rather than eight function names.
+  ``(family, mac kind, is palette)`` rather than eight function names. A
+  :class:`SplitMac` whose two formats are of different families selects one
+  of the cross-family ops, which take one format per slot.
 
 Resolution to a ``_GemmSpec`` happens once and is memoized on the value: the
 classes are frozen dataclasses, so they hash by value, and :func:`spec_for_mac`
@@ -67,10 +69,14 @@ from .ops import (
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
     _binaryK_spec,
+    _binaryK_superfp_accumulated_spec,
+    _binaryK_superfp_spec,
     _checked_block_size,
     _checked_carrier,
     _GemmSpec,
     _superfp_accumulated_spec,
+    _superfp_binaryK_accumulated_spec,
+    _superfp_binaryK_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_spec,
     _superfp_fma_spec,
@@ -530,9 +536,11 @@ def _checked_accumulation(
 
     ``slots`` is the mac's normalized format slots, the last of them the one
     whose family ``outer`` must share (the accumulate format, else the
-    multiply's; a fused mac's one format). The block-size rule is the flat
-    wrappers' (:func:`mptorch.quant.ops._checked_block_size`), so the two
-    tiers raise the same errors.
+    multiply's; a fused mac's one format): the outer format rounds a total of
+    that format's values, and no kernel folds them into another family. The
+    block-size rule is the flat wrappers'
+    (:func:`mptorch.quant.ops._checked_block_size`), so the two tiers raise
+    the same errors.
     """
     outer = mac.outer
     if outer is not None and not isinstance(outer, GemmFormat):
@@ -552,8 +560,9 @@ def _checked_accumulation(
     family = next((slot[0] for slot in reversed(slots) if slot is not None), None)
     if outer is not None and family is not None and type(outer) is not type(family):
         raise TypeError(
-            f"outer must be of the mac's format family: got {type(outer).__name__} over "
-            f"{type(family).__name__}. Mixing families is roadmap item R-1"
+            f"outer must be of the accumulate format's family (the multiply format's when the "
+            f"sum is left unrounded): got {type(outer).__name__} over "
+            f"{type(family).__name__}; no kernel folds a total into another family"
         )
 
 
@@ -567,8 +576,13 @@ class SplitMac:
     or a sequence of formats. A sequence is a palette; it selects the
     ``_mixed`` op and requires a ``prec_idx`` at the call. ``acc`` alone may
     also be ``None``, which leaves the running sum in the carrier's full
-    precision. Both must belong to the same family: no kernel implements a
-    binaryK multiply with a superfp accumulate.
+    precision. The two may be of different families, a
+    :class:`~mptorch.BinaryK` multiply with a :class:`~mptorch.SuperFP`
+    accumulate or the reverse, as long as each slot holds one format: the
+    cross-family ops (:func:`mptorch.quant.binaryK_superfp_matmul`,
+    :func:`mptorch.quant.superfp_binaryK_matmul`) have no palette variant.
+    They have binary32 kernels only so far: float64 operands and
+    ``carrier=torch.float64`` raise.
 
     ``rounding`` is one mode for both halves. The kernels take the rounding
     mode as a template parameter, because a runtime switch inside the
@@ -609,19 +623,21 @@ class SplitMac:
             one, which must divide 16 or be a multiple of 16. ``TREE`` takes a
             power of two in [2, 256] and defaults to 16. ``NAIVE`` and
             ``KAHAN`` take none. Default: ``None``
-        outer (Number, optional): the format, of the mac's family, that
-            ``BLOCK`` and ``TREE`` round the total to after each block is
-            added. ``None`` leaves the total in the carrier's precision, as
+        outer (Number, optional): the format, of the accumulate format's
+            family (the multiply's when ``acc`` is ``None``), that ``BLOCK``
+            and ``TREE`` round the total to after each block is added.
+            ``None`` leaves the total in the carrier's precision, as
             ``acc=None`` does for the sum. When given, the result holds this
             format's values. Default: ``None``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
-            different lengths, if ``carrier`` names no carrier, or if
-            ``block_size`` or ``outer`` does not fit the algorithm.
-        TypeError: if ``mul`` and ``acc`` are of different families, ``outer``
-            is of another family or not a single format, or ``carrier`` is not
-            a ``torch.dtype``.
+            different lengths, if ``mul`` and ``acc`` are of different
+            families and either is a palette, if ``carrier`` names no carrier,
+            or if ``block_size`` or ``outer`` does not fit the algorithm.
+        TypeError: if ``outer`` is of another family than the accumulate
+            format or not a single format, or ``carrier`` is not a
+            ``torch.dtype``.
 
     Example::
 
@@ -637,6 +653,10 @@ class SplitMac:
         >>> blocked = SplitMac(binary8p4, binary8p4, block_size=8, outer=BinaryK(16, 11),
         ...                    accumulate_algorithm=AccumulateAlgorithm.BLOCK)
         >>> qmm(torch.randn(4, 64), torch.randn(64, 3), blocked).shape
+        torch.Size([4, 3])
+        >>> from mptorch import SuperFP
+        >>> cross = SplitMac(binary8p4, SuperFP(3, 4, 8, 7))   # binaryK products, superfp sums
+        >>> qmm(torch.randn(4, 8), torch.randn(8, 3), cross).shape
         torch.Size([4, 3])
     """
 
@@ -655,11 +675,11 @@ class SplitMac:
         if mul is None:
             raise ValueError("a SplitMac needs a multiply format")
         if acc is not None:
-            if type(acc[0]) is not type(mul[0]):
-                raise TypeError(
-                    f"a SplitMac's multiply and accumulate must be the same format family: "
-                    f"got {type(mul[0]).__name__} and {type(acc[0]).__name__}. Mixing families "
-                    "is roadmap item R-1 -- no kernel implements it"
+            if type(acc[0]) is not type(mul[0]) and (_varies(mul) or _varies(acc)):
+                raise ValueError(
+                    f"a SplitMac whose multiply and accumulate formats are of different families "
+                    f"({type(mul[0]).__name__} and {type(acc[0]).__name__}) takes one format per "
+                    "slot: the cross-family ops have no palette variant"
                 )
             if _varies(mul) and _varies(acc) and len(mul) != len(acc):
                 raise ValueError(
@@ -888,6 +908,17 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         if isinstance(acc_0, BinaryK):
             fields["acc_subnormals_mode"] = acc_0.subnormals
     binaryK = isinstance(mul_0, BinaryK)
+    if acc is not None and type(acc[0]) is not type(mul_0):
+        # Cross-family: one format per slot (`SplitMac.__post_init__`), and
+        # the accumulate format is always rounded, so the ops take no flag.
+        del fields["accumulate_quant"]
+        if naive:
+            build = _binaryK_superfp_spec if binaryK else _superfp_binaryK_spec
+        else:
+            build = (
+                _binaryK_superfp_accumulated_spec if binaryK else _superfp_binaryK_accumulated_spec
+            )
+        return build(**fields)
     if n > 1:
         build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
         return build(**fields)

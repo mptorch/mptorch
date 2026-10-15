@@ -15,6 +15,7 @@
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_block.h"
+#include "../common/gemm_cross.h"
 #include "../common/gemm_gather.h"
 #include "utils.h" // draw_cpu_seed
 #include <cstdint>
@@ -61,6 +62,19 @@ namespace mptorch::gemm_cpu
       if (s.dt == mptorch::GemmDtype::Double)
         return launch_as<double>(s, args, ctx);
 #endif
+      launch_as<float>(s, args, ctx);
+    }
+
+    // The two NAIVE cross-family ops (common/gemm_cross.h), which have
+    // binary32 kernels only so far: this overload is what keeps their calls
+    // from naming a launch_as<double> that no file instantiates (the driver
+    // has refused float64 operands by now). custom_matmul_cross.cpp
+    // instantiates them.
+    template <class MulW, class MulC, class AccW, class AccC>
+    static void launch(const mptorch::gemm::GemmShape &s,
+                       const mptorch::gemm::CrossSplitArgs<MulW, MulC, AccW, AccC> &args,
+                       const LaunchContext &ctx)
+    {
       launch_as<float>(s, args, ctx);
     }
 

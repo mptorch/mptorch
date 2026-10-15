@@ -38,4 +38,10 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     m.impl("block_quant", TORCH_FN(block_quantize_cuda));
     m.impl("block_quant_", TORCH_FN(block_quantize_cuda_));
     m.impl("custom_matmul_block", TORCH_FN(block_matmul_cuda));
+    m.impl("custom_matmul_binaryK_superfp", TORCH_FN(binaryK_superfp_matmul_cuda));
+    m.impl("custom_matmul_superfp_binaryK", TORCH_FN(superfp_binaryK_matmul_cuda));
+    m.impl("custom_matmul_binaryK_superfp_accumulated", TORCH_FN(binaryK_superfp_matmul_accumulated_cuda));
+    m.impl("custom_matmul_superfp_binaryK_accumulated", TORCH_FN(superfp_binaryK_matmul_accumulated_cuda));
+    m.impl("custom_conv_binaryK_superfp", TORCH_FN(binaryK_superfp_conv_cuda));
+    m.impl("custom_conv_superfp_binaryK", TORCH_FN(superfp_binaryK_conv_cuda));
 }

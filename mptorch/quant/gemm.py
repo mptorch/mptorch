@@ -1,6 +1,6 @@
 """
 Factories that wire the custom-arithmetic GEMM ops
-(:func:`mptorch.quant.ops.binaryK_matmul` and its seven siblings) into the
+(:func:`mptorch.quant.ops.binaryK_matmul` and its siblings) into the
 ``fwd_math`` / ``bwd_igrad_math`` / ``bwd_wgrad_math`` hooks of a
 :class:`~mptorch.quant.modules.format.QAffineFormats`, under the call contract
 ``CustomArithLinear`` (``mptorch/quant/modules/linear.py``) uses::
@@ -14,7 +14,7 @@ leading (batch) dimensions, as ``nn.Linear`` allows. Each hook flattens them
 into one row dimension before the 2D GEMM and reshapes the result back, the
 same reshape ``CustomArithLinear._default_bwd_wgrad`` makes.
 
-The four ``*_gemm_formats`` factories differ only in which op the three hooks
+The six ``*_gemm_formats`` factories differ only in which op the three hooks
 call, so they share :func:`_gemm_formats` and differ only in the argument list
 they resolve. Each resolves its format once, at construction, into a
 ``_GemmSpec``: a layer's format is fixed for its lifetime, and re-deriving the
@@ -49,10 +49,12 @@ from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
+    _binaryK_superfp_accumulated_spec,
     _gemm_mixed_nd,
     _gemm_nd,
     _run_gemm,
     _superfp_accumulated_spec,
+    _superfp_binaryK_accumulated_spec,
     _superfp_fma_accumulated_spec,
 )
 
@@ -61,6 +63,8 @@ __all__ = [
     "superfp_gemm_formats",
     "binaryK_gemm_formats_fma",
     "superfp_gemm_formats_fma",
+    "binaryK_superfp_gemm_formats",
+    "superfp_binaryK_gemm_formats",
     "matmul_formats",
     "block_matmul_formats",
     "block_gemm_formats",
@@ -620,6 +624,175 @@ def superfp_gemm_formats_fma(
 # operand rules (batch broadcasting and 1D promotion), where the Linear hooks
 # above flatten to 2D themselves. The flags transpose ``a`` and ``b``.
 _MatmulNd = Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor]
+
+
+def binaryK_superfp_gemm_formats(
+    mul_K: int,
+    mul_P: int,
+    acc_man_bits: int,
+    acc_exp_bits: int,
+    acc_normal_binades: int,
+    acc_bias: int,
+    *,
+    mul_bias: int | None = None,
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
+    subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    acc_saturation_mode: SaturationMode | None = None,
+    block_size: int | None = None,
+    outer_man_bits: int | None = None,
+    outer_exp_bits: int | None = None,
+    outer_normal_binades: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
+    carrier: torch.dtype | None = None,
+) -> QAffineFormats:
+    """Cross-family analog of :func:`binaryK_gemm_formats`: binaryK products, superfp sums.
+
+    The dot products run through
+    :func:`mptorch.quant.ops.binaryK_superfp_matmul`, which documents every
+    argument: products are rounded to the binaryK ``mul_*`` format and partial
+    sums to the superfp ``acc_*`` format, which is required (an unrounded sum
+    is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With
+    ``BLOCK`` or ``TREE`` the outer format is a superfp one. binary32 only so
+    far: a float64 layer and ``carrier=torch.float64`` raise.
+
+    Returns:
+        QAffineFormats: with the three ``*_math`` hooks set.
+
+    Raises:
+        ValueError: for a format no carrier can hold, or a ``carrier`` that is
+            ``torch.float64`` or names no carrier.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch.quant import QLinear, binaryK_superfp_gemm_formats
+        >>> formats = binaryK_superfp_gemm_formats(8, 4, 3, 4, 8, 7)
+        >>> layer = QLinear(256, 64, formats=formats)
+        >>> layer(torch.randn(32, 256)).shape
+        torch.Size([32, 64])
+    """
+    spec = _binaryK_superfp_accumulated_spec(
+        mul_K=mul_K,
+        mul_P=mul_P,
+        mul_bias=mul_bias,
+        mul_is_signed=mul_is_signed,
+        mul_prng_bits=mul_prng_bits,
+        acc_man_bits=acc_man_bits,
+        acc_exp_bits=acc_exp_bits,
+        acc_normal_binades=acc_normal_binades,
+        acc_bias=acc_bias,
+        acc_is_signed=acc_is_signed,
+        acc_prng_bits=acc_prng_bits,
+        accumulate_algorithm=accumulate_algorithm,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+        subnormals_mode=subnormals_mode,
+        acc_saturation_mode=acc_saturation_mode,
+        block_size=block_size,
+        outer_man_bits=outer_man_bits,
+        outer_exp_bits=outer_exp_bits,
+        outer_normal_binades=outer_normal_binades,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
+        carrier=carrier,
+    )
+    return _gemm_formats(partial(_run_gemm, spec))
+
+
+def superfp_binaryK_gemm_formats(
+    mul_man_bits: int,
+    mul_exp_bits: int,
+    mul_normal_binades: int,
+    mul_bias: int,
+    acc_K: int,
+    acc_P: int,
+    *,
+    mul_is_signed: bool = True,
+    mul_prng_bits: int = 0,
+    acc_bias: int | None = None,
+    acc_is_signed: bool | None = None,
+    acc_prng_bits: int = 0,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    rounding_mode: RoundMode = RoundMode.RNE,
+    saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
+    acc_saturation_mode: SaturationMode | None = None,
+    acc_subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    block_size: int | None = None,
+    outer_K: int | None = None,
+    outer_P: int | None = None,
+    outer_bias: int | None = None,
+    outer_is_signed: bool | None = None,
+    outer_prng_bits: int = 0,
+    outer_saturation_mode: SaturationMode | None = None,
+    outer_subnormals_mode: SubnormalsMode | None = None,
+    carrier: torch.dtype | None = None,
+) -> QAffineFormats:
+    """Cross-family analog of :func:`superfp_gemm_formats`: superfp products, binaryK sums.
+
+    The dot products run through
+    :func:`mptorch.quant.ops.superfp_binaryK_matmul`, which documents every
+    argument: products are rounded to the superfp ``mul_*`` format and partial
+    sums to the binaryK ``acc_*`` format, which is required (an unrounded sum
+    is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With
+    ``BLOCK`` or ``TREE`` the outer format is a binaryK one. binary32 only so
+    far: a float64 layer and ``carrier=torch.float64`` raise.
+
+    Returns:
+        QAffineFormats: with the three ``*_math`` hooks set.
+
+    Raises:
+        ValueError: for a format no carrier can hold, a ``normal_binades``
+            that leaves no supernormal codes, or a ``carrier`` that is
+            ``torch.float64`` or names no carrier.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch.quant import QLinear, superfp_binaryK_gemm_formats
+        >>> formats = superfp_binaryK_gemm_formats(3, 4, 8, 7, 16, 11)
+        >>> layer = QLinear(256, 64, formats=formats)
+        >>> layer(torch.randn(32, 256)).shape
+        torch.Size([32, 64])
+    """
+    spec = _superfp_binaryK_accumulated_spec(
+        mul_man_bits=mul_man_bits,
+        mul_exp_bits=mul_exp_bits,
+        mul_normal_binades=mul_normal_binades,
+        mul_bias=mul_bias,
+        mul_is_signed=mul_is_signed,
+        mul_prng_bits=mul_prng_bits,
+        acc_K=acc_K,
+        acc_P=acc_P,
+        acc_bias=acc_bias,
+        acc_is_signed=acc_is_signed,
+        acc_prng_bits=acc_prng_bits,
+        accumulate_algorithm=accumulate_algorithm,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+        acc_saturation_mode=acc_saturation_mode,
+        acc_subnormals_mode=acc_subnormals_mode,
+        block_size=block_size,
+        outer_K=outer_K,
+        outer_P=outer_P,
+        outer_bias=outer_bias,
+        outer_is_signed=outer_is_signed,
+        outer_prng_bits=outer_prng_bits,
+        outer_saturation_mode=outer_saturation_mode,
+        outer_subnormals_mode=outer_subnormals_mode,
+        carrier=carrier,
+    )
+    return _gemm_formats(partial(_run_gemm, spec))
 
 
 def _matmul_formats(
