@@ -1,7 +1,7 @@
 // The elementwise quantizers, binaryK_quant and superfp_quant: every element
 // rounded to the format by the cast the CPU backend calls, in its carrier
 // (binary32, since MPS has no float64), and stored back in the tensor's
-// dtype as the CPU stores it (prelude.metal's from_carrier).
+// dtype as the CPU stores it (prelude.metal's store_carrier).
 //
 // Compiled once per instantiation, after prelude.metal and a few lines the
 // backend writes (quantize.cpp) that define
@@ -89,7 +89,6 @@ kernel void mpt_quantize(device const mpt_storage_t *x [[buffer(0)]],
         const uint64_t i = first + l;
         if (i >= q.n)
             return;
-        y[i] = mptorch_mps::from_carrier<mpt_storage_t>(
-            mptorch_mps::quantize_one(mptorch_mps::to_carrier(x[i]), block.word(l)));
+        mptorch_mps::store_carrier(y, i, mptorch_mps::quantize_one(mptorch_mps::to_carrier(x[i]), block.word(l)));
     }
 }

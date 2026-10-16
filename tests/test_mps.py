@@ -11,6 +11,11 @@ draws. The inputs reach the corners: every word of the 16-bit dtypes, and for
 float32 a spread of random words (every exponent, infinities, NaNs and
 subnormals among them) next to values inside the formats' ranges.
 
+Every op is here: the elementwise quantizers and their in-place twins, the
+eight GEMMs, their KAHAN, BLOCK and TREE twins and the cross-family ones, the
+conv ops' three passes, and the block-format ops, packing, unpacking,
+quantizing and the block GEMM.
+
 What the backend cannot match is the GPU's flush of binary32 subnormals in
 its arithmetic (``csrc/mps/gemm.metal``), and the last tests pin both what
 that flush changes and what it does not.
@@ -20,19 +25,48 @@ CPU's compiled for another device, which the CPU backend's tests hold to the
 formats.
 """
 
+import dataclasses
 import math
 from typing import Any
 
 import pytest
 import torch
 
+from mptorch import (
+    E8M0,
+    MXFP4_E2M1,
+    MXFP6_E2M3,
+    MXFP8_E4M3,
+    NVFP4,
+    AccumulateAlgorithm,
+    BinaryK,
+    BlockFormat,
+    ScaleRounding,
+    SuperFP,
+)
 from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
-from mptorch.quant import QLinear, binaryK_gemm_formats, binaryK_quantize, superfp_quantize
+from mptorch.quant import (
+    FusedMac,
+    QLinear,
+    SplitMac,
+    binaryK_gemm_formats,
+    binaryK_quantize,
+    binaryK_quantize_,
+    block_matmul,
+    block_pack,
+    block_quantize,
+    block_quantize_,
+    conv_formats,
+    superfp_quantize,
+    superfp_quantize_,
+)
 from mptorch.quant.ops import (
     binaryK_matmul,
     binaryK_matmul_fma,
     binaryK_matmul_fma_mixed,
     binaryK_matmul_mixed,
+    binaryK_superfp_matmul,
+    superfp_binaryK_matmul,
     superfp_matmul,
     superfp_matmul_fma,
     superfp_matmul_fma_mixed,
@@ -221,6 +255,29 @@ def test_quantize_rejects_what_mps_cannot_hold():
         torch.ops.mptorch.binaryK_quant(x, 8, 4, 8, 0, True, 0, 2, 0)
     with pytest.raises((TypeError, RuntimeError), match="float64"):
         binaryK_quantize(torch.randn(4, device="mps"), 8, 4, carrier=torch.float64)
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("dtype", DTYPES, ids=str)
+@pytest.mark.parametrize("op", ["binaryK", "superfp"])
+def test_quantize_in_place(op, dtype, rounding_mode):
+    """binaryK_quant_ and superfp_quant_ write the CPU's out-of-place words
+    into the MPS tensor itself (one buffer bound as the kernel's input and its
+    output), a view off the start of its storage included."""
+    if op == "binaryK":
+        fmt: dict[str, Any] = dict(K=8, P=4, prng_bits=10)
+        fn, fn_ = binaryK_quantize, binaryK_quantize_
+    else:
+        fmt = dict(man_bits=3, exp_bits=4, normal_binades=1, bias=7, prng_bits=10)
+        fn, fn_ = superfp_quantize, superfp_quantize_
+    x = _words(dtype)
+    torch.manual_seed(7)
+    ref = fn(x[3:], rounding_mode=rounding_mode, **fmt)
+    y = x.to("mps")
+    torch.manual_seed(7)
+    assert fn_(y[3:], rounding_mode=rounding_mode, **fmt).data_ptr() == y[3:].data_ptr()
+    _assert_same_words(ref, y[3:])
+    _assert_same_words(x[:3], y[:3])
 
 
 # --------------------------------------------------------------------------
@@ -439,6 +496,341 @@ def test_gemm_special_operands():
         assert ref.isnan().any()
 
 
+KAHAN, BLOCK, TREE = (
+    AccumulateAlgorithm.KAHAN,
+    AccumulateAlgorithm.BLOCK,
+    AccumulateAlgorithm.TREE,
+)
+
+# Each algorithm, BLOCK with a block inside the 16-step slab and one past it,
+# TREE with levels inside the slab only and across slabs.
+ACCUMULATIONS: dict[str, dict[str, Any]] = {
+    "kahan": dict(accumulate_algorithm=KAHAN),
+    "block4": dict(accumulate_algorithm=BLOCK, block_size=4),
+    "block32": dict(accumulate_algorithm=BLOCK, block_size=32),
+    "tree8": dict(accumulate_algorithm=TREE, block_size=8),
+    "tree64": dict(accumulate_algorithm=TREE, block_size=64),
+}
+_BOUTER: dict[str, Any] = dict(outer_K=16, outer_P=11, outer_prng_bits=8)
+_SOUTER: dict[str, Any] = dict(
+    outer_man_bits=7, outer_exp_bits=5, outer_normal_binades=2, outer_bias=15, outer_prng_bits=8
+)
+_BS: dict[str, Any] = dict(
+    mul_K=8, mul_P=4, acc_man_bits=5, acc_exp_bits=5, acc_normal_binades=2, acc_bias=15,
+    mul_prng_bits=8, acc_prng_bits=8,
+)  # fmt: skip
+_SB: dict[str, Any] = dict(
+    mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=7, acc_K=12, acc_P=6,
+    mul_prng_bits=8, acc_prng_bits=8,
+)  # fmt: skip
+
+# The ops each algorithm runs on, and the outer format of their family: the
+# four *_accumulated GEMMs and the two cross-family ones (the outer format is
+# the accumulate's family).
+ACC_GEMMS = {
+    "binaryK": (lambda a, b, rm, **kw: binaryK_matmul(a, b, rounding_mode=rm, **_B, **kw), _BOUTER),
+    "binaryK_fma": (
+        lambda a, b, rm, **kw: binaryK_matmul_fma(a, b, rounding_mode=rm, **_BF, **kw),
+        _BOUTER,
+    ),
+    "superfp": (lambda a, b, rm, **kw: superfp_matmul(a, b, rounding_mode=rm, **_S, **kw), _SOUTER),
+    "superfp_fma": (
+        lambda a, b, rm, **kw: superfp_matmul_fma(a, b, rounding_mode=rm, **_SF, **kw),
+        _SOUTER,
+    ),
+    "binaryK_superfp": (
+        lambda a, b, rm, **kw: binaryK_superfp_matmul(a, b, rounding_mode=rm, **_BS, **kw),
+        _SOUTER,
+    ),
+    "superfp_binaryK": (
+        lambda a, b, rm, **kw: superfp_binaryK_matmul(a, b, rounding_mode=rm, **_SB, **kw),
+        _BOUTER,
+    ),
+}
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("acc", list(ACCUMULATIONS))
+@pytest.mark.parametrize("op", list(ACC_GEMMS))
+def test_accumulated_gemm_every_mode(op, acc, rounding_mode):
+    """KAHAN, BLOCK and TREE on every op that takes them, in every mode: K = 70
+    leaves a partial slab and partial blocks of every size, and nothing is
+    padded, on the GPU as on the CPU."""
+    fn, outer = ACC_GEMMS[op]
+    kw = dict(ACCUMULATIONS[acc])
+    if kw["accumulate_algorithm"] is TREE and "fma" in op:
+        pytest.skip("TREE sums products pairwise; a fused mac has none")
+    if kw["accumulate_algorithm"] is not KAHAN:
+        kw.update(outer)
+    a, b, _ = _operands(37, 70, 29)
+    ref, got = _on_both(lambda x, y: fn(x, y, rounding_mode, **kw), a, b)
+    _assert_same_words(ref, got)
+
+
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma", "binaryK_superfp"])
+def test_accumulated_gemm_shapes(op, rounding_mode):
+    """Batched, broadcast, transposed and narrow-dtype operands under an
+    accumulate algorithm."""
+    fn, outer = ACC_GEMMS[op]
+    kw = dict(accumulate_algorithm=BLOCK, block_size=16, **outer)
+    g = torch.Generator().manual_seed(4)
+    a = torch.randn(3, 40, 17, generator=g).transpose(-1, -2)  # read in place, transposed
+    b = torch.randn(40, 18, generator=g)
+    # bfloat16 does not store the outer formats' 11 bits
+    for dtype in (torch.float32, torch.float16):
+        ref, got = _on_both(lambda x, y: fn(x, y, rounding_mode, **kw), a.to(dtype), b.to(dtype))
+        _assert_same_words(ref, got)
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("op", ["binaryK_superfp", "superfp_binaryK"])
+def test_cross_family_gemm_every_mode(op, rounding_mode):
+    fn, _ = ACC_GEMMS[op]
+    a, b, _ = _operands(37, 70, 29)
+    ref, got = _on_both(lambda x, y: fn(x, y, rounding_mode), a, b)
+    _assert_same_words(ref, got)
+
+
+# --------------------------------------------------------------------------
+# The conv ops
+# --------------------------------------------------------------------------
+
+_CB8, _CB12 = BinaryK(8, 4, prng_bits=8), BinaryK(12, 7, prng_bits=8)
+_CS8, _CS12 = SuperFP(3, 4, 8, 7, prng_bits=8), SuperFP(5, 5, 16, 15, prng_bits=8)
+
+# One mac per conv op: the four single-format ones, their palette twins and
+# the two cross-family ones.
+CONV_MACS = {
+    "binaryK": lambda rm, **kw: SplitMac(_CB8, _CB12, rounding=rm, **kw),
+    "binaryK_fma": lambda rm, **kw: FusedMac(_CB12, rounding=rm, **kw),
+    "superfp": lambda rm, **kw: SplitMac(_CS8, _CS12, rounding=rm, **kw),
+    "superfp_fma": lambda rm, **kw: FusedMac(_CS12, rounding=rm, **kw),
+    "binaryK_mixed": lambda rm: SplitMac(
+        [_CB8, BinaryK(8, 5, prng_bits=8)], [_CB12, BinaryK(12, 8, prng_bits=8)], rounding=rm
+    ),
+    "binaryK_fma_mixed": lambda rm: FusedMac([_CB12, BinaryK(10, 6, prng_bits=8)], rounding=rm),
+    "superfp_mixed": lambda rm: SplitMac(
+        [_CS8, SuperFP(2, 4, 8, 7, prng_bits=8)],
+        [_CS12, SuperFP(4, 5, 16, 15, prng_bits=8)],
+        rounding=rm,
+    ),
+    "superfp_fma_mixed": lambda rm: FusedMac(
+        [_CS12, SuperFP(4, 5, 16, 15, prng_bits=8)], rounding=rm
+    ),
+    "binaryK_superfp": lambda rm, **kw: SplitMac(_CB8, _CS12, rounding=rm, **kw),
+    "superfp_binaryK": lambda rm, **kw: SplitMac(_CS8, _CB12, rounding=rm, **kw),
+}
+
+# (size, kernel, stride, padding, dilation, groups): 1D, 2D and 3D, a stride
+# whose input gradient has several residue classes, a dilation, and groups.
+CONV_GEOMETRIES = {
+    "1d": ((17,), (3,), (2,), (1,), (1,), 1),
+    "2d": ((9, 8), (3, 3), (2, 2), (1, 1), (1, 1), 2),
+    "2d_dilated": ((11, 9), (3, 2), (1, 2), (2, 0), (2, 1), 1),
+    "3d": ((5, 6, 4), (2, 3, 2), (1, 2, 1), (0, 1, 1), (1, 1, 1), 2),
+}
+
+
+def _conv_passes(mac, geometry, device, palette):
+    """The three passes of `mac` over one geometry's operands on `device`,
+    each from the same seed, through conv_formats' hooks."""
+    size, kernel, stride, padding, dilation, groups = CONV_GEOMETRIES[geometry]
+    nd = len(size)
+    B, C, Cout = 2, 4, 6
+    out = tuple(
+        (n + 2 * p - d * (k - 1) - 1) // s + 1
+        for n, k, s, p, d in zip(size, kernel, stride, padding, dilation, strict=True)
+    )
+    g = torch.Generator().manual_seed(3)
+    x = torch.randn(B, C, *size, generator=g)
+    w = torch.randn(Cout, C // groups, *kernel, generator=g)
+    dy = torch.randn(B, Cout, *out, generator=g)
+    maps: list[Any] = [None, None, None]
+    if palette:
+        L, IN, KK = math.prod(out), math.prod(size), math.prod(kernel)
+        maps = [
+            torch.randint(0, 2, (Cout, L), generator=g),
+            torch.randint(0, 2, (C, IN), generator=g),
+            torch.randint(0, 2, (Cout, C // groups * KK), generator=g),
+        ]
+    formats = conv_formats(
+        mac, **{
+            k: None if m is None else m.to(device)
+            for k, m in zip(("prec_idx", "igrad_prec_idx", "wgrad_prec_idx"), maps, strict=True)
+        },
+    )  # fmt: skip
+    assert formats.fwd_math and formats.bwd_igrad_math and formats.bwd_wgrad_math
+    geo: dict[str, Any] = dict(
+        stride=stride, padding=padding, dilation=dilation, groups=groups, nd=nd
+    )
+    xd, wd, dyd = x.to(device), w.to(device), dy.to(device)
+    torch.manual_seed(5)
+    y = formats.fwd_math(xd, wd, None, **geo)
+    dx = formats.bwd_igrad_math(dyd, wd, input_size=x.shape, **geo)
+    dw = formats.bwd_wgrad_math(dyd, xd, weight_size=w.shape, **geo)
+    return [t.cpu() for t in (y, dx, dw)]
+
+
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RU, RoundMode.SR], ids=lambda m: m.name
+)
+@pytest.mark.parametrize("geometry", list(CONV_GEOMETRIES))
+@pytest.mark.parametrize("op", list(CONV_MACS))
+def test_conv_passes(op, geometry, rounding_mode):
+    """Each conv op's forward, input gradient and weight gradient: the
+    operand tiles gathered from the convolution's tensors on the GPU are the
+    CPU's, every residue class of a strided input gradient, the groups and the
+    palette maps (read at the result's own positions) included."""
+    mac = CONV_MACS[op](rounding_mode)
+    palette = "mixed" in op
+    for ref, got in zip(
+        _conv_passes(mac, geometry, "cpu", palette),
+        _conv_passes(mac, geometry, "mps", palette),
+        strict=True,
+    ):
+        assert torch.equal(got.view(torch.int32), ref.view(torch.int32))
+
+
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("acc", ["kahan", "block4", "tree8"])
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma", "binaryK_superfp"])
+def test_conv_accumulated(op, acc, rounding_mode):
+    kw = dict(ACCUMULATIONS[acc])
+    if kw["accumulate_algorithm"] is TREE and "fma" in op:
+        pytest.skip("TREE sums products pairwise; a fused mac has none")
+    mac = CONV_MACS[op](rounding_mode, **kw)
+    for ref, got in zip(
+        _conv_passes(mac, "2d", "cpu", False), _conv_passes(mac, "2d", "mps", False), strict=True
+    ):
+        assert torch.equal(got.view(torch.int32), ref.view(torch.int32))
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=str)
+def test_conv_narrow_dtypes(dtype):
+    """float16 and bfloat16 operands and results, through a QConv2d."""
+    from mptorch.quant import QConv2d
+
+    torch.manual_seed(0)
+    q = QConv2d(4, 6, 3, stride=2, padding=1, groups=2, formats=conv_formats(SplitMac(_CB8, _CB12)))
+    x = torch.randn(2, 4, 9, 8).to(dtype)
+    cpu = q.to(dtype)
+    ref = cpu(x)
+    mps = q.to("mps")
+    got = mps(x.to("mps"))
+    _assert_same_words(ref.detach(), got.detach())
+
+
+# --------------------------------------------------------------------------
+# The block formats
+# --------------------------------------------------------------------------
+
+_SQ_NVFP4 = dataclasses.replace(NVFP4, block_rows=16)
+BLOCK_FORMATS = {
+    "mxfp8": MXFP8_E4M3,
+    "mxfp4": MXFP4_E2M1,
+    "mxfp6": MXFP6_E2M3,
+    "nvfp4": NVFP4,
+    "nvfp4_16x16": _SQ_NVFP4,
+    "nvfp4_selective": dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.SELECTIVE),
+    "mxfp4_up": dataclasses.replace(MXFP4_E2M1, scale_rounding=ScaleRounding.UP),
+    "fos_mse": dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE),
+    "fos_abs_max": dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_ABS_MAX),
+    "fos_16x16_mae": dataclasses.replace(_SQ_NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE),
+    "sfp4_elem": BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32),
+    "sfp_scale": BlockFormat(MXFP4_E2M1.elem, SuperFP(3, 4, 2, 7), 16),
+}
+
+
+def _block_input(fmt: BlockFormat, dtype: torch.dtype) -> torch.Tensor:
+    """Random words (NaNs, infinities and subnormals among them; for a cast
+    scale, whose tensor scale comes from amax, exponents below 2^1), a block
+    of binary32 subnormals, and blocks far enough down that their E8M0 scale
+    is 2^-127 and their decoded values are subnormals of the carrier."""
+    g = torch.Generator().manual_seed(8)
+    w = torch.randint(-(2**31), 2**31, (3, 32, 96), generator=g).to(torch.int32)
+    if fmt.has_tensor_scale:
+        w = w & int(0xBFFFFFFF - (1 << 32))
+    x = w.view(torch.float32)
+    x[0] = torch.randn(32, 96, generator=g) * 2.0**-131
+    x[1, :8] = torch.randn(8, 96, generator=g) * 2.0**-117
+    return x.to(dtype)
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("dtype", DTYPES, ids=str)
+@pytest.mark.parametrize("fmt", list(BLOCK_FORMATS))
+def test_block_elementwise(fmt, dtype, rounding_mode):
+    """block_pack's codes and scales, block_unpack's values, block_quantize's
+    and block_quantize_'s: the CPU's words, SR and the Four Over Six rules
+    included, along either axis (the second read through the tensor's
+    strides, as on the CPU)."""
+    f = BLOCK_FORMATS[fmt]
+    x = _block_input(f, dtype)
+    for axis in (-1, -2):
+
+        def ops(t, axis=axis):
+            torch.manual_seed(9)
+            p = block_pack(t, f, axis, rounding=rounding_mode)
+            torch.manual_seed(9)
+            q = block_quantize(t, f, axis, rounding=rounding_mode)
+            y = t.clone()
+            torch.manual_seed(9)
+            block_quantize_(y, f, axis, rounding=rounding_mode)
+            return [p.data, p.scales, p.unpack(), q, y]
+
+        for ref, got in zip(ops(x), ops(x.to("mps")), strict=True):
+            assert got.device.type == "mps"
+            got = got.cpu().contiguous().view(torch.uint8)
+            assert torch.equal(got, ref.contiguous().view(torch.uint8))
+
+
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name
+)
+@pytest.mark.parametrize("kind", ["split", "fused", "unquantized", "kahan", "tree"])
+@pytest.mark.parametrize(
+    "pair",
+    [("mxfp8", "mxfp8"), ("mxfp4", "mxfp6"), ("nvfp4_16x16", "nvfp4"), ("sfp4_elem", "sfp_scale")],
+)
+def test_block_gemm(pair, kind, rounding_mode):
+    """custom_matmul_block on operands packed on the GPU: the CPU's words, in
+    both orientations of each operand, batched, under every mac and
+    accumulate algorithm."""
+    fa, fb = (BLOCK_FORMATS[p] for p in pair)
+    kw: dict[str, Any] = dict(acc=BinaryK(12, 7, prng_bits=8), rounding=rounding_mode)
+    if kind == "fused":
+        kw["fused"] = True
+    if kind == "unquantized":
+        kw["acc"] = None
+    if kind == "kahan":
+        kw["accumulate_algorithm"] = KAHAN
+    if kind == "tree":
+        kw.update(accumulate_algorithm=TREE, block_size=8, outer=BinaryK(16, 11, prng_bits=8))
+    g = torch.Generator().manual_seed(2)
+    a = torch.randn(2, 21, 80, generator=g)
+    b = torch.randn(80, 19, generator=g)
+    for ta, tb in [(False, False), (True, True)]:
+
+        def run(device, ta=ta, tb=tb):
+            pa = block_pack(a.to(device), fa, -2 if ta else -1)
+            pb = block_pack(b.to(device), fb, -1 if tb else -2)
+            torch.manual_seed(4)
+            return block_matmul(pa, pb, **kw)
+
+        ref, got = run("cpu"), run("mps")
+        _assert_same_words(ref, got)
+
+
+def test_block_ops_refuse_float64():
+    """MPS has no float64, so binary64 has no block kernel there."""
+    p = block_pack(torch.randn(4, 32, device="mps"), MXFP8_E4M3)
+    with pytest.raises((RuntimeError, TypeError), match="float64"):
+        p.unpack(dtype=torch.float64)
+    with pytest.raises((RuntimeError, TypeError), match="float64"):
+        block_matmul(p, p.mT, carrier=torch.float64)
+
+
 # --------------------------------------------------------------------------
 # Layers
 # --------------------------------------------------------------------------
@@ -536,5 +928,36 @@ def test_subnormal_products_flush():
         _assert_same_words(ref, got)
         assert ref.item() == 0.0
     ref, got = gemm(RoundMode.RU)
+    assert ref.item() == 2.0**-10  # binary8p4's smallest subnormal
+    assert got.item() == 0.0
+
+
+def test_block_decode_of_subnormals_is_exact():
+    """A decoded block value below 2^-126 (an E8M0 scale of 2^-127 times an
+    element) is the CPU's subnormal, in float32 and in bfloat16, whose word
+    the backend stores as a word: the GPU flushes a bfloat16 subnormal it
+    forms as a value. The products are block_decode.h's flush-proof
+    MPTORCH_BLOCK_MUL."""
+    x = torch.linspace(-1, 1, 64).reshape(2, 32) * 2.0**-128
+    p = block_pack(x, MXFP8_E4M3)
+    assert (p.scales == 0).all()  # 2^-127
+    for dtype in DTYPES:
+        ref = p.unpack(dtype=dtype)
+        got = p.to("mps").unpack(dtype=dtype)
+        _assert_same_words(ref, got)
+        if dtype is not torch.float16:
+            assert (ref != 0).sum() > 32 and (ref.abs() < 2.0**-126).all()
+
+
+def test_block_gemm_products_flush():
+    """The block GEMM's products and sums are the GEMM's arithmetic, which
+    the GPU flushes below 2^-126 (csrc/mps/gemm.metal): its decode is exact,
+    but a product of two decoded values of 2^-70 is a zero there, which RU
+    then keeps, where the CPU rounds it up to the format's smallest value."""
+    a = torch.full((1, 32), 2.0**-70)
+    pa, pb = block_pack(a, MXFP8_E4M3), block_pack(a.t().contiguous(), MXFP8_E4M3, 0)
+    acc = BinaryK(8, 4)
+    ref = block_matmul(pa, pb, acc=acc, rounding=RoundMode.RU)
+    got = block_matmul(pa.to("mps"), pb.to("mps"), acc=acc, rounding=RoundMode.RU).cpu()
     assert ref.item() == 2.0**-10  # binary8p4's smallest subnormal
     assert got.item() == 0.0

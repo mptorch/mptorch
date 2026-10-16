@@ -935,6 +935,161 @@ inline float metal_mul_draw(float u, float m)
 #define MPTORCH_MUL_DRAW(u, m) ((u) * (m))
 #endif
 
+// IEEE binary32 a * b, a / b and a - b, rounded to nearest even with
+// subnormal operands and results, for the block formats' decode and pack
+// (block_decode.h's MPTORCH_BLOCK_MUL, _DIV and _SUB), which multiply by
+// scales that reach 2^-127, divide by tensor scales and subtract a decoded
+// value from its input, where the float unit's flush would differ from the
+// CPU's result. The casts need none of these: they round on the word.
+//
+// Each returns the float unit's result wherever no subnormal is involved, an
+// operand or the result, since the unit is IEEE there (its division too,
+// in safe math: no mismatch against the CPU in 2^22 random normal pairs),
+// and otherwise rounds the exact result on the word. metal_round_magnitude
+// is that rounding: sig * 2^e2, plus a nonzero fraction of sig's last unit
+// when `sticky`, to nearest even on binary32's grid (2^-149 at the bottom,
+// infinity past the top), as the word of a magnitude. A caller with sticky
+// set leaves at least two bits of sig below the grid's unit, which is what
+// makes a sticky fraction decide only ties.
+#if defined(__METAL_VERSION__)
+inline int metal_leading_bit64(uint64_t x)
+{
+    const uint32_t hi = uint32_t(x >> 32);
+    return hi != 0 ? 63 - int(metal::clz(hi)) : 31 - int(metal::clz(uint32_t(x)));
+}
+
+inline uint32_t metal_round_magnitude(uint64_t sig, int e2, bool sticky)
+{
+    const int X = metal_leading_bit64(sig) + e2; // the value's binade
+    const int lsb = X - 23 < -149 ? -149 : X - 23;
+    const int shift = lsb - e2;
+    uint64_t q;
+    if (shift <= 0)
+        q = sig << uint32_t(-shift);
+    else if (shift > 64)
+        q = 0; // sig < 2^64 is then below half the grid's unit
+    else if (shift == 64)
+        q = sig > (uint64_t(1) << 63) || (sig == (uint64_t(1) << 63) && sticky) ? 1u : 0u;
+    else
+    {
+        q = sig >> uint32_t(shift);
+        const uint64_t rest = sig & ((uint64_t(1) << uint32_t(shift)) - 1u);
+        const uint64_t tie = uint64_t(1) << uint32_t(shift - 1);
+        if (rest > tie || (rest == tie && (sticky || (q & 1u) != 0)))
+            ++q;
+    }
+    if (lsb == -149)
+        return uint32_t(q); // a subnormal, or 2^-126 for q = 2^23
+    int e = X;
+    if (q == (uint64_t(1) << 24))
+    {
+        q >>= 1;
+        ++e;
+    }
+    if (e > 127)
+        return 0x7F800000u;
+    return (uint32_t(e + 127) << 23) | (uint32_t(q) & 0x007FFFFFu);
+}
+
+// A finite nonzero binary32 word as sig * 2^e, with sig an integer of at
+// most 24 bits.
+inline void metal_split_finite(uint32_t w, thread uint64_t &sig, thread int &e)
+{
+    const uint32_t field = (w >> 23) & 0xFFu;
+    sig = field == 0 ? uint64_t(w & 0x007FFFFFu) : uint64_t((w & 0x007FFFFFu) | 0x00800000u);
+    e = field == 0 ? -149 : int(field) - 150;
+}
+
+inline bool metal_is_subnormal(uint32_t w)
+{
+    return (w & 0x7F800000u) == 0 && (w & 0x007FFFFFu) != 0;
+}
+
+inline float metal_mul_rn(float a, float b)
+{
+    const float r = a * b;
+    const uint32_t aw = as_type<uint32_t>(a), bw = as_type<uint32_t>(b);
+    const uint32_t rf = (as_type<uint32_t>(r) >> 23) & 0xFFu;
+    const bool zero = (aw & 0x7FFFFFFFu) == 0 || (bw & 0x7FFFFFFFu) == 0;
+    if (!metal_is_subnormal(aw) && !metal_is_subnormal(bw) && (rf >= 2 || zero))
+        return r;
+    const uint32_t sign = (aw ^ bw) & 0x80000000u;
+    if ((aw & 0x7FFFFFFFu) > 0x7F800000u || (bw & 0x7FFFFFFFu) > 0x7F800000u)
+        return r; // a NaN
+    if ((aw & 0x7FFFFFFFu) == 0x7F800000u || (bw & 0x7FFFFFFFu) == 0x7F800000u)
+        return as_type<float>(sign | 0x7F800000u); // an infinity times a subnormal
+    if (zero)
+        return as_type<float>(sign);
+    uint64_t sa, sb;
+    int ea, eb;
+    metal_split_finite(aw, sa, ea);
+    metal_split_finite(bw, sb, eb);
+    return as_type<float>(sign | metal_round_magnitude(sa * sb, ea + eb, false));
+}
+
+inline float metal_div_rn(float a, float b)
+{
+    const float r = a / b;
+    const uint32_t aw = as_type<uint32_t>(a), bw = as_type<uint32_t>(b);
+    const uint32_t rf = (as_type<uint32_t>(r) >> 23) & 0xFFu;
+    const uint32_t am = aw & 0x7FFFFFFFu, bm = bw & 0x7FFFFFFFu;
+    if (!metal_is_subnormal(aw) && !metal_is_subnormal(bw) && (rf >= 2 || am == 0 || bm == 0x7F800000u))
+        return r;
+    const uint32_t sign = (aw ^ bw) & 0x80000000u;
+    if (am > 0x7F800000u || bm > 0x7F800000u)
+        return r; // a NaN
+    if (am == 0x7F800000u || bm == 0)
+        return as_type<float>(sign | 0x7F800000u); // with the other subnormal
+    if (bm == 0x7F800000u || am == 0)
+        return as_type<float>(sign);
+    uint64_t sa, sb;
+    int ea, eb;
+    metal_split_finite(aw, sa, ea);
+    metal_split_finite(bw, sb, eb);
+    // Both significands up to 24 bits, so the numerator, shifted to the top
+    // of 64, leaves a quotient of at least 39 bits: the 24 kept and the
+    // guard bits the rounding needs.
+    const int la = metal_leading_bit64(sa), lb = metal_leading_bit64(sb);
+    sa <<= uint32_t(63 - la);
+    sb <<= uint32_t(23 - lb);
+    const uint64_t q = sa / sb;
+    const bool sticky = sa - q * sb != 0;
+    return as_type<float>(sign | metal_round_magnitude(q, (ea - (63 - la)) - (eb - (23 - lb)), sticky));
+}
+
+inline float metal_sub_rn(float a, float b)
+{
+    const float r = a - b;
+    const uint32_t aw = as_type<uint32_t>(a), bw = as_type<uint32_t>(b);
+    const uint32_t rf = (as_type<uint32_t>(r) >> 23) & 0xFFu;
+    // Normal operands whose difference is below 2^-126 hold it exactly, as a
+    // subnormal, which the unit flushes to zero; a zero from equal operands
+    // is the unit's to sign.
+    if (!metal_is_subnormal(aw) && !metal_is_subnormal(bw) && (rf >= 1 || a == b))
+        return r;
+    if ((aw & 0x7FFFFFFFu) >= 0x7F800000u || (bw & 0x7FFFFFFFu) >= 0x7F800000u)
+        return r; // a NaN, or an infinity less a subnormal or the reverse
+    uint64_t sa = 0, sb = 0;
+    int ea = -149, eb = -149;
+    if ((aw & 0x7FFFFFFFu) != 0)
+        metal_split_finite(aw, sa, ea);
+    if ((bw & 0x7FFFFFFFu) != 0)
+        metal_split_finite(bw, sb, eb);
+    const int e = ea < eb ? ea : eb;
+    // Past 39 binades apart, the smaller is far below half the larger's
+    // unit, and the unit's result, the larger, flushed one dropped, is the
+    // rounded one.
+    if (ea - e > 39 || eb - e > 39)
+        return r;
+    const int64_t va = int64_t(sa << uint32_t(ea - e)), vb = int64_t(sb << uint32_t(eb - e));
+    const int64_t d = ((aw >> 31) != 0 ? -va : va) - ((bw >> 31) != 0 ? -vb : vb);
+    if (d == 0)
+        return 0.0f;
+    const uint32_t sign = d < 0 ? 0x80000000u : 0u;
+    return as_type<float>(sign | metal_round_magnitude(uint64_t(d < 0 ? -d : d), e, false));
+}
+#endif
+
 // What a magnitude below the format's smallest value becomes, which is the
 // only thing the rounding modes differ about down there.
 //

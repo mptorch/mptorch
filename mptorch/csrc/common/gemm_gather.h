@@ -100,6 +100,8 @@ namespace mptorch::gemm
       const uint32_t un = static_cast<uint32_t>(n);
 #if defined(__CUDA_ARCH__)
       const uint32_t hi = __umulhi(un, mul);
+#elif defined(__METAL_VERSION__)
+      const uint32_t hi = metal::mulhi(un, mul);
 #else
       const uint32_t hi = static_cast<uint32_t>((static_cast<uint64_t>(un) * mul) >> 32);
 #endif
@@ -383,6 +385,7 @@ namespace mptorch::gemm
     return static_cast<int64_t>(grp) * M + m;
   }
 
+#if !defined(__METAL_VERSION__)
   // An Accumulator policy whose operands are gathered with `geom`. It is the
   // wrapped policy in every other respect (it derives from it), so the
   // kernels drive it through the same calls; what they add for it is behind
@@ -391,7 +394,9 @@ namespace mptorch::gemm
   // compiled before (dev/gemm_roadmap.md, R-4). The geometry rides on the
   // policy because the policy is already the kernels' one by-value parameter
   // that says how an op differs; a new kernel parameter would have changed
-  // every existing kernel's signature.
+  // every existing kernel's signature. The CPU's and CUDA's only: Metal has
+  // no derived classes, and the MPS kernel binds the geometry as a buffer of
+  // its own (mps/gemm.metal).
   template <class Acc>
   struct Gathered : Acc
   {
@@ -402,7 +407,6 @@ namespace mptorch::gemm
   template <class Accumulator>
   inline constexpr bool is_gathered_v = requires { Accumulator::gathered; };
 
-#if !defined(__METAL_VERSION__)
   // The Args of a conv op: the Args of the GEMM op whose arithmetic it runs
   // (a single-format op's, its AccumulateArgs for KAHAN, BLOCK and TREE, or a
   // palette op's), and the geometry. The backends' launch_conv_as builds

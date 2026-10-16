@@ -7,8 +7,8 @@
 // the lines naming an instantiation (its "tail") and the per-launch
 // parameters (launch_params.h), and hands over the tensors.
 //
-// A kernel's source is prelude.metal, then the tail, then gemm.metal or
-// quantize.metal. The tail holds everything that is a constant of the
+// A kernel's source is prelude.metal, then the tail, then gemm.metal,
+// quantize.metal or block.metal. The tail holds everything that is a constant of the
 // instantiation: the storage dtype, the rounding mode and the format, which
 // the kernel builds its cast constants from so that they fold (gemm.metal
 // says why). Each distinct tail is one compile, 20-300 ms the first time a
@@ -18,8 +18,8 @@
 #include <ATen/core/Tensor.h>
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <string>
+#include <vector>
 
 namespace mptorch_mps
 {
@@ -27,8 +27,10 @@ namespace mptorch_mps
   // Which kernel source follows the tail, and so which kernel is launched.
   enum class KernelSource
   {
-    Gemm,     // gemm.metal's mpt_gemm
-    Quantize, // quantize.metal's mpt_quantize
+    Gemm,        // gemm.metal's mpt_gemm
+    Quantize,    // quantize.metal's mpt_quantize
+    BlockPack,   // block.metal's mpt_block_pack
+    BlockUnpack, // block.metal's mpt_block_unpack
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as
@@ -64,11 +66,10 @@ namespace mptorch_mps
   // runtime sizes (quantize.metal). `launch_groups` runs (gx, gy, gz) whole
   // threadgroups of tx x ty threads, for a kernel whose threadgroup shares
   // its work and so must be complete (gemm.metal's tiles).
-  void launch(KernelSource source, const std::string &tail, std::initializer_list<KernelArg> args,
+  void launch(KernelSource source, const std::string &tail, const std::vector<KernelArg> &args,
               uint64_t threads);
-  void launch_groups(KernelSource source, const std::string &tail,
-                     std::initializer_list<KernelArg> args, uint64_t gx, uint64_t gy, uint64_t gz,
-                     uint32_t tx, uint32_t ty);
+  void launch_groups(KernelSource source, const std::string &tail, const std::vector<KernelArg> &args,
+                     uint64_t gx, uint64_t gy, uint64_t gz, uint32_t tx, uint32_t ty);
 
   // The Metal name of a tensor's dtype, for a tail's `mpt_storage_t`, or a
   // NotImplementedError naming `op` for a dtype the kernels do not load.

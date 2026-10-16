@@ -43,6 +43,10 @@ inline float fabsf(float x) { return metal::fabs(x); }
 inline float copysignf(float x, float y) { return metal::copysign(x, y); }
 
 #include "../common/gemm_args.h"
+#include "../common/gemm_accumulate.h"
+#include "../common/gemm_cross.h"
+#include "../common/gemm_gather.h"
+#include "../common/gemm_block.h"
 #include "launch_params.h"
 
 namespace mptorch_mps
@@ -50,12 +54,17 @@ namespace mptorch_mps
 
 // Storage dtype <-> the binary32 carrier, bit for bit what the CPU backend's
 // static_casts do, so that a result stored to a narrow tensor is the one the
-// CPU stores.
+// CPU stores: to_carrier on a loaded element, store_carrier to write one.
 //
 // float is the carrier itself. bfloat16 is done on the word, as c10 does it:
 // widening is a shift, and narrowing is round-to-nearest-even on the word
 // with every NaN becoming 0x7FC0 (c10's round_to_nearest_even). The GPU's
-// own conversion would flush a binary32 subnormal before rounding it.
+// own conversion would flush a binary32 subnormal before rounding it. And
+// the word is stored as a ushort, never formed as a bfloat value: the GPU
+// flushes a bfloat16 subnormal (binary32's exponent range is bfloat16's)
+// wherever it forms one, as_type and the store included, which the block
+// formats' decode reaches with an E8M0 scale of 2^-127. A loaded bfloat
+// keeps its word under as_type, and tests/test_mps.py reads every one.
 //
 // half is c10's too, which on arm64 is the CPU's `fcvt` instruction: IEEE
 // conversion, round to nearest even, with half's subnormals. The GPU's
@@ -76,27 +85,27 @@ inline float to_carrier(half x)
 }
 
 template <class S>
-inline S from_carrier(float x);
+inline void store_carrier(device S *p, uint64_t i, float x);
 
 template <>
-inline float from_carrier<float>(float x) { return x; }
+inline void store_carrier<float>(device float *p, uint64_t i, float x) { p[i] = x; }
 
 template <>
-inline half from_carrier<half>(float x)
+inline void store_carrier<half>(device half *p, uint64_t i, float x)
 {
     const uint32_t w = as_type<uint32_t>(x);
     if ((w & 0x7FFFFFFFu) > 0x7F800000u)
-        return as_type<half>(ushort(((w >> 16) & 0x8000u) | 0x7E00u | ((w >> 13) & 0x1FFu)));
-    return half(x);
+        p[i] = as_type<half>(ushort(((w >> 16) & 0x8000u) | 0x7E00u | ((w >> 13) & 0x1FFu)));
+    else
+        p[i] = half(x);
 }
 
 template <>
-inline bfloat from_carrier<bfloat>(float x)
+inline void store_carrier<bfloat>(device bfloat *p, uint64_t i, float x)
 {
     const uint32_t w = as_type<uint32_t>(x);
-    if ((w & 0x7FFFFFFFu) > 0x7F800000u)
-        return as_type<bfloat>(ushort(0x7FC0));
-    return as_type<bfloat>(ushort((w + (((w >> 16) & 1u) + 0x7FFFu)) >> 16));
+    reinterpret_cast<device ushort *>(p)[i] =
+        (w & 0x7FFFFFFFu) > 0x7F800000u ? ushort(0x7FC0) : ushort((w + (((w >> 16) & 1u) + 0x7FFFu)) >> 16);
 }
 
 } // namespace mptorch_mps

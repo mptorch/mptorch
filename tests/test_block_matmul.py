@@ -50,9 +50,10 @@ from mptorch.quant import (
     qmatmul,
 )
 
-from .markers import float64_devices, requires_mps
+from .markers import available_devices, has_float64, requires_mps
 
-devices = float64_devices
+# Every backend; test_mps_is_the_cpu holds MPS to the CPU kernel's words.
+devices = available_devices
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 SQ_NVFP4 = dataclasses.replace(NVFP4, block_rows=16)
 SQ_FOS = dataclasses.replace(SQ_NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
@@ -432,9 +433,10 @@ def test_validation(device):
     bad = BlockPacked(pa.data[:, :-1], pa.scales, pa.fmt, pa.shape, pa.axis, 1.0, torch.float32)
     with pytest.raises(RuntimeError, match="pack into"):
         block_matmul(bad, pb)
-    with pytest.raises(ValueError, match="narrower than binary64"):
-        block_matmul(pa, block_pack(torch.randn(64, 4, device=device).double(), MXFP8_E4M3, 0),
-                     carrier=torch.float32)  # fmt: skip
+    if has_float64(device):
+        with pytest.raises(ValueError, match="narrower than binary64"):
+            block_matmul(pa, block_pack(torch.randn(64, 4, device=device).double(), MXFP8_E4M3, 0),
+                         carrier=torch.float32)  # fmt: skip
     with pytest.raises(ValueError, match="sums products pairwise"):
         block_matmul(pa, pb, fused=True, accumulate_algorithm=AccumulateAlgorithm.TREE)
     with pytest.raises(ValueError, match="packed along one of its last two"):
@@ -464,10 +466,31 @@ def test_raw_op_refuses_non_uint8_and_grad():
 
 
 @requires_mps
-def test_mps_raises():
-    pa, pb = _ops(4, 64, 4, MXFP8_E4M3, MXFP8_E4M3, "cpu")
-    with pytest.raises(RuntimeError, match="phase H"):
-        block_matmul(pa.to("mps"), pb.to("mps"))
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RU, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    "pair", ["mxfp8", "nvfp4_mxfp6", "1d_2d", "sfp_scales", "four_over_six_tiled"]
+)
+@pytest.mark.parametrize("kind", ["split", "fused", "kahan", "tree"])
+def test_mps_is_the_cpu(pair, mode, kind):
+    """Operands packed on the CPU and multiplied on MPS give the CPU's words,
+    SR included, transposed operands and a shared one too; binary64 is
+    refused by name, since MPS has no float64."""
+    fa, fb = PAIRS[pair]
+    acc = BinaryK(12, 7, prng_bits=8)
+    kw: dict = dict(acc=acc, rounding=mode, fused=kind == "fused")
+    if kind == "kahan":
+        kw["accumulate_algorithm"] = AccumulateAlgorithm.KAHAN
+    if kind == "tree":
+        kw.update(accumulate_algorithm=AccumulateAlgorithm.TREE, block_size=8)
+    for ta, tb, batch in [(False, False, (2,)), (True, True, ())]:
+        pa, pb = _ops(19, 80, 21, fa, fb, "cpu", seed=4, ta=ta, tb=tb, batch=batch)
+        torch.manual_seed(6)
+        ref = block_matmul(pa, pb, **kw)
+        torch.manual_seed(6)
+        got = block_matmul(pa.to("mps"), pb.to("mps"), **kw)
+        assert torch.equal(got.cpu().view(torch.int32), ref.view(torch.int32))
+    with pytest.raises((RuntimeError, TypeError), match="float64"):
+        block_matmul(pa.to("mps"), pb.to("mps"), carrier=torch.float64)
 
 
 @pytest.mark.parametrize("device", devices)

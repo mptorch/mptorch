@@ -163,7 +163,8 @@ bumps the tensor's version counter, like any in-place op of PyTorch's own, so
 autograd notices if a tensor it had saved is rounded. A layer's ``*_quant``
 slots should never hold an in-place ``Quant``, because a layer's input
 belongs to the graph of whatever produced it, and autograd may have saved it.
-There is no Apple GPU kernel yet, and the ops say so on an ``"mps"`` tensor.
+On an ``"mps"`` tensor the in-place ops run the out-of-place kernel with the
+tensor as both its input and its output.
 
 .. literalinclude:: ../snippets/quantizers_inplace.py
    :language: python

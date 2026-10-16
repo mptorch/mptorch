@@ -3,21 +3,18 @@
 // cuda/cuda_ops.cpp. Compiled only where setup.py builds the MPS backend
 // (macOS, with a torch built with MPS).
 //
-// Every op runs as Metal kernels (quantize.cpp, custom_matmul_entry.cpp)
-// whose results are the CPU backend's bit for bit, stochastic rounding
-// included, up to what gemm.metal documents about the GPU's flushing of
-// binary32 subnormals. The one exception is narrow_float64, whose input is a
-// float64 tensor, which MPS cannot hold: it keeps torch's boxed CPU
-// fallback, so that a call on an MPS tensor reaches the op's own dtype check
-// and fails with its message rather than the dispatcher's. The two in-place
-// quantizers have no Metal kernel yet and are bound to functions that raise
-// (quantize.cpp), for the same reason: an op with no MPS registration fails
-// at dispatch with a message that names nothing a caller can act on. So are
-// the four *_accumulated GEMMs (custom_matmul_accumulated_entry.cpp): KAHAN,
-// BLOCK and TREE have no Metal kernel yet either; and so are the eight conv
-// ops (custom_conv_entry.cpp), whose gathered tile loads Metal does not have;
-// and so are the six cross-family ops (custom_matmul_cross_entry.cpp), whose
-// Args the Metal prelude has not seen.
+// Every op runs as Metal kernels whose results are the CPU backend's bit for
+// bit, stochastic rounding included, up to what gemm.metal documents about
+// the GPU's flushing of binary32 subnormals: the quantizers and their
+// in-place twins (quantize.cpp), the GEMMs (custom_matmul_entry.cpp), their
+// KAHAN, BLOCK and TREE twins (custom_matmul_accumulated_entry.cpp), the
+// cross-family ones (custom_matmul_cross_entry.cpp), the conv ops
+// (custom_conv_entry.cpp), the block GEMM (custom_matmul_block_entry.cpp)
+// and the elementwise block ops (block_entry.cpp). The one exception is
+// narrow_float64, whose input is a float64 tensor, which MPS cannot hold: it
+// keeps torch's boxed CPU fallback, so that a call on an MPS tensor reaches
+// the op's own dtype check and fails with its message rather than the
+// dispatcher's, which names nothing a caller can act on.
 
 #include "../quant_ops.h"
 #include <ATen/native/CPUFallback.h>

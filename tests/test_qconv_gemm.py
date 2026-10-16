@@ -18,7 +18,8 @@ against a float64 reference where it does. Tier 1 holds ``QConv*d`` with a
 format wide enough to be exact on these inputs to ``nn.Conv*d``. float64
 operands run the binary64 kernels and are held to the binary64 GEMM the same
 way, and ``carrier=torch.float64`` on float32 operands to the float64 passes
-on the widened operands.
+on the widened operands. On MPS the binary32 tests run as well, and an MPS
+pass is held to the CPU pass's words, SR included.
 """
 
 import itertools
@@ -42,9 +43,12 @@ from mptorch.quant import (
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import _narrowed, _run_gemm, _run_gemm_mixed
 
-from .markers import float64_devices, requires_cuda, requires_mps
+from .markers import available_devices, float64_devices, requires_cuda, requires_mps
 
-devices = float64_devices  # CPU and CUDA: the conv ops have no MPS kernel yet
+# Every backend: on MPS the references' flat GEMMs run there too, and
+# test_mps_is_the_cpu holds the passes to the CPU's words. The float64 tests
+# take float64_devices.
+devices = available_devices
 
 NAIVE, KAHAN, BLOCK, TREE = (
     AccumulateAlgorithm.NAIVE,
@@ -722,7 +726,7 @@ def test_empty_batch():
     assert torch.equal(dw, torch.zeros_like(dw))
 
 
-@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("mode", list(RoundMode), ids=lambda m: m.name)
 def test_tier3_binary64(device, mode):
     """float64 operands run the binary64 kernels: every mac kind, the three
@@ -749,7 +753,7 @@ def test_tier3_binary64(device, mode):
         )  # fmt: skip
 
 
-@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=str)
 def test_widened_carrier_is_the_float64_passes(device, mode, dtype):
@@ -783,7 +787,7 @@ def test_widened_carrier_is_the_float64_passes(device, mode, dtype):
             assert torch.equal(got, expect), (mul, acc, mode)
 
 
-@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("device", float64_devices)
 def test_raw_op_runs_float64(device):
     """The raw op takes float64 operands itself: the binary64 forward."""
     x, w = _operands(1, 2, 3, 1, (5, 5), (3, 3), device, torch.float64)
@@ -866,12 +870,59 @@ def test_raw_op_raises_on_grad():
 
 
 @requires_mps
-def test_mps_raises_naming_phase_h():
-    x, w = _operands(1, 2, 3, 1, (5, 5), (3, 3), "mps")
-    for mac in (SplitMac(B8, B12), SplitMac(B8, S12)):
-        fwd, _, _ = _hooks(conv_formats(mac))
-        with pytest.raises(RuntimeError, match="phase H"):
-            fwd(x, w, None, stride=1, padding=0, dilation=1, groups=1, nd=2)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    "which", ["bk_split", "sf_fused", "bk_sf_split", "kahan", "tree", "palette"]
+)
+def test_mps_is_the_cpu(mode, which):
+    """Each pass on MPS returns the CPU pass's words, SR included, over a
+    strided, padded, grouped geometry whose input gradient has four residue
+    classes."""
+    b8, b12 = BinaryK(8, 4, prng_bits=8), BinaryK(12, 7, prng_bits=8)
+    s12 = SuperFP(5, 5, 16, 15, prng_bits=8)
+    macs = {
+        "bk_split": SplitMac(b8, b12, rounding=mode),
+        "sf_fused": FusedMac(s12, rounding=mode),
+        "bk_sf_split": SplitMac(b8, s12, rounding=mode),
+        "kahan": SplitMac(b8, b12, rounding=mode, accumulate_algorithm=KAHAN),
+        "tree": SplitMac(b8, b12, rounding=mode, accumulate_algorithm=TREE, block_size=8),
+        "palette": SplitMac(
+            [b8, BinaryK(8, 5, prng_bits=8)], [b12, BinaryK(12, 8, prng_bits=8)], rounding=mode
+        ),
+    }
+    mac = macs[which]
+    B, C, Cout, groups, size, kernel = 2, 4, 6, 2, (9, 8), (3, 3)
+    geo: dict[str, Any] = dict(stride=2, padding=1, dilation=1, groups=groups, nd=2)
+    out = _out(size, kernel, (2, 2), (1, 1), (1, 1))
+    x, w = _operands(B, C, Cout, groups, size, kernel, "cpu")
+    dy = torch.randn(B, Cout, *out, generator=torch.Generator().manual_seed(1))
+    maps: tuple[Any, ...] = (None, None, None)
+    if which == "palette":
+        g = torch.Generator().manual_seed(3)
+        maps = (
+            torch.randint(0, 2, (Cout, out[0] * out[1]), generator=g),
+            torch.randint(0, 2, (C, size[0] * size[1]), generator=g),
+            torch.randint(0, 2, (Cout, C // groups * 9), generator=g),
+        )
+
+    def passes(device):
+        fwd, igrad, wgrad = _hooks(
+            conv_formats(
+                mac,
+                prec_idx=None if maps[0] is None else maps[0].to(device),
+                igrad_prec_idx=None if maps[1] is None else maps[1].to(device),
+                wgrad_prec_idx=None if maps[2] is None else maps[2].to(device),
+            )
+        )
+        xd, wd, dyd = x.to(device), w.to(device), dy.to(device)
+        torch.manual_seed(7)
+        y = fwd(xd, wd, None, **geo)
+        dx = igrad(dyd, wd, input_size=x.shape, **geo)
+        dw = wgrad(dyd, xd, weight_size=w.shape, **geo)
+        return [t.cpu() for t in (y, dx, dw)]
+
+    for ref, got in zip(passes("cpu"), passes("mps"), strict=True):
+        assert torch.equal(got.view(torch.int32), ref.view(torch.int32))
 
 
 # --- memory: no unfold buffer ----------------------------------------------------

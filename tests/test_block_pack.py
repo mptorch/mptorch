@@ -50,7 +50,7 @@ from mptorch.quant import (
 from mptorch.quant.block import _block_format_ints
 
 from . import block_reference as ref
-from .markers import float64_devices, requires_mps
+from .markers import available_devices, has_float64, requires_mps
 
 PRESETS = {
     "mxfp8_e4m3": MXFP8_E4M3,
@@ -158,8 +158,9 @@ FOUR_OVER_SIX_TILES = {
 FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
-# The kernels are CPU and CUDA; MPS raises (phase H) and is tested for that.
-devices = float64_devices
+# Every backend: the references run on the CPU, and test_mps_is_the_cpu holds
+# MPS to the CPU kernels' words. A float64 test takes float64_devices.
+devices = available_devices
 
 
 def _inputs(shape, device, seed=0, spread=4.0):
@@ -1268,7 +1269,8 @@ def test_binary32_finding_per_call(device):
     x = torch.randn(4, 32, device=device)
     with pytest.raises(ValueError, match="binary64 holds it"):
         block_pack(x, fmt)
-    assert block_pack(x.double(), fmt).carrier is torch.float64
+    if has_float64(device):
+        assert block_pack(x.double(), fmt).carrier is torch.float64
 
 
 def test_requires_grad_raises():
@@ -1310,10 +1312,46 @@ def test_raw_op_validates_its_descriptor():
 
 
 @requires_mps
-def test_mps_raises():
-    x = torch.randn(4, 32, device="mps")
-    with pytest.raises(RuntimeError, match="phase H"):
-        block_quantize(x, MXFP8_E4M3)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16], ids=str)
+@pytest.mark.parametrize("mode", list(RoundMode), ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    "name",
+    ["mxfp8_e4m3", "mxfp4_e2m1", "nvfp4", "nvfp4_16x16", "nvfp4_fos_mse", "e2m1_sfp_fos_mse",
+     "nvfp4_16x16_fos_mae"],
+)  # fmt: skip
+def test_mps_is_the_cpu(name, mode, dtype):
+    """Codes, scales, the decoded values, block_quantize and block_quantize_
+    on MPS are the CPU kernels' words, SR included, over random words (NaNs,
+    infinities and binary32 subnormals among them) and tiny blocks, whose
+    E8M0 scale of 2^-127 makes the decoded values subnormals of the carrier,
+    and which the GPU's arithmetic would flush (common/block_decode.h's
+    MPTORCH_BLOCK_MUL, _DIV and _SUB keep it out)."""
+    fmt = (
+        FORMATS | FOUR_OVER_SIX_TILES | {"nvfp4_16x16": dataclasses.replace(NVFP4, block_rows=16)}
+    )[name]
+    g = torch.Generator().manual_seed(5)
+    w = torch.randint(-(2**31), 2**31, (3, 32, 64), generator=g).to(torch.int32)
+    if fmt.has_tensor_scale:
+        # a cast scale's tensor scale comes from amax, which a word near
+        # 2^128 would take past float32's range: exponents below 2^1 here
+        w = w & int(0xBFFFFFFF - (1 << 32))
+    x = w.view(torch.float32)
+    x[0] = torch.randn(32, 64, generator=g) * 2.0**-130
+    x[1, :16] = torch.randn(16, 64, generator=g) * 2.0**-118
+    x = x.to(dtype)
+
+    def ops(t):
+        torch.manual_seed(9)
+        p = block_pack(t, fmt, rounding=mode)
+        torch.manual_seed(9)
+        q = block_quantize(t, fmt, rounding=mode)
+        y = t.clone()
+        torch.manual_seed(9)
+        block_quantize_(y, fmt, rounding=mode)
+        return [p.data, p.scales, p.unpack(), q, y]
+
+    for want, got in zip(ops(x), ops(x.to("mps")), strict=True):
+        assert torch.equal(got.cpu().view(torch.uint8), want.view(torch.uint8))
 
 
 # --- a second OCP oracle: gfloat ------------------------------------------------------

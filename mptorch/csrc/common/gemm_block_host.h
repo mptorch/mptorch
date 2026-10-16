@@ -9,7 +9,7 @@
 //
 // A header of its own so that the entry points of the other GEMM ops, which
 // include gemm_host.h, compile to what they compiled before this op existed.
-// Only {cpu,cuda}/custom_matmul_block_entry.cpp include it.
+// Only {cpu,cuda,mps}/custom_matmul_block_entry.cpp include it.
 //
 //   custom_matmul_block(a_data, a_scales, a_cols, trans_a,
 //                       b_data, b_scales, b_cols, trans_b,
@@ -87,6 +87,17 @@ namespace mptorch::gemm
     o.data = data.contiguous();
     o.scales = scales.contiguous();
     return o;
+  }
+
+  // Hands a launch context that asks for them the operands' scales, which
+  // the MPS kernel binds as buffers of their own (mps/gemm_backend.h): a
+  // no-op for the CPU's and CUDA's, whose kernels read them through the
+  // BlockOperand's pointer.
+  template <class Ctx>
+  void bind_block_scales(Ctx &ctx, const Tensor &scales_a, const Tensor &scales_b)
+  {
+    if constexpr (requires { ctx.bind_block_scales(scales_a, scales_b); })
+      ctx.bind_block_scales(scales_a, scales_b);
   }
 
   // The operands and formats of one call, as the schema passes them.
@@ -184,6 +195,7 @@ namespace mptorch::gemm
     s.b = B.data.data_ptr();
     s.c = c.data_ptr();
     bind_tensors(ctx, A.data, B.data, c, nullptr);
+    bind_block_scales(ctx, A.scales, B.scales);
     Backend::launch(s, args, ctx);
     return c;
   }

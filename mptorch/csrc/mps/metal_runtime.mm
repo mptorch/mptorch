@@ -24,12 +24,30 @@ namespace mptorch_mps
 
     const char *kernel_source(KernelSource s)
     {
-      return s == KernelSource::Gemm ? metal_sources::gemm : metal_sources::quantize;
+      switch (s)
+      {
+      case KernelSource::Gemm:
+        return metal_sources::gemm;
+      case KernelSource::Quantize:
+        return metal_sources::quantize;
+      default:
+        return metal_sources::block;
+      }
     }
 
     const char *kernel_name(KernelSource s)
     {
-      return s == KernelSource::Gemm ? "mpt_gemm" : "mpt_quantize";
+      switch (s)
+      {
+      case KernelSource::Gemm:
+        return "mpt_gemm";
+      case KernelSource::Quantize:
+        return "mpt_quantize";
+      case KernelSource::BlockPack:
+        return "mpt_block_pack";
+      default:
+        return "mpt_block_unpack";
+      }
     }
 
     // Compiles one instantiation into a pipeline. Returns nil and fills
@@ -139,13 +157,13 @@ namespace mptorch_mps
     // Encodes one dispatch of `pipeline` on torch's current MPS stream:
     // `size` threads in threadgroups of `group`, or, with `size_in_groups`,
     // `size` whole threadgroups of `group` threads.
-    void encode(id<MTLComputePipelineState> pipeline, std::initializer_list<KernelArg> args,
+    void encode(id<MTLComputePipelineState> pipeline, const std::vector<KernelArg> &args,
                 MTLSize size, MTLSize group, bool size_in_groups)
     {
       for (const KernelArg &a : args)
         TORCH_INTERNAL_ASSERT(a.tensor == nullptr || a.tensor->is_mps(),
                               "mptorch: an MPS kernel was handed a tensor on ", a.tensor->device());
-      const std::vector<KernelArg> bound(args);
+      const std::vector<KernelArg> bound(args); // the block below captures a copy
       at::mps::MPSStream *stream = at::mps::getCurrentMPSStream();
       dispatch_sync(stream->queue(), ^() {
         @autoreleasepool
@@ -170,7 +188,7 @@ namespace mptorch_mps
 
   } // namespace
 
-  void launch(KernelSource source, const std::string &tail, std::initializer_list<KernelArg> args,
+  void launch(KernelSource source, const std::string &tail, const std::vector<KernelArg> &args,
               uint64_t threads)
   {
     id<MTLComputePipelineState> pipeline = pipeline_for(source, tail);
@@ -178,9 +196,8 @@ namespace mptorch_mps
     encode(pipeline, args, MTLSizeMake(threads, 1, 1), MTLSizeMake(group, 1, 1), false);
   }
 
-  void launch_groups(KernelSource source, const std::string &tail,
-                     std::initializer_list<KernelArg> args, uint64_t gx, uint64_t gy, uint64_t gz,
-                     uint32_t tx, uint32_t ty)
+  void launch_groups(KernelSource source, const std::string &tail, const std::vector<KernelArg> &args,
+                     uint64_t gx, uint64_t gy, uint64_t gz, uint32_t tx, uint32_t ty)
   {
     id<MTLComputePipelineState> pipeline = pipeline_for(source, tail);
     // The kernel's [[max_total_threads_per_threadgroup]] makes this hold.

@@ -47,8 +47,8 @@ at::Tensor superfp_quantize_mps(at::Tensor a, int64_t man_bits, int64_t exp_bits
 // The in-place twins, mptorch::binaryK_quant_ and mptorch::superfp_quant_:
 // the same rounding written over `a`, which is returned. They copy nothing,
 // so each refuses what its out-of-place op launders (a strided tensor, and
-// on CUDA a view that starts off a 16-byte boundary). The MPS pair raises:
-// the Metal kernel is dev/continuation_plan.md's phase H.
+// on CUDA a view that starts off a 16-byte boundary). On MPS they bind the
+// tensor as the Metal kernel's input and its output.
 at::Tensor &binaryK_quantize_cuda_(at::Tensor &a, int64_t K, int64_t P,
                                    int64_t bias, int64_t prng_bits,
                                    bool is_signed, int64_t round_mode,
@@ -181,8 +181,7 @@ at::Tensor superfp_matmul_fma_mps(at::Tensor a, at::Tensor b, bool trans_a, bool
 // (KAHAN, BLOCK, TREE; common/gemm_accumulate.h): their twin's arguments, then
 // a block size and an outer format. Ops of their own rather than more
 // arguments on the four above, so that a NAIVE call goes through the schema,
-// the argument parsing and the entry point it always went through. On MPS
-// they are bound to functions that raise (dev/continuation_plan.md, phase H).
+// the argument parsing and the entry point it always went through.
 at::Tensor binaryK_matmul_accumulated_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                            int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                                            bool accumulate_quant, int64_t acc_K, int64_t acc_P,
@@ -433,8 +432,7 @@ at::Tensor superfp_matmul_fma_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor p
 // weight gradient) in the arithmetic of the GEMM op each is named after, with
 // its operands gathered from the convolution's tensors rather than unfolded
 // (common/gemm_gather.h). The four single-format ones take every
-// AccumulateAlgorithm, the four palette ones NAIVE only. On MPS they are
-// bound to functions that raise (dev/continuation_plan.md, phase H).
+// AccumulateAlgorithm, the four palette ones NAIVE only.
 at::Tensor binaryK_conv_cuda(at::Tensor a, at::Tensor b, int64_t conv_pass,
                              c10::IntArrayRef out_size, c10::IntArrayRef stride,
                              c10::IntArrayRef padding, c10::IntArrayRef dilation, int64_t groups,
@@ -732,8 +730,8 @@ at::Tensor superfp_conv_fma_mixed_mps(at::Tensor a, at::Tensor b, at::Tensor pre
                                       int64_t fma_saturation_mode, int64_t fma_prng_bits);
 
 // The block-format ops (common/block_decode.h, common/gemm_block.h): the
-// elementwise pack, unpack and quantizers, and the block GEMM. MPS binds them
-// to functions that raise (mps/block_entry.cpp) until phase H.
+// elementwise pack, unpack and quantizers, and the block GEMM. MPS has no
+// binary64, so its block ops refuse a float64 result.
 std::tuple<at::Tensor, at::Tensor> block_pack_cuda(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 std::tuple<at::Tensor, at::Tensor> block_pack_cpu(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
 std::tuple<at::Tensor, at::Tensor> block_pack_mps(at::Tensor x, c10::IntArrayRef fmt, double elem_max, double scale_max, double tensor_scale, int64_t round_mode);
@@ -757,8 +755,8 @@ at::Tensor block_matmul_mps(at::Tensor a_data, at::Tensor a_scales, int64_t a_co
 // The six cross-family ops (common/gemm_cross.h): a split mac whose products
 // are rounded to a format of one family and whose partial sums to a format of
 // the other. A NAIVE pair, its *_accumulated twins and the conv pair, in the
-// layout the single-family ops have, in both carriers. Bound on MPS to
-// functions that raise (mps/custom_matmul_cross_entry.cpp; phase H).
+// layout the single-family ops have, in both carriers (binary32 only on
+// MPS).
 at::Tensor binaryK_superfp_matmul_cuda(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits);
 at::Tensor binaryK_superfp_matmul_cpu(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits);
 at::Tensor binaryK_superfp_matmul_mps(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits);

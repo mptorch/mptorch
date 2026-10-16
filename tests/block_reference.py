@@ -305,7 +305,7 @@ def tensor_scale_of(x: torch.Tensor, fmt: BlockFormat, F=np.float32) -> float:
     """NVFP4's default per-tensor scale: ``amax(|x|) / (elem_max * top_scale)``
     over the finite elements, in the carrier ``F``; 1 for a tensor with none."""
     assert fmt.elem_max is not None
-    a = x.detach().abs().double().cpu().numpy().astype(F)
+    a = x.detach().abs().cpu().double().numpy().astype(F)
     a = a[np.isfinite(a)]
     amax = F(a.max()) if a.size else F(0)
     ts = float(amax / F(fmt.elem_max * top_scale(fmt)))
@@ -445,7 +445,7 @@ def reference(
     decoded values as a tensor of ``x``'s shape in the carrier's dtype.
     """
     assert mode is not RoundMode.SR
-    xs = x.detach().double().cpu().numpy()
+    xs = x.detach().cpu().double().numpy()
     axis = axis % xs.ndim
     moved = np.moveaxis(xs, axis, -1)
     mshape = moved.shape

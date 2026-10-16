@@ -7,10 +7,9 @@ quantizers standing in for the three roundings (``mul``, ``add``, ``outer``)
 and a Python list standing in for TREE's levels. Tier 3 holds the CPU and CUDA
 kernels to them with ``torch.equal`` in every deterministic rounding mode, in
 binary32 and, on float64 operands, in binary64, where the references compute
-in float64 and the quantizers round in binary64.
-
-The three have no MPS kernel yet, so an MPS call is held to the error that
-names the follow-up.
+in float64 and the quantizers round in binary64. The binary32 cases run on
+MPS too, where the references are computed on the CPU, and an MPS call is
+also held to the CPU op's words, SR included.
 """
 
 import math
@@ -36,7 +35,7 @@ from mptorch.quant import (
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import _narrowed
 
-from .markers import float64_devices, requires_mps
+from .markers import available_devices, float64_devices, requires_mps
 
 NAIVE, KAHAN, BLOCK, TREE = (
     AccumulateAlgorithm.NAIVE,
@@ -46,8 +45,9 @@ NAIVE, KAHAN, BLOCK, TREE = (
 )
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
-# No GPU kernel on MPS yet: the shared tests run where the kernels are.
-kernel_devices = float64_devices
+# Every backend; a test that needs float64 tensors on its device (binary64,
+# the widening carrier) takes float64_devices instead.
+kernel_devices = available_devices
 
 # One narrow and one wider format per family: products in the narrow one,
 # sums in the wider, so the accumulate rounding is neither exact nor a no-op.
@@ -263,7 +263,7 @@ def test_tier1_unrounded_matches_matmul(device, algorithm):
     """With nothing rounded each algorithm is a float32 dot product in its own
     order, within float32's tolerance of ``torch.matmul``."""
     a, b = _operands(37, 203, 19, device)
-    ref = a.double().cpu() @ b.double().cpu()
+    ref = a.cpu().double() @ b.cpu().double()
     # TREE needs a multiply format; a 24-bit binaryK leaves float32 products alone.
     exact = BinaryK(32, 24)
     block_size = None if algorithm is KAHAN else 16
@@ -356,7 +356,7 @@ def test_tier3_narrow_storage(device, dtype, algorithm):
     _check(device, "split", "binaryK", algorithm, RoundMode.RNE, block_size, None, 40, dtype)
 
 
-@pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("family", [*FAMILIES, *FAMILIES64])
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
@@ -529,13 +529,13 @@ def test_sr_is_bracketed_and_unbiased(device, algorithm):
     lo = Quant(fmt, RoundMode.RD)(a[:1] * b).item()
     hi = Quant(fmt, RoundMode.RU)(a[:1] * b).item()
     assert set(out.unique().tolist()) == {lo, hi}
-    assert abs(out.double().mean().item() - 1.3 * 0.7) < 3 * (hi - lo) / (2 * n**0.5)
+    assert abs(out.cpu().double().mean().item() - 1.3 * 0.7) < 3 * (hi - lo) / (2 * n**0.5)
 
 
 # --- what is refused -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16], ids=str)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
@@ -600,18 +600,24 @@ def test_binary64_findings():
 
 @requires_mps
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
-def test_mps_is_refused(algorithm):
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RU, RoundMode.SR], ids=lambda m: m.name)
+def test_mps_is_the_cpu(algorithm, mode):
+    """An MPS call returns the CPU op's words, SR included: both draw one seed
+    from the CPU generator and key every element's stream on it alike."""
     block_size = None if algorithm is KAHAN else 4
-    fmt = BinaryK(8, 4)
-    mac = SplitMac(fmt, fmt, accumulate_algorithm=algorithm, block_size=block_size)
-    a = torch.randn(3, 5, device="mps")
-    b = torch.randn(5, 2, device="mps")
-    with pytest.raises(RuntimeError, match="no MPS kernel yet.*phase H"):
-        qmm(a, b, mac)
-    # NAIVE is untouched by the new schema arguments.
-    assert torch.equal(
-        qmm(a, b, SplitMac(fmt, fmt)).cpu(), qmm(a.cpu(), b.cpu(), SplitMac(fmt, fmt))
-    )
+    fmt = BinaryK(8, 4, prng_bits=8)
+    acc = BinaryK(12, 7, prng_bits=8)
+    mac = SplitMac(
+        fmt, acc, rounding=mode, accumulate_algorithm=algorithm, block_size=block_size,
+        outer=None if algorithm is KAHAN else BinaryK(16, 11),
+    )  # fmt: skip
+    a, b = _operands(19, 70, 23, "cpu")
+    torch.manual_seed(5)
+    ref = qmm(a, b, mac)
+    torch.manual_seed(5)
+    got = qmm(a.to("mps"), b.to("mps"), mac)
+    assert got.device.type == "mps"
+    assert torch.equal(got.cpu().view(torch.int32), ref.view(torch.int32))
 
 
 def test_validation():

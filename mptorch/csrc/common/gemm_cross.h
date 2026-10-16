@@ -10,11 +10,9 @@
 //
 // A header of its own, which gemm_args.h and gemm_policy.h do not include, so
 // that the kernels every other op runs compile to the bytes they compiled
-// before (dev/gemm_roadmap.md, R-1). The Metal prelude does not include it:
-// the MPS backend binds these ops to functions that raise until
-// dev/continuation_plan.md's phase H. It is written the way the other common/
-// headers are, MPTORCH_THREAD on references and no lambdas, so that phase H
-// ports it rather than rewrites it.
+// before (dev/gemm_roadmap.md, R-1). The Metal prelude includes it, so it is
+// written the way the other common/ headers are, MPTORCH_THREAD on references
+// and no lambdas.
 //
 // The accumulate format is always there. A split mac whose sum stays in the
 // carrier has one family only, and is that family's op with

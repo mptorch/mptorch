@@ -37,9 +37,10 @@
 // rows [t * block_rows, (t + 1) * block_rows) of block j, and the last tile
 // may be partial. scale_cols is n_blocks, or 0 for a format with no scale.
 //
-// Numbers are assembled on the carrier's word (FloatTraits), not computed:
-// which also keeps an Apple GPU's flush of binary32 subnormals away from them
-// when phase H decodes with this header. Every function is written on the
+// Numbers are assembled on the carrier's word (FloatTraits), not computed,
+// which also keeps an Apple GPU's flush of binary32 subnormals away from
+// them; the few float operations left are spelled through MPTORCH_BLOCK_MUL,
+// _DIV and _SUB below for the same reason. Every function is written on the
 // carrier T, binary32 or binary64, and so is the parameter block
 // (BlockFormatParamsT): a format's largest element, its scales and its tensor
 // scale are values of the carrier, so a format only binary64 holds (an
@@ -49,9 +50,10 @@
 // carrier of the call.
 //
 // ATen-free, and MSL-legal like the other common/ headers, so the GEMM .cu
-// files that include it pay no ATen front end and phase H ports rather than
-// rewrites it. MPTORCH_BLOCK_DEVICE names the address space of an operand
-// pointer on Metal and is empty elsewhere.
+// files that include it pay no ATen front end, and the MPS backend's block
+// kernels (mps/block.metal, mps/gemm.metal) are compiled from it.
+// MPTORCH_BLOCK_DEVICE names the address space of an operand pointer on Metal
+// and is empty elsewhere.
 
 #include "bit_helper.h"
 #include "cast_binaryK.h"
@@ -65,6 +67,24 @@
 #define MPTORCH_BLOCK_DEVICE device
 #else
 #define MPTORCH_BLOCK_DEVICE
+#endif
+
+// The float operations the decode and the pack apply to values that can be,
+// or can make, a subnormal of the carrier: a code's value times its scale (an
+// E8M0 scale reaches 2^-127), a scale times a tensor scale, an input divided
+// by its tile's scale, and a decoded value less its input. On the host and
+// CUDA each is the operation it names, rounded to nearest even, with F the
+// carrier's FloatTraits. An Apple GPU flushes binary32 subnormals in its
+// arithmetic, so on Metal each is bit_helper.h's word-exact spelling, which
+// returns the float unit's result wherever no subnormal is involved.
+#if defined(__METAL_VERSION__)
+#define MPTORCH_BLOCK_MUL(F, a, b) metal_mul_rn(a, b)
+#define MPTORCH_BLOCK_DIV(a, b) metal_div_rn(a, b)
+#define MPTORCH_BLOCK_SUB(F, a, b) metal_sub_rn(a, b)
+#else
+#define MPTORCH_BLOCK_MUL(F, a, b) F::rn_mul(a, b)
+#define MPTORCH_BLOCK_DIV(a, b) ((a) / (b))
+#define MPTORCH_BLOCK_SUB(F, a, b) F::rn_sub(a, b)
 #endif
 
 namespace mptorch::block
@@ -254,7 +274,7 @@ namespace mptorch::block
 #if defined(__CUDA_ARCH__)
     return 31 - __clz(w);
 #elif defined(__METAL_VERSION__)
-    return 31 - static_cast<int>(clz(w));
+    return 31 - static_cast<int>(metal::clz(w));
 #else
     return 31 - __builtin_clz(w);
 #endif
@@ -408,9 +428,10 @@ namespace mptorch::block
     const uint32_t mag = sc & p.scale_mag_mask;
     if (mag == p.scale_nan_code)
       return block_quiet_nan<T>();
-    return FloatTraits<T>::rn_mul(decode_minifloat<T>(mag, p.scale_man_bits, p.scale_bias, p.scale_extended,
-                                                      p.scale_super_codes, p.scale_super_cutoff),
-                                  static_cast<T>(p.tensor_scale));
+    return MPTORCH_BLOCK_MUL(FloatTraits<T>,
+                             decode_minifloat<T>(mag, p.scale_man_bits, p.scale_bias, p.scale_extended,
+                                                 p.scale_super_codes, p.scale_super_cutoff),
+                             static_cast<T>(p.tensor_scale));
   }
 
   // The value an element code and its tile's scale code decode to:
@@ -425,7 +446,7 @@ namespace mptorch::block
     T v = decode_elem<T>(code, p);
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::NONE))
       return v;
-    v = F::rn_mul(v, decode_scale<T>(sc, p));
+    v = MPTORCH_BLOCK_MUL(F, v, decode_scale<T>(sc, p));
     return (block_word(v) & F::ABS_MASK) == 0 ? T(0) : v;
   }
 
@@ -654,13 +675,14 @@ namespace mptorch::block
     else if (p.scale_kind == static_cast<int32_t>(ScaleKind::MINIFLOAT))
     {
       const T ts = static_cast<T>(p.tensor_scale);
-      const T ratio = amax / F::rn_mul(static_cast<T>(p.elem_max), ts);
+      const T ratio = MPTORCH_BLOCK_DIV(amax, MPTORCH_BLOCK_MUL(F, static_cast<T>(p.elem_max), ts));
       T sv = cast_scale(ratio, c.scale_rounding == static_cast<int32_t>(ScaleRounding::UP), p, c);
-      T factor = F::rn_mul(sv, ts);
-      if (c.scale_rounding == static_cast<int32_t>(ScaleRounding::SELECTIVE) && amax / factor > c.elem_fit)
+      T factor = MPTORCH_BLOCK_MUL(F, sv, ts);
+      if (c.scale_rounding == static_cast<int32_t>(ScaleRounding::SELECTIVE) &&
+          MPTORCH_BLOCK_DIV(amax, factor) > c.elem_fit)
       {
         sv = cast_scale(ratio, true, p, c);
-        factor = F::rn_mul(sv, ts);
+        factor = MPTORCH_BLOCK_MUL(F, sv, ts);
       }
       s.code = encode_minifloat(sv, p.scale_man_bits, p.scale_bias, p.scale_extended, p.scale_super_codes,
                                 p.scale_super_cutoff);
@@ -689,14 +711,14 @@ namespace mptorch::block
     using F = FloatTraits<T>;
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::POW2))
     {
-      const T x = F::rn_mul(v, s.factor);
+      const T x = MPTORCH_BLOCK_MUL(F, v, s.factor);
       const auto vw = block_word(v);
       if ((block_word(x) & F::ABS_MASK) == 0 && (vw & F::ABS_MASK) != 0)
         return block_float<T>((vw & F::SIGN_MASK) | 1u);
       return x;
     }
     if (p.scale_kind == static_cast<int32_t>(ScaleKind::MINIFLOAT))
-      return v / s.factor;
+      return MPTORCH_BLOCK_DIV(v, s.factor);
     return v;
   }
 
@@ -804,11 +826,11 @@ namespace mptorch::block
     if (six.nan_block || p.scale_kind != static_cast<int32_t>(ScaleKind::MINIFLOAT))
       return s;
     const T ts = static_cast<T>(p.tensor_scale);
-    const T ratio = amax / F::rn_mul(static_cast<T>(p.elem_max), ts);
-    const T sv = cast_scale(F::rn_mul(ratio, c.max_sig), false, p, c);
+    const T ratio = MPTORCH_BLOCK_DIV(amax, MPTORCH_BLOCK_MUL(F, static_cast<T>(p.elem_max), ts));
+    const T sv = cast_scale(MPTORCH_BLOCK_MUL(F, ratio, c.max_sig), false, p, c);
     s.code = encode_minifloat(sv, p.scale_man_bits, p.scale_bias, p.scale_extended, p.scale_super_codes,
                               p.scale_super_cutoff);
-    s.factor = F::rn_mul(sv, ts);
+    s.factor = MPTORCH_BLOCK_MUL(F, sv, ts);
     return s;
   }
 
@@ -865,7 +887,7 @@ namespace mptorch::block
     code = encode_elem(v, q, p);
     if (nan)
       return 0u;
-    return block_error_units(F::rn_sub(decode_value<T>(code, s.code, p), v), amax_exp);
+    return block_error_units(MPTORCH_BLOCK_SUB(F, decode_value<T>(code, s.code, p), v), amax_exp);
   }
 
   // A tile's error so far with one more element's, and two partial errors

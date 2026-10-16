@@ -239,8 +239,8 @@ class Quant:
             it in a ``*_quant`` slot of a layer's formats, because a layer's
             input belongs to the graph of whatever produced it. The call
             refuses what the in-place ops refuse: a tensor that is not
-            contiguous, a CUDA view off a 16-byte boundary, a ``carrier``
-            wider than the tensor, and an MPS tensor. Default: ``False``
+            contiguous, a CUDA view off a 16-byte boundary, and a ``carrier``
+            wider than the tensor. Default: ``False``
 
     Raises:
         TypeError: for a format with no elementwise quantizer, or a

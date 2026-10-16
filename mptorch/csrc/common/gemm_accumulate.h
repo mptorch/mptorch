@@ -12,12 +12,11 @@
 // include this one and recognize its accumulators by `positional` below; a
 // NaiveAccumulator, which has no such member, takes exactly the code path it
 // took before this file existed (dev/gemm_roadmap.md, R-2, has the binary
-// comparison). The Metal prelude does not include it, and the MPS backend
-// binds the *_accumulated ops to functions that raise until it does
-// (dev/continuation_plan.md, phase H). The code is nonetheless written the
-// way the other common/ headers are, with MPTORCH_THREAD on references and
-// function objects rather than lambdas, so that phase H ports it rather than
-// rewrites it.
+// comparison). The Metal prelude includes it too (mps/gemm.metal drives the
+// accumulators through the same contract, and recognizes them with a trait
+// of its own, since is_positional_accumulator_v is a C++20 requires-
+// expression), so it is written the way the other common/ headers are, with
+// MPTORCH_THREAD on references and function objects rather than lambdas.
 //
 // Semantics. `mul` and `add` are the Mac's two roundings (`add` is the
 // identity when the accumulate format is off), `outer` a third (the identity

@@ -1202,8 +1202,6 @@ def binaryK_quantize_(
       which rounds a float64 copy and narrows the result. A float64 tensor
       does round in place in binary64, which is its own carrier.
 
-    It has no MPS kernel yet and raises on an MPS tensor.
-
     Args:
         x (Tensor): the tensor to round and overwrite; float32, float64,
             float16 or bfloat16, contiguous. The format and mode arguments
@@ -1220,7 +1218,7 @@ def binaryK_quantize_(
             wider than ``x``.
         TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
         RuntimeError: if ``x`` requires grad under grad mode, is not
-            contiguous, is a CUDA view off a 16-byte boundary, or is on MPS.
+            contiguous, or is a CUDA view off a 16-byte boundary.
 
     Warns:
         FormatRangeWarning: as for :func:`binaryK_quantize`.
@@ -1388,8 +1386,7 @@ def superfp_quantize_(
     arguments, checks and result, written over ``x``, with no output
     allocation. Its purpose and the inputs it refuses are the same as for
     :func:`binaryK_quantize_`: a tensor that is not contiguous, a CUDA view
-    off a 16-byte boundary, a ``carrier`` wider than ``x``, and an MPS
-    tensor.
+    off a 16-byte boundary, and a ``carrier`` wider than ``x``.
 
     Args:
         x (Tensor): the tensor to round and overwrite; float32, float64,
@@ -1406,7 +1403,7 @@ def superfp_quantize_(
             wider than ``x``.
         TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
         RuntimeError: if ``x`` requires grad under grad mode, is not
-            contiguous, is a CUDA view off a 16-byte boundary, or is on MPS.
+            contiguous, or is a CUDA view off a 16-byte boundary.
 
     Warns:
         FormatRangeWarning: as for :func:`superfp_quantize`.
@@ -1648,7 +1645,6 @@ def binaryK_matmul(
             products pairwise, rounding every pair's sum to the accumulate
             format, and adds the block's root to the total in the same way.
             :class:`mptorch.AccumulateAlgorithm` states each precisely.
-            ``KAHAN``, ``BLOCK`` and ``TREE`` raise on an MPS tensor.
             Default: ``AccumulateAlgorithm.NAIVE``
         rounding_mode (RoundMode): the rounding of both formats. There is
             one mode per op, because the kernel is instantiated on it.
@@ -3545,9 +3541,8 @@ def binaryK_superfp_matmul(
     accumulate format's values, or with ``BLOCK`` or ``TREE`` and an outer
     format, the outer format's, which is of the accumulate's family.
 
-    An MPS tensor raises (phase H). :class:`mptorch.quant.SplitMac` with a
-    :class:`mptorch.BinaryK` multiply and a :class:`mptorch.SuperFP`
-    accumulate resolves to this op.
+    :class:`mptorch.quant.SplitMac` with a :class:`mptorch.BinaryK` multiply
+    and a :class:`mptorch.SuperFP` accumulate resolves to this op.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.
@@ -3737,9 +3732,9 @@ def superfp_binaryK_matmul(
     each partial sum to the binaryK format ``acc_K``/``acc_P``, which is
     required (a sum left in the carrier is :func:`superfp_matmul` with
     ``accumulate_quant=False``). With ``BLOCK`` or ``TREE`` the outer format
-    is a binaryK one, as :func:`binaryK_matmul`'s. An MPS tensor raises
-    (phase H). :class:`mptorch.quant.SplitMac` with a :class:`mptorch.SuperFP`
-    multiply and a :class:`mptorch.BinaryK` accumulate resolves to this op.
+    is a binaryK one, as :func:`binaryK_matmul`'s.
+    :class:`mptorch.quant.SplitMac` with a :class:`mptorch.SuperFP` multiply
+    and a :class:`mptorch.BinaryK` accumulate resolves to this op.
 
     Args:
         a (Tensor): the left operand; float32, float64, float16 or bfloat16.

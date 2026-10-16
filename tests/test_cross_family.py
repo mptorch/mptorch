@@ -5,15 +5,14 @@ macs use, a multiplier of one family and an adder of the other, under every
 accumulate algorithm. The references are ``test_accumulators``': plain Python
 over ``[M, N]`` tensors, one K-step at a time, with the elementwise quantizers
 standing in for the roundings, so that ``s = acc(s + mul(a*b))`` is the
-statement checked. Tier 3 holds the CPU and CUDA kernels to them with
+statement checked. Tier 3 holds the CPU, CUDA and MPS kernels to them with
 ``torch.equal`` in every deterministic rounding mode and for each algorithm;
 the two API tiers (the flat wrappers and ``SplitMac``) are held to each other,
 the layer factories to a hand-written baseline, and stochastic rounding to the
 bracket the directed modes put around it. The conv ops are in
 ``test_qconv_gemm``. float64 operands run the binary64 kernels and are held to
-the same references in float64.
-
-No MPS kernel yet: an MPS call is held to the error that names the follow-up.
+the same references in float64. An MPS call is also held to the CPU op's
+words, SR included.
 """
 
 from typing import Any
@@ -36,7 +35,7 @@ from mptorch.quant import (
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import _narrowed
 
-from .markers import float64_devices, requires_mps
+from .markers import available_devices, float64_devices, requires_mps
 from .test_accumulators import (
     BLOCK_SIZES,
     DETERMINISTIC,
@@ -53,7 +52,8 @@ NAIVE, KAHAN, BLOCK, TREE = (
     AccumulateAlgorithm.TREE,
 )
 
-kernel_devices = float64_devices  # no MPS kernel yet
+# Every backend; the float64 tests take float64_devices.
+kernel_devices = available_devices
 
 # Products in a narrow format, sums in a wider one of the other family, and a
 # still wider outer format of the accumulate's family.
@@ -168,7 +168,7 @@ def test_tier3_narrow_storage(device, direction, dtype, algorithm):
     _check(device, direction, algorithm, RoundMode.RNE, block_size, False, 40, dtype)
 
 
-@pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("direction", list(DIRECTIONS))
 @pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
 def test_tier3_binary64(device, direction, mode):
@@ -459,7 +459,7 @@ def _same(mac, mode):
 # --- what is refused -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("device", kernel_devices)
+@pytest.mark.parametrize("device", float64_devices)
 @pytest.mark.parametrize("direction", list(DIRECTIONS))
 @pytest.mark.parametrize("algorithm", [NAIVE, KAHAN, BLOCK, TREE], ids=lambda a: a.name)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
@@ -485,12 +485,24 @@ def test_widened_carrier_is_the_float64_call(device, direction, algorithm, mode)
 
 
 @requires_mps
-def test_mps_is_refused():
-    a = torch.randn(3, 5, device="mps")
-    b = torch.randn(5, 2, device="mps")
-    for mac in (SplitMac(B8, S12), SplitMac(S8, B12, accumulate_algorithm=KAHAN)):
-        with pytest.raises(RuntimeError, match="cross-family ops have no MPS kernel.*phase H"):
-            qmm(a, b, mac)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name)
+def test_mps_is_the_cpu(mode):
+    """An MPS call returns the CPU op's words, SR included."""
+    g = torch.Generator().manual_seed(4)
+    a = torch.randn(13, 37, generator=g)
+    b = torch.randn(37, 11, generator=g)
+    b8, s8 = BinaryK(8, 4, prng_bits=8), SuperFP(3, 4, 8, 7, prng_bits=8)
+    b12, s12 = BinaryK(12, 7, prng_bits=8), SuperFP(5, 5, 16, 15, prng_bits=8)
+    for mac in (
+        SplitMac(b8, s12, rounding=mode),
+        SplitMac(s8, b12, rounding=mode, accumulate_algorithm=KAHAN),
+        SplitMac(b8, s12, rounding=mode, accumulate_algorithm=TREE, block_size=8, outer=S16),
+    ):
+        torch.manual_seed(2)
+        ref = qmm(a, b, mac)
+        torch.manual_seed(2)
+        got = qmm(a.to("mps"), b.to("mps"), mac)
+        assert torch.equal(got.cpu().view(torch.int32), ref.view(torch.int32))
 
 
 def test_validation():

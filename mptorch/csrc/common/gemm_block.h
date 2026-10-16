@@ -24,9 +24,10 @@
 // format, the block formats' values having few bits; the sum is rounded to
 // an accumulate format, or left in the carrier. No palette.
 //
-// This header is ATen-free and includes nothing the policies do not; the
-// Metal prelude does not include it (the block GEMM raises on MPS until
-// dev/continuation_plan.md's phase H).
+// This header is ATen-free and includes nothing the policies do not. The MPS
+// backend's GEMM (mps/gemm.metal) takes its decode, tables and mac from here,
+// and the operands themselves as buffers of their own (Blocked is the CPU's
+// and CUDA's).
 
 #include "block_decode.h"
 #include "gemm_accumulate.h"
@@ -100,10 +101,13 @@ namespace mptorch::gemm
 
   using BlockOperand = BlockOperandT<float>;
 
+#if !defined(__METAL_VERSION__)
   // An Accumulator policy whose operands are packed block formats. It is the
   // wrapped policy in every other respect, like Gathered. The operands'
   // parameters are in the accumulator's carrier: a member type, so the kernel
   // a Blocked runs keeps the name it had before binary64 had block kernels.
+  // The CPU's and CUDA's only, like Gathered (mps/gemm.metal binds the
+  // operands' scales and parameters as buffers of their own).
   template <class Acc>
   struct Blocked : Acc
   {
@@ -112,7 +116,6 @@ namespace mptorch::gemm
     BlockOperandT<typename Acc::value_t> block_b;
   };
 
-#if !defined(__METAL_VERSION__)
   template <class Accumulator>
   inline constexpr bool is_blocked_v = requires { Accumulator::blocked; };
 
@@ -166,10 +169,19 @@ namespace mptorch::gemm
   constexpr MPTORCH_CONSTANT int BLOCK_TABLE_BITS = 8;
   constexpr MPTORCH_CONSTANT int BLOCK_TABLE = 1 << BLOCK_TABLE_BITS;
 
+  // The tables' address space: a CTA's shared memory on CUDA and a
+  // threadgroup's on Metal, which, unlike CUDA's, has to be named on the
+  // pointer (mps/gemm.metal); a task's stack on the CPU.
+#if defined(__METAL_VERSION__)
+#define MPTORCH_BLOCK_TABLE threadgroup
+#else
+#define MPTORCH_BLOCK_TABLE
+#endif
+
   // Entry i of an operand's two tables: [0, BLOCK_TABLE) its element values,
   // [BLOCK_TABLE, 2 * BLOCK_TABLE) its scale factors (1 without a scale).
   template <class T>
-  CUDA_HOST_DEVICE_INLINE void fill_block_table(MPTORCH_THREAD T *table, int i,
+  CUDA_HOST_DEVICE_INLINE void fill_block_table(MPTORCH_BLOCK_TABLE T *table, int i,
                                                 const MPTORCH_THREAD mptorch::block::BlockFormatParamsT<T> &p)
   {
     using mptorch::block::ScaleKind;
@@ -202,7 +214,7 @@ namespace mptorch::gemm
   template <class T>
   CUDA_HOST_DEVICE_INLINE T block_load_table(const MPTORCH_BLOCK_DEVICE void *data,
                                              const MPTORCH_THREAD BlockOperandT<T> &o,
-                                             const MPTORCH_THREAD T *table, int64_t bId,
+                                             const MPTORCH_BLOCK_TABLE T *table, int64_t bId,
                                              int64_t data_off, int64_t i, int64_t k)
   {
     const MPTORCH_THREAD mptorch::block::BlockFormatParamsT<T> &p = o.p;
@@ -227,7 +239,7 @@ namespace mptorch::gemm
                                                  static_cast<int32_t>(p.scale_cols) +
                                              blk])
             : 0u;
-    const T v = FloatTraits<T>::rn_mul(table[code], table[BLOCK_TABLE + sc]);
+    const T v = MPTORCH_BLOCK_MUL(FloatTraits<T>, table[code], table[BLOCK_TABLE + sc]);
     return (mptorch::block::block_word(v) & FloatTraits<T>::ABS_MASK) == 0 ? T(0) : v;
   }
 

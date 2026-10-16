@@ -38,6 +38,36 @@ namespace mptorch_mps
     GEMM_TILE = 16
   };
 
+  // The block GEMM's operands' scale batch strides, in scale bytes (0
+  // broadcasts an operand), which common/gemm_block.h's BlockOperand carries
+  // beside its scales and which the kernel binds as buffers of their own.
+  struct BlockGemmLaunch
+  {
+    int64_t scale_stride_a, scale_stride_b;
+  };
+  static_assert(sizeof(BlockGemmLaunch) == 16, "BlockGemmLaunch must have one layout on the host and the GPU");
+
+  // A block_pack, block_quant or block_quant_ call (block.metal's
+  // mpt_block_pack): the tensor's [batch, rows, cols] extents and element
+  // strides, the result's strides (block_quant only), the SR seed and the
+  // number of tiles, one thread each.
+  struct BlockPackLaunch
+  {
+    int64_t batch, rows, cols;
+    int64_t xs0, xs1, xs2;
+    int64_t os0, os1, os2;
+    uint64_t seed;
+    uint64_t tiles;
+  };
+  static_assert(sizeof(BlockPackLaunch) == 88, "BlockPackLaunch must have one layout on the host and the GPU");
+
+  // A block_unpack call (mpt_block_unpack): the dense result's extents.
+  struct BlockUnpackLaunch
+  {
+    int64_t batch, rows, cols;
+  };
+  static_assert(sizeof(BlockUnpackLaunch) == 24, "BlockUnpackLaunch must have one layout on the host and the GPU");
+
   // An elementwise quantizer over `n` contiguous elements.
   struct QuantLaunch
   {

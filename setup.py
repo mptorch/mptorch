@@ -123,7 +123,8 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     The Metal kernels are compiled at run time, by the Metal framework on the
     machine that runs them (there is no offline ``metal`` compiler without
     Xcode's), and that compiler has no include path: a library is one string.
-    Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``)
+    Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
+    ``block.metal``)
     is therefore flattened here, its quoted ``#include``\\ s replaced by the
     files they name, recursively and once each, with ``#line`` directives so a
     compile error names the header and line it is in. The shared headers
@@ -159,7 +160,7 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
                 out.append("" if line.strip() == "#pragma once" else line)
 
     strings = []
-    for root in ("prelude", "gemm", "quantize"):
+    for root in ("prelude", "gemm", "quantize", "block"):
         lines: list[str] = []
         flatten(mps_dir / f"{root}.metal", set(), lines)
         text = "\n".join(lines) + "\n"

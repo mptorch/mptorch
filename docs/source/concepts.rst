@@ -1712,10 +1712,11 @@ On an Apple GPU
 ~~~~~~~~~~~~~~~
 
 On macOS every op also runs on ``"mps"`` tensors, as Metal kernels compiled
-from the same casts and GEMM policies that the CPU runs. MPS has no float64,
-so the carrier there is always binary32. float32, float16 and bfloat16
-tensors compute exactly as on the CPU. ``carrier=torch.float64`` is refused,
-because the float64 copy of the operands cannot be made on the device.
+from the same casts, GEMM policies, accumulate algorithms, convolution
+gathers and block-format decode that the CPU runs. MPS has no float64, so
+the carrier there is always binary32. float32, float16 and bfloat16 tensors
+compute exactly as on the CPU. ``carrier=torch.float64`` and a float64
+result are refused, because the device cannot hold a float64 tensor.
 
 The results are the CPU's, bit for bit, stochastic rounding included. An MPS
 call draws its one seed from the CPU generator, as a CPU call does, and gives
@@ -1740,8 +1741,13 @@ GEMM computes *between* its roundings, not the roundings themselves:
   - A sum left unrounded (``accumulate_quant=False``) can hold a subnormal on
     the CPU that the GPU drops.
 
-  The quantizers are not affected. They round every input exactly, subnormal
-  ones included, in every mode.
+  The same holds for the compensation of ``KAHAN``, the block sums of
+  ``BLOCK`` and ``TREE``, and the products and sums of a block product. The
+  quantizers are not affected, and neither are the block formats' packing
+  and decoding. They round every input exactly, subnormal ones included, in
+  every mode. A decoded block value can itself be a subnormal (an E8M0 scale
+  reaches :math:`2^{-127}`), and it is the CPU's, in a float32 and in a
+  bfloat16 result.
 * **NaN payloads.** A NaN that reaches a product or a sum comes out of the
   GPU's float unit as its canonical NaN, where the CPU keeps the operand's
   payload. The casts pass a NaN through unchanged on every device, so a
@@ -1749,7 +1755,9 @@ GEMM computes *between* its roundings, not the roundings themselves:
 
 The first call with a given format compiles its kernel, which takes from
 about 20 ms to a few hundred. Later calls with the same format, rounding mode
-and dtype reuse it.
+and dtype reuse it. A convolution's geometry and a block tensor's shape are
+not part of the compiled kernel, so a new layer shape does not compile
+anything new.
 
 Where rounding is applied
 -------------------------

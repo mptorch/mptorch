@@ -83,8 +83,10 @@ jobs:
         python -c "
         import torch, mptorch
         assert torch.backends.mps.is_built(), 'this torch was built without MPS'
-        for op in ['binaryK_quant', 'superfp_quant', 'custom_matmul_binaryK', 'custom_matmul_superfp_fma_mixed']:
-            assert torch._C._dispatch_has_kernel_for_dispatch_key('mptorch::' + op, 'MPS'), op
+        ops = sorted(n for n in torch._C._dispatch_get_all_op_names() if n.startswith('mptorch::'))
+        assert len(ops) == 36, ops
+        missing = [n for n in ops if not torch._C._dispatch_has_kernel_for_dispatch_key(n, 'MPS')]
+        assert not missing, missing
         "
     - name: Probe the Apple GPU
       run: |

@@ -261,6 +261,6 @@ Two shapes run below the kernel's best speed:
 - A class of the input gradient with few positions or few taps is a small
   GEMM.
 
-The kernels compute in the GEMM's carrier on the CPU and on CUDA: binary64
-for a float64 model or a mac that names ``carrier=torch.float64``, binary32
-otherwise. MPS tensors raise.
+The kernels compute in the GEMM's carrier: binary64 for a float64 model or a
+mac that names ``carrier=torch.float64``, binary32 otherwise. An Apple GPU
+has no float64, so binary32 is its only carrier.

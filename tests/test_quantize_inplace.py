@@ -21,8 +21,9 @@ kernel that an in-place one cannot do, or has to do itself:
   bump, a tensor saved for backward and then quantized in place is silently
   used with its new values.
 * **No allocation**, which is the point of the ops.
-* **MPS.** There is no Metal kernel yet; the ops raise and name the
-  out-of-place op (``dev/continuation_plan.md``, phase H).
+* **MPS.** The Metal kernel is the out-of-place one with the tensor bound as
+  both its input and its output, so every test here runs on MPS as well, and
+  an MPS call is held to the CPU op's words.
 """
 
 from collections.abc import Callable
@@ -66,8 +67,8 @@ OPS: dict[str, tuple[Callable[..., torch.Tensor], Callable[..., torch.Tensor], d
 }
 OP_NAMES = list(OPS)
 
-# The in-place ops run on these; on MPS they raise (test_mps_raises).
-_devices = [d for d in available_devices if "mps" not in str(d)]
+# Every backend (conftest.py skips the MPS cases of a float64 dtype).
+_devices = available_devices
 
 
 def _same_words(a: torch.Tensor, b: torch.Tensor) -> bool:
@@ -76,9 +77,10 @@ def _same_words(a: torch.Tensor, b: torch.Tensor) -> bool:
 
 
 def _input(device: str, dtype: torch.dtype, size: int = SIZE) -> torch.Tensor:
-    """Values across and past both formats' ranges, with the specials."""
-    x = torch.randn(size, device=device) * torch.logspace(-6, 6, size, device=device)
-    x = x.to(dtype)
+    """Values across and past both formats' ranges, with the specials. Made
+    on the CPU, which has every op this takes (MPS has no ``logspace``)."""
+    x = torch.randn(size) * torch.logspace(-6, 6, size)
+    x = x.to(device, dtype)
     x[:6] = torch.tensor([0.0, -0.0, float("inf"), -float("inf"), float("nan"), 448.0])
     return x
 
@@ -379,13 +381,22 @@ def test_quant_inplace_is_part_of_the_value():
 
 
 @requires_mps
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16], ids=str)
 @pytest.mark.parametrize("op", OP_NAMES)
-def test_mps_raises(op):
-    """No Metal kernel yet: the op says so, names the out-of-place op, and
-    leaves the tensor as it was."""
-    _, quantize_, fmt = OPS[op]
-    x = torch.randn(64, device="mps")
-    before = x.clone()
-    with pytest.raises(RuntimeError, match=f"no MPS kernel yet.*use {op}_quant,"):
-        quantize_(x, **fmt)
-    assert torch.equal(x, before)
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name
+)
+def test_mps_is_the_cpu(dtype, op, rounding_mode):
+    """An MPS tensor rounded in place holds the CPU op's words, SR included
+    (both draw one seed from the CPU generator), and a view off the start of
+    its storage is rounded where it lies."""
+    quantize, quantize_, fmt = OPS[op]
+    kw = dict(fmt, prng_bits=6, rounding_mode=rounding_mode)
+    x = _input("cpu", dtype, 4099)
+    torch.manual_seed(3)
+    expected = quantize(x[5:], **kw)
+    y = x.to("mps")
+    torch.manual_seed(3)
+    quantize_(y[5:], **kw)
+    assert _same_words(y[5:].cpu(), expected)
+    assert _same_words(y[:5].cpu(), x[:5])

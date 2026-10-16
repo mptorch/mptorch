@@ -238,4 +238,5 @@ on the decoded float32 operands (``dev/benchmarks/benchmark_block.py``):
   rounds every product to a multiply format and the block product does not.
 
 The kernels compute in binary32 or binary64 on the CPU and CUDA, and return
-a float32 or a float64 result accordingly. An Apple GPU tensor raises.
+a float32 or a float64 result accordingly. An Apple GPU has no float64, so
+it computes in binary32 only.

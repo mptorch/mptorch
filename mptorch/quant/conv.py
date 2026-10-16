@@ -322,8 +322,8 @@ def conv_formats(
     float16 and bfloat16 ones in binary32, unless the mac names
     ``carrier=torch.float64``. Then narrower operands are widened, each pass
     runs the binary64 kernels, and its result is narrowed back to their
-    dtype, bit-identical to the pass on the widened operands. MPS tensors
-    raise (phase H of ``dev/continuation_plan.md``).
+    dtype, bit-identical to the pass on the widened operands. On MPS, which
+    has no float64, binary32 is the only carrier.
 
     Args:
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,

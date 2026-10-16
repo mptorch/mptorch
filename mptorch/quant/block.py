@@ -23,8 +23,8 @@ The kernels round in the carrier: binary64 for a float64 tensor or
 ``carrier=torch.float64`` (a narrower tensor is widened first and the result
 narrowed back with one rounding), and binary32 otherwise. A
 :class:`BlockPacked` remembers the carrier it was packed in, and unpacking it
-or multiplying it runs in that carrier or a wider one. An MPS tensor raises
-(``dev/continuation_plan.md``, phase H).
+or multiplying it runs in that carrier or a wider one. On MPS, which has no
+float64, the binary32 carrier is the only one.
 """
 
 from dataclasses import dataclass
@@ -132,6 +132,18 @@ def _float32(v: float) -> float:
     return torch.tensor(v, dtype=torch.float32).item()
 
 
+def _amax(x: torch.Tensor) -> torch.Tensor:
+    """``max |x|`` as a 0-d tensor of ``x``'s dtype and device: one reduction,
+    with no ``|x|``-sized temporary (a weight's worth of memory at the peak of
+    a layer's step). ``max(-min, max)`` is that value exactly, and a NaN or an
+    infinity in ``x`` makes it non-finite, as ``vector_norm(x, inf)`` does.
+    ``torch.aminmax`` rather than ``vector_norm``, which took 25 ms against
+    1.5 over 2^24 float32 elements on an Apple GPU, and 4.5 ms against 0.3 over
+    bfloat16 ones on the CPU."""
+    lo, hi = torch.aminmax(x.detach())
+    return torch.maximum(-lo, hi)
+
+
 def _tensor_scale(
     x: torch.Tensor, fmt: BlockFormat, tensor_scale: float | None, wide: bool = False
 ) -> float:
@@ -161,17 +173,16 @@ def _tensor_scale(
         return 1.0
     assert fmt.elem_max is not None  # resolved by BlockFormat.__post_init__
     if wide:
-        amax = torch.linalg.vector_norm(x.detach(), float("inf"), dtype=torch.float64).cpu()
+        amax = _amax(x).cpu().double()
         if not torch.isfinite(amax):
             a = x.detach().abs().double()
             zero = torch.zeros((), dtype=a.dtype, device=a.device)
             amax = torch.where(torch.isfinite(a), a, zero).amax().cpu()
         ts = amax.item() / (fmt.elem_max * fmt.top_scale)
         return ts if ts > 0 else 1.0
-    # max |x| as a reduction, with no |x|-sized temporary (a weight's worth of
-    # memory at the peak of a layer's step); the non-finite elements are left
-    # out only when there are some, which costs the temporaries.
-    amax = torch.linalg.vector_norm(x.detach(), float("inf"), dtype=torch.float32).cpu()
+    # The non-finite elements are left out only when there are some, which
+    # costs the temporaries.
+    amax = _amax(x).cpu().float()
     if not torch.isfinite(amax):
         a = x.detach().abs().float()
         amax = torch.where(torch.isfinite(a), a, torch.zeros((), device=a.device)).amax().cpu()
@@ -408,8 +419,7 @@ def block_pack(
             (:func:`mptorch.number.check_block_carrier`), ``carrier=torch.float32``
             on a float64 ``x``, or a ``tensor_scale`` given to a format
             without one.
-        RuntimeError: on an MPS tensor (no Metal kernel yet), or on a tensor
-            that requires grad under grad mode.
+        RuntimeError: on a tensor that requires grad under grad mode.
 
     Example::
 

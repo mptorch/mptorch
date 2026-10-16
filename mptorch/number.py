@@ -288,10 +288,14 @@ class AccumulateAlgorithm(Enum):
 
     Under :attr:`RoundMode.SR` every rounding that is not an identity draws
     once, in the order written. Nothing is padded, so a result does not
-    depend on how a backend tiles ``K``, and the CPU and CUDA kernels agree to
-    the bit in every deterministic mode. ``KAHAN``, ``BLOCK`` and ``TREE``
-    are implemented for the single-format ops, in binary32. Float64 operands,
-    ``carrier=torch.float64``, a palette and an MPS tensor raise.
+    depend on how a backend tiles ``K``, and the CPU, CUDA and MPS kernels
+    agree to the bit in every deterministic mode (MPS up to the Apple GPU's
+    flush of binary32 subnormals in the arithmetic between roundings). An MPS
+    result is the CPU's under SR as well, since both draw from the CPU
+    generator. ``KAHAN``, ``BLOCK`` and ``TREE`` are implemented for the
+    single-format ops, the cross-family ones, the conv ops and the block
+    GEMM, in both carriers (binary32 only on MPS, which has no float64). A
+    palette raises.
 
     Example::
 
