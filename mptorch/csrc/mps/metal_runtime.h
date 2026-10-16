@@ -27,10 +27,11 @@ namespace mptorch_mps
   // Which kernel source follows the tail, and so which kernel is launched.
   enum class KernelSource
   {
-    Gemm,        // gemm.metal's mpt_gemm
-    Quantize,    // quantize.metal's mpt_quantize
-    BlockPack,   // block.metal's mpt_block_pack
-    BlockUnpack, // block.metal's mpt_block_unpack
+    Gemm,          // gemm.metal's mpt_gemm
+    Quantize,      // quantize.metal's mpt_quantize
+    BlockPack,     // block.metal's mpt_block_pack
+    BlockPackTile, // block.metal's mpt_block_pack_tile
+    BlockUnpack,   // block.metal's mpt_block_unpack
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as

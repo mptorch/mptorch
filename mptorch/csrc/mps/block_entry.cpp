@@ -25,6 +25,7 @@
 #include "launch_params.h"
 #include "metal_runtime.h"
 #include <ATen/ops/empty_like.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -110,8 +111,21 @@ namespace
                                        "tensor");
   }
 
-  // Launches mpt_block_pack over x's tiles: codes into data and scales
-  // (`o` null), or decoded values into o, which is x itself in place.
+  // Launches the pack over x's tiles: codes into data and scales (`o`
+  // null), or decoded values into o, which is x itself in place. Each tile
+  // gets one thread (mpt_block_pack) when the call has at least 256 tiles
+  // per element of a tile, and one threadgroup otherwise
+  // (mpt_block_pack_tile, 64 elements a thread, from one simdgroup to
+  // BLOCK_TILE_THREADS threads). One thread runs its tile in series, so the
+  // GPU needs many tiles to hide the latency; given them, it is the cheaper
+  // kernel, with no barrier and no idle thread. On an M3 Pro, over 256^2 to
+  // 4096^2 elements, 1D blocks of 16 to 128 and 2D tiles of 64 to 16,384
+  // elements, the rule picked the faster kernel or one within 3% of it. A
+  // 128 x 128 tile always gets a threadgroup: under Four Over Six that takes
+  // 6.4 ms at 4096^2, where one thread took 72. A 1D block of 16 gets one
+  // thread from 256^2, and NVFP4's 16 x 16 tile from 4096^2: there one
+  // thread takes 2.8 ms and a threadgroup 3.1, and at 1024^2 one thread
+  // takes 0.62 ms and a threadgroup 0.44.
   void run_pack(const Tensor &x, const Tensor *o, const Tensor *data, const Tensor *scales, const Fmt &f,
                 const BlockFormatParams &p, const BlockExtents &e, double elem_max, int64_t round_mode,
                 const char *op)
@@ -132,7 +146,10 @@ namespace
     }
     L.tiles = static_cast<uint64_t>(e.batch * p.row_tiles * p.n_blocks);
     TORCH_CHECK(L.tiles <= std::numeric_limits<uint32_t>::max(), op,
-                ": an MPS block pack runs one thread per tile, at most 2^32 - 1 of them, got ", L.tiles);
+                ": an MPS block pack runs one thread or threadgroup per tile, at most 2^32 - 1 of them, got ",
+                L.tiles);
+    const uint32_t tile_elems = static_cast<uint32_t>(p.block_rows * p.block_size);
+    const bool grouped = L.tiles < uint64_t{256} * tile_elems;
     const char *storage = mptorch_mps::metal_storage_type(x.scalar_type(), op);
     L.seed = seed_for(round_mode);
     const std::string tail =
@@ -140,14 +157,20 @@ namespace
         mptorch_mps::metal_round_mode(round_mode) + "\n#define MPT_QUANT " + (quant ? "1" : "0") +
         "\n#define MPT_FOS " +
         (is_four_over_six(static_cast<int32_t>(f[static_cast<int>(BlockFmtField::SCALE_ROUNDING)])) ? "1" : "0") +
-        "\n" + block_cast_source(f, elem_max);
+        "\n#define MPT_TILE " + (grouped ? "1" : "0") + "\n" + block_cast_source(f, elem_max);
     // The buffers block.metal does not use on this path are bound to x, as
     // are a scale-free format's empty scales.
     const Tensor &scales_or_x = !quant && scales->numel() != 0 ? *scales : x;
-    mptorch_mps::launch(mptorch_mps::KernelSource::BlockPack, tail,
-                        {x, quant ? *o : x, quant ? x : *data, scales_or_x, mptorch_mps::KernelArg::params(p),
-                         mptorch_mps::KernelArg::params(L)},
-                        L.tiles);
+    const std::vector<mptorch_mps::KernelArg> args{x, quant ? *o : x, quant ? x : *data, scales_or_x,
+                                                   mptorch_mps::KernelArg::params(p),
+                                                   mptorch_mps::KernelArg::params(L)};
+    if (!grouped)
+    {
+      mptorch_mps::launch(mptorch_mps::KernelSource::BlockPack, tail, args, L.tiles);
+      return;
+    }
+    const uint32_t threads = std::clamp<uint32_t>(tile_elems / 64, 32, mptorch_mps::BLOCK_TILE_THREADS);
+    mptorch_mps::launch_groups(mptorch_mps::KernelSource::BlockPackTile, tail, args, L.tiles, 1, 1, threads, 1);
   }
 
   // The body of block_quant and block_quant_: every element of x rounded

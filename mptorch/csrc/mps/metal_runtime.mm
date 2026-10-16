@@ -45,6 +45,8 @@ namespace mptorch_mps
         return "mpt_quantize";
       case KernelSource::BlockPack:
         return "mpt_block_pack";
+      case KernelSource::BlockPackTile:
+        return "mpt_block_pack_tile";
       default:
         return "mpt_block_unpack";
       }

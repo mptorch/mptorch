@@ -742,18 +742,20 @@ BLOCK_FORMATS = {
 }
 
 
-def _block_input(fmt: BlockFormat, dtype: torch.dtype) -> torch.Tensor:
+def _block_input(
+    fmt: BlockFormat, dtype: torch.dtype, shape: tuple[int, int, int] = (3, 32, 96)
+) -> torch.Tensor:
     """Random words (NaNs, infinities and subnormals among them; for a cast
-    scale, whose tensor scale comes from amax, exponents below 2^1), a block
-    of binary32 subnormals, and blocks far enough down that their E8M0 scale
+    scale, whose tensor scale comes from amax, exponents below 2^1), a batch
+    of binary32 subnormals, and rows far enough down that their E8M0 scale
     is 2^-127 and their decoded values are subnormals of the carrier."""
     g = torch.Generator().manual_seed(8)
-    w = torch.randint(-(2**31), 2**31, (3, 32, 96), generator=g).to(torch.int32)
+    w = torch.randint(-(2**31), 2**31, shape, generator=g).to(torch.int32)
     if fmt.has_tensor_scale:
         w = w & int(0xBFFFFFFF - (1 << 32))
     x = w.view(torch.float32)
-    x[0] = torch.randn(32, 96, generator=g) * 2.0**-131
-    x[1, :8] = torch.randn(8, 96, generator=g) * 2.0**-117
+    x[0] = torch.randn(shape[1:], generator=g) * 2.0**-131
+    x[1, :8] = torch.randn(8, shape[2], generator=g) * 2.0**-117
     return x.to(dtype)
 
 
@@ -783,6 +785,52 @@ def test_block_elementwise(fmt, dtype, rounding_mode):
             assert got.device.type == "mps"
             got = got.cpu().contiguous().view(torch.uint8)
             assert torch.equal(got, ref.contiguous().view(torch.uint8))
+
+
+# Formats whose tiles are small enough that a test-sized tensor has the 256
+# tiles per tile element at which the backend gives each tile one thread
+# rather than a threadgroup (block_entry.cpp's run_pack).
+_ONE_THREAD_FORMATS = {
+    "mxfp8": MXFP8_E4M3,
+    "nvfp4": NVFP4,
+    "fos_mse": BLOCK_FORMATS["fos_mse"],
+    "sfp_scale": BLOCK_FORMATS["sfp_scale"],
+    "fos_4x16_mae": dataclasses.replace(
+        NVFP4, block_rows=4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RD, RoundMode.SR], ids=lambda m: m.name
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=str)
+@pytest.mark.parametrize("fmt", list(_ONE_THREAD_FORMATS))
+def test_block_elementwise_one_thread_per_tile(fmt, dtype, rounding_mode):
+    """test_block_elementwise's ops on a tensor with at least 256 tiles per
+    tile element along either axis, which the backend packs with one thread
+    per tile: the smaller tensors of the other tests get a threadgroup per
+    tile, and the two kernels must give the same words."""
+    f = _ONE_THREAD_FORMATS[fmt]
+    x = _block_input(f, dtype, (4, 520, 520))  # square: the same tiles along either axis
+    tiles = 4 * -(-520 // f.block_rows) * -(-520 // f.block_size)
+    assert tiles >= 256 * f.block_rows * f.block_size
+    for axis in (-1, -2):
+
+        def ops(t, axis=axis):
+            torch.manual_seed(9)
+            p = block_pack(t, f, axis, rounding=rounding_mode)
+            torch.manual_seed(9)
+            q = block_quantize(t, f, axis, rounding=rounding_mode)
+            y = t.clone()
+            torch.manual_seed(9)
+            block_quantize_(y, f, axis, rounding=rounding_mode)
+            return [p.data, p.scales, p.unpack(), q, y]
+
+        for ref, got in zip(ops(x), ops(x.to("mps")), strict=True):
+            assert torch.equal(
+                got.cpu().contiguous().view(torch.uint8), ref.contiguous().view(torch.uint8)
+            )
 
 
 @pytest.mark.parametrize(

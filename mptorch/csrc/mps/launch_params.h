@@ -48,9 +48,10 @@ namespace mptorch_mps
   static_assert(sizeof(BlockGemmLaunch) == 16, "BlockGemmLaunch must have one layout on the host and the GPU");
 
   // A block_pack, block_quant or block_quant_ call (block.metal's
-  // mpt_block_pack): the tensor's [batch, rows, cols] extents and element
-  // strides, the result's strides (block_quant only), the SR seed and the
-  // number of tiles, one thread each.
+  // mpt_block_pack and mpt_block_pack_tile): the tensor's [batch, rows, cols]
+  // extents and element strides, the result's strides (block_quant only),
+  // the SR seed and the number of tiles, one thread or one threadgroup
+  // each.
   struct BlockPackLaunch
   {
     int64_t batch, rows, cols;
@@ -60,6 +61,14 @@ namespace mptorch_mps
     uint64_t tiles;
   };
   static_assert(sizeof(BlockPackLaunch) == 88, "BlockPackLaunch must have one layout on the host and the GPU");
+
+  // The most threads a tile's threadgroup has (mpt_block_pack_tile): the
+  // host gives each thread 64 of a tile's elements, from one simdgroup up
+  // to this, which a 128 x 128 tile reaches.
+  enum : uint32_t
+  {
+    BLOCK_TILE_THREADS = 256
+  };
 
   // A block_unpack call (mpt_block_unpack): the dense result's extents.
   struct BlockUnpackLaunch
