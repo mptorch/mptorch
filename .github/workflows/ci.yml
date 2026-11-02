@@ -79,15 +79,24 @@ jobs:
       run: |
         uv pip install --system -e ".[test]" --no-build-isolation
     - name: Check that the MPS kernels were built
+      # The ops the extension registers must be exactly the schemas that
+      # quant_ops.cpp defines (so the check below cannot pass on a build that
+      # registered none or only some), and each must have an MPS kernel.
       run: |
-        python -c "
+        python - <<'EOF'
+        import re
         import torch, mptorch
         assert torch.backends.mps.is_built(), 'this torch was built without MPS'
+        src = open('mptorch/csrc/quant_ops.cpp').read()
+        schemas = sorted('mptorch::' + n for n in re.findall(r'm\.def\("(\w+)\(', src))
         ops = sorted(n for n in torch._C._dispatch_get_all_op_names() if n.startswith('mptorch::'))
-        assert len(ops) == 36, ops
+        assert schemas, 'no m.def("...") schema found in mptorch/csrc/quant_ops.cpp'
+        assert ops == schemas, {'registered, not in quant_ops.cpp': sorted(set(ops) - set(schemas)),
+                                'in quant_ops.cpp, not registered': sorted(set(schemas) - set(ops))}
         missing = [n for n in ops if not torch._C._dispatch_has_kernel_for_dispatch_key(n, 'MPS')]
         assert not missing, missing
-        "
+        print(f'{len(ops)} mptorch ops, each with an MPS kernel')
+        EOF
     - name: Probe the Apple GPU
       run: |
         python -c "
