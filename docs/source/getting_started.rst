@@ -79,7 +79,7 @@ Vocabulary
 A few words are used throughout, with a fixed meaning:
 
 format
-   A description of which numbers can be represented: :class:`~mptorch.BinaryK` (the IEEE P3109 binary formats) or :class:`~mptorch.SuperFP`, for example. Frozen, hashable, comparable by value.
+   A description of which numbers can be represented: :class:`~mptorch.BinaryK` (the IEEE P3109 binary formats), :class:`~mptorch.SuperFP` or :class:`~mptorch.FixedPoint`, for example. Frozen, hashable, comparable by value.
 rounding mode
    How a number that is *not* representable is mapped to one that is: :class:`~mptorch.RoundMode`. A property of an operation, not of a format.
 quantize / quantizer

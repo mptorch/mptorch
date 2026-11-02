@@ -1561,8 +1561,8 @@ def fixedpoint_quantize_(
     The in-place spelling of :func:`fixedpoint_quantize`: the same arguments,
     checks and result, written over ``x``, with no output allocation. What it
     is for and what it refuses (a tensor that is not contiguous, a CUDA view
-    off a 16-byte boundary, a ``carrier`` wider than ``x``, an MPS tensor) are
-    as for :func:`binaryK_quantize_`.
+    off a 16-byte boundary, a ``carrier`` wider than ``x``) are as for
+    :func:`binaryK_quantize_`.
 
     Args:
         x (Tensor): the tensor to round and overwrite; float32, float64,
@@ -1579,7 +1579,7 @@ def fixedpoint_quantize_(
             wider than ``x``.
         TypeError: if ``carrier`` is neither a ``torch.dtype`` nor ``None``.
         RuntimeError: if ``x`` requires grad under grad mode, is not
-            contiguous, is a CUDA view off a 16-byte boundary, or is on MPS.
+            contiguous, or is a CUDA view off a 16-byte boundary.
 
     Warns:
         FormatRangeWarning: as for :func:`fixedpoint_quantize`.

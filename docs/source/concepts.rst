@@ -536,12 +536,67 @@ instead of :math:`2^{-9}`. The price is that it keeps its mantissa only in
 the two top binades. It suits quantities whose *scale* matters more than
 their digits.
 
+.. _fixed-point:
+
+FixedPoint: one step across the range
+-------------------------------------
+
+:class:`~mptorch.FixedPoint` is a fixed-point format, defined as in `Gupta
+et al., Deep Learning with Limited Numerical Precision
+<https://arxiv.org/abs/1502.02551>`__. A word of ``wl`` bits holds an integer
+:math:`k`, and its value is :math:`k \cdot 2^{-\text{fl}}`. Every value is a
+multiple of the same step, :math:`2^{-\text{fl}}`, so the grid is as fine at
+the top of the range as near zero, and there is no exponent field. With
+:math:`n` magnitude bits (``wl - 1`` in a signed format, ``wl`` in an
+unsigned one), the range is
+
+.. math::
+
+   \begin{aligned}
+   \text{two's complement (the default):} &\quad
+      [-2^{\,n-\text{fl}},\; 2^{\,n-\text{fl}} - 2^{-\text{fl}}] \\
+   \text{symmetric:} &\quad
+      [-(2^{\,n-\text{fl}} - 2^{-\text{fl}}),\; 2^{\,n-\text{fl}} - 2^{-\text{fl}}] \\
+   \text{unsigned:} &\quad [0,\; 2^{\,n-\text{fl}} - 2^{-\text{fl}}]
+   \end{aligned}
+
+``fl`` can be any integer: negative for a step larger than 1, or larger than
+``wl`` for a format that holds only fractions.
+
+- Every rounding mode applies (`Rounding modes`_). Under ``RNE`` a tie goes
+  to the even integer code.
+- Below the step, the two candidates are zero and the step itself, as for a
+  BinaryK format below its smallest subnormal.
+- A result past either end saturates to that end, and so does an infinity:
+  the word has no code for one, so the format has no saturation mode.
+- A NaN passes through, a negative input to an unsigned format becomes zero,
+  and the one zero is :math:`+0.0`, as for BinaryK.
+- The magnitude bits must fit the carrier's mantissa: at most 23 in binary32
+  and 52 in binary64 (Carriers_).
+- There is no fixed-point arithmetic inside a matrix product yet.
+  ``FixedPoint`` has the elementwise quantizer only (:doc:`quantizers`), and
+  a ``SplitMac``, ``FusedMac`` or ``Palette`` refuses it.
+
+.. literalinclude:: ../snippets/formats_fixedpoint.py
+   :language: python
+   :caption: docs/snippets/formats_fixedpoint.py
+
+.. literalinclude:: ../snippets/formats_fixedpoint.out
+   :language: text
+   :caption: output
+
+.. Stub, to complete in phase K, step 1 (dev/continuation_plan.md): the full
+   carrier rules (a range below the carrier's normals, a range reaching its
+   top binade, a step below the simulable floor), the storage rule for
+   float16 and bfloat16 results, and, with phase K's step 2, fixed-point
+   elements in block formats.
+
 .. _block-formats:
 
 Block formats
 -------------
 
-The formats above give every element an exponent of its own. A *block
+BinaryK and SuperFP give every element an exponent of its own. A *block
 format* shares one scale among a block of consecutive elements and stores
 the elements as narrow codes, so a 4-bit element can carry values over the
 whole range of a float32 tensor, one block at a time. The OCP Microscaling
@@ -1475,9 +1530,12 @@ the result is still a tensor of plausible numbers, but some of the format's
 values never appear in it. There are three limits, stated here in the
 format's own terms, with binary64's in parentheses:
 
-* **Precision.** :math:`P \le 24` (53) for :class:`~mptorch.BinaryK`, and
-  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`. These are the
-  carrier's significand bits; it cannot hold a finer grid.
+* **Precision.** :math:`P \le 24` (53) for :class:`~mptorch.BinaryK`,
+  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`, and at most 23 (52)
+  magnitude bits for :class:`~mptorch.FixedPoint`, one fewer than the
+  carrier's precision because stochastic rounding adds a leading bit above
+  them. These are the carrier's significand bits; it cannot hold a finer
+  grid.
 * **The top.** The largest finite value must be at most the carrier's. That
   is :math:`\text{bias} \ge 2^E - 128` (:math:`2^E - 1024`), where :math:`E`
   is the exponent width (``exp_bits`` for a SuperFP). Above that the cast

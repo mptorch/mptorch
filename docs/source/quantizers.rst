@@ -66,6 +66,26 @@ Some things to know about them:
   (``"mps"``) draws from the CPU's generator and matches the CPU bit for bit
   in every mode, ``SR`` included (:ref:`apple-gpu` gives the exceptions).
 
+:func:`~mptorch.quant.fixedpoint_quantize` is the function for a
+:class:`~mptorch.FixedPoint` format (:ref:`fixed-point`). It takes ``wl``,
+``fl``, ``is_signed`` and ``symmetric`` in place of a float's fields, and no
+``saturation_mode``, because a fixed-point result always saturates. The
+points above apply to it too: the dtypes, the carrier, the storage check,
+``prng_bits`` (which shares the carrier's mantissa with the format's
+magnitude bits) and the backends.
+
+.. literalinclude:: ../snippets/quantizers_fixedpoint.py
+   :language: python
+   :caption: docs/snippets/quantizers_fixedpoint.py
+
+.. literalinclude:: ../snippets/quantizers_fixedpoint.out
+   :language: text
+   :caption: output
+
+.. Stub, to complete in phase K, step 1 (dev/continuation_plan.md): what
+   the storage check says for a fixed-point result in float16 and bfloat16,
+   and a CPU == CUDA run, recorded on a machine with a GPU.
+
 float64 and the carrier
 -----------------------
 
@@ -133,9 +153,10 @@ Build them once and keep them, instead of constructing one per call.
 In place
 --------
 
-:func:`~mptorch.quant.binaryK_quantize_` and
-:func:`~mptorch.quant.superfp_quantize_` take the arguments of the functions
-above, write the result over the tensor, and return it. They run the same
+:func:`~mptorch.quant.binaryK_quantize_`,
+:func:`~mptorch.quant.superfp_quantize_` and
+:func:`~mptorch.quant.fixedpoint_quantize_` take the arguments of the
+functions above, write the result over the tensor, and return it. They run the same
 kernels with the output pointer set to the input's. The result is therefore
 the out-of-place one bit for bit, including under ``RoundMode.SR`` with the
 same seed; the only difference is that no result is allocated. They are meant

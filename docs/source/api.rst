@@ -18,7 +18,7 @@ and scale formats ``E8M0``, ``E4M3``, ``E5M2``, ``E2M1``, ``E2M3`` and
 ``MXFP4_E2M1`` and ``NVFP4`` (each a :class:`~mptorch.BlockFormat`).
 
 .. automodule:: mptorch.number
-   :members: RoundMode, SaturationMode, Domain, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, BlockFormat, ScaleRounding, FormatRangeWarning
+   :members: RoundMode, SaturationMode, Domain, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, FixedPoint, BlockFormat, ScaleRounding, FormatRangeWarning
    :undoc-members:
    :member-order: bysource
 
@@ -31,9 +31,13 @@ See :doc:`quantizers`.
 
 .. autofunction:: mptorch.quant.superfp_quantize
 
+.. autofunction:: mptorch.quant.fixedpoint_quantize
+
 .. autofunction:: mptorch.quant.binaryK_quantize_
 
 .. autofunction:: mptorch.quant.superfp_quantize_
+
+.. autofunction:: mptorch.quant.fixedpoint_quantize_
 
 .. autoclass:: mptorch.quant.Quant
    :members: __call__
