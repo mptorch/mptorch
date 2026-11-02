@@ -233,6 +233,7 @@ def get_extensions():
             "-fdiagnostics-color=always",
         ],
         "nvcc": [
+            "-std=c++20",
             "-O3" if not debug_mode else "-O0",
             "--extended-lambda",
         ],

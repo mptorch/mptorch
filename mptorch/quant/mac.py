@@ -49,6 +49,7 @@ from mptorch.number import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    FixedPoint,
     Number,
     RoundMode,
     SuperFP,
@@ -84,6 +85,8 @@ from .ops import (
     _superfp_spec,
     binaryK_quantize,
     binaryK_quantize_,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
     superfp_quantize,
     superfp_quantize_,
 )
@@ -219,9 +222,10 @@ class Quant:
 
     Args:
         fmt (Number): the format to round to: a :class:`mptorch.BinaryK`, a
-            :class:`mptorch.SuperFP`, or a :class:`mptorch.BlockFormat`. A
-            block format's blocks run along the last axis; use
-            :class:`BlockQuant` for another axis or a tensor scale.
+            :class:`mptorch.SuperFP`, a :class:`mptorch.FixedPoint`, or a
+            :class:`mptorch.BlockFormat`. A block format's blocks run along
+            the last axis; use :class:`BlockQuant` for another axis or a
+            tensor scale.
         rounding (RoundMode): the rounding mode. Default: ``RoundMode.RNE``
         carrier (torch.dtype, optional): the float arithmetic the cast rounds
             in, as the argument of the same name of
@@ -233,8 +237,9 @@ class Quant:
             Default: ``None``
         inplace (bool): round the tensor in place and return it, instead of
             allocating a result. This goes through
-            :func:`mptorch.quant.binaryK_quantize_` or
-            :func:`mptorch.quant.superfp_quantize_`. Use it for a tensor the
+            :func:`mptorch.quant.binaryK_quantize_`,
+            :func:`mptorch.quant.superfp_quantize_` or
+            :func:`mptorch.quant.fixedpoint_quantize_`. Use it for a tensor the
             caller owns, such as a weight quantized once at load. Never use
             it in a ``*_quant`` slot of a layer's formats, because a layer's
             input belongs to the graph of whatever produced it. The call
@@ -299,6 +304,20 @@ class Quant:
                     is_signed=fmt.is_signed,
                     rounding_mode=rm,
                     saturation_mode=fmt.saturation,
+                    carrier=carrier,
+                )
+        elif isinstance(fmt, FixedPoint):
+            fixedpoint = fixedpoint_quantize_ if self.inplace else fixedpoint_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return fixedpoint(
+                    x,
+                    wl=fmt.wl,
+                    fl=fmt.fl,
+                    prng_bits=fmt.prng_bits,
+                    is_signed=fmt.is_signed,
+                    symmetric=fmt.symmetric,
+                    rounding_mode=rm,
                     carrier=carrier,
                 )
 

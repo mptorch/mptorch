@@ -2,6 +2,9 @@
 
 #include "cast_binaryK.h"
 #include "cast_superfp.h"
+// No fixed-point GEMM yet: included here so prelude.metal sees the casts. A
+// comment after an #include stops setup.py's embed_metal_sources inlining it.
+#include "cast_fixedpoint.h"
 #include "modes.h"
 #include "philox.h"
 #if !defined(__METAL_VERSION__)

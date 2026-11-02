@@ -27,7 +27,9 @@ each other.
 A float64 tensor is a third pair of builds: binary64 has no fast path on
 either backend, so both run the integer path instantiated for ``double``,
 compiled once by g++ and once by nvcc, and these compare those too, over
-formats binary32 cannot carry.
+formats binary32 cannot carry. mptorch/csrc/common/cast_fixedpoint.h has no
+fast path at all, so its pairs are the integer path built twice, in both
+carriers.
 
 Elementwise quantization is the right shape for this: it applies the cast and
 nothing else, so a difference is the cast's. A GEMM is not, since its
@@ -42,7 +44,7 @@ import pytest
 import torch
 
 from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
-from mptorch.quant import binaryK_quantize, superfp_quantize
+from mptorch.quant import binaryK_quantize, fixedpoint_quantize, superfp_quantize
 from tests.markers import requires_cuda
 
 # Every rounding mode but SR, which draws its own randomness and is compared
@@ -63,9 +65,26 @@ BINARYK_FORMATS = [(8, 4), (11, 5), (6, 3), (24, 8)]
 # at 2**-6, so ``x`` reaches every arm of superfp's RNE fast path, the flush
 # and the floor's binade included, which the others put below 2**-100.
 SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7), (3, 4, 15, 7)]
+# (wl, fl, is_signed, symmetric). Fixed point has no fast path, so these compare
+# its integer path as g++ and nvcc build it: a step below 1, above 1 and of 1,
+# both ends of the signed range, unsigned, and all of binary32's mantissa.
+FIXEDPOINT_FORMATS = [
+    (8, 4, True, False),
+    (8, 4, True, True),
+    (12, 4, False, False),
+    (8, -3, True, False),
+    (16, 0, True, False),
+    (24, 10, True, False),
+]
 # binary64's own: precision and exponent fields past binary32's, one on its edge
 BINARYK_FORMATS64 = [(8, 4), (24, 8), (40, 30), (63, 53)]
 SUPERFP_FORMATS64 = [(3, 4, 1, 7), (5, 5, 1, 15), (20, 10, 1020, 511), (40, 8, 254, 127)]
+FIXEDPOINT_FORMATS64 = [
+    (8, 4, True, False),
+    (40, 30, True, False),
+    (53, 20, True, False),  # all of binary64's mantissa
+    (30, 1000, True, False),  # a step far below binary32's range
+]
 
 
 def _same_bits(a: torch.Tensor, b: torch.Tensor) -> bool:
@@ -151,6 +170,16 @@ def test_superfp_quantize_host_matches_device_in_binary64(
 
 @requires_cuda
 @pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("wl,fl,is_signed,symmetric", FIXEDPOINT_FORMATS64)
+def test_fixedpoint_quantize_host_matches_device_in_binary64(
+    x64, wl, fl, is_signed, symmetric, rounding_mode
+):
+    kw = dict(wl=wl, fl=fl, is_signed=is_signed, symmetric=symmetric, rounding_mode=rounding_mode)
+    assert _same_bits(fixedpoint_quantize(x64, **kw), fixedpoint_quantize(x64.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
 @pytest.mark.parametrize("saturation_mode", list(SaturationMode))
 @pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
 @pytest.mark.parametrize("K,P", BINARYK_FORMATS)
@@ -183,3 +212,11 @@ def test_superfp_quantize_host_matches_device(
         saturation_mode=saturation_mode,
     )
     assert _same_bits(superfp_quantize(x, **kw), superfp_quantize(x.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("wl,fl,is_signed,symmetric", FIXEDPOINT_FORMATS)
+def test_fixedpoint_quantize_host_matches_device(x, wl, fl, is_signed, symmetric, rounding_mode):
+    kw = dict(wl=wl, fl=fl, is_signed=is_signed, symmetric=symmetric, rounding_mode=rounding_mode)
+    assert _same_bits(fixedpoint_quantize(x, **kw), fixedpoint_quantize(x.cuda(), **kw).cpu())

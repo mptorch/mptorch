@@ -1,6 +1,6 @@
 """
-The in-place elementwise quantizers, ``binaryK_quantize_`` and
-``superfp_quantize_`` (``mptorch/quant/ops.py``), and ``Quant(inplace=True)``.
+The in-place elementwise quantizers, ``binaryK_quantize_``, ``superfp_quantize_``
+and ``fixedpoint_quantize_`` (``mptorch/quant/ops.py``), and ``Quant(inplace=True)``.
 
 An in-place quantizer is its out-of-place op with the output pointer set to
 the input's: the same kernels, the same casts, and under ``RoundMode.SR`` the
@@ -32,12 +32,14 @@ from typing import Any
 import pytest
 import torch
 
-from mptorch import BinaryK, SuperFP
+from mptorch import BinaryK, FixedPoint, SuperFP
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import (
     Quant,
     binaryK_quantize,
     binaryK_quantize_,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
     superfp_quantize,
     superfp_quantize_,
 )
@@ -55,8 +57,21 @@ _WORDS = {
     torch.float64: torch.int64,
 }
 
-# (out-of-place, in-place, format arguments): binaryK K=8, P=4 and superfp
-# m3e4n1b7, both of which binary32 carries.
+
+def _fixedpoint(x, saturation_mode=None, **kw):
+    """``fixedpoint_quantize``, taking the ``saturation_mode`` the tests below pass
+    every op: a fixed-point format always saturates, so each mode means the same
+    to it."""
+    return fixedpoint_quantize(x, **kw)
+
+
+def _fixedpoint_(x, saturation_mode=None, **kw):
+    """``fixedpoint_quantize_``, as ``_fixedpoint``."""
+    return fixedpoint_quantize_(x, **kw)
+
+
+# (out-of-place, in-place, format arguments): binaryK K=8, P=4, superfp
+# m3e4n1b7 and fixed point wl=8, fl=4, all of which binary32 carries.
 OPS: dict[str, tuple[Callable[..., torch.Tensor], Callable[..., torch.Tensor], dict[str, Any]]] = {
     "binaryK": (binaryK_quantize, binaryK_quantize_, {"K": 8, "P": 4}),
     "superfp": (
@@ -64,6 +79,7 @@ OPS: dict[str, tuple[Callable[..., torch.Tensor], Callable[..., torch.Tensor], d
         superfp_quantize_,
         {"man_bits": 3, "exp_bits": 4, "normal_binades": 1, "bias": 7},
     ),
+    "fixedpoint": (_fixedpoint, _fixedpoint_, {"wl": 8, "fl": 4}),
 }
 OP_NAMES = list(OPS)
 
@@ -131,11 +147,11 @@ def test_float64_rounds_in_binary64(device, op):
     """A float64 tensor is rounded in place in binary64, with no narrowing on
     the way: to a format past binary32's precision the result keeps bits a
     float32 could not hold."""
-    fmt = (
-        {"K": 40, "P": 30}
-        if op == "binaryK"
-        else {"man_bits": 29, "exp_bits": 10, "normal_binades": 1000, "bias": 511}
-    )
+    fmt = {
+        "binaryK": {"K": 40, "P": 30},
+        "superfp": {"man_bits": 29, "exp_bits": 10, "normal_binades": 1000, "bias": 511},
+        "fixedpoint": {"wl": 40, "fl": 30},
+    }[op]
     quantize, quantize_, _ = OPS[op]
     x = (1.0 + torch.rand(SIZE, dtype=torch.float64, device=device)) * 3.0
     expected = quantize(x, **fmt)
@@ -267,6 +283,11 @@ def test_format_checks_run_first(device):
     assert _same_words(x, before)
     with pytest.warns(FormatRangeWarning, match="float16"):
         superfp_quantize_(x.half(), 2, 5, 1, 15)
+    with pytest.raises(ValueError):
+        fixedpoint_quantize_(x, 26, 0)  # 25 bits of precision in binary32
+    assert _same_words(x, before)
+    with pytest.warns(FormatRangeWarning, match="float16"):
+        fixedpoint_quantize_(x.half(), 16, 4)  # a largest value float16 lacks
 
 
 # --- autograd --------------------------------------------------------------------------
@@ -346,7 +367,9 @@ def test_cuda_allocates_nothing(op, rounding_mode):
 
 @pytest.mark.parametrize("device", _devices)
 @pytest.mark.parametrize(
-    "fmt", [BinaryK(8, 4), BinaryK(8, 3, prng_bits=4), SuperFP(3, 4, 8, 7)], ids=str
+    "fmt",
+    [BinaryK(8, 4), BinaryK(8, 3, prng_bits=4), SuperFP(3, 4, 8, 7), FixedPoint(8, 4, prng_bits=4)],
+    ids=str,
 )
 @pytest.mark.parametrize(
     "rounding", [RoundMode.RNE, RoundMode.RZ, RoundMode.SR], ids=lambda m: m.name

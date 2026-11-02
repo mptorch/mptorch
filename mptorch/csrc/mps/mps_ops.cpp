@@ -32,8 +32,10 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
 {
   m.impl("binaryK_quant", TORCH_FN(binaryK_quantize_mps));
   m.impl("superfp_quant", TORCH_FN(superfp_quantize_mps));
+  m.impl("fixedpoint_quant", TORCH_FN(fixedpoint_quantize_mps));
   m.impl("binaryK_quant_", TORCH_FN(binaryK_quantize_mps_));
   m.impl("superfp_quant_", TORCH_FN(superfp_quantize_mps_));
+  m.impl("fixedpoint_quant_", TORCH_FN(fixedpoint_quantize_mps_));
   m.impl("narrow_float64", torch::CppFunction::makeFromBoxedFunction<&mps_via_cpu>());
   m.impl("custom_matmul_binaryK", TORCH_FN(binaryK_matmul_mps));
   m.impl("custom_matmul_superfp", TORCH_FN(superfp_matmul_mps));

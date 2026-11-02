@@ -1,21 +1,22 @@
-// The MPS kernels behind mptorch::binaryK_quant and mptorch::superfp_quant:
-// a new tensor of the input's shape and dtype, every element rounded by
-// quantize.metal, in the same cast, the same rounding mode and, under
-// RoundMode::SR, the same random word as the CPU kernel gives it
-// (cpu/binaryK_kernel.cpp, cpu/superfp_kernel.cpp), so the result is the
-// CPU's bit for bit.
+// The MPS kernels behind mptorch::binaryK_quant, mptorch::superfp_quant and
+// mptorch::fixedpoint_quant: a new tensor of the input's shape and dtype,
+// every element rounded by quantize.metal, in the same cast, the same
+// rounding mode and, under RoundMode::SR, the same random word as the CPU
+// kernel gives it (cpu/binaryK_kernel.cpp, cpu/superfp_kernel.cpp,
+// cpu/fixedpoint_kernel.cpp), so the result is the CPU's bit for bit.
 //
 // Each entry point observes what its CPU twin does, in the same order: the
 // input is made contiguous, the output allocated, the seed drawn under SR
 // (even for an empty tensor, which the CPU also draws for, so that the
 // generator's later draws stay in step), and only then is the dtype checked.
 //
-// The in-place ops, binaryK_quant_ and superfp_quant_, run the same kernel
-// with the tensor bound as both its input and its output. That is
-// value-safe: mpt_quantize reads x[i] before it writes y[i] and touches no
-// other element, and neither buffer is declared restrict. Like the CPU's,
-// they refuse a strided tensor rather than make the copy the out-of-place op
-// makes, which the kernel would write instead of the caller's tensor.
+// The in-place ops, binaryK_quant_, superfp_quant_ and fixedpoint_quant_, run
+// the same kernel with the tensor bound as both its input and its output.
+// That is value-safe: mpt_quantize reads x[i] before it writes y[i] and
+// touches no other element, and neither buffer is declared restrict. Like the
+// CPU's, they refuse a strided tensor rather than make the copy the
+// out-of-place op makes, which the kernel would write instead of the caller's
+// tensor.
 
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "../quant_ops.h"
@@ -74,7 +75,8 @@ namespace
     return o;
   }
 
-  // The format lines of a binaryK and a superfp instantiation.
+  // The format lines of a binaryK, a superfp and a fixed-point instantiation;
+  // MPT_FORMATS selects the family in quantize.metal.
   std::string binaryK_format(int64_t K, int64_t P, int64_t bias, bool is_signed,
                              int64_t saturation_mode, int64_t subnormals_mode)
   {
@@ -85,7 +87,7 @@ namespace
     const int man_bits = P_ - 1;
     const int exp_bits = is_signed ? K_ - P_ : K_ - P_ + 1;
     const bool extended = static_cast<SubnormalsMode>(subnormals_mode) == SubnormalsMode::EXTENDED_NORMALS;
-    return "#define MPT_SUPERFP 0\n#define MPT_SUBNORMALS SubnormalsMode(" +
+    return "#define MPT_FORMATS 0\n#define MPT_SUBNORMALS SubnormalsMode(" +
            std::to_string(subnormals_mode) +
            ")\ninline BinaryKParams mpt_params()\n{\n    return make_binaryK_params<float>(" +
            std::to_string(man_bits) + ", " + std::to_string(exp_bits) + ", " +
@@ -97,12 +99,21 @@ namespace
   std::string superfp_format(int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
                              int64_t bias, int64_t saturation_mode)
   {
-    return "#define MPT_SUPERFP 1\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
+    return "#define MPT_FORMATS 1\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
            "inline SuperfpParams mpt_params()\n{\n    return make_superfp_params<float>(" +
            std::to_string(static_cast<int>(man_bits)) + ", " + std::to_string(static_cast<int>(exp_bits)) +
            ", " + std::to_string(static_cast<int>(normal_binades)) + ", " +
            std::to_string(static_cast<int>(bias)) + ", SaturationMode(" +
            std::to_string(saturation_mode) + "));\n}\n";
+  }
+
+  std::string fixedpoint_format(int64_t wl, int64_t fl, bool is_signed, bool symmetric)
+  {
+    return "#define MPT_FORMATS 2\n#define MPT_SUBNORMALS SubnormalsMode::SUBNORMALS\n"
+           "inline FixedPointParams mpt_params()\n{\n    return make_fixedpoint_params<float>(" +
+           std::to_string(static_cast<int>(wl)) + ", " + std::to_string(static_cast<int>(fl)) +
+           ", " + (is_signed ? "true" : "false") + ", " + (symmetric ? "true" : "false") +
+           ");\n}\n";
   }
 
 } // namespace
@@ -123,9 +134,16 @@ Tensor superfp_quantize_mps(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
                   superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode));
 }
 
-// mptorch::binaryK_quant_ and mptorch::superfp_quant_ on an MPS tensor: the
-// kernel above over `a` in place, after the CPU's contiguity check, worded
-// as the CPU words it.
+Tensor fixedpoint_quantize_mps(Tensor a, int64_t wl, int64_t fl, int64_t prng_bits,
+                               bool is_signed, bool symmetric, int64_t round_mode)
+{
+  return quantize("fixedpoint_quantize_mps", a, round_mode, is_signed, prng_bits,
+                  fixedpoint_format(wl, fl, is_signed, symmetric));
+}
+
+// mptorch::binaryK_quant_, mptorch::superfp_quant_ and mptorch::fixedpoint_quant_
+// on an MPS tensor: the kernel above over `a` in place, after the CPU's
+// contiguity check, worded as the CPU words it.
 Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits,
                               bool is_signed, int64_t round_mode, int64_t saturation_mode,
                               int64_t subnormals_mode)
@@ -147,5 +165,16 @@ Tensor &superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int
               ": use superfp_quant, which copies a strided input");
   quantize_into("superfp_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode));
+  return a;
+}
+
+Tensor &fixedpoint_quantize_mps_(Tensor &a, int64_t wl, int64_t fl, int64_t prng_bits,
+                                 bool is_signed, bool symmetric, int64_t round_mode)
+{
+  TORCH_CHECK(a.is_contiguous(), "fixedpoint_quant_ writes its argument in place and needs a "
+              "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
+              ": use fixedpoint_quant, which copies a strided input");
+  quantize_into("fixedpoint_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
+                fixedpoint_format(wl, fl, is_signed, symmetric));
   return a;
 }

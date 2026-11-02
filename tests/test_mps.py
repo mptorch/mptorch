@@ -57,6 +57,7 @@ from mptorch.quant import (
     block_quantize,
     block_quantize_,
     conv_formats,
+    fixedpoint_quantize,
     superfp_quantize,
     superfp_quantize_,
 )
@@ -164,6 +165,18 @@ SUPERFP = [
     (3, 4, 1, 7, True, SaturationMode.SAT_FINITE_EXTENDED),
 ]
 
+# (wl, fl, is_signed, symmetric). A step below 1, symmetric, unsigned, a step
+# above 1, a step of 2**-120 whose bottom sits near binary32's subnormals, and
+# 13 magnitude bits, the most beside the tests' 10 random bits in binary32's 23.
+FIXEDPOINT = [
+    (8, 4, True, False),
+    (4, 2, True, True),
+    (12, 4, False, False),
+    (8, -3, True, False),
+    (8, 120, True, False),
+    (14, 10, True, False),
+]
+
 
 def _ids(fmt) -> str:
     return "-".join(str(getattr(v, "name", v)) for v in fmt)
@@ -210,6 +223,21 @@ def test_superfp_quantize(fmt, dtype, rounding_mode):
         lambda t: superfp_quantize(
             t, man, exp, binades, bias, prng_bits=10, is_signed=is_signed,
             rounding_mode=rounding_mode, saturation_mode=sat,
+        ),
+        x,
+    )  # fmt: skip
+    _assert_same_words(ref, got)
+
+
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("fmt, dtype", _cases(FIXEDPOINT))
+def test_fixedpoint_quantize(fmt, dtype, rounding_mode):
+    wl, fl, is_signed, symmetric = fmt
+    x = _words(dtype)
+    ref, got = _on_both(
+        lambda t: fixedpoint_quantize(
+            t, wl, fl, prng_bits=10, is_signed=is_signed, symmetric=symmetric,
+            rounding_mode=rounding_mode,
         ),
         x,
     )  # fmt: skip

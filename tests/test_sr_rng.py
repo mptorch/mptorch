@@ -22,7 +22,7 @@ import pytest
 import torch
 
 from mptorch import RoundMode
-from mptorch.quant import binaryK_quantize, superfp_quantize
+from mptorch.quant import binaryK_quantize, fixedpoint_quantize, superfp_quantize
 from tests.markers import available_devices
 
 # e4m3 near 1.0: the neighbouring representable values are 1.0 and 1.125, so
@@ -116,8 +116,9 @@ def test_sr_successive_calls_are_independent(device, dtype):
             rounding_mode=RoundMode.SR,
             is_signed=True,
         ),
+        lambda x: fixedpoint_quantize(x, 8, 4, prng_bits=16, rounding_mode=RoundMode.SR),
     ],
-    ids=["binaryK", "superfp"],
+    ids=["binaryK", "superfp", "fixedpoint"],
 )
 def test_sr_is_reproducible_under_manual_seed(device, dtype, quantize):
     """The same seed must reproduce the same draws, so the per-launch seed

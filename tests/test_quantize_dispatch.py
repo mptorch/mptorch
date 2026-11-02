@@ -1,9 +1,10 @@
 """
 Which carrier the elementwise quantizers round an operand in, by its dtype.
 
-Guards ``binaryK_quantize`` and ``superfp_quantize`` (``mptorch/quant/ops.py``)
-and the kernels behind them. A float64 tensor rounds in binary64: its kernels
-are instantiated for ``double`` and compute in it. A float32, float16 or
+Guards ``binaryK_quantize``, ``superfp_quantize`` and ``fixedpoint_quantize``
+(``mptorch/quant/ops.py``) and the kernels behind them. A float64 tensor
+rounds in binary64: its kernels are instantiated for ``double`` and compute
+in it. A float32, float16 or
 bfloat16 tensor rounds in binary32, whose values all three are, unless the call
 names ``carrier=torch.float64``. A dispatch that narrowed a float64 tensor to
 float32 first would round every input twice, silently, and could not reach a
@@ -51,7 +52,7 @@ import pytest
 import torch
 
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
-from mptorch.quant import binaryK_quantize, superfp_quantize
+from mptorch.quant import binaryK_quantize, fixedpoint_quantize, superfp_quantize
 from mptorch.quant.ops import _narrowed
 from tests.markers import available_devices, float64_devices
 from tests.test_binaryk_p3109 import _project
@@ -64,16 +65,25 @@ DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
 SATURATION_MODES = list(SaturationMode)
 
 
+def _fixedpoint(x, saturation_mode=None, **kw):
+    """``fixedpoint_quantize``, taking the ``saturation_mode`` the tests below pass
+    every op: a fixed-point format always saturates, so each mode means the same
+    to it."""
+    return fixedpoint_quantize(x, **kw)
+
+
 def _quant_calls(x):
-    """Both elementwise quantizers bound to ``x``, keyed by op name.
+    """The elementwise quantizers bound to ``x``, keyed by op name.
 
     Each value takes the remaining keyword arguments. The formats are binaryK
-    ``K=8, P=4`` and superfp ``m3e4n1b7``, both of which binary32 carries."""
+    ``K=8, P=4``, superfp ``m3e4n1b7`` and fixed point ``wl=8, fl=4``, all of
+    which binary32 carries."""
     return {
         "binaryK": lambda **kw: binaryK_quantize(x, K=8, P=4, **kw),
         "superfp": lambda **kw: superfp_quantize(
             x, man_bits=3, exp_bits=4, normal_binades=1, bias=7, **kw
         ),
+        "fixedpoint": lambda **kw: _fixedpoint(x, wl=8, fl=4, **kw),
     }
 
 
@@ -202,6 +212,18 @@ def test_float64_is_rounded_once_superfp(device):
     t = torch.tensor([272.0 + 2.0**-22], device=device, dtype=torch.float64)
     assert superfp_quantize(t, 3, 4, 1, 7).item() == 288.0
     assert superfp_quantize(t.float(), 3, 4, 1, 7).item() == 256.0
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_float64_is_rounded_once_fixedpoint(device):
+    """The fixed-point kernel rounds a float64 input once as well.
+
+    Fixed point ``wl=8, fl=4`` has steps of 1/16, so 1.03125 is the tie between
+    1.0 and 1.0625. float32's step there is 2**-23, so the 2**-30 that breaks
+    the tie is lost by a narrowing to float32, and RNE takes the even code, 1.0."""
+    t = torch.tensor([1.03125 + 2.0**-30], device=device, dtype=torch.float64)
+    assert fixedpoint_quantize(t, 8, 4).item() == 1.0625
+    assert fixedpoint_quantize(t.float(), 8, 4).item() == 1.0
 
 
 # --- formats past binary32 ----------------------------------------------------
@@ -385,6 +407,8 @@ def test_a_carrier_narrower_than_the_tensor_is_refused(device):
         binaryK_quantize(x.half(), 8, 4, carrier=torch.float16)
     with pytest.raises(TypeError, match="carrier must be a torch.dtype"):
         superfp_quantize(x, 3, 4, 1, 7, carrier="binary64")  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="narrower than float64"):
+        fixedpoint_quantize(x, 8, 4, carrier=torch.float32)
 
 
 # --- a view that starts mid-storage -------------------------------------------
@@ -517,6 +541,7 @@ def test_other_dtypes_keep_their_dtype(device, op, dtype):
     [
         ("binaryK_quant", (8, 4, 3, 0, True)),
         ("superfp_quant", (3, 4, 1, 7, 0, True)),
+        ("fixedpoint_quant", (8, 4, 0, True, False)),
     ],
 )
 def test_integer_input_is_still_rejected(device, raw_op, args):
@@ -531,6 +556,6 @@ def test_integer_input_is_still_rejected(device, raw_op, args):
             x,
             *args,
             RoundMode.RNE.value,
-            SaturationMode.SAT_NONE.value,
+            *([SaturationMode.SAT_NONE.value] if raw_op != "fixedpoint_quant" else []),
             *([SubnormalsMode.SUBNORMALS.value] if raw_op == "binaryK_quant" else []),
         )

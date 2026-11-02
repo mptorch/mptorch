@@ -38,6 +38,8 @@ from .ops import (
     binaryK_quantize,
     binaryK_quantize_,
     binaryK_superfp_matmul,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
     superfp_binaryK_matmul,
     superfp_matmul,
     superfp_matmul_fma,
@@ -51,8 +53,10 @@ __all__ = [
     # elementwise quantization
     "binaryK_quantize",
     "superfp_quantize",
+    "fixedpoint_quantize",
     "binaryK_quantize_",
     "superfp_quantize_",
+    "fixedpoint_quantize_",
     "Quant",
     "Quantizer",
     # the schema tier: one function per op, every schema argument spelled out

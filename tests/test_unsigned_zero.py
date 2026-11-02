@@ -52,6 +52,8 @@ from mptorch.quant import (
     binaryK_matmul_mixed,
     binaryK_quantize,
     binaryK_quantize_,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
     qmm,
     superfp_matmul,
     superfp_matmul_fma,
@@ -125,6 +127,12 @@ BINARYK_FORMATS64 = [
     (14, 4, 1019),
 ]
 SUPERFP_FORMATS64 = [(3, 4, 1, 7), (0, 4, 1, 7), (20, 10, 1020, 511), (3, 4, 1, 917)]
+
+# (wl, fl): a step below 1, of 4, of 2**-120 near binary32's subnormals, and
+# 22 or 23 magnitude bits, all of binary32's mantissa unsigned; in binary64 the
+# same widths again and a step of 2**-1000.
+FIXEDPOINT_FORMATS = [(8, 4), (4, -2), (8, 120), (23, 10)]
+FIXEDPOINT_FORMATS64 = [(8, 4), (40, 30), (52, 20), (30, 1000)]
 
 
 def _negative_zeros(t: torch.Tensor) -> torch.Tensor:
@@ -208,6 +216,41 @@ def test_superfp_quantize(device, inplace, carrier, signed):
                 f"m{man_bits}e{exp_bits}n{normal_binades}b{bias} {saturation_mode.name} "
                 f"{mode.name}: {_describe(xs, out)}"
             )
+    assert not failures, "\n".join(failures)
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("symmetric", [False, True], ids=["two's_complement", "symmetric"])
+@pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
+@pytest.mark.parametrize("carrier", ["binary32", "binary64"])
+@pytest.mark.parametrize("inplace", [False, True], ids=["out_of_place", "in_place"])
+def test_fixedpoint_quantize(device, inplace, carrier, signed, symmetric):
+    """The same for fixed point, whose directed modes negate a magnitude that
+    rounded to zero, and whose stochastic rounding subtracts its shift back out."""
+    if symmetric and not signed:
+        pytest.skip("An unsigned format cannot be symmetric.")
+    quantize = fixedpoint_quantize_ if inplace else fixedpoint_quantize
+    wide = carrier == "binary64"
+    x = _probe64() if wide else _probe()
+    failures = []
+    for (wl, fl), mode in itertools.product(
+        FIXEDPOINT_FORMATS64 if wide else FIXEDPOINT_FORMATS, RoundMode
+    ):
+        xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
+        mag_bits = wl - (1 if signed else 0)
+        # the random bits fit beside the magnitude bits in the carrier's mantissa
+        prng_bits = min(8, (52 if wide else 23) - mag_bits) if mode is RoundMode.SR else 0
+        out = quantize(
+            xs.to(device, copy=inplace),
+            wl,
+            fl,
+            prng_bits=prng_bits,
+            is_signed=signed,
+            symmetric=symmetric,
+            rounding_mode=mode,
+        ).cpu()
+        if _negative_zeros(out).any():
+            failures.append(f"wl={wl} fl={fl} {mode.name}: {_describe(xs, out)}")
     assert not failures, "\n".join(failures)
 
 

@@ -27,6 +27,7 @@ import torch
 from mptorch import (
     AccumulateAlgorithm,
     BinaryK,
+    FixedPoint,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
@@ -42,6 +43,7 @@ from mptorch.quant import (
     SplitMac,
     binaryK_matmul,
     binaryK_quantize,
+    fixedpoint_quantize,
     matmul_formats,
     qbmm,
     qmatmul,
@@ -408,6 +410,31 @@ def test_superfp_bias_has_no_default_rule():
         SuperFP(3, 4, 8)  # ty: ignore[missing-argument]
 
 
+def test_fixedpoint_fields_after_fl_are_keyword_only():
+    """``FixedPoint(8, 4, False)`` would read as unsigned or as symmetric depending
+    on the field order, so everything after ``fl`` is keyword-only, as for
+    ``BinaryK``'s fields after ``P``."""
+    with pytest.raises(TypeError):
+        FixedPoint(8, 4, False)  # ty: ignore[too-many-positional-arguments]
+
+
+@pytest.mark.parametrize(
+    ("fmt", "mag_bits", "step", "min_value", "max_value"),
+    [
+        (FixedPoint(8, 4), 7, 2.0**-4, -8.0, 7.9375),
+        (FixedPoint(8, 4, symmetric=True), 7, 2.0**-4, -7.9375, 7.9375),
+        (FixedPoint(8, 4, is_signed=False), 8, 2.0**-4, 0.0, 15.9375),
+        (FixedPoint(4, -2), 3, 4.0, -32.0, 28.0),  # a step coarser than 1
+        (FixedPoint(4, 6), 3, 2.0**-6, -0.125, 0.109375),  # pure fractions
+    ],
+)
+def test_fixedpoint_range(fmt, mag_bits, step, min_value, max_value):
+    """The range is the multiples of ``2**-fl`` a ``wl``-bit integer holds: two's
+    complement signed, one code short of it symmetric, from zero unsigned."""
+    assert (fmt.mag_bits, fmt.step) == (mag_bits, step)
+    assert (fmt.min_value, fmt.max_value) == (min_value, max_value)
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -416,11 +443,16 @@ def test_superfp_bias_has_no_default_rule():
         lambda: BinaryK(8, 4, prng_bits=-1),
         lambda: SuperFP(3, 0, 8, 7),
         lambda: SuperFP(3, 4, 0, 7),
+        lambda: FixedPoint(1, 0),
+        lambda: FixedPoint(0, 0, is_signed=False),
+        lambda: FixedPoint(8, 4, is_signed=False, symmetric=True),
+        lambda: FixedPoint(8, 4, prng_bits=-1),
     ],
 )
 def test_format_objects_validate_at_construction(call):
     """A malformed format (``P > K``, no precision, negative prng bits, no exponent
-    bits, no normal binade) raises when built, not at the first call."""
+    bits, no normal binade, no magnitude bits, a symmetric unsigned fixed point)
+    raises when built, not at the first call."""
     with pytest.raises(ValueError):
         call()
 
@@ -432,6 +464,10 @@ def test_formats_are_frozen_and_hashable():
     assert hash(fmt) == hash(BinaryK(8, 4)) and fmt == BinaryK(8, 4)
     with pytest.raises(AttributeError):
         fmt.K = 9  # ty: ignore[invalid-assignment]
+    fxp = FixedPoint(8, 4)
+    assert hash(fxp) == hash(FixedPoint(8, 4)) and fxp == FixedPoint(8, 4)
+    with pytest.raises(AttributeError):
+        fxp.wl = 9  # ty: ignore[invalid-assignment]
 
 
 # ------------------------------------------------------------------------------------
@@ -457,6 +493,12 @@ def test_palette_rejects_mixed_families():
     """One palette is one op, and no op mixes binaryK with superfp entries."""
     with pytest.raises(TypeError, match="same type"):
         Palette([BinaryK(8, 4), SuperFP(3, 4, 8, 7)])
+
+
+def test_palette_rejects_a_family_with_no_gemm():
+    """A fixed-point format has an elementwise quantizer and no GEMM kernel yet."""
+    with pytest.raises(TypeError, match="no GEMM kernel takes FixedPoint"):
+        Palette([FixedPoint(8, 4)])
 
 
 def test_palette_rejects_empty_and_oversized():
@@ -508,6 +550,10 @@ def test_quant_equals_the_flat_quantizer(device):
             rounding_mode=RoundMode.RZ,
         ),
     )
+    assert torch.equal(
+        Quant(FixedPoint(8, 4, symmetric=True), RoundMode.RD)(x * 8),
+        fixedpoint_quantize(x * 8, wl=8, fl=4, symmetric=True, rounding_mode=RoundMode.RD),
+    )
 
 
 @pytest.mark.parametrize("device", float64_devices)
@@ -556,6 +602,8 @@ def test_raw_ops_raise_on_requires_grad_operands(device):
         binaryK_matmul(a, b, mul_K=8, mul_P=4)
     with pytest.raises(RuntimeError, match="Quantizer"):
         binaryK_quantize(a, K=8, P=4)
+    with pytest.raises(RuntimeError, match="Quantizer"):
+        fixedpoint_quantize(a, wl=8, fl=4)
 
 
 @pytest.mark.parametrize("device", available_devices)
@@ -796,13 +844,14 @@ def test_qmatmul_module_registers_stateful_quantizers():
 
 
 @pytest.mark.parametrize("device", available_devices)
-def test_quantizer_forward_quantizes_and_backward_passes_through(device):
+@pytest.mark.parametrize("fmt", [BinaryK(8, 4), FixedPoint(8, 4)], ids=str)
+def test_quantizer_forward_quantizes_and_backward_passes_through(device, fmt):
     """The straight-through estimator: forward is ``Quant``, and with no backward
     format the gradient passes unchanged."""
     x = torch.randn(32, device=device, requires_grad=True)
-    q = Quantizer(BinaryK(8, 4))
+    q = Quantizer(fmt)
     out = q(x)
-    assert torch.equal(out, Quant(BinaryK(8, 4))(x.detach()))
+    assert torch.equal(out, Quant(fmt)(x.detach()))
     g = torch.randn_like(out)
     out.backward(g)
     assert x.grad is not None and torch.equal(x.grad, g)

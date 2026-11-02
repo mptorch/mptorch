@@ -1,4 +1,5 @@
-// The elementwise quantizers, binaryK_quant and superfp_quant: every element
+// The elementwise quantizers, binaryK_quant, superfp_quant and
+// fixedpoint_quant: every element
 // rounded to the format by the cast the CPU backend calls, in its carrier
 // (binary32, since MPS has no float64), and stored back in the tensor's
 // dtype as the CPU stores it (prelude.metal's store_carrier).
@@ -8,14 +9,16 @@
 //
 //   mpt_storage_t     float, half or bfloat
 //   MPT_ROUND_MODE    the RoundMode
-//   MPT_SUPERFP       1 for superfp_quant, 0 for binaryK_quant
+//   MPT_FORMATS       0 for binaryK_quant, 1 for superfp_quant, 2 for
+//                     fixedpoint_quant
 //   MPT_IS_SIGNED     the format's sign, as the CPU's IsSigned template
 //                     parameter is, so an unsigned format's early return
 //                     folds away on a signed one
 //   MPT_SUBNORMALS    binaryK's SubnormalsMode
 //   MPT_PRNG_BITS     SR's random bits
-//   mpt_params()      make_binaryK_params / make_superfp_params of the
-//                     format, with its widths as literals, so its constants
+//   mpt_params()      make_binaryK_params / make_superfp_params /
+//                     make_fixedpoint_params of the format, with its widths
+//                     as literals, so its constants
 //                     fold (gemm.metal says why that matters)
 //
 // Each thread takes four consecutive elements, the four that share a Philox
@@ -39,7 +42,22 @@ inline float quantize_one(float x, uint32_t draw)
     const auto p = mpt_params();
     constexpr RoundMode RM = MPT_ROUND_MODE;
     constexpr bool S = MPT_IS_SIGNED;
-#if MPT_SUPERFP
+#if MPT_FORMATS == 2
+    if constexpr (RM == RoundMode::SR)
+        return cast_fixedpoint_stochastic(x, draw, MPT_PRNG_BITS, S, p);
+    else if constexpr (RM == RoundMode::RNA)
+        return cast_fixedpoint_nearest_away(x, S, p);
+    else if constexpr (RM == RoundMode::RU)
+        return cast_fixedpoint_up(x, S, p);
+    else if constexpr (RM == RoundMode::RD)
+        return cast_fixedpoint_down(x, S, p);
+    else if constexpr (RM == RoundMode::RZ)
+        return cast_fixedpoint_zero(x, S, p);
+    else if constexpr (RM == RoundMode::RO)
+        return cast_fixedpoint_odd(x, S, p);
+    else
+        return cast_fixedpoint_nearest_even(x, S, p);
+#elif MPT_FORMATS == 1
     if constexpr (RM == RoundMode::SR)
         return cast_superfp_stochastic(x, draw, MPT_PRNG_BITS, S, p);
     else if constexpr (RM == RoundMode::RNA)
