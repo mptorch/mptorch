@@ -48,6 +48,7 @@ from .ops import (
     superfp_quantize,
     superfp_quantize_,
 )
+from .tensor import TensorQuant, max_finite
 
 __all__ = [
     # elementwise quantization
@@ -59,6 +60,8 @@ __all__ = [
     "fixedpoint_quantize_",
     "Quant",
     "Quantizer",
+    "TensorQuant",
+    "max_finite",
     # the schema tier: one function per op, every schema argument spelled out
     "binaryK_matmul",
     "superfp_matmul",
