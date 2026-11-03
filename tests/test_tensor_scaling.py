@@ -187,7 +187,8 @@ def test_scale_exponent(top):
     beyond, binary64's subnormals included."""
     amaxes = [top, math.nextafter(top, 0), math.nextafter(top, math.inf), 5e-324, 1e300]
     amaxes += [2.0**e for e in range(-149, 128, 7)]
-    amaxes += [m * 2.0**e for m, e in zip(torch.rand(200).add(0.5).tolist(), range(-200, 200, 2))]
+    mantissas = torch.rand(200).add(0.5).tolist()
+    amaxes += [m * 2.0**e for m, e in zip(mantissas, range(-200, 200, 2), strict=True)]
     for amax in amaxes:
         s = _scale_exponent(amax, top)
         assert s == _search(amax, top), amax
