@@ -499,11 +499,11 @@ SuperFP: precision at the top, range below
 It has the same three fields as a binary float (``man_bits``, ``exp_bits``,
 ``bias``), but only the top ``normal_binades`` binades carry a mantissa. The
 codes of the remaining
-:math:`2^{\text{exp\_bits}} - \text{normal\_binades}` binades,
-:math:`2^{\text{man\_bits}}` codes each, are reinterpreted. The first is the
+:math:`2^{\text{exp_bits}} - \text{normal_binades}` binades,
+:math:`2^{\text{man_bits}}` codes each, are reinterpreted. The first is the
 zero. The others are further *powers of two* below the normal region, one per
 code: numbers with an implicit mantissa of exactly 1. With
-:math:`e_{\max} = 2^{\text{exp\_bits}} - 1 - \text{bias}`, the three regions
+:math:`e_{\max} = 2^{\text{exp_bits}} - 1 - \text{bias}`, the three regions
 are
 
 .. math::
@@ -516,8 +516,8 @@ are
    \text{underflow:}   &\quad \text{below that}, && \text{flushed to zero}
    \end{aligned}
 
-where :math:`b = \text{normal\_binades}` and
-:math:`n = (2^{\text{exp\_bits}} - b)\, 2^{\text{man\_bits}}` is the number
+where :math:`b = \text{normal_binades}` and
+:math:`n = (2^{\text{exp_bits}} - b)\, 2^{\text{man_bits}}` is the number
 of reinterpreted codes, of which :math:`n - 1` are supernormals. There are no
 subnormals. The bias has no default: it is part of the format's design and
 must be given. In the supernormal region, rounding acts on the *exponent*:
@@ -757,11 +757,11 @@ where we want it, and the natural choice is the largest. Let
 magnitudes are 0, 0.5, 1, 1.5, 2, 3, 4 and 6, and 448 for E4M3. An element
 above ``elem_max`` cannot be stored, so the codes are used best when the
 block's largest element sits exactly at the top, :math:`a =
-\text{elem\_max} \cdot s`. That gives the scale
+\text{elem_max} \cdot s`. That gives the scale
 
 .. math::
 
-   r = \frac{a}{\text{elem\_max}} .
+   r = \frac{a}{\text{elem_max}} .
 
 But :math:`r` is rarely a value of the scale format. Let
 :math:`\lfloor r \rfloor` and :math:`\lceil r \rceil` be the scale format's
@@ -770,19 +770,19 @@ the two powers of two around :math:`r`. They are the two most common
 candidates, and each has a cost:
 
 - :math:`s = \lfloor r \rfloor` is too small. The block's largest element
-  lands at :math:`a / \lfloor r \rfloor = \text{elem\_max} \cdot r / \lfloor
+  lands at :math:`a / \lfloor r \rfloor = \text{elem_max} \cdot r / \lfloor
   r \rfloor`, above ``elem_max``. No code holds such a value, so it is clipped
   to ``elem_max`` (it *saturates*), in every rounding mode, and decodes as
 
   .. math::
 
-     \hat{a} \;=\; \text{elem\_max} \cdot \lfloor r \rfloor
+     \hat{a} \;=\; \text{elem_max} \cdot \lfloor r \rfloor
               \;=\; a \cdot \frac{\lfloor r \rfloor}{r} \;<\; a .
 
   The block's largest value comes back too small by the factor
   :math:`\lfloor r \rfloor / r`.
 - :math:`s = \lceil r \rceil` is too large. The block's largest element
-  lands at :math:`\text{elem\_max} \cdot r / \lceil r \rceil`, below
+  lands at :math:`\text{elem_max} \cdot r / \lceil r \rceil`, below
   ``elem_max``, so every element is in range. But two neighbouring decoded
   values are one element step :math:`\delta` times the scale apart, and that
   distance is now
@@ -829,7 +829,7 @@ lies between the block's two candidates:
    \rho = \frac{r}{\lfloor r \rfloor} .
 
 Under the lower candidate the block's largest element lands at
-:math:`\text{elem\_max} \cdot \rho`, so :math:`\rho` also measures how much
+:math:`\text{elem_max} \cdot \rho`, so :math:`\rho` also measures how much
 that candidate clips:
 
 - :math:`\rho = 1`: the lower candidate is the scale the block asks for, and
@@ -954,7 +954,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    .. math::
 
       s = 2^{\lfloor \log_2 a \rfloor - e_{\max}}, \qquad
-      e_{\max} = \lfloor \log_2(\text{elem\_max}) \rfloor .
+      e_{\max} = \lfloor \log_2(\text{elem_max}) \rfloor .
 
    This is the conversion that the `OCP Microscaling Formats (MX)
    Specification
@@ -967,7 +967,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    :math:`\lfloor r \rfloor` whenever the largest element then stays below 8,
    and that element is clipped if it is above 6, by up to a quarter of its
    value. In general the dividing line is
-   :math:`2^{e_{\max}+1} / \text{elem\_max}`: 4/3 for E2M1 and 8/7 for E4M3.
+   :math:`2^{e_{\max}+1} / \text{elem_max}`: 4/3 for E2M1 and 8/7 for E4M3.
    The rule exists for a power-of-two scale only.
 
 ``NEAREST``
@@ -1009,7 +1009,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    element format's step above it (7 for E2M1). If the block's largest
    element lands at or below :math:`T` under ``NEAREST``'s choice, the rule
    keeps that choice. Otherwise it takes :math:`\lceil r \rceil`. From a
-   power of two its dividing line is :math:`T / \text{elem\_max}`, which is
+   power of two its dividing line is :math:`T / \text{elem_max}`, which is
    7/6 for E2M1. In the run, the block with 3.8 lands on 7.6 under the scale
    1/2 and gets the scale 1, while the block with 3.3 lands on 6.6 and keeps
    the scale 1/2. This rule comes from no specification; it is MPTorch's
@@ -1038,7 +1038,7 @@ measured relative to :math:`S_t`:
 
 .. math::
 
-   r = \frac{a}{\text{elem\_max} \cdot S_t} .
+   r = \frac{a}{\text{elem_max} \cdot S_t} .
 
 The rules above choose between its two neighbours in the scale format,
 :math:`\lfloor r \rfloor` and :math:`\lceil r \rceil`, as before. The chosen
@@ -1050,7 +1050,7 @@ By default :math:`S_t` is computed from the tensor :math:`x` itself:
 
 .. math::
 
-   S_t = \frac{\max|x|}{\text{elem\_max} \cdot \text{scale\_max}} ,
+   S_t = \frac{\max|x|}{\text{elem_max} \cdot \text{scale_max}} ,
 
 where ``scale_max`` is the scale format's largest value, so
 :math:`S_t = \max|x| / (6 \cdot 448)` for NVFP4. The block that holds the
@@ -1069,15 +1069,15 @@ it asks for is at least the scale format's smallest positive value,
 
    r \ge s_{\min}
    \quad\Longleftrightarrow\quad
-   a \;\ge\; \text{elem\_max} \cdot s_{\min} \cdot S_t
-     \;=\; \max|x| \cdot \frac{s_{\min}}{\text{scale\_max}} ,
+   a \;\ge\; \text{elem_max} \cdot s_{\min} \cdot S_t
+     \;=\; \max|x| \cdot \frac{s_{\min}}{\text{scale_max}} ,
 
 where the last step uses the default :math:`S_t`. For E4M3,
 :math:`s_{\min} = 2^{-9}` and ``scale_max`` is 448, so a block's largest
 magnitude may be up to :math:`448 \cdot 2^{9} \approx 2.3 \cdot 10^{5}` times
 smaller than the tensor's. A block smaller than that still takes
 :math:`s_{\min}`. Its largest element then lands at
-:math:`\text{elem\_max} \cdot r / s_{\min}`, below ``elem_max``, and its
+:math:`\text{elem_max} \cdot r / s_{\min}`, below ``elem_max``, and its
 elements are rounded coarsely or to zero.
 
 With a mantissa the choice of rule matters less than with a power of two,
@@ -1193,7 +1193,7 @@ or :math:`s\, S_t` for a scale with a mantissa):
 .. math::
 
    e_i = \operatorname{sign}(x_i) \cdot
-         \min\!\big( |Q(x_i / \sigma)|,\ \text{elem\_max} \big) .
+         \min\!\big( |Q(x_i / \sigma)|,\ \text{elem_max} \big) .
 
 Every value above ``elem_max`` lands on it, in every rounding mode. The
 rounding mode applies to the elements only; the rule for the scale never
@@ -1312,7 +1312,7 @@ The paragraph after the run gives the details.
 
 Rounding a scale to nearest costs more here. Below its normal binades a
 superfp scale holds only powers of two, so the nearest scale can be a factor
-of 1.5 below :math:`a / \text{elem\_max}`. Take a block whose ratio is 0.35:
+of 1.5 below :math:`a / \text{elem_max}`. Take a block whose ratio is 0.35:
 
 - Under ``NEAREST`` it gets the scale 0.25. Its largest element is 8.4 in
   E2M1's units, saturates to 6, and decodes 29% low (33% at worst).
