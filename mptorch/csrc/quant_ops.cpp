@@ -27,15 +27,15 @@ extern "C"
 
 // The schema of each op, in TorchScript schema syntax. The dispatcher
 // parses these to type-check calls from Python, and each backend then binds
-// an implementation with TORCH_LIBRARY_IMPL under its own key
-// (cpu/cpu_ops.cpp, cuda/cuda_ops.cu, autograd_ops.cpp). The mode arguments
+// an implementation with TORCH_LIBRARY_IMPL under its own key (cpu/cpu_ops.cpp,
+// cuda/cuda_ops.cpp, mps/mps_ops.cpp, autograd_ops.cpp). The mode arguments
 // are int, not string: they carry the RoundMode/SaturationMode/
 // SubnormalsMode enum values of common/modes.h, which mptorch.number mirrors
 // one to one on the Python side. The *_mixed ops take int[] lists, one
 // entry per palette slot, and a prec_idx tensor of slot indices per output
 // element.
 //
-// The three ops whose name ends in an underscore write their argument, and say
+// The four ops whose name ends in an underscore write their argument, and say
 // so the way ATen's own in-place ops do: `Tensor(a!)` on the argument and on
 // the return, which is the same tensor. The annotation is what lets the
 // dispatcher's ADInplaceOrView kernel (autograd_ops.cpp) bump the tensor's

@@ -71,8 +71,10 @@ Some things to know about them:
 ``fl``, ``is_signed`` and ``symmetric`` in place of a float's fields, and no
 ``saturation_mode``, because a fixed-point result always saturates. The
 points above apply to it too: the dtypes, the carrier, the storage check,
-``prng_bits`` (which shares the carrier's mantissa with the format's
-magnitude bits) and the backends.
+``prng_bits`` (which shares the carrier's precision, 24 bits or 53, with the
+format's magnitude bits) and the backends. Under ``SR`` it is exact, the
+random bits added on the input's word directly below the step
+(:ref:`fixed-point`).
 
 .. literalinclude:: ../snippets/quantizers_fixedpoint.py
    :language: python
@@ -82,9 +84,18 @@ magnitude bits) and the backends.
    :language: text
    :caption: output
 
-.. Stub, to complete in phase K, step 1 (dev/continuation_plan.md): what
-   the storage check says for a fixed-point result in float16 and bfloat16,
-   and a CPU == CUDA run, recorded on a machine with a GPU.
+The end of the run shows the storage check on a narrower result and the two
+backends side by side:
+
+- A float16 or bfloat16 result is held to the elementwise storage rule, as a
+  float format's is: only an end of the range can miss the dtype's grid.
+  ``FixedPoint(16, 14)``'s largest value needs 15 bits, so a float16 result
+  warns, and an input that saturates to it is stored as 2.0.
+  ``FixedPoint(8, 6)``'s largest value fits bfloat16's 8 bits, so that call
+  is silent. :ref:`fixed-point` gives the rule.
+- CPU and CUDA return the same words in every deterministic mode. This run
+  was recorded on a machine with an NVIDIA GPU; without one, the snippet
+  skips that line.
 
 float64 and the carrier
 -----------------------

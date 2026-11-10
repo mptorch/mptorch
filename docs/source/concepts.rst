@@ -499,11 +499,11 @@ SuperFP: precision at the top, range below
 It has the same three fields as a binary float (``man_bits``, ``exp_bits``,
 ``bias``), but only the top ``normal_binades`` binades carry a mantissa. The
 codes of the remaining
-:math:`2^{\text{exp\_bits}} - \text{normal\_binades}` binades,
-:math:`2^{\text{man\_bits}}` codes each, are reinterpreted. The first is the
+:math:`2^{\text{exp_bits}} - \text{normal_binades}` binades,
+:math:`2^{\text{man_bits}}` codes each, are reinterpreted. The first is the
 zero. The others are further *powers of two* below the normal region, one per
 code: numbers with an implicit mantissa of exactly 1. With
-:math:`e_{\max} = 2^{\text{exp\_bits}} - 1 - \text{bias}`, the three regions
+:math:`e_{\max} = 2^{\text{exp_bits}} - 1 - \text{bias}`, the three regions
 are
 
 .. math::
@@ -516,8 +516,8 @@ are
    \text{underflow:}   &\quad \text{below that}, && \text{flushed to zero}
    \end{aligned}
 
-where :math:`b = \text{normal\_binades}` and
-:math:`n = (2^{\text{exp\_bits}} - b)\, 2^{\text{man\_bits}}` is the number
+where :math:`b = \text{normal_binades}` and
+:math:`n = (2^{\text{exp_bits}} - b)\, 2^{\text{man_bits}}` is the number
 of reinterpreted codes, of which :math:`n - 1` are supernormals. There are no
 subnormals. The bias has no default: it is part of the format's design and
 must be given. In the supernormal region, rounding acts on the *exponent*:
@@ -571,11 +571,16 @@ unsigned one), the range is
   the word has no code for one, so the format has no saturation mode.
 - A NaN passes through, a negative input to an unsigned format becomes zero,
   and the one zero is :math:`+0.0`, as for BinaryK.
-- The magnitude bits must fit the carrier's mantissa: at most 23 in binary32
-  and 52 in binary64 (Carriers_).
-- There is no fixed-point arithmetic inside a matrix product yet.
-  ``FixedPoint`` has the elementwise quantizer only (:doc:`quantizers`), and
-  a ``SplitMac``, ``FusedMac`` or ``Palette`` refuses it.
+- Under ``SR`` the random bits are added directly below the step, so the
+  probability is exactly the one `Stochastic rounding`_ states, at every
+  ``prng_bits``: none gives ``RZ``.
+- The magnitude bits must fit the carrier's precision, and with ``prng_bits``
+  they share it: at most 24 bits in all in binary32 and 53 in binary64
+  (Carriers_).
+- There is no fixed-point arithmetic inside a ``SplitMac`` or a
+  ``FusedMac`` yet, and they refuse a ``FixedPoint``, as a ``Palette`` does.
+  As the element of a block format, though, it is multiplied by the block
+  GEMM (`Block floating point`_).
 
 .. literalinclude:: ../snippets/formats_fixedpoint.py
    :language: python
@@ -585,11 +590,32 @@ unsigned one), the range is
    :language: text
    :caption: output
 
-.. Stub, to complete in phase K, step 1 (dev/continuation_plan.md): the full
-   carrier rules (a range below the carrier's normals, a range reaching its
-   top binade, a step below the simulable floor), the storage rule for
-   float16 and bfloat16 results, and, with phase K's step 2, fixed-point
-   elements in block formats.
+The carrier bounds a fixed-point format the way it bounds a float format
+(`What the carrier can hold`_), with one difference: the format saturates
+onto its ends, so an end the carrier cannot hold raises rather than warns.
+In binary32 (binary64):
+
+- at most 24 (53) magnitude bits, and as many in all with ``prng_bits``;
+- both ends inside the carrier's range. In two's complement the end farther
+  out is the bottom, :math:`-2^{\,n-\text{fl}}`, so :math:`n - \text{fl} \le
+  127` (1023); a symmetric or unsigned format may reach one binade higher,
+  :math:`n - 1 - \text{fl} \le 127` (1023);
+- a largest value at or above the carrier's smallest normal,
+  :math:`2^{-126}` (:math:`2^{-1022}`), or nothing but zero is returned;
+- a step of at least :math:`2^{-125}` (:math:`2^{-1021}`), the floor of
+  BinaryK's subnormals, which a fixed-point grid is placed on the same way.
+  A finer step warns: values near zero may round incorrectly.
+
+A float16 or bfloat16 result is rounded once more when it is stored, and held
+to the rule for an elementwise result (`What a narrower tensor can store`_):
+the inputs are already the dtype's values, so only an end of the range can
+miss its grid. An end past the dtype's largest value warns, as does a largest
+value that is not one of the dtype's (a saturated result is then rounded
+again), and a largest value below the dtype's smallest raises. There is no
+fixed-point matrix product, so there is no rule for one.
+
+A ``FixedPoint`` can also be the element of a block format, which gives
+block floating point (`Block floating point`_).
 
 .. _block-formats:
 
@@ -610,9 +636,10 @@ Large Language Models with NVFP4 <https://arxiv.org/abs/2509.25149>`__
 (Section 2 and Appendix B).
 
 A :class:`~mptorch.BlockFormat` is defined by an element format, a scale format
-and a block size, with the element and the scale each a
-:class:`~mptorch.BinaryK` or a :class:`~mptorch.SuperFP` (see `SuperFP elements
-and scales`_, below). A tensor is split into blocks of ``block_size``
+and a block size. The element is a :class:`~mptorch.BinaryK`, a
+:class:`~mptorch.SuperFP` or a :class:`~mptorch.FixedPoint`, and the scale a
+BinaryK or a SuperFP (see `SuperFP elements and scales`_ and `Block floating
+point`_, below). A tensor is split into blocks of ``block_size``
 consecutive elements along one axis, its *packed* axis, and each block stores
 one scale code beside its element codes. Element :math:`i` of block
 :math:`\kappa` stands for the value
@@ -674,24 +701,28 @@ The presets
 ~~~~~~~~~~~
 
 MPTorch includes as presets five of the six concrete formats of OCP MX v1.0,
-and NVIDIA's NVFP4:
+and NVIDIA's NVFP4, and :func:`~mptorch.bfp` builds block floating point
+(`Block floating point`_):
 
-==============  =======  ===========  ============  =====  ===============  =============
-preset          element  block scale  tensor scale  block  largest element  bytes/element
-==============  =======  ===========  ============  =====  ===============  =============
-``MXFP8_E4M3``  E4M3     E8M0         none          32     448              1.031
-``MXFP8_E5M2``  E5M2     E8M0         none          32     57344            1.031
-``MXFP6_E2M3``  E2M3     E8M0         none          32     7.5              0.781
-``MXFP6_E3M2``  E3M2     E8M0         none          32     28               0.781
-``MXFP4_E2M1``  E2M1     E8M0         none          32     6                0.531
-``NVFP4``       E2M1     E4M3         float32       16     6                0.562
-==============  =======  ===========  ============  =====  ===============  =============
+==============  ================  ===========  ============  =====  ===============  =============
+preset          element           block scale  tensor scale  block  largest element  bytes/element
+==============  ================  ===========  ============  =====  ===============  =============
+``MXFP8_E4M3``  E4M3              E8M0         none          32     448              1.031
+``MXFP8_E5M2``  E5M2              E8M0         none          32     57344            1.031
+``MXFP6_E2M3``  E2M3              E8M0         none          32     7.5              0.781
+``MXFP6_E3M2``  E3M2              E8M0         none          32     28               0.781
+``MXFP4_E2M1``  E2M1              E8M0         none          32     6                0.531
+``NVFP4``       E2M1              E4M3         float32       16     6                0.562
+``bfp(8)``      FixedPoint(8, 6)  E8M0         none          16     1.984375         1.062
+``bfp(8, 32)``  FixedPoint(8, 6)  E8M0         none          32     1.984375         1.031
+==============  ================  ===========  ============  =====  ===============  =============
 
 "Largest element" is the format's ``elem_max``, the largest element value
 :math:`e_i`. The largest value a block can stand for is ``elem_max`` times
-its largest scale. OCP's sixth format, MXINT8, has 8-bit integer elements and
-no preset, because an element here is a :class:`~mptorch.BinaryK` or a
-:class:`~mptorch.SuperFP`. The element formats use OCP's biases (IEEE 754's),
+its largest scale. OCP's sixth format, MXINT8, has 8-bit two's complement
+integer elements. ``bfp(8, 32)`` is its shape with sign-magnitude elements,
+which hold every MXINT8 value but one, :math:`-2`, so there is no MXINT8
+preset. The element formats use OCP's biases (IEEE 754's),
 one below P3109's default, so the presets spell them out (``E4M3 =
 BinaryK(8, 4, bias=7)``). `Relation to IEEE P3109`_ explains how
 :class:`~mptorch.BinaryK` relates to the standard.
@@ -726,11 +757,11 @@ where we want it, and the natural choice is the largest. Let
 magnitudes are 0, 0.5, 1, 1.5, 2, 3, 4 and 6, and 448 for E4M3. An element
 above ``elem_max`` cannot be stored, so the codes are used best when the
 block's largest element sits exactly at the top, :math:`a =
-\text{elem\_max} \cdot s`. That gives the scale
+\text{elem_max} \cdot s`. That gives the scale
 
 .. math::
 
-   r = \frac{a}{\text{elem\_max}} .
+   r = \frac{a}{\text{elem_max}} .
 
 But :math:`r` is rarely a value of the scale format. Let
 :math:`\lfloor r \rfloor` and :math:`\lceil r \rceil` be the scale format's
@@ -739,19 +770,19 @@ the two powers of two around :math:`r`. They are the two most common
 candidates, and each has a cost:
 
 - :math:`s = \lfloor r \rfloor` is too small. The block's largest element
-  lands at :math:`a / \lfloor r \rfloor = \text{elem\_max} \cdot r / \lfloor
+  lands at :math:`a / \lfloor r \rfloor = \text{elem_max} \cdot r / \lfloor
   r \rfloor`, above ``elem_max``. No code holds such a value, so it is clipped
   to ``elem_max`` (it *saturates*), in every rounding mode, and decodes as
 
   .. math::
 
-     \hat{a} \;=\; \text{elem\_max} \cdot \lfloor r \rfloor
+     \hat{a} \;=\; \text{elem_max} \cdot \lfloor r \rfloor
               \;=\; a \cdot \frac{\lfloor r \rfloor}{r} \;<\; a .
 
   The block's largest value comes back too small by the factor
   :math:`\lfloor r \rfloor / r`.
 - :math:`s = \lceil r \rceil` is too large. The block's largest element
-  lands at :math:`\text{elem\_max} \cdot r / \lceil r \rceil`, below
+  lands at :math:`\text{elem_max} \cdot r / \lceil r \rceil`, below
   ``elem_max``, so every element is in range. But two neighbouring decoded
   values are one element step :math:`\delta` times the scale apart, and that
   distance is now
@@ -798,7 +829,7 @@ lies between the block's two candidates:
    \rho = \frac{r}{\lfloor r \rfloor} .
 
 Under the lower candidate the block's largest element lands at
-:math:`\text{elem\_max} \cdot \rho`, so :math:`\rho` also measures how much
+:math:`\text{elem_max} \cdot \rho`, so :math:`\rho` also measures how much
 that candidate clips:
 
 - :math:`\rho = 1`: the lower candidate is the scale the block asks for, and
@@ -923,7 +954,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    .. math::
 
       s = 2^{\lfloor \log_2 a \rfloor - e_{\max}}, \qquad
-      e_{\max} = \lfloor \log_2(\text{elem\_max}) \rfloor .
+      e_{\max} = \lfloor \log_2(\text{elem_max}) \rfloor .
 
    This is the conversion that the `OCP Microscaling Formats (MX)
    Specification
@@ -936,7 +967,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    :math:`\lfloor r \rfloor` whenever the largest element then stays below 8,
    and that element is clipped if it is above 6, by up to a quarter of its
    value. In general the dividing line is
-   :math:`2^{e_{\max}+1} / \text{elem\_max}`: 4/3 for E2M1 and 8/7 for E4M3.
+   :math:`2^{e_{\max}+1} / \text{elem_max}`: 4/3 for E2M1 and 8/7 for E4M3.
    The rule exists for a power-of-two scale only.
 
 ``NEAREST``
@@ -978,7 +1009,7 @@ and below those of ``OCP`` and ``NEAREST``. The first two give it the scale
    element format's step above it (7 for E2M1). If the block's largest
    element lands at or below :math:`T` under ``NEAREST``'s choice, the rule
    keeps that choice. Otherwise it takes :math:`\lceil r \rceil`. From a
-   power of two its dividing line is :math:`T / \text{elem\_max}`, which is
+   power of two its dividing line is :math:`T / \text{elem_max}`, which is
    7/6 for E2M1. In the run, the block with 3.8 lands on 7.6 under the scale
    1/2 and gets the scale 1, while the block with 3.3 lands on 6.6 and keeps
    the scale 1/2. This rule comes from no specification; it is MPTorch's
@@ -1007,7 +1038,7 @@ measured relative to :math:`S_t`:
 
 .. math::
 
-   r = \frac{a}{\text{elem\_max} \cdot S_t} .
+   r = \frac{a}{\text{elem_max} \cdot S_t} .
 
 The rules above choose between its two neighbours in the scale format,
 :math:`\lfloor r \rfloor` and :math:`\lceil r \rceil`, as before. The chosen
@@ -1019,7 +1050,7 @@ By default :math:`S_t` is computed from the tensor :math:`x` itself:
 
 .. math::
 
-   S_t = \frac{\max|x|}{\text{elem\_max} \cdot \text{scale\_max}} ,
+   S_t = \frac{\max|x|}{\text{elem_max} \cdot \text{scale_max}} ,
 
 where ``scale_max`` is the scale format's largest value, so
 :math:`S_t = \max|x| / (6 \cdot 448)` for NVFP4. The block that holds the
@@ -1038,15 +1069,15 @@ it asks for is at least the scale format's smallest positive value,
 
    r \ge s_{\min}
    \quad\Longleftrightarrow\quad
-   a \;\ge\; \text{elem\_max} \cdot s_{\min} \cdot S_t
-     \;=\; \max|x| \cdot \frac{s_{\min}}{\text{scale\_max}} ,
+   a \;\ge\; \text{elem_max} \cdot s_{\min} \cdot S_t
+     \;=\; \max|x| \cdot \frac{s_{\min}}{\text{scale_max}} ,
 
 where the last step uses the default :math:`S_t`. For E4M3,
 :math:`s_{\min} = 2^{-9}` and ``scale_max`` is 448, so a block's largest
 magnitude may be up to :math:`448 \cdot 2^{9} \approx 2.3 \cdot 10^{5}` times
 smaller than the tensor's. A block smaller than that still takes
 :math:`s_{\min}`. Its largest element then lands at
-:math:`\text{elem\_max} \cdot r / s_{\min}`, below ``elem_max``, and its
+:math:`\text{elem_max} \cdot r / s_{\min}`, below ``elem_max``, and its
 elements are rounded coarsely or to zero.
 
 With a mantissa the choice of rule matters less than with a power of two,
@@ -1162,7 +1193,7 @@ or :math:`s\, S_t` for a scale with a mantissa):
 .. math::
 
    e_i = \operatorname{sign}(x_i) \cdot
-         \min\!\big( |Q(x_i / \sigma)|,\ \text{elem\_max} \big) .
+         \min\!\big( |Q(x_i / \sigma)|,\ \text{elem_max} \big) .
 
 Every value above ``elem_max`` lands on it, in every rounding mode. The
 rounding mode applies to the elements only; the rule for the scale never
@@ -1281,7 +1312,7 @@ The paragraph after the run gives the details.
 
 Rounding a scale to nearest costs more here. Below its normal binades a
 superfp scale holds only powers of two, so the nearest scale can be a factor
-of 1.5 below :math:`a / \text{elem\_max}`. Take a block whose ratio is 0.35:
+of 1.5 below :math:`a / \text{elem_max}`. Take a block whose ratio is 0.35:
 
 - Under ``NEAREST`` it gets the scale 0.25. Its largest element is 8.4 in
   E2M1's units, saturates to 6, and decodes 29% low (33% at worst).
@@ -1292,6 +1323,51 @@ E4M3's subnormals, below :math:`2^{-6}`, behave the same way, and NVFP4's
 tensor scale keeps blocks away from them. The block GEMM decodes superfp
 operands like any others, so their element codes are at most 8 bits there
 too (see :doc:`kernels/block`).
+
+Block floating point
+~~~~~~~~~~~~~~~~~~~~
+
+A :class:`~mptorch.FixedPoint` element gives *block floating point*: integer
+elements that share an exponent. :func:`~mptorch.bfp` builds the usual
+shape, ``FixedPoint(bits, bits - 2, symmetric=True)`` elements with an E8M0
+scale. An element has a sign and ``bits - 1`` magnitude bits, one step of
+:math:`2^{-(\text{bits} - 2)}` from zero to its largest value,
+:math:`2 - 2^{-(\text{bits} - 2)}`. So ``emax`` is 0, and OCP's rule gives a
+block the scale :math:`2^{\lfloor \log_2 a \rfloor}` for its largest
+magnitude :math:`a`.
+
+- **Signed and symmetric only.** A block code is sign-magnitude. It has no
+  code for a two's complement format's bottom, :math:`-2^{\,n-\text{fl}}`,
+  and an unsigned element would lose its top code. Both raise. Any other
+  ``fl`` gives the same block values and only moves ``emax``, and any scale
+  works, a cast one such as E4M3 included.
+- **One grid.** The kernels decode and round the element as the binaryK
+  layout its integer code is: one exponent bit, :math:`n - 1` mantissa bits
+  and bias :math:`2 - n + \text{fl}`, whose exponent field 0 holds the
+  codes below :math:`2^{n-1}` and field 1 the rest, one step apart. No kernel
+  has a fixed-point arm. A quantized block is therefore
+  :func:`~mptorch.quant.fixedpoint_quantize` of each element over the
+  block's scale, times that scale, in every deterministic mode, as the run
+  shows.
+- **Stochastic rounding** goes through binaryK's cast on that layout. It is
+  exact on the upper half of the element's range (field 1, rounded on the
+  word). On the lower half (field 0, binaryK's ``SUBNORMALS`` arm) it adds a
+  power of two in the carrier first, so a probability can be one step of
+  :math:`2^{-N}` off just under a level (`Stochastic rounding`_).
+  :func:`~mptorch.quant.fixedpoint_quantize` itself is exact.
+- **The block GEMM** takes element codes of up to 8 bits, so ``bfp(2)`` to
+  ``bfp(8)``, paired with any block format. ``bfp(9)`` to ``bfp(16)`` pack,
+  unpack and quantize only.
+- **The carrier** holds the element to the fixed-point rule (`FixedPoint:
+  one step across the range`_), its stochastic-rounding bits included.
+
+.. literalinclude:: ../snippets/block_bfp.py
+   :language: python
+   :caption: docs/snippets/block_bfp.py
+
+.. literalinclude:: ../snippets/block_bfp.out
+   :language: text
+   :caption: output
 
 2D tiles
 ~~~~~~~~
@@ -1398,14 +1474,25 @@ when :math:`\lfloor \eta\, 2^{N} \rfloor + R \ge 2^{N}`, for a uniform
 integer :math:`R \in [0, 2^{N})`.
 
 ``prng_bits`` is set on the format (``BinaryK(8, 4, prng_bits=8)``) and is
-ignored by every other rounding mode. Where the bits are drawn has two
+ignored by every other rounding mode. Where the bits are drawn has three
 practical consequences:
 
 - With ``prng_bits=0`` nothing is random, and ``SR`` becomes ``RZ``. The
   ``SR`` row above comes from a format with no random bits and is identical
   to the ``RZ`` row.
 - The format's mantissa plus its random bits must fit in the carrier's
-  mantissa: 23 bits in binary32, 52 in binary64. Each call checks this.
+  mantissa: 23 bits in binary32, 52 in binary64. Each call checks this. A
+  FixedPoint format's magnitude bits plus its random bits must fit the
+  carrier's precision, 24 bits or 53.
+- The bits are added to the input's own word, so the rule above is exact,
+  except in two regions: BinaryK's subnormals (under ``SUBNORMALS``) and the
+  region of a SuperFP below its smallest value. There the cast first adds a
+  power of two in the carrier, to move the value into a binade whose grid is
+  the format's, and that addition rounds :math:`|x|` to nearest at the
+  carrier's precision before the bits are added. An input within half a
+  carrier step below one of the :math:`2^{-N}` levels is then counted at the
+  level, so its probability can be :math:`2^{-N}` off. FixedPoint draws on the
+  word everywhere and is exact.
 
 A float64 operand is rounded in binary64, and its bits are drawn there too,
 two random words per draw.
@@ -1531,16 +1618,16 @@ values never appear in it. There are three limits, stated here in the
 format's own terms, with binary64's in parentheses:
 
 * **Precision.** :math:`P \le 24` (53) for :class:`~mptorch.BinaryK`,
-  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`, and at most 23 (52)
-  magnitude bits for :class:`~mptorch.FixedPoint`, one fewer than the
-  carrier's precision because stochastic rounding adds a leading bit above
-  them. These are the carrier's significand bits; it cannot hold a finer
-  grid.
+  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`, and at most 24 (53)
+  magnitude bits for :class:`~mptorch.FixedPoint`. These are the carrier's
+  significand bits; it cannot hold a finer grid.
 * **The top.** The largest finite value must be at most the carrier's. That
   is :math:`\text{bias} \ge 2^E - 128` (:math:`2^E - 1024`), where :math:`E`
   is the exponent width (``exp_bits`` for a SuperFP). Above that the cast
   saturates at the carrier's largest value on the format's grid, and the
-  codes above it are unreachable.
+  codes above it are unreachable. A FixedPoint format's ends are its
+  saturation points, so both must be carrier values (`FixedPoint: one step
+  across the range`_).
 * **The bottom.** A subnormal carrier value has exponent field 0 whatever its
   magnitude. Any part of a cast that reads that field therefore cannot tell
   values apart below the carrier's smallest normal, :math:`2^{-126}`
@@ -1623,8 +1710,9 @@ works, not which limit it misses:
   more precision than the carrier's, stochastic-rounding bits with no
   significand left to draw from, an exponent field wider than the kernels
   shift by, a SuperFP whose ``normal_binades`` leaves no supernormal codes,
-  and a format whose largest finite value is below the carrier's normals,
-  where every nonzero result overflows.
+  a FixedPoint end past the carrier's largest value, and a format whose
+  largest finite value is below the carrier's normals, where every nonzero
+  result overflows.
 
 The run below shows both carriers on the same inputs and formats:
 

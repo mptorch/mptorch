@@ -1,0 +1,23 @@
+element: FixedPoint(wl=8, fl=6, is_signed=True, symmetric=True, prng_bits=0)
+elem_max 1.984375, emax 0, 16 bytes of codes a block
+
+scale            4.0
+block_quantize   tensor([-3.375000, -3.437500, -0.750000, -1.312500])
+fixedpoint * s   tensor([-3.375000, -3.437500, -0.750000, -1.312500])
+equal in every deterministic mode: True
+
+bfp(8, 32) codes [96, 160, 64, 16]
+
+an E4M3 scale:   NEAREST rounding
+two's complement: a FixedPoint block element must be signed and symmetric, got FixedPoint(wl=8, fl=6, is_signed=True, symmetric=False, prng_bits=0)
+
+bfp8 x MXFP8:
+ tensor([[ -5.216736,   4.229614,  -7.110840],
+        [ -4.395020,   6.504761,  -1.796387],
+        [  0.992920, -13.446533,   0.986694],
+        [  8.714096,  10.942261,   1.706543]])
+their decoded product, in float64:
+ tensor([[ -5.216736,   4.229614,  -7.110840],
+        [ -4.395020,   6.504761,  -1.796387],
+        [  0.992920, -13.446533,   0.986694],
+        [  8.714096,  10.942261,   1.706543]])

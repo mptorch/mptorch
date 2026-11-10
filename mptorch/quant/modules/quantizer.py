@@ -1,11 +1,11 @@
 """Straight-through quantization: one format applied forward, another backward.
 
-The elementwise quantize ops (``binaryK_quantize``, ``superfp_quantize``) are
-not differentiable and do not pretend to be: rounding to a coarse format has a
-derivative of zero almost everywhere, so a gradient through it is a modelling
-choice, not a fact about the op. This module is where that choice is made
-explicit, and it is the reason those ops raise on a ``requires_grad`` operand
-rather than silently dropping the gradient.
+The elementwise quantize ops (``binaryK_quantize``, ``superfp_quantize``,
+``fixedpoint_quantize``) are not differentiable and do not pretend to be:
+rounding to a coarse format has a derivative of zero almost everywhere, so a
+gradient through it is a modelling choice, not a fact about the op. This module
+is where that choice is made explicit, and it is the reason those ops raise on
+a ``requires_grad`` operand rather than silently dropping the gradient.
 
 The estimator is the standard one: the forward rounds, the backward passes the
 gradient through, optionally rounded to a *different* format. That asymmetry is
@@ -102,5 +102,5 @@ class Quantizer(nn.Module):
 
     # nn.Module declares forward as a writable Callable attribute, which ty
     # reads a method override as narrowing; every direct subclass does this.
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return _StraightThrough.apply(x, self.forward_quant, self.backward_quant)

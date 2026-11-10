@@ -1,0 +1,10 @@
+nn.Conv2d             holds 4.00 activations for backward
+QConv2d, copies kept  holds 8.05 activations for backward
+QConv2d               holds 4.00 activations for backward
+the two QConv2d stacks' gradients, under SR, are identical: True
+
+QLinear keeps its input raw: False
+QLinear keeps its weight raw: True
+
+with a callable of its own, the weight raw: False
+and with recompute_weight=True: True

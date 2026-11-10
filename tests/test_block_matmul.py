@@ -22,6 +22,7 @@ import torch
 from mptorch import (
     E2M1,
     E2M3,
+    E4M3,
     E5M2,
     E8M0,
     MXFP4_E2M1,
@@ -33,10 +34,12 @@ from mptorch import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    FixedPoint,
     RoundMode,
     ScaleRounding,
     SubnormalsMode,
     SuperFP,
+    bfp,
 )
 from mptorch.quant import (
     BlockMac,
@@ -109,6 +112,14 @@ PAIRS = {
     "four_over_six_tiled": (
         SQ_FOS,
         dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_ABS_MAX),
+    ),
+    # block floating point (phase K, step 2): fixed-point elements against
+    # float ones, and with a cast scale, square-tiled
+    "nvfp4_bfp8": (NVFP4, bfp(8, 16)),
+    "bfp8_mxfp8": (bfp(8, 32), MXFP8_E4M3),
+    "bfp3_bfp8_e4m3_tiled": (
+        bfp(3, 8),
+        BlockFormat(FixedPoint(8, 6, symmetric=True), E4M3, 16, block_rows=16),
     ),
 }
 ACCS = {"b8p4": BinaryK(8, 4), "b16p11": BinaryK(16, 11), "none": None}
@@ -510,7 +521,7 @@ def test_nvfp4_split_is_not_fused(device):
 def test_wide_element_codes_are_refused():
     from mptorch import E8M0, BlockFormat
 
-    fmt = BlockFormat(BinaryK(11, 6, bias=7), E8M0, 8)
-    pa, pb = _ops(4, 32, 4, fmt, MXFP8_E4M3, "cpu")
-    with pytest.raises(RuntimeError, match="at most 8"):
-        block_matmul(pa, pb)
+    for fmt in (BlockFormat(BinaryK(11, 6, bias=7), E8M0, 8), bfp(9, 8)):
+        pa, pb = _ops(4, 32, 4, fmt, MXFP8_E4M3, "cpu")
+        with pytest.raises(RuntimeError, match="at most 8"):
+            block_matmul(pa, pb)

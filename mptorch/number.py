@@ -40,6 +40,7 @@ __all__ = [
     "MXFP6_E3M2",
     "MXFP4_E2M1",
     "NVFP4",
+    "bfp",
 ]
 
 import os
@@ -918,11 +919,17 @@ def _fixedpoint_findings(
     The fixed-point twin of `_binaryK_findings`. A fixed-point format has no
     exponent field, so `_width_error` and `_range_findings` do not apply: its
     range is its precision, the leading bit of its largest value, and its
-    step, each held against the carrier's here. Stochastic rounding holds a
-    value as a float with mag_bits mantissa bits below the leading bit
-    2^(mag_bits - fl), so the precision rule is binaryK's man_bits rule, and
-    that leading bit must be a carrier value. The layout is checked first, and
-    returned as is, since no carrier holds it.
+    step, each held against the carrier's here. Every value is a mag_bits-bit
+    integer times the step, so the precision rule is binaryK's on precision,
+    mag_bits against the carrier's significand; stochastic rounding draws its
+    bits below the step in the same significand, so they share it; and both
+    ends of the range must be carrier values, which in two's complement is the
+    bottom, -2^(mag_bits - fl), one binade past the top. Measured with
+    ``dev/benchmarks/format_limits.py fixedpoint ... --audit`` and the
+    ``fixed-beyond`` modes of the cast sweeps (2026-11-10), after SR became
+    integer arithmetic on the word; until then it added 2^(mag_bits - fl) in
+    the carrier, which cost one bit and one binade. The layout is checked
+    first, and returned as is, since no carrier holds it.
     """
     label = _fixedpoint_label(wl, fl, is_signed, symmetric)
 
@@ -935,23 +942,25 @@ def _fixedpoint_findings(
     top_exp = mag_bits - 1 - fl  # the largest value's leading bit
     exp_step = -fl
 
+    # the leading bit of the end farthest from zero: the top, or in two's
+    # complement the bottom, -2^(mag_bits - fl), a binade past it
+    end_exp = top_exp + 1 if is_signed and not symmetric else top_exp
+
     def find(c: _Carrier) -> tuple[str | None, str | None]:
-        # error: stochastic rounding keeps all mag_bits in the carrier's mantissa,
-        # below the leading bit its shift adds, so it needs one bit of precision
-        # more than the format's values have
-        if mag_bits > c.man_bits:
+        # error: every value is a mag_bits-bit integer, which the carrier's
+        # significand holds only up to its precision
+        if mag_bits > c.precision:
             return (
-                f"{label} asks for {mag_bits + 1} bits of precision, its {mag_bits} magnitude "
-                f"bits below the leading bit stochastic rounding adds, and it is rounded in "
-                f"{c.name}, which has {c.precision}"
+                f"{label} asks for {mag_bits} bits of precision, its magnitude bits, and it "
+                f"is rounded in {c.name}, which has {c.precision}"
             ), None
 
         # error: stochastic rounding draws its bits below the step, in the same significand
-        if mag_bits + prng_bits > c.man_bits:
+        if mag_bits + prng_bits > c.precision:
             return (
                 f"{label} asks for {prng_bits} stochastic-rounding bits below {mag_bits} "
                 f"magnitude bits; they are drawn from the {c.name} significand the rounding "
-                f"happens in, which has {c.man_bits} bits to share"
+                f"happens in, which has {c.precision} bits to share"
             ), None
 
         # error: the whole range is below the carrier's normals
@@ -960,11 +969,14 @@ def _fixedpoint_findings(
                 f"{label}'s largest value is below {c.name}'s smallest normal, 2^{c.min_normal_exp}"
             ), None
 
-        # error: stochastic rounding adds 2^(mag_bits - fl), which must be a carrier value
-        if mag_bits - fl > c.top_exp:
+        # error: an end of the range is past the carrier's largest value
+        if end_exp > c.top_exp:
+            if end_exp > top_exp:
+                end = f"bottom, -2^{end_exp},"
+            else:
+                end = f"largest value, in 2^{top_exp},"
             return (
-                f"{label}'s range reaches {c.name}'s top binade, 2^{c.top_exp}; "
-                f"stochastic rounding needs one binade above it"
+                f"{label}'s {end} is past {c.name}'s range, which stops below 2^{c.top_exp + 1}"
             ), None
 
         # warn: the step is below the floor the casts place values by (`_Carrier`)
@@ -2086,8 +2098,8 @@ class FixedPoint(Number):
 
 
 class _Minifloat(NamedTuple):
-    """A `BinaryK`'s or a `SuperFP`'s code layout, as the block kernels encode
-    and decode it."""
+    """A `BinaryK`'s, a `SuperFP`'s or a `FixedPoint`'s code layout, as the
+    block kernels encode and decode it."""
 
     is_signed: bool
     exp_bits: int
@@ -2111,10 +2123,22 @@ def _bias(f: BinaryK) -> int:
     return f.bias
 
 
-def _minifloat(f: "BinaryK | SuperFP") -> _Minifloat:
+def _minifloat(f: "BinaryK | SuperFP | FixedPoint") -> _Minifloat:
     """The code layout of ``f``: P3109's field widths in sign-magnitude for a
-    ``BinaryK``, and for a ``SuperFP`` its fields and its supernormal codes
-    (``cast_superfp.h``'s ``superfp_region_cutoffs``)."""
+    ``BinaryK``, for a ``SuperFP`` its fields and its supernormal codes
+    (``cast_superfp.h``'s ``superfp_region_cutoffs``), and for a
+    ``FixedPoint`` the binaryK layout its sign-magnitude integer code is.
+
+    A ``FixedPoint`` with ``M`` magnitude bits is bit for bit the binaryK
+    layout with one exponent bit, ``M - 1`` mantissa bits and bias ``2 - M +
+    fl``: field 0, the subnormals, holds ``m * 2**-fl``, and field 1 holds
+    ``(2**(M-1) + m) * 2**-fl``, so the code ``c`` is the value ``c *
+    2**-fl``. The block kernels decode, round and encode it as that binaryK
+    (decision K-d of ``dev/continuation_plan.md``): one step from zero to the
+    top, which the element's ``elem_max`` keeps it to."""
+    if isinstance(f, FixedPoint):
+        m = f.mag_bits
+        return _Minifloat(f.is_signed, 1, m - 1, 2 - m + f.fl, False)
     if isinstance(f, SuperFP):
         normal_cutoff = (1 << f.exp_bits) - f.normal_binades - f.bias
         super_codes = ((1 << f.exp_bits) - f.normal_binades) << f.man_bits
@@ -2181,15 +2205,24 @@ def _significant_bits(value: Fraction) -> int:
     return (num >> ((num & -num).bit_length() - 1)).bit_length()
 
 
-def _block_part_error(role: str, f: "BinaryK | SuperFP", carrier: torch.dtype) -> str | None:
+def _block_part_error(
+    role: str, f: "BinaryK | SuperFP | FixedPoint", carrier: torch.dtype
+) -> str | None:
     """Why a block format cannot use ``f`` as its element or cast scale in
     ``carrier``, or ``None``.
 
     The block kernels assemble decoded values on the carrier's word, so the
     format rounded with (``f`` under ``SAT_FINITE``) has to be one the
-    carrier holds entirely: no error and no range warning.
+    carrier holds entirely: no error and no range warning. A ``FixedPoint``
+    element is held to its own rule, `_fixedpoint_findings`, which is the
+    binaryK rule of its layout with the stochastic-rounding bits counted
+    against the magnitude bits.
     """
-    if isinstance(f, SuperFP):
+    if isinstance(f, FixedPoint):
+        error, warning = _fixedpoint_findings(
+            f.wl, f.fl, f.is_signed, f.symmetric, f.prng_bits, carrier
+        )
+    elif isinstance(f, SuperFP):
         error, warning = _superfp_findings(
             f.man_bits,
             f.exp_bits,
@@ -2439,7 +2472,7 @@ class BlockFormat(Number):
       a scale). Formats compare by it, so leaving ``scale_rounding`` at its
       default and naming that default give equal formats.
     - ``elem_bits``: the bits per element code, sign included (``elem.K`` for
-      a binaryK).
+      a binaryK, ``elem.wl`` for a fixed point).
     - ``emax``: ``floor(log2(elem_max))``.
     - ``scale_max``: the largest scale, the value of the code below the
       scale's NaN (448 for E4M3, ``2**127`` for E8M0, 0 without a scale).
@@ -2484,7 +2517,7 @@ class BlockFormat(Number):
         <ScaleRounding.SELECTIVE: 3>
     """
 
-    elem: "BinaryK | SuperFP"
+    elem: "BinaryK | SuperFP | FixedPoint"
     scale: "BinaryK | SuperFP | None"
     block_size: int
     _: KW_ONLY
@@ -2509,11 +2542,23 @@ class BlockFormat(Number):
 
     def __post_init__(self) -> None:
         elem, scale = self.elem, self.scale
-        if not isinstance(elem, BinaryK | SuperFP):
+        if not isinstance(elem, BinaryK | SuperFP | FixedPoint):
             raise TypeError(
-                f"a BlockFormat's element is a BinaryK or a SuperFP, got {type(elem).__name__} "
-                "(fixed-point elements are dev/continuation_plan.md's phase K)"
+                f"a BlockFormat's element is a BinaryK, a SuperFP or a FixedPoint, got "
+                f"{type(elem).__name__}"
             )
+        if isinstance(elem, FixedPoint):
+            if not (elem.is_signed and elem.symmetric):
+                raise ValueError(
+                    f"a FixedPoint block element must be signed and symmetric, got {elem}: a "
+                    "block code is sign-magnitude, which has no code for two's complement's "
+                    "bottom, and an unsigned element's top code would be its layout's NaN"
+                )
+            if self.nan_code is not None or self.inf_code is not None:
+                raise ValueError(
+                    "a FixedPoint block element has a value at every code, so it has no "
+                    "nan_code or inf_code"
+                )
         mf = _minifloat(elem)
         bits = mf.bits
         if bits > 16:
@@ -2785,3 +2830,30 @@ MXFP6_E2M3 = BlockFormat(E2M3, E8M0, 32)
 MXFP6_E3M2 = BlockFormat(E3M2, E8M0, 32)
 MXFP4_E2M1 = BlockFormat(E2M1, E8M0, 32)
 NVFP4 = BlockFormat(E2M1, E4M3, 16)
+
+
+def bfp(bits: int, block_size: int = 16, *, block_rows: int = 1) -> BlockFormat:
+    """Block floating point: ``bits``-bit integer elements sharing a power-of-two scale.
+
+    The elements are ``FixedPoint(bits, bits - 2, symmetric=True)``: a sign
+    and ``bits - 1`` magnitude bits, one step of ``2**-(bits - 2)`` from zero
+    to the largest value, ``2 - 2**-(bits - 2)``, so ``emax`` is 0 and a
+    block's E8M0 scale is ``2**floor(log2(amax))``, OCP's rule. Any other
+    ``fl`` gives the same block values and only moves ``emax``; build the
+    :class:`BlockFormat` directly for one.
+
+    ``bfp(8, 32)`` is OCP's MXINT8 but for one code: MXINT8's elements are two's
+    complement, and ``-2`` has no sign-magnitude code. The block GEMM takes
+    element codes of up to 8 bits; ``bfp(9)`` to ``bfp(16)`` pack, unpack and
+    quantize only.
+
+    Args:
+        bits: the element's word length, sign included, 2 to 16.
+        block_size: elements per block, a power of two in [2, 128] with
+            ``bits * block_size`` a multiple of 8.
+        block_rows: rows per tile; ``block_rows > 1`` shares a scale over a
+            ``block_rows x block_size`` tile.
+    """
+    return BlockFormat(
+        FixedPoint(bits, bits - 2, symmetric=True), E8M0, block_size, block_rows=block_rows
+    )

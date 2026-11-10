@@ -600,6 +600,7 @@ def _block_formats():
         BinaryK,
         BlockFormat,
         SuperFP,
+        bfp,
     )
 
     return [
@@ -611,11 +612,13 @@ def _block_formats():
         BlockFormat(BinaryK(6, 3, is_signed=False, bias=4), None, 32),
         BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32),
         BlockFormat(E2M1, SuperFP(3, 4, 2, 7), 16),
+        bfp(8, 32),  # fixed-point elements: the binaryK layout of a sign-magnitude integer
+        bfp(12, 16, block_rows=16),
     ]
 
 
 @pytest.mark.parametrize("device", float64_devices)
-@pytest.mark.parametrize("fmt", range(8))
+@pytest.mark.parametrize("fmt", range(10))
 def test_block_formats(device, fmt):
     """block_quantize, block_quantize_ and block_unpack return no -0.0 in any
     rounding mode (dev/continuation_plan.md, phase D, decision 7): the encoder

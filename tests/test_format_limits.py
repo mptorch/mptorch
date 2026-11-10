@@ -41,14 +41,15 @@ oracle built from the format's value set rather than from a second cast:
 binary64, and ``sweep --dtype float16 --audit`` (and ``--dtype bfloat16``) for
 storage. A change that moves a bound should move a measurement first.
 
-Fixed point's boundaries are not measured that way: no sweep covers the
-format. They are derived from its value set (a ``mag_bits``-bit integer times
-``2**-fl``, so its precision, its top and its step), and its storage rule is
-held against storing every float16 and bfloat16 value
-(``test_the_fixedpoint_storage_rule_is_what_storing_does``). Its top has no
-warning: stochastic rounding adds a power of two one binade above the range,
-which must be a carrier value, so a range reaching the carrier's top binade
-raises.
+Fixed point's boundaries are measured with ``format_limits.py fixedpoint ...
+--audit`` in both carriers (its value set is a ``mag_bits``-bit integer times
+``2**-fl``, so its precision, its ends and its step), with SR's by the
+``fixed`` and ``fixed-beyond`` modes of the two cast sweeps, and its storage
+rule is held against storing every float16 and bfloat16 value
+(``test_the_fixedpoint_storage_rule_is_what_storing_does``). Its ends have no
+warning: it always saturates, onto the end on the input's side, so an end the
+carrier cannot hold raises -- in two's complement the bottom, ``-2**(mag_bits
+- fl)``, a binade past the top.
 """
 
 import itertools
@@ -155,9 +156,11 @@ def _in(dtype, build):
         lambda: FixedPoint(8, 4),
         lambda: FixedPoint(8, 4, symmetric=True),
         lambda: FixedPoint(12, 4, is_signed=False),
-        lambda: FixedPoint(24, 0),  # 23 magnitude bits, all of binary32's mantissa
-        lambda: FixedPoint(16, 4, prng_bits=8),  # 15 + 8 == binary32's 23
-        lambda: FixedPoint(8, -120),  # SR's shift is 2**127, binary32's top binade
+        lambda: FixedPoint(25, 0),  # 24 magnitude bits, all of binary32's precision
+        lambda: FixedPoint(24, 0, is_signed=False),  # the same, unsigned
+        lambda: FixedPoint(16, 4, prng_bits=9),  # 15 + 9 == binary32's 24
+        lambda: FixedPoint(8, -120),  # the two's complement bottom is -2**127
+        lambda: FixedPoint(8, -121, symmetric=True),  # the largest value in 2**127
         lambda: FixedPoint(8, 125),  # a step of 2**-125, the floor
     ],
 )
@@ -187,10 +190,11 @@ def test_formats_in_range_are_silent(build, dtype):
         (lambda: BinaryK(8, 4, prng_bits=21), "stochastic-rounding bits", True),
         (lambda: SuperFP(3, 4, 2, 7, prng_bits=21), "stochastic-rounding bits", True),
         # Fixed point holds every magnitude bit, and the random bits below
-        # them, in binary32's 23 mantissa bits, as binaryK holds its man_bits;
-        # and a largest value below binary32's normals leaves nothing to place.
-        (lambda: FixedPoint(25, 0), "25 bits of precision.*binary32, which has 24", True),
-        (lambda: FixedPoint(17, 4, prng_bits=8), "stochastic-rounding bits", True),
+        # them, in binary32's 24 bits of precision; and a largest value below
+        # binary32's normals leaves nothing to place.
+        # (its largest value needs 25 bits, so a float32 result rounds it again)
+        (lambda: FixedPoint(26, 0), "25 bits of precision.*binary32, which has 24", "warns"),
+        (lambda: FixedPoint(17, 4, prng_bits=9), "stochastic-rounding bits", True),
         (lambda: FixedPoint(8, 133), "below binary32's smallest normal", True),
     ],
 )
@@ -200,7 +204,8 @@ def test_formats_that_cannot_function_in_binary32_raise_at_the_call(build, match
     Each is whole in binary64, so building it and a float64 call are silent,
     and the float32 error points at ``carrier=torch.float64``. Naming that
     carrier on float32 operands works when float32 can store the result
-    (``stored``) and raises the storage error otherwise.
+    (``stored``), warns when it stores most of it (``"warns"``), and raises the
+    storage error otherwise.
     """
     fmt = _silent(build)
     with pytest.raises(ValueError, match=match) as raised:
@@ -208,7 +213,10 @@ def test_formats_that_cannot_function_in_binary32_raise_at_the_call(build, match
     assert "binary64 holds all of it" in str(raised.value)
     assert "carrier=torch.float64" in str(raised.value)
     _silent(lambda: Quant(fmt)(torch.ones(4, dtype=F64)))
-    if stored:
+    if stored == "warns":
+        with pytest.warns(FormatRangeWarning, match="not a float32 value"):
+            Quant(fmt, carrier=F64)(torch.ones(4))
+    elif stored:
         _silent(lambda: Quant(fmt, carrier=F64)(torch.ones(4)))
     else:
         with pytest.raises(ValueError, match="a float32 result stores none"):
@@ -247,9 +255,10 @@ def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64()
         # mantissa, and 3 + 50 does not fit
         (lambda: BinaryK(8, 4, prng_bits=50), "stochastic-rounding bits.*52 bits"),
         (lambda: BinaryK(8, 4, prng_bits=-1), "non-negative"),
-        # fixed point's range reaching binary64's top binade, and its largest
-        # value below binary64's normals
-        (lambda: FixedPoint(8, -1017), "top binade, 2\\^1023"),
+        # fixed point's ends past binary64's (the two's complement bottom and
+        # a symmetric top), and its largest value below binary64's normals
+        (lambda: FixedPoint(8, -1017), "bottom, -2\\^1024"),
+        (lambda: FixedPoint(8, -1018, symmetric=True), "largest value, in 2\\^1024"),
         (lambda: FixedPoint(8, 1030), "below binary64's smallest normal"),
     ],
 )
@@ -272,7 +281,7 @@ def test_building_a_format_never_warns():
         BinaryK(24, 8)  # above binary64's top as well
         SuperFP(4, 4, 2, 7)  # finer than binary32 at the bottom
         FixedPoint(40, 4)  # past binary32's precision
-        FixedPoint(8, -122)  # past binary32's top binade
+        FixedPoint(8, -122)  # past binary32's range
         FixedPoint(8, 126)  # below binary32's floor
         spec_for_mac(SplitMac(BinaryK(16, 8), BinaryK(24, 8)))
         binaryK_gemm_formats(16, 8)
@@ -433,14 +442,36 @@ def test_top_boundary_is_where_it_was_measured(ok, bad):
 @pytest.mark.parametrize(
     ("dtype", "ok", "bad", "match"),
     [
-        (F32, lambda: FixedPoint(8, -120), lambda: FixedPoint(8, -121), "top binade, 2\\^127"),
-        (F64, lambda: FixedPoint(8, -1016), lambda: FixedPoint(8, -1017), "2\\^1023"),
+        (F32, lambda: FixedPoint(8, -120), lambda: FixedPoint(8, -121), "bottom, -2\\^128"),
+        (
+            F32,
+            lambda: FixedPoint(8, -121, symmetric=True),
+            lambda: FixedPoint(8, -122, symmetric=True),
+            "largest value, in 2\\^128",
+        ),
+        (
+            F32,
+            lambda: FixedPoint(7, -121, is_signed=False),
+            lambda: FixedPoint(7, -122, is_signed=False),
+            "largest value, in 2\\^128",
+        ),
+        (F64, lambda: FixedPoint(8, -1016), lambda: FixedPoint(8, -1017), "bottom, -2\\^1024"),
+        (
+            F64,
+            lambda: FixedPoint(8, -1017, symmetric=True),
+            lambda: FixedPoint(8, -1018, symmetric=True),
+            "largest value, in 2\\^1024",
+        ),
     ],
 )
-def test_a_fixedpoint_range_reaching_the_top_binade_raises(dtype, ok, bad, match):
-    """Fixed point's top raises where the float formats' warns: stochastic
-    rounding adds ``2**(mag_bits - fl)``, one binade above the range, so that
-    power of two must be a carrier value. binary64's case raises when built."""
+def test_a_fixedpoint_end_past_the_carrier_raises(dtype, ok, bad, match):
+    """Fixed point's ends raise where the float formats' top warns: it always
+    saturates, onto the end on the input's side, so that end must be a carrier
+    value. In two's complement the end farther out is the bottom, -2**(mag_bits
+    - fl), a binade past the top; a symmetric or unsigned format goes a binade
+    higher. Measured (``format_limits.py fixedpoint ... --audit``): each ``ok``
+    exact in every mode, each ``bad`` wrong at its end. binary64's cases raise
+    when built."""
     _silent(_in(dtype, ok))
     with pytest.raises(ValueError, match=match):
         _in(dtype, bad)()
@@ -555,13 +586,13 @@ def test_binary64_precision_and_stochastic_bits_are_where_they_were_measured():
         BinaryK(64, 54, bias=512)
     with pytest.raises(ValueError, match="stochastic-rounding bits"):
         BinaryK(14, 4, bias=512, prng_bits=50)
-    # fixed point: mag_bits = 52 and mag_bits + prng_bits = 52, binaryK's rule
-    _silent(lambda: Quant(FixedPoint(53, 0))(x))
-    _silent(lambda: Quant(FixedPoint(8, 4, prng_bits=45), RoundMode.SR)(x))
+    # fixed point: mag_bits = 53 and mag_bits + prng_bits = 53, binary64's precision
+    _silent(lambda: Quant(FixedPoint(54, 0))(x))
+    _silent(lambda: Quant(FixedPoint(8, 4, prng_bits=46), RoundMode.SR)(x))
     with pytest.raises(ValueError, match="54 bits of precision.*binary64, which has 53"):
-        FixedPoint(54, 0)
+        FixedPoint(55, 0)
     with pytest.raises(ValueError, match="stochastic-rounding bits"):
-        FixedPoint(8, 4, prng_bits=46)
+        FixedPoint(8, 4, prng_bits=47)
 
 
 def test_warning_can_be_filtered():
@@ -1395,3 +1426,12 @@ def test_block_element_must_fit_the_carrier():
         with pytest.raises(ValueError, match="binary32 holds entirely.*binary64 holds it"):
             block_quantize(x, fmt)
         assert block_quantize(x.double(), fmt).dtype is torch.float64
+    # a fixed-point element is held to the fixed-point rule: 15 magnitude bits
+    # and 9 stochastic-rounding bits are binary32's 24, and one more is not
+    from mptorch import FixedPoint
+
+    block_quantize(x, BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=9), E8M0, 16))
+    wide = BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=10), E8M0, 16)
+    with pytest.raises(ValueError, match="binary32 holds entirely.*stochastic-rounding bits"):
+        block_quantize(x, wide)
+    assert block_quantize(x.double(), wide).dtype is torch.float64

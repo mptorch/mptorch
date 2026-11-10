@@ -37,6 +37,7 @@ from mptorch.number import (
     AccumulateAlgorithm,
     BinaryK,
     BlockFormat,
+    FixedPoint,
     RoundMode,
     SaturationMode,
     SubnormalsMode,
@@ -78,11 +79,18 @@ __all__ = [
 
 
 @lru_cache(maxsize=256)
-def _code_fields(f: "BinaryK | SuperFP") -> tuple[int, int, int, int, int, int, int]:
+def _code_fields(
+    f: "BinaryK | SuperFP | FixedPoint",
+) -> tuple[int, int, int, int, int, int, int]:
     """One code's family and layout, as the descriptor spells it: (family,
     signed, exp_bits, man_bits, bias, subnormals, normal_binades), family 0 a
-    binaryK and 1 a superfp, each leaving the other's field 0."""
+    binaryK and 1 a superfp, each leaving the other's field 0. A fixed-point
+    element is family 0: the binaryK layout its integer code is
+    (`mptorch.number._minifloat`), under SUBNORMALS."""
     mf = _minifloat(f)
+    if isinstance(f, FixedPoint):
+        sub = SubnormalsMode.SUBNORMALS.value
+        return 0, int(f.is_signed), mf.exp_bits, mf.man_bits, mf.bias, sub, 0
     if isinstance(f, SuperFP):
         return 1, int(f.is_signed), mf.exp_bits, mf.man_bits, mf.bias, 0, f.normal_binades
     return 0, int(f.is_signed), mf.exp_bits, mf.man_bits, mf.bias, f.subnormals.value, 0

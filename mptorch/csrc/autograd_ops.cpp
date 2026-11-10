@@ -144,7 +144,7 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_conv_superfp_binaryK", kernel());
 }
 
-// The three in-place quantizers also need the ADInplaceOrView key, which is
+// The four in-place quantizers also need the ADInplaceOrView key, which is
 // where ATen's own in-place ops bump their tensor's version counter. The
 // backend kernels write through data_ptr() and go around ATen entirely, so
 // nothing else would: a tensor saved for backward and then quantized in place

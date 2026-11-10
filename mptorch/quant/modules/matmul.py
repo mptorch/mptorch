@@ -18,6 +18,8 @@ dimension a 1D operand was promoted along has to come off again.
 
 import torch
 
+from ._saved import load, quantize_operand, restore, save
+
 
 def _promote(x: torch.Tensor | None, was_1d: bool, dim: int) -> torch.Tensor | None:
     """Put the dimension ``torch.matmul`` promoted back onto a saved operand.
@@ -81,33 +83,44 @@ class CustomArithMatmul(torch.autograd.Function):
         """``b``'s gradient without a custom hook: ``a^T @ grad``."""
         return torch.matmul(q_a.transpose(-2, -1), q_grad)
 
+    #: What a ``None`` recompute flag means here, as (a, b): both are kept.
+    #: A matmul's operands are activations, and whether anything else keeps
+    #: one alive depends on the model: attention's ``softmax(...) @ V`` can
+    #: recompute ``a``, which softmax keeps, but not ``V``, a Linear's output
+    #: that nothing keeps (``_saved``; phase V, decision V-a).
+    _RECOMPUTE_DEFAULT = (False, False)
+
     @staticmethod
     def forward(ctx, a, b, formats):
         ctx.formats = formats
+        recompute_a, recompute_b = CustomArithMatmul._RECOMPUTE_DEFAULT
 
-        q_a = formats.a_quant(a) if formats.a_quant else a
-        q_b = formats.b_quant(b) if formats.b_quant else b
+        # Save only what backward reads, as CustomArithLinear does: q_b feeds
+        # a's gradient and q_a feeds b's, so a call that needs one gradient
+        # does not pin a quantized copy of both operands. What is saved of an
+        # operand that is read is its quantized value or the raw operand,
+        # quantized again in backward (_saved). A quantizer that returns some
+        # other structure than a tensor (a packed block format, which
+        # block_matmul_formats' square-tiled slots return) is kept as it is.
+        q_a, saved_a, ctx.replay_a = quantize_operand(
+            a,
+            formats.a_quant,
+            getattr(formats, "recompute_a", None),
+            recompute_a,
+            ctx.needs_input_grad[1],
+        )
+        q_b, saved_b, ctx.replay_b = quantize_operand(
+            b,
+            formats.b_quant,
+            getattr(formats, "recompute_b", None),
+            recompute_b,
+            ctx.needs_input_grad[0],
+        )
 
         fwd_math = formats.fwd_math or CustomArithMatmul._default_fwd
         output = fwd_math(q_a, q_b)
 
-        # Save only what backward reads, as CustomArithLinear does: q_b feeds
-        # a's gradient and q_a feeds b's, so a call that needs one gradient
-        # does not pin a quantized copy of both operands.
-        saved_a = q_a if ctx.needs_input_grad[1] else None
-        saved_b = q_b if ctx.needs_input_grad[0] else None
-        # save_for_backward takes tensors only; a quantizer that returns some
-        # other structure (a packed block format, which block_matmul_formats'
-        # square-tiled slots return) goes on ctx directly, as in
-        # CustomArithLinear.
-        if (saved_a is None or isinstance(saved_a, torch.Tensor)) and (
-            saved_b is None or isinstance(saved_b, torch.Tensor)
-        ):
-            ctx.save_for_backward(saved_a, saved_b)
-            ctx.saved_structs = None
-        else:
-            ctx.save_for_backward()
-            ctx.saved_structs = (saved_a, saved_b)
+        save(ctx, saved_a, saved_b)
         ctx.promotion = (a.dim() == 1, b.dim() == 1)
         ctx.shapes = (a.shape, b.shape)
         return output
@@ -115,14 +128,12 @@ class CustomArithMatmul(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         formats = ctx.formats
-        q_a, q_b = ctx.saved_tensors if ctx.saved_structs is None else ctx.saved_structs
+        saved_a, saved_b = load(ctx)
         a_1d, b_1d = ctx.promotion
         a_shape, b_shape = ctx.shapes
         grad_a = grad_b = None
 
         grad = _restore(grad_outputs[0], a_1d, b_1d)
-        q_a = _promote(q_a, a_1d, 0)
-        q_b = _promote(q_b, b_1d, -1)
 
         # Quantize the gradient only for the paths that will consume it, and
         # both quantizations ahead of both math calls, in this order, so a
@@ -140,12 +151,17 @@ class CustomArithMatmul(torch.autograd.Function):
         )
 
         if q_agrad is not None:
+            # A recomputed operand is quantized again only here, so its copy
+            # lives for this one GEMM.
+            q_b = _promote(restore(saved_b, ctx.replay_b), b_1d, -1)
             assert q_b is not None  # saved iff a's gradient was asked for
             agrad_math = formats.bwd_agrad_math or CustomArithMatmul._default_agrad
             promoted = (1, *a_shape) if a_1d else tuple(a_shape)
             grad_a = _reduce(agrad_math(q_agrad, q_b), promoted, a_1d, -2)
+            del q_b
 
         if q_bgrad is not None:
+            q_a = _promote(restore(saved_a, ctx.replay_a), a_1d, 0)
             assert q_a is not None  # saved iff b's gradient was asked for
             bgrad_math = formats.bwd_bgrad_math or CustomArithMatmul._default_bgrad
             promoted = (*b_shape, 1) if b_1d else tuple(b_shape)
@@ -162,7 +178,10 @@ class QMatmul(torch.nn.Module):
     ``QMatmulFormats`` is an ``nn.Module``, so a quantizer that carries state
     (a QAT observer) is registered in the parent model's ``state_dict`` when
     the matmul is held as a submodule. A quantized attention block calls two
-    of these per head.
+    of these per head. For backward it keeps quantized copies of both
+    operands, unless the formats' ``recompute_a`` / ``recompute_b`` say to
+    keep an operand raw and quantize it again there (worth it for the
+    softmax probabilities, which softmax keeps alive anyway).
 
     Args:
         formats (None or Number or SplitMac or FusedMac or QMatmulFormats):
@@ -195,5 +214,5 @@ class QMatmul(torch.nn.Module):
 
     # nn.Module declares forward as a writable Callable attribute, which ty
     # reads a method override as narrowing; every direct subclass does this.
-    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return CustomArithMatmul.apply(a, b, self.formats)
