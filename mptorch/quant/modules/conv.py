@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.grad as grad
 
+from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
 
@@ -90,6 +91,13 @@ class CustomArithConvNd(torch.autograd.Function):
             )
         raise ValueError(f"Unsupported nd: {nd}")
 
+    #: What a ``None`` recompute flag means here, as (input, weight): both are
+    #: quantized again in backward rather than kept. The weight is alive
+    #: anyway as the layer's parameter, and a convolution's input usually is
+    #: too, as the output a ReLU keeps for its own backward or as the data
+    #: batch (``_saved``; phase V, decision V-a).
+    _RECOMPUTE_DEFAULT = (True, True)
+
     @staticmethod
     def forward(ctx, input, weight, bias, formats, stride, padding, dilation, groups, nd):
         ctx.formats = formats
@@ -101,8 +109,30 @@ class CustomArithConvNd(torch.autograd.Function):
         ctx.input_size = input.shape
         ctx.weight_size = weight.shape
 
-        q_input = formats.input_quant(input) if formats.input_quant else input
-        q_weight = formats.weight_quant(weight) if formats.weight_quant else weight
+        recompute_input, recompute_weight = CustomArithConvNd._RECOMPUTE_DEFAULT
+        # Save only what backward will read. q_bias is never read there, and
+        # each of the other two feeds exactly one gradient path: q_input the
+        # weight gradient, q_weight the input gradient. So a layer whose
+        # weight is frozen does not pin a quantized copy of its entire
+        # activation for the length of the backward pass, on top of the
+        # activation autograd already holds. ctx.needs_input_grad is
+        # populated before forward runs and is the same tuple backward sees.
+        # What is saved of an operand that is read is its quantized value or
+        # the raw operand, quantized again in backward (_saved).
+        q_input, saved_input, ctx.replay_input = quantize_operand(
+            input,
+            formats.input_quant,
+            getattr(formats, "recompute_input", None),
+            recompute_input,
+            ctx.needs_input_grad[1],
+        )
+        q_weight, saved_weight, ctx.replay_weight = quantize_operand(
+            weight,
+            formats.weight_quant,
+            getattr(formats, "recompute_weight", None),
+            recompute_weight,
+            ctx.needs_input_grad[0],
+        )
         q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
 
         if formats.fwd_math is not None:
@@ -126,27 +156,7 @@ class CustomArithConvNd(torch.autograd.Function):
             else:
                 raise ValueError(f"Unsupported nd: {nd}")
 
-        # Save only what backward will read. q_bias is never read there, and
-        # each of the other two feeds exactly one gradient path: q_input the
-        # weight gradient, q_weight the input gradient. So a layer whose
-        # weight is frozen does not pin a quantized copy of its entire
-        # activation for the length of the backward pass, on top of the
-        # activation autograd already holds. ctx.needs_input_grad is
-        # populated before forward runs and is the same tuple backward sees.
-        saved_input = q_input if ctx.needs_input_grad[1] else None
-        saved_weight = q_weight if ctx.needs_input_grad[0] else None
-
-        # save_for_backward takes tensors only; a quantizer that returns some
-        # other structure (a packed block format, say) goes on ctx directly.
-        if (saved_input is None or isinstance(saved_input, torch.Tensor)) and (
-            saved_weight is None or isinstance(saved_weight, torch.Tensor)
-        ):
-            ctx.save_for_backward(saved_input, saved_weight)
-            ctx.saved_structs = None
-        else:
-            ctx.save_for_backward()
-            ctx.saved_structs = (saved_input, saved_weight)
-
+        save(ctx, saved_input, saved_weight)
         ctx.needs_bias_grad = bias is not None
 
         return output
@@ -163,10 +173,7 @@ class CustomArithConvNd(torch.autograd.Function):
         input_size = ctx.input_size
         weight_size = ctx.weight_size
 
-        if ctx.saved_structs is None:
-            q_input, q_weight = ctx.saved_tensors
-        else:
-            q_input, q_weight = ctx.saved_structs
+        saved_input, saved_weight = load(ctx)
 
         grad_input = grad_weight = grad_bias = None
 
@@ -194,9 +201,11 @@ class CustomArithConvNd(torch.autograd.Function):
                 if formats.bwd_igrad_math
                 else CustomArithConvNd._default_bwd_igrad
             )
+            # A recomputed operand is quantized again only here, so its copy
+            # lives for this one convolution.
             grad_input = bwd_igrad_math(
                 q_igrad_output,
-                q_weight,
+                restore(saved_weight, ctx.replay_weight),
                 input_size=input_size,
                 stride=stride,
                 padding=padding,
@@ -213,7 +222,7 @@ class CustomArithConvNd(torch.autograd.Function):
             )
             grad_weight = bwd_wgrad_math(
                 q_wgrad_output,
-                q_input,
+                restore(saved_input, ctx.replay_input),
                 weight_size=weight_size,
                 stride=stride,
                 padding=padding,
@@ -257,7 +266,9 @@ class QConv1d(nn.Conv1d):
     whose slots are all ``None``, the layer is numerically identical to
     ``nn.Conv1d``. A ``padding_mode`` other than ``"zeros"`` is applied with
     ``F.pad`` before the Function, as ``nn.Conv1d`` does, so the Function
-    only ever sees zero padding.
+    only ever sees zero padding. For backward the layer keeps its raw input
+    and weight, which it quantizes again there, unless ``formats``'
+    ``recompute_input`` / ``recompute_weight`` say otherwise.
 
     Args:
         in_channels (int): channels of the input.

@@ -34,6 +34,18 @@ class QAffineFormats(nn.Module):
     ``nn.Module`` (a QAT observer with running statistics) is therefore
     registered with the parent model and appears in its ``state_dict``.
 
+    Backward needs the quantized input (for the weight gradient) and the
+    quantized weight (for the input gradient) again. The layer can keep each
+    as a quantized copy, a tensor the size of the operand, or keep the raw
+    operand and quantize it again in backward, which saves the copy wherever
+    the raw operand is alive anyway: the weight always is, and an input is
+    when the op that made it keeps its output (ReLU does). The two
+    ``recompute_*`` flags choose; ``None`` is the layer's default (both for
+    ``QConv1d/2d/3d``, the weight only for ``QLinear``). Gradients are
+    bit-identical either way: under stochastic rounding the second call sees
+    the random generators as the first did. :doc:`/layers` ("What a layer
+    keeps for backward") says when each choice saves memory.
+
     Args:
         weight_quant (Callable, optional): applied to the weight in the
             forward. Default: ``None``
@@ -58,6 +70,23 @@ class QAffineFormats(nn.Module):
             arithmetic, ``bwd_wgrad_math(q_grad_output, q_input)`` for Linear
             (Conv adds ``weight_size`` and the convolution keywords).
             Default: ``None``
+        recompute_input (bool, optional): keep the raw input for backward
+            and run ``input_quant`` on it again there, instead of keeping its
+            result. ``None`` is the layer's default: ``True`` for a
+            convolution, ``False`` for ``QLinear``. Under ``None`` only a
+            quantizer known to be stateless is run twice -- a
+            :class:`mptorch.quant.Quant` (not in place), a
+            :class:`mptorch.quant.BlockQuant` called as a fake quantizer, or a
+            :class:`mptorch.quant.Quantizer` over one -- and any other
+            callable keeps its result saved, since one with state (a QAT
+            observer) would update it twice. ``True`` runs any callable again,
+            which is the caller's promise that it depends only on its input
+            and the random generators. A quantizer whose result is not a
+            tensor (a packed block format) keeps it saved. Default: ``None``
+        recompute_weight (bool, optional): the same for the weight and
+            ``weight_quant``. ``None`` is ``True`` for every layer, since the
+            raw weight is alive anyway as the layer's parameter.
+            Default: ``None``
 
     Example::
 
@@ -81,6 +110,8 @@ class QAffineFormats(nn.Module):
         fwd_math: Callable | None = None,
         bwd_igrad_math: Callable | None = None,
         bwd_wgrad_math: Callable | None = None,
+        recompute_input: bool | None = None,
+        recompute_weight: bool | None = None,
     ):
         super().__init__()
 
@@ -94,6 +125,9 @@ class QAffineFormats(nn.Module):
         self.fwd_math = fwd_math
         self.bwd_igrad_math = bwd_igrad_math
         self.bwd_wgrad_math = bwd_wgrad_math
+
+        self.recompute_input = recompute_input
+        self.recompute_weight = recompute_weight
 
 
 class QMatmulFormats(nn.Module):
@@ -114,6 +148,12 @@ class QMatmulFormats(nn.Module):
     The class inherits from ``nn.Module``, which registers a stateful
     quantizer (a QAT observer) in the parent model's ``state_dict``.
 
+    The ``recompute_*`` flags are :class:`QAffineFormats`' for the two
+    operands: keep ``a`` (``b``) raw for backward and quantize it again
+    there, instead of keeping a quantized copy. Both default to keeping the
+    copy, since a matmul's operands are activations and whether anything else
+    keeps one alive depends on the model.
+
     Args:
         a_quant (Callable, optional): applied to ``a`` in the forward.
             Default: ``None``
@@ -129,6 +169,13 @@ class QMatmulFormats(nn.Module):
             ``bwd_agrad_math(q_grad, q_b) -> grad @ b^T``. Default: ``None``
         bwd_bgrad_math (Callable, optional):
             ``bwd_bgrad_math(q_grad, q_a) -> a^T @ grad``. Default: ``None``
+        recompute_a (bool, optional): keep ``a`` raw for backward and run
+            ``a_quant`` on it again there. ``None`` keeps the copy. Set it
+            where something else keeps ``a`` alive, as attention's softmax
+            keeps the probabilities that multiply ``V``. ``True`` runs any
+            callable again, as for :class:`QAffineFormats`. Default: ``None``
+        recompute_b (bool, optional): the same for ``b`` and ``b_quant``.
+            Default: ``None``
 
     Example::
 
@@ -149,6 +196,8 @@ class QMatmulFormats(nn.Module):
         fwd_math: Callable | None = None,
         bwd_agrad_math: Callable | None = None,
         bwd_bgrad_math: Callable | None = None,
+        recompute_a: bool | None = None,
+        recompute_b: bool | None = None,
     ):
         super().__init__()
 
@@ -160,3 +209,6 @@ class QMatmulFormats(nn.Module):
         self.fwd_math = fwd_math
         self.bwd_agrad_math = bwd_agrad_math
         self.bwd_bgrad_math = bwd_bgrad_math
+
+        self.recompute_a = recompute_a
+        self.recompute_b = recompute_b

@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
 
@@ -44,18 +45,18 @@ class CustomArithLinear(torch.autograd.Function):
         i_flat = input.reshape(-1, input.shape[-1])
         return gO_flat.t().matmul(i_flat)
 
+    #: What a ``None`` recompute flag means here, as (input, weight): the
+    #: weight is quantized again in backward rather than kept, since the raw
+    #: weight is alive anyway as the layer's parameter; the input is kept,
+    #: since a Linear's input usually comes from an op that keeps its own
+    #: input rather than its output (LayerNorm, GELU, SiLU), so the raw input
+    #: would be alive only for this layer (``_saved``; phase V, decision V-a).
+    _RECOMPUTE_DEFAULT = (False, True)
+
     @staticmethod
     def forward(ctx, input, weight, bias, formats):
         ctx.formats = formats
-
-        q_input = formats.input_quant(input) if formats.input_quant else input
-        q_weight = formats.weight_quant(weight) if formats.weight_quant else weight
-        q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
-
-        if formats.fwd_math is not None:
-            output = formats.fwd_math(q_input, q_weight, q_bias)
-        else:
-            output = F.linear(q_input, q_weight, q_bias)
+        recompute_input, recompute_weight = CustomArithLinear._RECOMPUTE_DEFAULT
 
         # Save only what backward will read. q_bias is never read there, and
         # each of the other two feeds exactly one gradient path: q_input the
@@ -64,20 +65,30 @@ class CustomArithLinear(torch.autograd.Function):
         # activation for the length of the backward pass, on top of the
         # activation autograd already holds. ctx.needs_input_grad is
         # populated before forward runs and is the same tuple backward sees.
-        saved_input = q_input if ctx.needs_input_grad[1] else None
-        saved_weight = q_weight if ctx.needs_input_grad[0] else None
+        # What is saved of an operand that is read is its quantized value or
+        # the raw operand, quantized again in backward (_saved).
+        q_input, saved_input, ctx.replay_input = quantize_operand(
+            input,
+            formats.input_quant,
+            getattr(formats, "recompute_input", None),
+            recompute_input,
+            ctx.needs_input_grad[1],
+        )
+        q_weight, saved_weight, ctx.replay_weight = quantize_operand(
+            weight,
+            formats.weight_quant,
+            getattr(formats, "recompute_weight", None),
+            recompute_weight,
+            ctx.needs_input_grad[0],
+        )
+        q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
 
-        # save_for_backward takes tensors only; a quantizer that returns some
-        # other structure (a packed block format, say) goes on ctx directly.
-        if (saved_input is None or isinstance(saved_input, torch.Tensor)) and (
-            saved_weight is None or isinstance(saved_weight, torch.Tensor)
-        ):
-            ctx.save_for_backward(saved_input, saved_weight)
-            ctx.saved_structs = None
+        if formats.fwd_math is not None:
+            output = formats.fwd_math(q_input, q_weight, q_bias)
         else:
-            ctx.save_for_backward()
-            ctx.saved_structs = (saved_input, saved_weight)
+            output = F.linear(q_input, q_weight, q_bias)
 
+        save(ctx, saved_input, saved_weight)
         ctx.needs_bias_grad = bias is not None
 
         return output
@@ -87,10 +98,7 @@ class CustomArithLinear(torch.autograd.Function):
         grad_output = grad_outputs[0]
         formats = ctx.formats
 
-        if ctx.saved_structs is None:
-            q_input, q_weight = ctx.saved_tensors
-        else:
-            q_input, q_weight = ctx.saved_structs
+        saved_input, saved_weight = load(ctx)
 
         grad_input = grad_weight = grad_bias = None
 
@@ -118,7 +126,9 @@ class CustomArithLinear(torch.autograd.Function):
                 if formats.bwd_igrad_math
                 else CustomArithLinear._default_bwd_igrad
             )
-            grad_input = bwd_igrad_math(q_igrad_output, q_weight)
+            # A recomputed operand is quantized again only here, so its copy
+            # lives for this one GEMM.
+            grad_input = bwd_igrad_math(q_igrad_output, restore(saved_weight, ctx.replay_weight))
 
         if q_wgrad_output is not None:
             bwd_wgrad_math = (
@@ -126,7 +136,7 @@ class CustomArithLinear(torch.autograd.Function):
                 if formats.bwd_wgrad_math
                 else CustomArithLinear._default_bwd_wgrad
             )
-            grad_weight = bwd_wgrad_math(q_wgrad_output, q_input)
+            grad_weight = bwd_wgrad_math(q_wgrad_output, restore(saved_input, ctx.replay_input))
 
         if ctx.needs_bias_grad and ctx.needs_input_grad[2]:
             q_bgrad_output = (
@@ -150,7 +160,9 @@ class QLinear(nn.Linear):
     ``None``, or with a ``QAffineFormats`` whose slots are all ``None``, the
     layer is numerically identical to ``nn.Linear``. ``formats`` is a
     submodule, so a stateful quantizer in it appears in the layer's
-    ``state_dict``.
+    ``state_dict``. For backward the layer keeps a quantized copy of its
+    input and its raw weight, which it quantizes again there, unless
+    ``formats``' ``recompute_input`` / ``recompute_weight`` say otherwise.
 
     Args:
         in_features (int): size of each input sample.

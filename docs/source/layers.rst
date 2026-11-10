@@ -69,7 +69,9 @@ A quantizer slot takes any callable ``Tensor -> Tensor``: a
 :class:`~mptorch.quant.Quant`, a :class:`~mptorch.quant.Quantizer`, or a
 function of your own (a scaled quantizer, an observer). ``QAffineFormats``
 is itself an ``nn.Module``, so a quantizer that is a module is registered in
-the model's ``state_dict``.
+the model's ``state_dict``. Two more fields, ``recompute_input`` and
+``recompute_weight``, choose what the layer keeps for its backward pass
+(below, "What a layer keeps for backward").
 
 The run below builds a layer with a quantizer on every signal: Binary8p4 in
 the forward direction and Binary8p3 on the gradients. It then recomputes the
@@ -244,6 +246,85 @@ activation, the logits, the output of a block that is not a layer), use a
 :class:`~mptorch.quant.Quantizer`. It is a module, and it also specifies
 what its gradient is rounded to (see :doc:`quantizers`). The last lines of
 the convolution run above show one in a ``Sequential``.
+
+What a layer keeps for backward
+-------------------------------
+
+The backward pass needs :math:`Q_{\text{in}}(X)` again for the weight
+gradient and :math:`Q_{\text{w}}(W)` for the input gradient. A layer can keep
+each as a quantized copy, a tensor the size of the operand, or keep the raw
+operand and quantize it again in the backward pass. The second way costs one
+more quantization per operand per step and saves the copy. The flags
+``recompute_input`` and ``recompute_weight`` of
+:class:`~mptorch.quant.QAffineFormats` choose (``recompute_a`` and
+``recompute_b`` of :class:`~mptorch.quant.QMatmulFormats` for a
+:class:`~mptorch.quant.QMatmul`). Each defaults to ``None``, which means the
+layer's own default:
+
+====================  ======================  ======================
+layer                 input (``a``)           weight (``b``)
+====================  ======================  ======================
+``QConv1d/2d/3d``     quantized again         quantized again
+``QLinear``           copy kept               quantized again
+``QMatmul``           copy kept               copy kept
+====================  ======================  ======================
+
+The gradients are the same either way, to the bit. Under stochastic rounding
+the second quantization sees the random generators as the first did, and
+leaves them as it found them.
+
+Quantizing again saves memory only where the raw operand stays alive anyway.
+A weight always does, since it is the layer's parameter. An input does when
+the op that made it keeps its output for its own backward pass: ReLU,
+sigmoid, tanh and softmax do, and so does the data batch, which the training
+loop holds. GELU, SiLU, ReLU6, LayerNorm, BatchNorm and max pooling keep
+their *input* instead, and an addition keeps nothing. After those, the raw
+input would be alive only for this layer, so quantizing it again holds the
+same memory and adds the work. That is why the defaults differ. A
+convolution's input is usually a ReLU output or the data. A Linear layer's
+input is usually the output of a LayerNorm or of a GELU or SiLU. A matmul's
+operands are activations of any origin. Set ``recompute_input=True`` for a
+ReLU MLP, ``recompute_input=False`` for a convolution after a GELU, and
+``recompute_a=True`` for the product of attention's softmax probabilities
+with :math:`V`.
+
+The cost is one elementwise pass per recomputed operand. Measured on an RTX
+4060, it was within 0.6% of the step when the products run on mptorch's
+kernels. With PyTorch's own products it was a few percent, and 12% for the
+weights of 4096-wide Linear layers at 256 tokens, the case where recomputing
+also saved the most memory (from 148 to 20 MiB for three layers).
+
+Three cases keep the copy whatever the default:
+
+- **A quantizer of your own.** Only a :class:`~mptorch.quant.Quant` (not in
+  place), a :class:`~mptorch.quant.BlockQuant` used as a fake quantizer, and
+  a :class:`~mptorch.quant.Quantizer` over one are run twice by default. A
+  callable with state, such as a QAT observer, would update that state a
+  second time in the backward pass, and could round differently there.
+  Setting the flag to ``True`` runs any callable again. That is your promise
+  that it depends only on its input and the random generators.
+- **A result that is not a tensor.** A packed weight (``BlockQuant.pack``)
+  is compact already, and its memo holds it anyway.
+- **A flag set to** ``False``.
+
+An operand that is kept raw is checked by autograd as ``nn.Conv2d`` checks
+its own saved input. Writing to it in place between the forward and backward
+passes raises "modified by an inplace operation". With the flag set to
+``False`` the layer keeps its own copy and the write does no harm.
+
+The run below counts what four convolution layers keep for the backward
+pass, in activations, beyond what the parameters and the input already hold:
+four for ``nn.Conv2d``, eight with the copies kept, and four with the
+defaults. Then it shows what a Linear layer keeps, by default and with a
+quantizer of its own.
+
+.. literalinclude:: ../snippets/layers_recompute.py
+   :language: python
+   :caption: docs/snippets/layers_recompute.py
+
+.. literalinclude:: ../snippets/layers_recompute.out
+   :language: text
+   :caption: output
 
 float64 models and the carrier
 ------------------------------

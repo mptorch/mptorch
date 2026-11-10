@@ -21,6 +21,7 @@ quantizers ran and what the graph node holds, rather than only the numbers.
 """
 
 import functools
+from typing import Any
 
 import pytest
 import torch
@@ -56,7 +57,7 @@ class CountingQuant:
 
 def counting_formats():
     """A ``QAffineFormats`` of six call-counting quantizers, plus those quantizers."""
-    quants = {
+    quants: dict[str, Any] = {
         name: CountingQuant()
         for name in (
             "weight_quant",
@@ -99,7 +100,7 @@ def _build(kind, device, bias, formats):
 
 def identity_formats():
     """A ``QAffineFormats`` whose six quantizers are the identity."""
-    ident = {
+    ident: dict[str, Any] = {
         name: (lambda x: x)
         for name in (
             "weight_quant",
