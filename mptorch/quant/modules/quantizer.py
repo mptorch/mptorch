@@ -102,5 +102,5 @@ class Quantizer(nn.Module):
 
     # nn.Module declares forward as a writable Callable attribute, which ty
     # reads a method override as narrowing; every direct subclass does this.
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return _StraightThrough.apply(x, self.forward_quant, self.backward_quant)

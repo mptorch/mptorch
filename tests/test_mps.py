@@ -296,7 +296,7 @@ def test_quantize_in_place(op, dtype, rounding_mode):
         fmt: dict[str, Any] = dict(K=8, P=4, prng_bits=10)
         fn, fn_ = binaryK_quantize, binaryK_quantize_
     else:
-        fmt = dict(man_bits=3, exp_bits=4, normal_binades=1, bias=7, prng_bits=10)
+        fmt: dict[str, Any] = dict(man_bits=3, exp_bits=4, normal_binades=1, bias=7, prng_bits=10)
         fn, fn_ = superfp_quantize, superfp_quantize_
     x = _words(dtype)
     torch.manual_seed(7)

@@ -30,6 +30,7 @@ tests/test_quantize_dispatch.py and tests/test_sr_rng.py.
 import math
 import random
 import warnings
+from typing import Any
 
 import pytest
 import torch
@@ -46,7 +47,7 @@ DEVICES = available_devices
 
 # The reference format: 1 sign bit and 3 magnitude bits, 2 of them fractional.
 # Codes -8 .. 7 hold -2 .. 1.75 in steps of 0.25.
-CFG = {"wl": 4, "fl": 2}
+CFG: dict[str, Any] = {"wl": 4, "fl": 2}
 STEP = 0.25
 MAX = 1.75
 MIN = -2.0
@@ -567,7 +568,7 @@ def test_sr_lands_on_a_neighbour(device, dtype):
     are the point itself, so every draw must leave it alone."""
     wide = WIDE_FORMATS if dtype is torch.float64 else []
     for wl, fl, is_signed, symmetric in FORMATS + wide:
-        kw = dict(is_signed=is_signed, symmetric=symmetric)
+        kw: dict[str, Any] = dict(is_signed=is_signed, symmetric=symmetric)
         fmt = f"FixedPoint({wl}, {fl}, is_signed={is_signed}, symmetric={symmetric})"
         values = (
             _wide_values(wl, fl, is_signed)

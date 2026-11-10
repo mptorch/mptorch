@@ -195,5 +195,5 @@ class QMatmul(torch.nn.Module):
 
     # nn.Module declares forward as a writable Callable attribute, which ty
     # reads a method override as narrowing; every direct subclass does this.
-    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return CustomArithMatmul.apply(a, b, self.formats)
