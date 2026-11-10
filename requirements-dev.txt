@@ -1,3 +1,8 @@
-ruff>=0.14.0
-ty>=0.0.1a20
+# Exact versions: CI's lint job installs these, and a newer ruff or ty can
+# report new findings (or rename a rule an ignore comment names) with no code
+# change. Bump them on purpose, in a commit that fixes what the new version
+# reports. ruff's must match .pre-commit-config.yaml's ruff-pre-commit rev; the
+# pre-commit ty hook checks the ty on PATH against the pin below.
+ruff==0.16.4
+ty==0.0.100
 pre-commit>=4.0.0
