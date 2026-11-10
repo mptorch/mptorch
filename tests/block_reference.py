@@ -2,7 +2,9 @@
 
 Written from the OCP Microscaling Formats (MX) v1.0 specification, NVIDIA's
 description of NVFP4, SuperFP's definition (``dev/benchmarks/superfp_values.py``
-enumerates it from its code points) and each element format's value set, and
+enumerates it from its code points), FixedPoint's integer definition (a code
+``c`` is ``c * 2**-fl``; the kernels run it as a binaryK layout, this does not)
+and each element format's value set, and
 not from the kernels: nothing here calls a cast, and the decode, the rounding and the bit
 layout are each spelled out again, in numpy, from their definitions. The
 rounding is a search of the element's sorted value set, where the kernels run
@@ -24,7 +26,15 @@ from fractions import Fraction
 import numpy as np
 import torch
 
-from mptorch import BinaryK, BlockFormat, RoundMode, ScaleRounding, SubnormalsMode, SuperFP
+from mptorch import (
+    BinaryK,
+    BlockFormat,
+    FixedPoint,
+    RoundMode,
+    ScaleRounding,
+    SubnormalsMode,
+    SuperFP,
+)
 
 
 class Layout:
@@ -34,10 +44,21 @@ class Layout:
     ``SuperFP``'s top ``normal_binades`` binades are normals, and below them
     its magnitude codes 1, 2, ... are the powers of two counting up to the
     first normal binade, ``(2^exp_bits - normal_binades) * 2^man_bits`` codes
-    with the zero's."""
+    with the zero's. A ``FixedPoint`` has no exponent field: its magnitude
+    code ``c`` is the integer ``c`` times its step, ``2^-fl``."""
 
-    def __init__(self, f: "BinaryK | SuperFP"):
+    def __init__(self, f: "BinaryK | SuperFP | FixedPoint"):
         self.signed = f.is_signed
+        self.fl = None  # FixedPoint only
+        if isinstance(f, FixedPoint):
+            self.fl = f.fl
+            self.bias = 0
+            self.e, self.m = 0, f.mag_bits
+            self.sub = None
+            self.normal_exp = None
+            self.n_super = 0
+            self.bits = int(self.signed) + self.m
+            return
         assert f.bias is not None
         self.bias = f.bias
         if isinstance(f, SuperFP):
@@ -62,7 +83,10 @@ class Layout:
         not to an even code (``cast_superfp.h`` rounds those on the carrier's
         exponent field, keeping the odd field, which with an odd bias is an
         even exponent; binaryK's ``round_bitwise_nearest_even`` with no
-        mantissa does the same)."""
+        mantissa does the same). Never for a fixed point, whose ties go to
+        the even integer code."""
+        if self.fl is not None:
+            return False
         if self.m == 0:
             return True
         return self.normal_exp is not None and 0 < v < 2.0**self.normal_exp
@@ -72,7 +96,10 @@ class Layout:
         ``2^(E - bias) * 1.M`` for a normal, ``2^(1 - bias) * 0.M`` for
         exponent field 0, which EXTENDED_NORMALS reads as ``2^-bias * 1.M``
         except its 1.0, the zero; and a superfp's supernormal code ``c``, the
-        power of two ``n_super - c`` binades below its first normal binade."""
+        power of two ``n_super - c`` binades below its first normal binade;
+        and a fixed point's ``c * 2^-fl``."""
+        if self.fl is not None:
+            return float(np.ldexp(float(code), -self.fl))
         if code < self.n_super:
             assert self.normal_exp is not None
             return (

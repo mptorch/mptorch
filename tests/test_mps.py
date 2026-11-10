@@ -43,6 +43,7 @@ from mptorch import (
     BlockFormat,
     ScaleRounding,
     SuperFP,
+    bfp,
 )
 from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import (
@@ -767,6 +768,11 @@ BLOCK_FORMATS = {
     "fos_16x16_mae": dataclasses.replace(_SQ_NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MAE),
     "sfp4_elem": BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32),
     "sfp_scale": BlockFormat(MXFP4_E2M1.elem, SuperFP(3, 4, 2, 7), 16),
+    # block floating point (phase K, step 2): fixed-point elements, 8-bit and
+    # 12-bit codes (the latter spanning bytes), and one under a 2D tile
+    "bfp8": bfp(8, 32),
+    "bfp12": bfp(12, 16),
+    "bfp4_16x16": bfp(4, 16, block_rows=16),
 }
 
 

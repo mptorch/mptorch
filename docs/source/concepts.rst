@@ -577,9 +577,10 @@ unsigned one), the range is
 - The magnitude bits must fit the carrier's precision, and with ``prng_bits``
   they share it: at most 24 bits in all in binary32 and 53 in binary64
   (Carriers_).
-- There is no fixed-point arithmetic inside a matrix product yet.
-  ``FixedPoint`` has the elementwise quantizer only (:doc:`quantizers`), and
-  a ``SplitMac``, ``FusedMac`` or ``Palette`` refuses it.
+- There is no fixed-point arithmetic inside a ``SplitMac`` or a
+  ``FusedMac`` yet, and they refuse a ``FixedPoint``, as a ``Palette`` does.
+  As the element of a block format, though, it is multiplied by the block
+  GEMM (`Block floating point`_).
 
 .. literalinclude:: ../snippets/formats_fixedpoint.py
    :language: python
@@ -613,8 +614,8 @@ value that is not one of the dtype's (a saturated result is then rounded
 again), and a largest value below the dtype's smallest raises. There is no
 fixed-point matrix product, so there is no rule for one.
 
-.. Stub, to complete in phase K, step 2 (dev/continuation_plan.md):
-   fixed-point elements in block formats.
+A ``FixedPoint`` can also be the element of a block format, which gives
+block floating point (`Block floating point`_).
 
 .. _block-formats:
 
@@ -635,9 +636,10 @@ Large Language Models with NVFP4 <https://arxiv.org/abs/2509.25149>`__
 (Section 2 and Appendix B).
 
 A :class:`~mptorch.BlockFormat` is defined by an element format, a scale format
-and a block size, with the element and the scale each a
-:class:`~mptorch.BinaryK` or a :class:`~mptorch.SuperFP` (see `SuperFP elements
-and scales`_, below). A tensor is split into blocks of ``block_size``
+and a block size. The element is a :class:`~mptorch.BinaryK`, a
+:class:`~mptorch.SuperFP` or a :class:`~mptorch.FixedPoint`, and the scale a
+BinaryK or a SuperFP (see `SuperFP elements and scales`_ and `Block floating
+point`_, below). A tensor is split into blocks of ``block_size``
 consecutive elements along one axis, its *packed* axis, and each block stores
 one scale code beside its element codes. Element :math:`i` of block
 :math:`\kappa` stands for the value
@@ -699,24 +701,28 @@ The presets
 ~~~~~~~~~~~
 
 MPTorch includes as presets five of the six concrete formats of OCP MX v1.0,
-and NVIDIA's NVFP4:
+and NVIDIA's NVFP4, and :func:`~mptorch.bfp` builds block floating point
+(`Block floating point`_):
 
-==============  =======  ===========  ============  =====  ===============  =============
-preset          element  block scale  tensor scale  block  largest element  bytes/element
-==============  =======  ===========  ============  =====  ===============  =============
-``MXFP8_E4M3``  E4M3     E8M0         none          32     448              1.031
-``MXFP8_E5M2``  E5M2     E8M0         none          32     57344            1.031
-``MXFP6_E2M3``  E2M3     E8M0         none          32     7.5              0.781
-``MXFP6_E3M2``  E3M2     E8M0         none          32     28               0.781
-``MXFP4_E2M1``  E2M1     E8M0         none          32     6                0.531
-``NVFP4``       E2M1     E4M3         float32       16     6                0.562
-==============  =======  ===========  ============  =====  ===============  =============
+==============  ================  ===========  ============  =====  ===============  =============
+preset          element           block scale  tensor scale  block  largest element  bytes/element
+==============  ================  ===========  ============  =====  ===============  =============
+``MXFP8_E4M3``  E4M3              E8M0         none          32     448              1.031
+``MXFP8_E5M2``  E5M2              E8M0         none          32     57344            1.031
+``MXFP6_E2M3``  E2M3              E8M0         none          32     7.5              0.781
+``MXFP6_E3M2``  E3M2              E8M0         none          32     28               0.781
+``MXFP4_E2M1``  E2M1              E8M0         none          32     6                0.531
+``NVFP4``       E2M1              E4M3         float32       16     6                0.562
+``bfp(8)``      FixedPoint(8, 6)  E8M0         none          16     1.984375         1.062
+``bfp(8, 32)``  FixedPoint(8, 6)  E8M0         none          32     1.984375         1.031
+==============  ================  ===========  ============  =====  ===============  =============
 
 "Largest element" is the format's ``elem_max``, the largest element value
 :math:`e_i`. The largest value a block can stand for is ``elem_max`` times
-its largest scale. OCP's sixth format, MXINT8, has 8-bit integer elements and
-no preset, because an element here is a :class:`~mptorch.BinaryK` or a
-:class:`~mptorch.SuperFP`. The element formats use OCP's biases (IEEE 754's),
+its largest scale. OCP's sixth format, MXINT8, has 8-bit two's complement
+integer elements. ``bfp(8, 32)`` is its shape with sign-magnitude elements,
+which hold every MXINT8 value but one, :math:`-2`, so there is no MXINT8
+preset. The element formats use OCP's biases (IEEE 754's),
 one below P3109's default, so the presets spell them out (``E4M3 =
 BinaryK(8, 4, bias=7)``). `Relation to IEEE P3109`_ explains how
 :class:`~mptorch.BinaryK` relates to the standard.
@@ -1317,6 +1323,51 @@ E4M3's subnormals, below :math:`2^{-6}`, behave the same way, and NVFP4's
 tensor scale keeps blocks away from them. The block GEMM decodes superfp
 operands like any others, so their element codes are at most 8 bits there
 too (see :doc:`kernels/block`).
+
+Block floating point
+~~~~~~~~~~~~~~~~~~~~
+
+A :class:`~mptorch.FixedPoint` element gives *block floating point*: integer
+elements that share an exponent. :func:`~mptorch.bfp` builds the usual
+shape, ``FixedPoint(bits, bits - 2, symmetric=True)`` elements with an E8M0
+scale. An element has a sign and ``bits - 1`` magnitude bits, one step of
+:math:`2^{-(\text{bits} - 2)}` from zero to its largest value,
+:math:`2 - 2^{-(\text{bits} - 2)}`. So ``emax`` is 0, and OCP's rule gives a
+block the scale :math:`2^{\lfloor \log_2 a \rfloor}` for its largest
+magnitude :math:`a`.
+
+- **Signed and symmetric only.** A block code is sign-magnitude. It has no
+  code for a two's complement format's bottom, :math:`-2^{\,n-\text{fl}}`,
+  and an unsigned element would lose its top code. Both raise. Any other
+  ``fl`` gives the same block values and only moves ``emax``, and any scale
+  works, a cast one such as E4M3 included.
+- **One grid.** The kernels decode and round the element as the binaryK
+  layout its integer code is: one exponent bit, :math:`n - 1` mantissa bits
+  and bias :math:`2 - n + \text{fl}`, whose exponent field 0 holds the
+  codes below :math:`2^{n-1}` and field 1 the rest, one step apart. No kernel
+  has a fixed-point arm. A quantized block is therefore
+  :func:`~mptorch.quant.fixedpoint_quantize` of each element over the
+  block's scale, times that scale, in every deterministic mode, as the run
+  shows.
+- **Stochastic rounding** goes through binaryK's cast on that layout. It is
+  exact on the upper half of the element's range (field 1, rounded on the
+  word). On the lower half (field 0, binaryK's ``SUBNORMALS`` arm) it adds a
+  power of two in the carrier first, so a probability can be one step of
+  :math:`2^{-N}` off just under a level (`Stochastic rounding`_).
+  :func:`~mptorch.quant.fixedpoint_quantize` itself is exact.
+- **The block GEMM** takes element codes of up to 8 bits, so ``bfp(2)`` to
+  ``bfp(8)``, paired with any block format. ``bfp(9)`` to ``bfp(16)`` pack,
+  unpack and quantize only.
+- **The carrier** holds the element to the fixed-point rule (`FixedPoint:
+  one step across the range`_), its stochastic-rounding bits included.
+
+.. literalinclude:: ../snippets/block_bfp.py
+   :language: python
+   :caption: docs/snippets/block_bfp.py
+
+.. literalinclude:: ../snippets/block_bfp.out
+   :language: text
+   :caption: output
 
 2D tiles
 ~~~~~~~~

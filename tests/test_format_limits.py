@@ -1426,3 +1426,12 @@ def test_block_element_must_fit_the_carrier():
         with pytest.raises(ValueError, match="binary32 holds entirely.*binary64 holds it"):
             block_quantize(x, fmt)
         assert block_quantize(x.double(), fmt).dtype is torch.float64
+    # a fixed-point element is held to the fixed-point rule: 15 magnitude bits
+    # and 9 stochastic-rounding bits are binary32's 24, and one more is not
+    from mptorch import FixedPoint
+
+    block_quantize(x, BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=9), E8M0, 16))
+    wide = BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=10), E8M0, 16)
+    with pytest.raises(ValueError, match="binary32 holds entirely.*stochastic-rounding bits"):
+        block_quantize(x, wide)
+    assert block_quantize(x.double(), wide).dtype is torch.float64

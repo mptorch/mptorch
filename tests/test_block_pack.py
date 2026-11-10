@@ -31,10 +31,12 @@ from mptorch import (
     NVFP4,
     BinaryK,
     BlockFormat,
+    FixedPoint,
     RoundMode,
     ScaleRounding,
     SubnormalsMode,
     SuperFP,
+    bfp,
 )
 from mptorch.quant import (
     BlockPacked,
@@ -45,6 +47,7 @@ from mptorch.quant import (
     block_quantize,
     block_quantize_,
     block_unpack,
+    fixedpoint_quantize,
     superfp_quantize,
 )
 from mptorch.quant.block import _block_format_ints
@@ -155,7 +158,25 @@ FOUR_OVER_SIX_TILES = {
         E2M1, E4M3, 128, block_rows=128, scale_rounding=_R.FOUR_OVER_SIX_MSE
     ),
 }
-FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX
+# Block floating point (phase K, step 2): FixedPoint elements, sign-magnitude
+# integer codes, which the kernels run as the binaryK layout they are
+# (`mptorch.number._minifloat`) and `block_reference` as integers times 2^-fl.
+# One magnitude bit, odd widths, OCP MXINT8's shape, another fl (the same
+# values, emax 6) and a cast scale; 2D tiles are the tile test's, wider codes
+# WIDE_BFP's.
+BFP = {
+    "bfp2": bfp(2, 16),
+    "bfp3": bfp(3, 8),
+    "bfp4": bfp(4, 16),
+    "bfp8": bfp(8, 32),
+    "bfp8_fl0": BlockFormat(FixedPoint(8, 0, symmetric=True), E8M0, 16),
+    "bfp8_e4m3_scale": BlockFormat(FixedPoint(8, 6, symmetric=True), E4M3, 16),
+}
+# Codes of 9 to 16 bits, 11 spanning three bytes: pack, unpack and quantize
+# only (the block GEMM takes 8). Kept out of FORMATS, whose decode test runs
+# every code against every scale code -- 2^16 x 2^8 here.
+WIDE_BFP = {"bfp11": bfp(11, 8), "bfp12": bfp(12, 16), "bfp16": bfp(16, 16)}
+FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX | BFP
 DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
 
 # Every backend: the references run on the CPU, and test_mps_is_the_cpu holds
@@ -261,6 +282,64 @@ def test_pack_equals_the_reference(device, mode, name):
     assert torch.equal(block_quantize(x, fmt, rounding=mode).cpu(), values)
 
 
+# --- block floating point: the wide codes, and the elementwise quantizer -------------
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("name", list(WIDE_BFP))
+def test_wide_bfp_codes_decode_to_the_reference(device, name):
+    """Every code of a 9- to 16-bit element against block_reference's integer
+    decode, at the scale codes that matter: the smallest, 2^-1, 2^0, 2^1 and
+    the largest finite one."""
+    fmt = WIDE_BFP[name]
+    bits, bs = fmt.elem_bits, fmt.block_size
+    n_codes = 1 << bits
+    blocks = n_codes // bs
+    s_codes = [0, 126, 127, 128, 254]
+    rows = np.tile(np.arange(n_codes), (len(s_codes), 1))
+    data = torch.from_numpy(ref.pack_bytes(rows[None], fmt)[0]).to(device)
+    scales = torch.tensor(s_codes, dtype=torch.uint8).view(-1, 1).expand(-1, blocks).contiguous()
+    p = BlockPacked(data, scales.to(device), fmt, (len(s_codes), n_codes), 1, 1.0, torch.float32)
+    got = block_unpack(p).cpu().numpy()
+    elem = ref.decode_elem(fmt, np.arange(n_codes))
+    for i, sc in enumerate(s_codes):
+        want = (elem * ref.scale_value(fmt, sc, 1.0)).astype(np.float32)
+        np.testing.assert_array_equal(got[i], np.where(want == 0, np.float32(0), want))
+        assert not np.any(np.signbit(got[i]) & (got[i] == 0)), "a decode returned -0.0"
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("name", list(WIDE_BFP))
+def test_wide_bfp_pack_equals_the_reference(device, mode, name):
+    fmt = WIDE_BFP[name]
+    x = _inputs((6, 70), device, seed=sum(map(ord, name)))
+    p = block_pack(x, fmt, rounding=mode)
+    codes, scales, values = ref.reference(x, fmt, -1, mode)
+    np.testing.assert_array_equal(_as3(p.data).cpu().numpy(), ref.pack_bytes(codes, fmt))
+    np.testing.assert_array_equal(_as3(p.scales).cpu().numpy(), scales)
+    assert torch.equal(block_unpack(p).cpu(), values)
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("bits", range(2, 17))
+def test_bfp_is_fixedpoint_quantize_of_the_scaled_block(device, mode, bits):
+    """One definition of the grid (risk R2 of phase D, retired): a block of
+    bfp(bits) is FixedPoint(bits, bits - 2, symmetric=True) of each element
+    over its block's scale, 2^floor(log2 amax), times that scale, in every
+    deterministic mode -- the block kernels' binaryK layout and the
+    elementwise cast agree on every value."""
+    fmt = bfp(bits, 16)
+    x = _inputs((8, 64), device, seed=bits)
+    blocks = x.view(8, 4, 16)
+    amax = blocks.abs().amax(-1, keepdim=True)
+    scale = torch.where(amax > 0, torch.exp2(torch.floor(torch.log2(amax))), torch.ones_like(amax))
+    want = fixedpoint_quantize(blocks / scale, bits, bits - 2, symmetric=True, rounding_mode=mode)
+    got = block_quantize(x, fmt, rounding=mode)
+    assert torch.equal(got, (want * scale).view(8, 64))
+
+
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RD, RoundMode.RO])
 @pytest.mark.parametrize(
@@ -311,6 +390,9 @@ def test_nibble_order():
         (dataclasses.replace(SCALES["e2m3_unsigned_scale"], block_rows=4), (7, 70)),
         (dataclasses.replace(SCALES["e2m1_normals_scale"], block_rows=2), (2, 9, 40)),
         (dataclasses.replace(SCALES["e2m1_e4m0_scale"], block_rows=32), (3, 70, 33)),
+        # block floating point, a tile of 4 and a square one of 16-bit codes
+        (bfp(4, 16, block_rows=4), (7, 70)),
+        (bfp(16, 16, block_rows=16), (40, 50)),
         # Four Over Six: the tile's own choice, partial tiles and batches included
         (FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_mse"], (40, 50)),
         (FOUR_OVER_SIX_TILES["nvfp4_16x16_fos_mae"], (3, 40, 50)),
@@ -330,6 +412,8 @@ def test_nibble_order():
         "unsigned_scale_4x32",
         "normals_scale_2x16_3d",
         "e4m0_scale_32x32_3d",
+        "bfp4_4x16",
+        "bfp16_16x16",
         "fos_mse_16x16",
         "fos_mae_16x16_3d",
         "fos_abs_max_16x16",
@@ -1111,6 +1195,21 @@ def test_sr_reproducible_and_unbiased(device):
     assert abs(mean[0, 1].item() - (1.0 + 1 / 32)) < 4e-3
 
 
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("value", [1.0 + 1 / 256, 0.5 + 1 / 256])
+def test_bfp_sr_is_unbiased(device, value):
+    """bfp8's SR, in the upper half of the element's range (the binaryK
+    layout's exponent field 1, rounded on the word) and in the lower half
+    (field 0, binaryK's SUBNORMALS arm, which rounds |x| in the carrier
+    first: decision K-g, a deviation far below this tolerance here)."""
+    elem = FixedPoint(8, 6, symmetric=True, prng_bits=12)
+    fmt = BlockFormat(elem, E8M0, 32)
+    v = torch.full((1, 32), value, device=device)
+    v[0, 0] = 1.5  # fixes the block's scale at 2^0
+    mean = torch.stack([block_quantize(v, fmt, rounding=RoundMode.SR) for _ in range(2000)]).mean(0)
+    assert abs(mean[0, 1].item() - value) < 2e-3
+
+
 def test_sr_is_thread_count_independent():
     fmt = dataclasses.replace(MXFP8_E4M3, elem=dataclasses.replace(E4M3, prng_bits=10))
     x = _inputs((128, 256), "cpu")
@@ -1230,8 +1329,16 @@ def test_format_validation():
         BlockFormat(BinaryK(16, 3), E8M0, 32)  # 13 exponent bits: no carrier holds them
     with pytest.raises(ValueError, match="unsigned"):
         BlockFormat(E4M3, BinaryK(8, 1, bias=127), 32)
-    with pytest.raises(TypeError, match="phase K"):
+    with pytest.raises(TypeError, match="a BinaryK, a SuperFP or a FixedPoint"):
         BlockFormat(1, E8M0, 32)  # type: ignore
+    # a fixed-point element: sign-magnitude, so signed and symmetric, and every
+    # code a value (decision K-e)
+    with pytest.raises(ValueError, match="signed and symmetric"):
+        BlockFormat(FixedPoint(8, 6), E8M0, 32)  # two's complement
+    with pytest.raises(ValueError, match="signed and symmetric"):
+        BlockFormat(FixedPoint(8, 6, is_signed=False), E8M0, 32)
+    with pytest.raises(ValueError, match="no nan_code or inf_code"):
+        BlockFormat(FixedPoint(8, 6, symmetric=True), E8M0, 32, nan_code=0x7F)
     # supernormals down to 2^-240: binary64 holds them, binary32 does not
     # (tests/test_block_binary64.py runs it)
     assert BlockFormat(SuperFP(3, 5, 1, 7), E8M0, 32)._binary32_error is not None
@@ -1355,6 +1462,55 @@ def test_mps_is_the_cpu(name, mode, dtype):
 
 
 # --- a second OCP oracle: gfloat ------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", DETERMINISTIC)
+@pytest.mark.parametrize("bits", [3, 4, 8, 12, 16])
+def test_bfp_matches_gfloat(mode, bits):
+    """bfp(bits, 32) against gfloat's quantize_block over a sign-magnitude
+    integer element of its own (gfloat's MXINT8 is two's complement, with -2),
+    with OCP's E8M0 scale and amax rule, in every deterministic mode."""
+    gfloat = pytest.importorskip("gfloat")
+    from gfloat import BlockFormatInfo, FormatInfo
+    from gfloat import formats as gf
+    from gfloat.types import Domain
+    from gfloat.types import RoundMode as GR
+
+    modes = {
+        RoundMode.RNE: GR.TiesToEven,
+        RoundMode.RNA: GR.TiesToAway,
+        RoundMode.RZ: GR.TowardZero,
+        RoundMode.RU: GR.TowardPositive,
+        RoundMode.RD: GR.TowardNegative,
+        RoundMode.RO: getattr(GR, "ToOdd", None),
+    }
+    if modes[mode] is None:
+        pytest.skip("this gfloat has no ToOdd")
+    elem = FormatInfo(
+        f"int{bits}_sm",
+        k=bits,
+        precision=bits - 1,
+        bias=1,
+        is_signed=True,
+        domain=Domain.Finite,
+        has_nz=False,
+        num_high_nans=0,
+        has_subnormals=True,
+        is_twos_complement=False,
+    )
+    fi = BlockFormatInfo(f"bfp{bits}", elem, 32, gf.format_info_ocp_e8m0)
+    g = torch.Generator().manual_seed(bits)
+    x = torch.randn(32, 32, generator=g) * torch.exp2(
+        torch.randint(-6, 6, (32, 1), generator=g).float()
+    )
+    ours = block_quantize(x, bfp(bits, 32), rounding=mode).double().numpy()
+    theirs = np.stack(
+        [
+            gfloat.quantize_block(fi, x[i].double().numpy(), gfloat.compute_scale_amax, modes[mode])
+            for i in range(x.shape[0])
+        ]
+    )
+    np.testing.assert_array_equal(ours, theirs)
 
 
 @pytest.mark.parametrize("mode", DETERMINISTIC)

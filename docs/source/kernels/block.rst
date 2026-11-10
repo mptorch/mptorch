@@ -218,8 +218,11 @@ applied after the loop. A tile load is then two table reads, one product
 in the carrier, and a test that keeps a zero unsigned.
 
 Because of the tables, the block product takes element codes of at most 8
-bits. That covers every OCP and NVFP4 format and every superfp element up to
-a byte. The elementwise block operations take up to 16 bits. An arithmetic
+bits. That covers every OCP and NVFP4 format, every superfp element up to a
+byte, and block floating point from ``bfp(2)`` to ``bfp(8)``, whose integer
+codes the tables decode as the binaryK layout they are (:doc:`/concepts`,
+"Block floating point"). The elementwise block operations take up to 16
+bits. An arithmetic
 decode compiled in for wider codes took the kernels from 30-38 registers to
 48-80, so it was left out.
 

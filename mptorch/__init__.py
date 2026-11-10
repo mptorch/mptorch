@@ -49,6 +49,7 @@ from .number import (
     ScaleRounding,
     SubnormalsMode,
     SuperFP,
+    bfp,
 )
 
 __version__ = "0.4.0"
@@ -79,4 +80,5 @@ __all__ = [
     "MXFP6_E3M2",
     "MXFP4_E2M1",
     "NVFP4",
+    "bfp",
 ]

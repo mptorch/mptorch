@@ -881,6 +881,24 @@ def test_quantizer_with_no_formats_is_the_identity(device):
 # --- block formats: BlockMac, BlockQuant and the layer factories ------------------
 
 
+def test_bfp_is_a_fixedpoint_element_with_an_e8m0_scale():
+    """bfp(bits): FixedPoint(bits, bits - 2, symmetric=True) elements, one step
+    of 2^-(bits - 2) up to 2 - 2^-(bits - 2), so emax 0 and OCP's scale rule;
+    the element code is wl bits, and a 16 x 8-bit block is 16 bytes plus its
+    scale. Another fl gives the same values and moves emax only."""
+    from mptorch import E8M0, BlockFormat, FixedPoint, bfp
+    from mptorch import ScaleRounding as R
+
+    f = bfp(8, 16)
+    assert f == BlockFormat(FixedPoint(8, 6, symmetric=True), E8M0, 16)
+    assert f.elem_bits == 8 and f.emax == 0 and f.scale_rule is R.OCP
+    assert f.elem_max == 2 - 2.0**-6 and f.bytes_per_block == 16
+    assert bfp(16, 16, block_rows=4).block_rows == 4
+    assert bfp(3).elem_max == 1.5 and bfp(2).elem_max == 1.0
+    other = BlockFormat(FixedPoint(8, 0, symmetric=True), E8M0, 16)
+    assert other.emax == 6 and other.elem_max == 127.0
+
+
 def test_scale_rounding_resolves_and_compares_by_the_rule():
     """A BlockFormat's scale rule defaults to its scale's own (OCP for a power
     of two, NEAREST for E4M3, SELECTIVE for a superfp), is resolved again when

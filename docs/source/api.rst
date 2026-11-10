@@ -15,10 +15,11 @@ See :doc:`concepts`. The presets are importable from ``mptorch``: the element
 and scale formats ``E8M0``, ``E4M3``, ``E5M2``, ``E2M1``, ``E2M3`` and
 ``E3M2`` (each a :class:`~mptorch.BinaryK`), and the block formats
 ``MXFP8_E4M3``, ``MXFP8_E5M2``, ``MXFP6_E2M3``, ``MXFP6_E3M2``,
-``MXFP4_E2M1`` and ``NVFP4`` (each a :class:`~mptorch.BlockFormat`).
+``MXFP4_E2M1`` and ``NVFP4`` (each a :class:`~mptorch.BlockFormat`), and
+:func:`~mptorch.bfp` builds block floating point.
 
 .. automodule:: mptorch.number
-   :members: RoundMode, SaturationMode, Domain, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, FixedPoint, BlockFormat, ScaleRounding, FormatRangeWarning
+   :members: RoundMode, SaturationMode, Domain, SubnormalsMode, AccumulateAlgorithm, Number, FloatFormat, BinaryK, SuperFP, FixedPoint, BlockFormat, bfp, ScaleRounding, FormatRangeWarning
    :undoc-members:
    :member-order: bysource
 
