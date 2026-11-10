@@ -42,6 +42,10 @@ using metal::make_signed_t;
 inline float fabsf(float x) { return metal::fabs(x); }
 inline float copysignf(float x, float y) { return metal::copysign(x, y); }
 
+// quantize.metal's fixed-point casts: there is no fixed-point GEMM, so no
+// GEMM header includes them. An #include line carries no trailing comment,
+// which would stop setup.py's embed_metal_sources inlining it.
+#include "../common/cast_fixedpoint.h"
 #include "../common/gemm_args.h"
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_cross.h"

@@ -1,11 +1,11 @@
 """Straight-through quantization: one format applied forward, another backward.
 
-The elementwise quantize ops (``binaryK_quantize``, ``superfp_quantize``) are
-not differentiable and do not pretend to be: rounding to a coarse format has a
-derivative of zero almost everywhere, so a gradient through it is a modelling
-choice, not a fact about the op. This module is where that choice is made
-explicit, and it is the reason those ops raise on a ``requires_grad`` operand
-rather than silently dropping the gradient.
+The elementwise quantize ops (``binaryK_quantize``, ``superfp_quantize``,
+``fixedpoint_quantize``) are not differentiable and do not pretend to be:
+rounding to a coarse format has a derivative of zero almost everywhere, so a
+gradient through it is a modelling choice, not a fact about the op. This module
+is where that choice is made explicit, and it is the reason those ops raise on
+a ``requires_grad`` operand rather than silently dropping the gradient.
 
 The estimator is the standard one: the forward rounds, the backward passes the
 gradient through, optionally rounded to a *different* format. That asymmetry is
