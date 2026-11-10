@@ -642,3 +642,30 @@ def test_sr_prng_bits_set_the_resolution(device):
     assert bool((_sr(quarter, **CFG, prng_bits=1) == STEP).all())
     rounded_up = (_sr(quarter, **CFG, prng_bits=2) == 2 * STEP).cpu().double().mean().item()
     assert rounded_up == pytest.approx(0.25, abs=0.01)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_sr_sees_the_input_exactly_at_the_carriers_mantissa(device, dtype):
+    """The draw is added to |x| itself, however few of the carrier's bits are
+    left below the step. With every significand bit a magnitude bit (wl 24 in
+    binary32, 53 in binary64) there is no room for a draw, and SR is RZ.
+
+    The cast this replaced added a power of two above the range in the carrier
+    first, which rounded |x| to nearest at MAN_BITS - mag_bits bits below the
+    step before the draw saw it: at none, here, so SR with no random bits was
+    RNE and 1 + 0.75 step went up. One magnitude bit fewer, a one-bit draw
+    takes 0.75 of a step up half the time, floor(0.75 * 2) / 2, where the
+    pre-rounded value, a whole step, went up every time."""
+    man = 52 if dtype is torch.float64 else 23
+    step = 2.0 ** -(man - 3)
+    x = torch.full((1000,), 1 + 0.75 * step, dtype=dtype, device=device)
+    assert bool((_sr(x, man + 1, man - 3, prng_bits=0) == 1.0).all())
+    assert bool((_sr(-x, man + 1, man - 3, prng_bits=0) == -1.0).all())
+
+    step = 2.0 ** -(man - 4)
+    x = torch.full((100_000,), 1 + 0.75 * step, dtype=dtype, device=device)
+    got = _sr(x, man, man - 4, prng_bits=1).cpu().double()
+    assert set(got.unique().tolist()) <= {1.0, 1.0 + step}
+    rounded_up = (got == 1.0 + step).double().mean().item()
+    assert rounded_up == pytest.approx(0.5, abs=0.01)
