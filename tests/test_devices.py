@@ -18,6 +18,11 @@ devices, as the conv and block drivers did already. Two kinds of test:
   the same call on ``cuda:0`` bit for bit, stochastic rounding included,
   draws from ``cuda:1``'s generator exactly what the ``cuda:0`` call drew from
   ``cuda:0``'s, leaves ``cuda:0``'s alone, and leaves ``cuda:0`` current.
+  Each of those cases also runs twice on ``cuda:0`` wherever there is one
+  GPU, so a case's own mistakes show up without a second one; the first
+  two-GPU run (a Kaggle 2x T4 notebook) found two, a palette conv without its
+  maps and cases that reseeded every CUDA generator with ``torch.manual_seed``,
+  which the harness now refuses.
 """
 
 import pytest
@@ -142,29 +147,33 @@ def _flat(out):
     return [t for o in out for t in _flat(o)]
 
 
+def _seed_cpu(seed):
+    """Seed the CPU generator alone, for a case's own setup (a layer's
+    initial weights): ``torch.manual_seed`` would reseed every CUDA
+    generator too, which is what the harness watches."""
+    torch.default_generator.manual_seed(seed)
+
+
+def _states():
+    return [torch.cuda.get_rng_state(i) for i in range(torch.cuda.device_count())]
+
+
 def _run(fn, index):
     """``fn`` on ``cuda:index`` with ``cuda:0`` current: its tensors on the
-    CPU, and both CUDA generators' states before and after."""
+    CPU, and every CUDA generator's state (8 bytes of seed, 8 of offset)
+    before and after."""
     torch.cuda.set_device(0)
     torch.manual_seed(1234)  # every generator, CPU and CUDA, the same
-    before = [torch.cuda.get_rng_state(i) for i in (0, 1)]
+    before = _states()
     out = _flat(fn(torch.device("cuda", index)))
-    for i in (0, 1):
+    for i in range(torch.cuda.device_count()):
         torch.cuda.synchronize(i)
     assert torch.cuda.current_device() == 0, "the op left another device current"
     assert all(t.device == torch.device("cuda", index) for t in out), "a result on the wrong device"
-    after = [torch.cuda.get_rng_state(i) for i in (0, 1)]
+    after = _states()
+    for b, a in zip(before, after, strict=True):
+        assert torch.equal(b[:8], a[:8]), "the case reseeded a CUDA generator (use _seed_cpu)"
     return [t.cpu() for t in out], before, after
-
-
-def _same_on_the_second_gpu(fn):
-    want, _, after0 = _run(fn, 0)
-    got, before1, after1 = _run(fn, 1)
-    assert len(want) == len(got)
-    for w, g in zip(want, got, strict=True):
-        assert torch.equal(w, g), "cuda:1 computed something else than cuda:0"
-    assert torch.equal(after1[0], before1[0]), "an op on cuda:1 drew from cuda:0's generator"
-    assert torch.equal(after1[1], after0[0]), "cuda:1's generator moved otherwise than cuda:0's"
 
 
 QUANTIZERS = {
@@ -181,85 +190,114 @@ QUANTIZERS = {
 }
 
 
-@requires_two_gpus
-@pytest.mark.parametrize("name", list(QUANTIZERS))
-def test_a_quantizer_runs_on_its_tensors_gpu(name):
-    """The elementwise and block quantizers, out of place and in place, and
-    the narrowing op behind the binary64 carrier."""
-    _same_on_the_second_gpu(lambda d: QUANTIZERS[name](_cpu(64, 64).to(d)))
+def _quantize(name):
+    return lambda d: QUANTIZERS[name](_cpu(64, 64).to(d))
 
 
-@requires_two_gpus
-@pytest.mark.parametrize("name", list(MACS))
-def test_a_gemm_runs_on_its_tensors_gpu(name):
-    """Each of the 16 GEMM ops, under SR."""
-    _same_on_the_second_gpu(lambda d: _gemm(name, d))
-
-
-@requires_two_gpus
-@pytest.mark.parametrize("name", list(CONV_MACS))
-def test_a_conv_runs_on_its_tensors_gpu(name):
-    """The three conv passes of a layer: forward, input and weight gradient."""
+def _conv(name):
+    """The three passes of a conv layer: forward, input and weight gradient.
+    A palette mac takes one map per pass: [Cout, 1], [Cin, 1], [Cout, 1]."""
 
     def step(d):
-        torch.manual_seed(7)
-        layer = QConv2d(3, 4, 3, padding=1, formats=conv_formats(CONV_MACS[name])).to(d)
+        mac = CONV_MACS[name]
+        maps = {}
+        if "mixed" in name:
+            alternate = torch.tensor([[0], [1], [0], [1]], device=d)
+            maps = dict(
+                prec_idx=alternate,
+                igrad_prec_idx=torch.zeros(3, 1, dtype=torch.int64, device=d),
+                wgrad_prec_idx=1 - alternate,
+            )
+        _seed_cpu(7)
+        layer = QConv2d(3, 4, 3, padding=1, formats=conv_formats(mac, **maps)).to(d)
         x = _cpu(2, 3, 6, 6).to(d).requires_grad_()
         out = layer(x)
         out.backward(_cpu(*out.shape, seed=3).to(d))
         return out.detach(), x.grad, layer.weight.grad
 
-    _same_on_the_second_gpu(step)
+    return step
 
 
-@requires_two_gpus
-def test_a_block_gemm_runs_on_its_tensors_gpu():
-    def gemm(d):
-        pa = block_pack(_cpu(4, 64, seed=1).to(d), MXFP8_E4M3, axis=-1, rounding=SR)
-        pb = block_pack(_cpu(64, 3, seed=2).to(d), MXFP8_E4M3, axis=-2, rounding=SR)
-        return block_matmul(pa, pb)
-
-    _same_on_the_second_gpu(gemm)
+def _block_gemm(d):
+    pa = block_pack(_cpu(4, 64, seed=1).to(d), MXFP8_E4M3, axis=-1, rounding=SR)
+    pb = block_pack(_cpu(64, 3, seed=2).to(d), MXFP8_E4M3, axis=-2, rounding=SR)
+    return block_matmul(pa, pb)
 
 
-@requires_two_gpus
-def test_recomputing_runs_on_its_tensors_gpu():
-    """Phase V's replay rewinds the tensor's own generator: a QLinear whose
-    weight is recomputed under SR, and one that keeps the copies, agree on
-    ``cuda:1`` as on ``cuda:0``."""
+def _linear(input_quant, weight_quant, recompute=None):
+    """A Linear layer's step: forward and both gradients."""
 
-    def step(d, recompute):
-        torch.manual_seed(7)
-        q = Quant(BK, SR)
-        f = QAffineFormats(input_quant=q, weight_quant=q, igrad_quant=q, wgrad_quant=q)
+    def step(d):
+        f = QAffineFormats(
+            input_quant=input_quant,
+            weight_quant=weight_quant,
+            igrad_quant=Quant(BK, SR),
+            wgrad_quant=Quant(BK, SR),
+        )
         f.recompute_input = f.recompute_weight = recompute
+        _seed_cpu(7)
         layer = QLinear(32, 16, formats=f).to(d)
         x = _cpu(8, 32).to(d).requires_grad_()
         out = layer(x)
         out.backward(_cpu(8, 16, seed=3).to(d))
         return out.detach(), x.grad, layer.weight.grad
 
-    _same_on_the_second_gpu(lambda d: step(d, True))
-    on_1 = [t.cpu() for t in _flat(step(torch.device("cuda", 1), True))]
-    kept = [t.cpu() for t in _flat(step(torch.device("cuda", 1), False))]
-    for r, k in zip(on_1, kept, strict=True):
-        assert torch.equal(r, k)
+    return step
+
+
+# Every case: each quantizer, each of the 16 GEMM ops (all under SR), three
+# conv macs, the block GEMM, and three layers: phase V's replay with the
+# weight and input recomputed, the same with the copies kept, and a
+# fixed-point input with a block-format weight.
+CASES = {
+    **{f"quantize {n}": _quantize(n) for n in QUANTIZERS},
+    **{f"gemm {n}": (lambda d, n=n: _gemm(n, d)) for n in MACS},
+    **{f"conv {n}": _conv(n) for n in CONV_MACS},
+    "block gemm": _block_gemm,
+    "linear, recomputed": _linear(Quant(BK, SR), Quant(BK, SR), recompute=True),
+    "linear, copies kept": _linear(Quant(BK, SR), Quant(BK, SR), recompute=False),
+    "linear, fixed point and block": _linear(
+        Quant(FixedPoint(8, 5, prng_bits=8), SR), BlockQuant(MXFP8_E4M3, SR)
+    ),
+}
+
+
+@requires_cuda
+@pytest.mark.parametrize("name", list(CASES))
+def test_a_two_gpu_case_repeats_on_one(name):
+    """
+    Each two-GPU case, twice on ``cuda:0``: the same tensors and the same
+    generator states both times, and no generator reseeded. The two-GPU tests
+    skip on a machine with one GPU; this is what runs their cases there.
+    """
+    want, _, after = _run(CASES[name], 0)
+    got, _, again = _run(CASES[name], 0)
+    for w, g in zip(want, got, strict=True):
+        assert torch.equal(w, g)
+    for a, b in zip(after, again, strict=True):
+        assert torch.equal(a, b)
 
 
 @requires_two_gpus
-def test_fixed_point_and_block_formats_reach_the_second_gpu():
-    """A layer on cuda:1 with a fixed-point and a block quantizer, end to end."""
+@pytest.mark.parametrize("name", list(CASES))
+def test_a_case_runs_on_its_tensors_gpu(name):
+    """
+    On ``cuda:1`` with ``cuda:0`` current, a case gives what it gives on
+    ``cuda:0``, bit for bit, draws from ``cuda:1``'s generator what the
+    ``cuda:0`` run drew from ``cuda:0``'s, and leaves ``cuda:0``'s alone.
+    """
+    want, _, after0 = _run(CASES[name], 0)
+    got, before1, after1 = _run(CASES[name], 1)
+    for w, g in zip(want, got, strict=True):
+        assert torch.equal(w, g), "cuda:1 computed something else than cuda:0"
+    assert torch.equal(after1[0], before1[0]), "an op on cuda:1 drew from cuda:0's generator"
+    assert torch.equal(after1[1], after0[0]), "cuda:1's generator moved otherwise than cuda:0's"
 
-    def step(d):
-        torch.manual_seed(7)
-        f = QAffineFormats(
-            input_quant=Quant(FixedPoint(8, 5, prng_bits=8), SR),
-            weight_quant=BlockQuant(MXFP8_E4M3, SR),
-        )
-        layer = QLinear(32, 16, formats=f).to(d)
-        x = _cpu(8, 32).to(d).requires_grad_()
-        out = layer(x)
-        out.sum().backward()
-        return out.detach(), x.grad, layer.weight.grad
 
-    _same_on_the_second_gpu(step)
+@requires_two_gpus
+def test_recomputing_agrees_with_the_copies_on_the_second_gpu():
+    """Phase V's replay rewinds the tensor's own generator on ``cuda:1`` too."""
+    recomputed, _, _ = _run(CASES["linear, recomputed"], 1)
+    kept, _, _ = _run(CASES["linear, copies kept"], 1)
+    for r, k in zip(recomputed, kept, strict=True):
+        assert torch.equal(r, k)
