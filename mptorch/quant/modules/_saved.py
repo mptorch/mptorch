@@ -13,8 +13,8 @@ batch. Each Function says what a ``None`` flag means for it
 (``_RECOMPUTE_DEFAULT``).
 
 A quantizer is run again only if it is known to depend on its input and the
-random generator alone -- mptorch's ``Quant`` (not in place), ``BlockQuant``
-called as a fake quantizer, and a ``Quantizer`` over one of those -- unless
+random generator alone -- mptorch's ``Quant`` (not in place), ``TensorQuant``,
+``BlockQuant`` called as a fake quantizer, and a ``Quantizer`` over one of those -- unless
 the caller sets the flag to ``True``, which is their promise that their own
 callable does too. Any other callable keeps its result saved: a QAT observer
 called twice would count a batch twice, or round differently in backward once
@@ -41,6 +41,7 @@ import torch
 from mptorch.number import RoundMode
 
 from ..mac import BlockQuant, Quant
+from ..tensor import TensorQuant
 from .quantizer import Quantizer
 
 # (the CPU generator's state or None, ((device, its generator's state), ...))
@@ -49,12 +50,14 @@ _State = tuple[torch.Tensor | None, tuple[tuple[torch.device, torch.Tensor], ...
 _Replay = tuple[Callable, _State | None]
 
 
-def _known(q: object) -> Quant | BlockQuant | None:
+def _known(q: object) -> Quant | BlockQuant | TensorQuant | None:
     """The mptorch quantizer a slot runs, if it is one known to be stateless."""
     if isinstance(q, Quantizer):
         q = q.forward_quant
     if isinstance(q, Quant):
         return None if q.inplace else q
+    if isinstance(q, TensorQuant):
+        return q
     return q if isinstance(q, BlockQuant) else None
 
 
