@@ -918,11 +918,17 @@ def _fixedpoint_findings(
     The fixed-point twin of `_binaryK_findings`. A fixed-point format has no
     exponent field, so `_width_error` and `_range_findings` do not apply: its
     range is its precision, the leading bit of its largest value, and its
-    step, each held against the carrier's here. Stochastic rounding holds a
-    value as a float with mag_bits mantissa bits below the leading bit
-    2^(mag_bits - fl), so the precision rule is binaryK's man_bits rule, and
-    that leading bit must be a carrier value. The layout is checked first, and
-    returned as is, since no carrier holds it.
+    step, each held against the carrier's here. Every value is a mag_bits-bit
+    integer times the step, so the precision rule is binaryK's on precision,
+    mag_bits against the carrier's significand; stochastic rounding draws its
+    bits below the step in the same significand, so they share it; and both
+    ends of the range must be carrier values, which in two's complement is the
+    bottom, -2^(mag_bits - fl), one binade past the top. Measured with
+    ``dev/benchmarks/format_limits.py fixedpoint ... --audit`` and the
+    ``fixed-beyond`` modes of the cast sweeps (2026-11-10), after SR became
+    integer arithmetic on the word; until then it added 2^(mag_bits - fl) in
+    the carrier, which cost one bit and one binade. The layout is checked
+    first, and returned as is, since no carrier holds it.
     """
     label = _fixedpoint_label(wl, fl, is_signed, symmetric)
 
@@ -935,23 +941,25 @@ def _fixedpoint_findings(
     top_exp = mag_bits - 1 - fl  # the largest value's leading bit
     exp_step = -fl
 
+    # the leading bit of the end farthest from zero: the top, or in two's
+    # complement the bottom, -2^(mag_bits - fl), a binade past it
+    end_exp = top_exp + 1 if is_signed and not symmetric else top_exp
+
     def find(c: _Carrier) -> tuple[str | None, str | None]:
-        # error: stochastic rounding keeps all mag_bits in the carrier's mantissa,
-        # below the leading bit its shift adds, so it needs one bit of precision
-        # more than the format's values have
-        if mag_bits > c.man_bits:
+        # error: every value is a mag_bits-bit integer, which the carrier's
+        # significand holds only up to its precision
+        if mag_bits > c.precision:
             return (
-                f"{label} asks for {mag_bits + 1} bits of precision, its {mag_bits} magnitude "
-                f"bits below the leading bit stochastic rounding adds, and it is rounded in "
-                f"{c.name}, which has {c.precision}"
+                f"{label} asks for {mag_bits} bits of precision, its magnitude bits, and it "
+                f"is rounded in {c.name}, which has {c.precision}"
             ), None
 
         # error: stochastic rounding draws its bits below the step, in the same significand
-        if mag_bits + prng_bits > c.man_bits:
+        if mag_bits + prng_bits > c.precision:
             return (
                 f"{label} asks for {prng_bits} stochastic-rounding bits below {mag_bits} "
                 f"magnitude bits; they are drawn from the {c.name} significand the rounding "
-                f"happens in, which has {c.man_bits} bits to share"
+                f"happens in, which has {c.precision} bits to share"
             ), None
 
         # error: the whole range is below the carrier's normals
@@ -960,11 +968,14 @@ def _fixedpoint_findings(
                 f"{label}'s largest value is below {c.name}'s smallest normal, 2^{c.min_normal_exp}"
             ), None
 
-        # error: stochastic rounding adds 2^(mag_bits - fl), which must be a carrier value
-        if mag_bits - fl > c.top_exp:
+        # error: an end of the range is past the carrier's largest value
+        if end_exp > c.top_exp:
+            if end_exp > top_exp:
+                end = f"bottom, -2^{end_exp},"
+            else:
+                end = f"largest value, in 2^{top_exp},"
             return (
-                f"{label}'s range reaches {c.name}'s top binade, 2^{c.top_exp}; "
-                f"stochastic rounding needs one binade above it"
+                f"{label}'s {end} is past {c.name}'s range, which stops below 2^{c.top_exp + 1}"
             ), None
 
         # warn: the step is below the floor the casts place values by (`_Carrier`)

@@ -571,8 +571,12 @@ unsigned one), the range is
   the word has no code for one, so the format has no saturation mode.
 - A NaN passes through, a negative input to an unsigned format becomes zero,
   and the one zero is :math:`+0.0`, as for BinaryK.
-- The magnitude bits must fit the carrier's mantissa: at most 23 in binary32
-  and 52 in binary64 (Carriers_).
+- Under ``SR`` the random bits are added directly below the step, so the
+  probability is exactly the one `Stochastic rounding`_ states, at every
+  ``prng_bits``: none gives ``RZ``.
+- The magnitude bits must fit the carrier's precision, and with ``prng_bits``
+  they share it: at most 24 bits in all in binary32 and 53 in binary64
+  (Carriers_).
 - There is no fixed-point arithmetic inside a matrix product yet.
   ``FixedPoint`` has the elementwise quantizer only (:doc:`quantizers`), and
   a ``SplitMac``, ``FusedMac`` or ``Palette`` refuses it.
@@ -585,11 +589,32 @@ unsigned one), the range is
    :language: text
    :caption: output
 
-.. Stub, to complete in phase K, step 1 (dev/continuation_plan.md): the full
-   carrier rules (a range below the carrier's normals, a range reaching its
-   top binade, a step below the simulable floor), the storage rule for
-   float16 and bfloat16 results, and, with phase K's step 2, fixed-point
-   elements in block formats.
+The carrier bounds a fixed-point format the way it bounds a float format
+(`What the carrier can hold`_), with one difference: the format saturates
+onto its ends, so an end the carrier cannot hold raises rather than warns.
+In binary32 (binary64):
+
+- at most 24 (53) magnitude bits, and as many in all with ``prng_bits``;
+- both ends inside the carrier's range. In two's complement the end farther
+  out is the bottom, :math:`-2^{\,n-\text{fl}}`, so :math:`n - \text{fl} \le
+  127` (1023); a symmetric or unsigned format may reach one binade higher,
+  :math:`n - 1 - \text{fl} \le 127` (1023);
+- a largest value at or above the carrier's smallest normal,
+  :math:`2^{-126}` (:math:`2^{-1022}`), or nothing but zero is returned;
+- a step of at least :math:`2^{-125}` (:math:`2^{-1021}`), the floor of
+  BinaryK's subnormals, which a fixed-point grid is placed on the same way.
+  A finer step warns: values near zero may round incorrectly.
+
+A float16 or bfloat16 result is rounded once more when it is stored, and held
+to the rule for an elementwise result (`What a narrower tensor can store`_):
+the inputs are already the dtype's values, so only an end of the range can
+miss its grid. An end past the dtype's largest value warns, as does a largest
+value that is not one of the dtype's (a saturated result is then rounded
+again), and a largest value below the dtype's smallest raises. There is no
+fixed-point matrix product, so there is no rule for one.
+
+.. Stub, to complete in phase K, step 2 (dev/continuation_plan.md):
+   fixed-point elements in block formats.
 
 .. _block-formats:
 
@@ -1398,14 +1423,25 @@ when :math:`\lfloor \eta\, 2^{N} \rfloor + R \ge 2^{N}`, for a uniform
 integer :math:`R \in [0, 2^{N})`.
 
 ``prng_bits`` is set on the format (``BinaryK(8, 4, prng_bits=8)``) and is
-ignored by every other rounding mode. Where the bits are drawn has two
+ignored by every other rounding mode. Where the bits are drawn has three
 practical consequences:
 
 - With ``prng_bits=0`` nothing is random, and ``SR`` becomes ``RZ``. The
   ``SR`` row above comes from a format with no random bits and is identical
   to the ``RZ`` row.
 - The format's mantissa plus its random bits must fit in the carrier's
-  mantissa: 23 bits in binary32, 52 in binary64. Each call checks this.
+  mantissa: 23 bits in binary32, 52 in binary64. Each call checks this. A
+  FixedPoint format's magnitude bits plus its random bits must fit the
+  carrier's precision, 24 bits or 53.
+- The bits are added to the input's own word, so the rule above is exact,
+  except in two regions: BinaryK's subnormals (under ``SUBNORMALS``) and the
+  region of a SuperFP below its smallest value. There the cast first adds a
+  power of two in the carrier, to move the value into a binade whose grid is
+  the format's, and that addition rounds :math:`|x|` to nearest at the
+  carrier's precision before the bits are added. An input within half a
+  carrier step below one of the :math:`2^{-N}` levels is then counted at the
+  level, so its probability can be :math:`2^{-N}` off. FixedPoint draws on the
+  word everywhere and is exact.
 
 A float64 operand is rounded in binary64, and its bits are drawn there too,
 two random words per draw.
@@ -1531,16 +1567,16 @@ values never appear in it. There are three limits, stated here in the
 format's own terms, with binary64's in parentheses:
 
 * **Precision.** :math:`P \le 24` (53) for :class:`~mptorch.BinaryK`,
-  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`, and at most 23 (52)
-  magnitude bits for :class:`~mptorch.FixedPoint`, one fewer than the
-  carrier's precision because stochastic rounding adds a leading bit above
-  them. These are the carrier's significand bits; it cannot hold a finer
-  grid.
+  ``man_bits <= 23`` (52) for :class:`~mptorch.SuperFP`, and at most 24 (53)
+  magnitude bits for :class:`~mptorch.FixedPoint`. These are the carrier's
+  significand bits; it cannot hold a finer grid.
 * **The top.** The largest finite value must be at most the carrier's. That
   is :math:`\text{bias} \ge 2^E - 128` (:math:`2^E - 1024`), where :math:`E`
   is the exponent width (``exp_bits`` for a SuperFP). Above that the cast
   saturates at the carrier's largest value on the format's grid, and the
-  codes above it are unreachable.
+  codes above it are unreachable. A FixedPoint format's ends are its
+  saturation points, so both must be carrier values (`FixedPoint: one step
+  across the range`_).
 * **The bottom.** A subnormal carrier value has exponent field 0 whatever its
   magnitude. Any part of a cast that reads that field therefore cannot tell
   values apart below the carrier's smallest normal, :math:`2^{-126}`
@@ -1623,8 +1659,9 @@ works, not which limit it misses:
   more precision than the carrier's, stochastic-rounding bits with no
   significand left to draw from, an exponent field wider than the kernels
   shift by, a SuperFP whose ``normal_binades`` leaves no supernormal codes,
-  and a format whose largest finite value is below the carrier's normals,
-  where every nonzero result overflows.
+  a FixedPoint end past the carrier's largest value, and a format whose
+  largest finite value is below the carrier's normals, where every nonzero
+  result overflows.
 
 The run below shows both carriers on the same inputs and formats:
 

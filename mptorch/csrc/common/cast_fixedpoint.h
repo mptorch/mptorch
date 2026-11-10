@@ -47,9 +47,9 @@ CUDA_HOST_DEVICE_INLINE T fixedpoint_word_value(typename FloatTraits<T>::word_t 
 // value is mag_bits ones, a leading 1 at 2^top_exp and mag_bits - 1 ones
 // below it, and the two's complement bottom is the power of two 2^min_exp.
 // The number.py checks hold both inside the carrier's normals from below, and
-// raise for a range reaching the carrier's top binade, so neither bound is
-// past the carrier's largest value from Python; the infinity branches below
-// are kept as a guard, since the carrier cannot hold such a bound.
+// raise for an end of the range past the carrier's largest value, so neither
+// bound is past it from Python; the infinity branches below are kept as a
+// guard, since the carrier cannot hold such a bound.
 template <class T = float>
 CUDA_HOST_DEVICE_INLINE FixedPointParamsT<T> make_fixedpoint_params(int wl, int fl, bool is_signed, bool symmetric)
 {
@@ -313,9 +313,9 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_zero(T x, bool is_signed, const MPTORC
 // to nearest at MAN_BITS - mag_bits bits below the step before the draw sees
 // it, which made N = 0 RNE at mag_bits = MAN_BITS -- and no float operation
 // touches the input, so a subnormal is not flushed on Metal. The carrier
-// check's bound, mag_bits + N <= MAN_BITS (number.py), keeps every shift in
-// range: in the range exp_diff <= mag_bits - 1, so a value at or above the
-// step has at least N + 1 fraction bits.
+// check's bound, mag_bits + N <= MAN_BITS + 1 (number.py), keeps every shift
+// in range: in the range exp_diff <= mag_bits - 1, so a value at or above the
+// step has at least N fraction bits.
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T>::word_t rand_prob, int prng_bits,
                                                      bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
@@ -362,7 +362,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     }
 
     // Under the step: |x| / step = s * 2^(exp_diff - MAN_BITS), so its top N
-    // fraction bits are s >> (MAN_BITS - exp_diff - N), at least 2 bits of shift.
+    // fraction bits are s >> (MAN_BITS - exp_diff - N), at least 1 bit of shift.
     word_t s = (mag & F::MAN_MASK) | (field == 0 ? word_t(0) : (word_t(1) << F::MAN_BITS));
     int shift = F::MAN_BITS - exp_diff - prng_bits;
     word_t top = shift < F::WORD_BITS ? (s >> shift) : word_t(0);
