@@ -25,12 +25,11 @@ Under stochastic rounding the second call must draw what the first drew, so
 the generators it reads are captured just before the forward's call and set
 back around the backward's, and left as the backward found them: the
 gradient quantizers and the math hooks draw exactly what they drew before.
-mptorch's CUDA kernels draw from the current device's default generator
-(``getDefaultCUDAGenerator()``, which their entry points call with no device
-guard), and its CPU and MPS kernels from the CPU generator
-(``csrc/cpu/utils.h``, and ``draw_cpu_seed`` on MPS); a caller's callable
-gets the CPU generator and its tensor's device's. On CUDA both the current
-device's generator and the tensor's are captured when the two differ.
+mptorch's CUDA kernels draw from their tensor's device's generator (every
+CUDA op runs on that device, ``csrc/cuda/device_guard.h``), and its CPU and
+MPS kernels from the CPU generator (``csrc/cpu/utils.h``, and
+``draw_cpu_seed`` on MPS); a caller's callable gets the CPU generator and its
+tensor's device's.
 """
 
 from collections.abc import Callable
@@ -77,10 +76,7 @@ def _capture(x: torch.Tensor, every: bool) -> _State:
     the CPU's and its device's."""
     kind = x.device.type
     cpu = torch.get_rng_state() if every or kind != "cuda" else None
-    if kind == "cuda":
-        devices = {x.device, torch.device("cuda", torch.cuda.current_device())}
-        return cpu, tuple((d, _device_state(d)) for d in devices)
-    if kind == "mps" and every:
+    if kind == "cuda" or (kind == "mps" and every):
         return cpu, ((x.device, _device_state(x.device)),)
     return cpu, ()
 

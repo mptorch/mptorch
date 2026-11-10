@@ -12,16 +12,18 @@ import torch
 
 from . import _C  # type: ignore # noqa: F401
 
-# Pin torch's CUDA architecture list to the GPU that is present, unless the
+# Pin torch's CUDA architecture list to the GPUs that are present, unless the
 # environment already names one. Anything torch compiles later in this process
-# (`torch.utils.cpp_extension.load`, a JIT-built extension) then targets that
-# one architecture instead of torch's default of every architecture it knows,
+# (`torch.utils.cpp_extension.load`, a JIT-built extension) then targets those
+# architectures instead of torch's default of every architecture it knows,
 # which is a large difference in compile time. The extension imported above is
-# prebuilt, so this does not affect it.
-if torch.cuda.is_available():
-    major, minor = torch.cuda.get_device_capability(0)
-    if "TORCH_CUDA_ARCH_LIST" not in os.environ:
-        os.environ["TORCH_CUDA_ARCH_LIST"] = f"{major}.{minor}"
+# prebuilt, so this does not affect it. Every visible GPU's architecture is
+# named, not GPU 0's alone, or a JIT build could not run on the others of a
+# machine with GPUs of two generations.
+if torch.cuda.is_available() and "TORCH_CUDA_ARCH_LIST" not in os.environ:
+    _archs = {torch.cuda.get_device_capability(i) for i in range(torch.cuda.device_count())}
+    os.environ["TORCH_CUDA_ARCH_LIST"] = ";".join(f"{a}.{b}" for a, b in sorted(_archs))
+    del _archs
 
 from .number import (
     E2M1,

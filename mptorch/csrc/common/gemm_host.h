@@ -61,6 +61,8 @@ namespace mptorch::gemm
     TORCH_CHECK((a.dim() == 2 || a.dim() == 3) && (b.dim() == 2 || b.dim() == 3), op_name,
                 " expects 2D or 3D tensors, got ", a.dim(), "D and ", b.dim(),
                 "D (1D promotion and rank>3 broadcasting live in mptorch.quant.qmatmul)");
+    TORCH_CHECK(a.device() == b.device(), op_name, ": both operands must be on one device, got ",
+                a.device(), " and ", b.device());
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
                 " is not a RoundMode");
     TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
