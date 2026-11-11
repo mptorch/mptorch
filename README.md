@@ -158,6 +158,8 @@ To build with debug symbols and no optimization:
 DEBUG=1 pip install -e . --no-build-isolation
 ```
 
+The compiled objects are kept under `build/`, so running the install command again after a change recompiles only the files the change reaches, and takes seconds when nothing changed. Delete `build/` to start from scratch. If [ccache](https://ccache.dev) is installed, PyTorch's extension builder uses it without further setup, and a build from scratch then reuses whatever it has compiled before.
+
 ### Using uv instead of pip
 
 Every `pip install` command in this README works the same with `uv pip install` in its place; use whichever is available. A virtual environment created by `uv venv` doesn't contain `pip` at all, so there `uv pip` is the one to use:

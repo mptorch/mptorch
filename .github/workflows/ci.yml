@@ -45,9 +45,23 @@ jobs:
       run: |
         uv pip install --system setuptools
         uv pip install --system -r requirements.txt
+    # torch.utils.cpp_extension puts ccache in front of the compilers when it is
+    # on PATH, and this action keeps the cache between runs, so a push that
+    # leaves mptorch/csrc alone compiles nothing: a clean build was 452 s of
+    # this job on Linux and 240 s on macOS. The statistics step says how much
+    # of the build the cache served. If they show no hits with a warm cache,
+    # the installed torch has no compiler wrapper of its own: set
+    # `create-symlink: true` here, which puts ccache in front by name instead.
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2.24
+      with:
+        key: ${{ github.job }}
+        max-size: 500M
     - name: Install mptorch library version to test
       run: |
         uv pip install --system -e ".[test]" --no-build-isolation
+    - name: Compiler cache statistics
+      run: ccache --show-stats
     - name: Test with pytest
       run: |
         pytest tests
@@ -75,9 +89,17 @@ jobs:
       run: |
         uv pip install --system setuptools
         uv pip install --system -r requirements.txt
+    # The compiler cache, as in build-linux.
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2.24
+      with:
+        key: ${{ github.job }}
+        max-size: 500M
     - name: Install mptorch library version to test
       run: |
         uv pip install --system -e ".[test]" --no-build-isolation
+    - name: Compiler cache statistics
+      run: ccache --show-stats
     - name: Check that the MPS kernels were built
       # The ops the extension registers must be exactly the schemas that
       # quant_ops.cpp defines (so the check below cannot pass on a build that

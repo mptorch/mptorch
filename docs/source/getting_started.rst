@@ -37,6 +37,8 @@ The CUDA kernels are built when ``torch.cuda.is_available()`` is true and ``CUDA
    $ USE_CUDA=0 pip install -e . --no-build-isolation
    $ DEBUG=1 pip install -e . --no-build-isolation
 
+The first build compiles about 180 source files and takes several minutes. The compiled objects are kept under ``build/``, so running the same command again after a change recompiles only the files the change reaches, and takes seconds when nothing changed. Delete ``build/`` to start from scratch. If `ccache <https://ccache.dev>`_ is installed, PyTorch's extension builder uses it without further setup, and a build from scratch then reuses whatever it has compiled before.
+
 The test suite needs two extra packages, kept in a ``test`` extra:
 
 .. code-block:: console

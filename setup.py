@@ -17,18 +17,32 @@ Environment switches, all read at build time:
     Leave out the float64 GEMM kernels for a faster iteration build.
 ``USE_MPS=0``
     On macOS, build without the Metal kernels of the MPS backend.
+``MPTORCH_COMPRESS_FATBIN=0``
+    Leave the CUDA device code at nvcc's default compression instead of
+    ``--compress-mode=size`` (a larger extension, slightly less build work).
 
 Always install with ``pip3 install -e . --no-build-isolation``, so that the
 extension is compiled against the torch that will import it. An isolated build
 resolves its own torch, and an ABI mismatch then shows up as an ``undefined
 symbol`` error at import.
+
+The objects are kept, in ``build/temp.<platform>-<key>`` (one directory per
+configuration; ``build_config.txt`` inside says which), so a rebuild compiles
+only the translation units whose sources, headers or flags changed, whether it
+is run as ``pip3 install -e .`` or as ``python3 setup.py build_ext --inplace``.
+``rm -rf build`` is how to ask for a clean build. With ``ccache`` (or
+``sccache``) on ``PATH``, torch puts it in front of both compilers, and a clean
+build then recompiles only what the cache has not seen.
 """
 
+import hashlib
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -115,6 +129,151 @@ def ensure_ninja_on_path() -> bool:
         return False
     os.environ["PATH"] = os.pathsep.join([BIN_DIR, os.environ.get("PATH", "")])
     return True
+
+
+def tool_version(command: list[str]) -> str:
+    """Run a build tool's version command and return what it printed, on one line.
+
+    Args:
+        command: The tool and its version option, such as ``["c++", "--version"]``.
+
+    Returns:
+        The non-empty lines of its standard output joined by ``"; "``, or
+        ``"unavailable"`` if the tool did not run or printed nothing.
+    """
+    try:
+        out = subprocess.run(command, capture_output=True, text=True).stdout
+    except OSError:
+        return "unavailable"
+    return "; ".join(line.strip() for line in out.splitlines() if line.strip()) or "unavailable"
+
+
+def compiler_cache() -> str | None:
+    """Name the compiler cache torch will put in front of the compilers, if any.
+
+    ``torch.utils.cpp_extension`` prepends ``ccache``, else ``sccache``, to the
+    host compiler and to nvcc when one is on ``PATH`` (its ``_wrap_compiler``),
+    unless ``TORCH_NO_COMPILER_WRAPPER`` is set. Nothing here turns the cache
+    on: this only reports what torch is about to do, so that a build without
+    one is a printed outcome, like a build without ninja.
+
+    Returns:
+        ``"ccache"`` or ``"sccache"``, or None if torch will call the
+        compilers directly (no cache installed, the wrapper disabled, or a
+        torch from before it had one).
+    """
+    from torch.utils import cpp_extension
+
+    if not hasattr(cpp_extension, "_wrap_compiler"):
+        return None
+    if os.environ.get("TORCH_NO_COMPILER_WRAPPER"):
+        return None
+    for wrapper in ("ccache", "sccache"):
+        if shutil.which(wrapper):
+            return wrapper
+    return None
+
+
+def build_configuration(extension) -> list[str]:
+    """List what a build's objects depend on besides their sources and headers.
+
+    These lines are the identity of a build directory: ``build_directory``
+    hashes them into its name, and they are written to ``build_config.txt``
+    inside it. They hold two kinds of thing. The tool and library versions are
+    what ninja cannot see: it rebuilds an object when its command line or one
+    of its recorded headers changes, and a compiler upgrade changes neither
+    (the host compiler's depfile leaves system headers out). The flags and
+    backends ninja does see, and they are here so that each configuration
+    keeps its own objects: ``MPTORCH_NO_FP64=1`` puts a define on every
+    command line, and in one shared directory switching it on and back would
+    recompile everything twice.
+
+    The source list is deliberately absent, so that adding a kernel file does
+    not start a new directory.
+
+    Args:
+        extension: The extension ``get_extensions`` built.
+
+    Returns:
+        One ``name: value`` line per ingredient.
+    """
+    cuda = any(source.endswith(".cu") for source in extension.sources)
+    mps = any(source.endswith(".mm") for source in extension.sources)
+    flags = extension.extra_compile_args
+    lines = [
+        f"platform: {sysconfig.get_platform()}",
+        f"python: {platform.python_version()}",
+        f"torch: {torch.__version__}",
+        f"backends: {' '.join(['cpu'] + ['cuda'] * cuda + ['mps'] * mps)}",
+        f"c++: {tool_version([os.environ.get('CXX', 'c++'), '--version'])}",
+        f"c++ flags: {' '.join(flags['cxx'])}",
+        f"link flags: {' '.join(extension.extra_link_args)}",
+    ]
+    if cuda:
+        lines.append(f"nvcc: {tool_version([os.path.join(CUDA_HOME, 'bin', 'nvcc'), '--version'])}")
+        lines.append(f"nvcc flags: {' '.join(flags['nvcc'])}")
+    return lines
+
+
+def build_directory(configuration: list[str]) -> Path:
+    """Name the directory that keeps a configuration's objects between builds.
+
+    Args:
+        configuration: ``build_configuration``'s lines.
+
+    Returns:
+        ``build/temp.<platform>-<key>`` under the repo root, where the key is
+        the first ten hex digits of the configuration's SHA-256.
+    """
+    key = hashlib.sha256("\n".join(configuration).encode()).hexdigest()[:10]
+    root = Path(__file__).resolve().parent
+    return root / "build" / f"temp.{sysconfig.get_platform()}-{key}"
+
+
+class IncrementalBuildExtension(BuildExtension):
+    """torch's ``BuildExtension``, compiling into a directory that is kept.
+
+    An editable install (``pip3 install -e .``) hands ``build_ext`` a
+    ``build_temp`` inside a ``TemporaryDirectory``
+    (``setuptools.command.editable_wheel``), so ninja starts from nothing each
+    time and every install is a clean build: 340 s for 179 translation units,
+    where the same build against the objects of the previous one is 9 s when
+    nothing changed (16 s through pip), and one file's compile plus a 2 s link
+    when one did.
+    ``finalize_options`` therefore points ``build_temp`` at
+    ``build_directory``'s, unless ``--build-temp`` names one on the command
+    line. ninja's own records in that directory (the command line each object
+    was built with, the headers it read) are what make the rebuild sound, and
+    its log of how long each object took is what lets ninja 1.12 and later
+    start the longest ones first.
+
+    ``force`` is set because distutils' own up-to-date test would get in the
+    way: it skips an extension none of whose *sources* is newer than the built
+    library, which misses a header edit and a changed flag, and it relinks
+    only if an object is newer than the library, which misses a switch to a
+    configuration whose objects are older. With ``force`` it always runs the
+    compile step, which under ninja is still incremental (torch's ninja path
+    does not read the flag), and always links. Under ``USE_NINJA=0`` distutils
+    compiles every source regardless, as it did before.
+    """
+
+    build_configuration: list[str] = []
+
+    def finalize_options(self) -> None:
+        """Choose the kept build directory unless the command line named one."""
+        named = self.build_temp is not None
+        super().finalize_options()
+        if not named:
+            self.build_temp = str(build_directory(self.build_configuration))
+        self.force = True
+
+    def run(self) -> None:
+        """Record the configuration in the build directory, then build."""
+        directory = Path(self.build_temp)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "build_config.txt").write_text("\n".join(self.build_configuration) + "\n")
+        print(f"Build directory: {directory}")
+        super().run()
 
 
 def embed_metal_sources(mps_dir: Path, header: Path) -> None:
@@ -322,6 +481,42 @@ def get_extensions():
         extra_compile_args["cxx"].append("-DMPTORCH_NO_FP64=1")
         extra_compile_args["nvcc"].append("-DMPTORCH_NO_FP64=1")
 
+    # nvcc stores each .cu file's device code in .nv_fatbin twice: as a native
+    # image for the architecture it was built for, and as PTX for any newer
+    # one. By default only the PTX is compressed, and the native images are
+    # most of the extension: 64.9 MB of an 88.6 MB .nv_fatbin, in a 125 MB
+    # shared object (179 translation units, 79 of them .cu). --compress-mode=
+    # size compresses both, harder: .nv_fatbin comes to 19.6 MB and the shared
+    # object to about 56 MB. The device code is the same (every image extracts
+    # to the bytes it had, and the driver decompresses a module when it loads
+    # it: the first call into a module measures the same, 5-7 ms), and the
+    # price is build work: 86 s of single-threaded packing over the 79 files,
+    # a second for a typical one and six for the largest. On 16 threads that
+    # should be about 10 s of a clean build's wall time; one clean build each
+    # way measured 340 s and 361 s, on a machine that drifts by up to 10%.
+    #
+    # Only from CUDA 13 on. There every mode needs the same driver (580 or
+    # later), so the flag does not narrow where the extension loads; under a
+    # CUDA 12 toolkit this mode asks for a newer driver than the default does.
+    # MPTORCH_COMPRESS_FATBIN=0 keeps nvcc's default.
+    #
+    # A flag added to the nvcc list must not contain the substring "arch":
+    # torch's _get_cuda_arch_flags takes any such flag for a user-chosen
+    # architecture and then adds no -gencode of its own.
+    if use_cuda:
+        toolkit = re.search(
+            r"release (\d+)\.", tool_version([os.path.join(CUDA_HOME, "bin", "nvcc"), "--version"])
+        )
+        if os.getenv("MPTORCH_COMPRESS_FATBIN", "1") != "1":
+            print("MPTORCH_COMPRESS_FATBIN=0: device code left at nvcc's default compression.")
+        elif toolkit is not None and int(toolkit.group(1)) >= 13:
+            extra_compile_args["nvcc"].append("--compress-mode=size")
+        else:
+            print(
+                "Device code left at nvcc's default compression: "
+                "--compress-mode=size is used from CUDA 13 on."
+            )
+
     root = Path(__file__).resolve().parent
     csrc = root / library_name / "csrc"
 
@@ -404,12 +599,22 @@ use_ninja = os.getenv("USE_NINJA", "1") == "1" and ensure_ninja_on_path()
 if not use_ninja:
     print("Building without ninja: translation units will compile one at a time.")
 
+# The cache is torch's to use (see compiler_cache); this says whether it will.
+cache = compiler_cache()
+if cache is None:
+    print("No compiler cache on PATH: a clean build compiles every translation unit (see ccache).")
+else:
+    print(f"Compiler cache: {cache}, in front of the host compiler and nvcc.")
+
+ext_modules = get_extensions()
+IncrementalBuildExtension.build_configuration = build_configuration(ext_modules[0])
+
 # The wheel is tagged for the stable ABI only when the extension was built
 # against it (see py_limited_api above).
 setup(
     name=library_name,
     packages=find_packages(),
-    ext_modules=get_extensions(),
-    cmdclass={"build_ext": BuildExtension.with_options(use_ninja=use_ninja)},
+    ext_modules=ext_modules,
+    cmdclass={"build_ext": IncrementalBuildExtension.with_options(use_ninja=use_ninja)},
     options={"bdist_wheel": {"py_limited_api": "cp39"}} if py_limited_api else {},
 )
