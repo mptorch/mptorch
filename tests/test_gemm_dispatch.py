@@ -42,7 +42,7 @@ from mptorch.quant import (
 from mptorch.quant.ops import _narrowed
 from tests.markers import available_devices, float64_devices
 
-DETERMINISTIC = [rm for rm in RoundMode if rm != RoundMode.SR]
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
 
 
 def _gemm_calls(a, b, prec_idx, rounding_mode=RoundMode.RNE, prng_bits=0, carrier=None):
@@ -250,7 +250,7 @@ def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, roundin
     a = torch.randn(M, K, generator=gen).to(device, dtype)
     b = torch.randn(N, K, generator=gen).to(device, dtype)
     pidx = torch.randint(0, 2, (M, N), dtype=torch.int32, generator=gen).to(device)
-    pb = 12 if rounding_mode is RoundMode.SR else 0
+    pb = 12 if rounding_mode.is_stochastic else 0
 
     torch.manual_seed(5)
     got = _gemm_calls(a, b, pidx, rounding_mode, pb, carrier=torch.float64)[op]()
@@ -259,7 +259,7 @@ def test_binary64_carrier_is_the_widened_float64_gemm(device, op, dtype, roundin
 
     assert got.dtype == dtype
     assert torch.equal(got, _narrowed(want, dtype))
-    if rounding_mode is RoundMode.SR:
+    if rounding_mode.is_stochastic:
         torch.manual_seed(5)
         assert not torch.equal(_gemm_calls(a, b, pidx, rounding_mode, pb)[op](), got)
 

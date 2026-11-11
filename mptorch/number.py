@@ -226,7 +226,10 @@ class RoundMode(Enum):
 
     Stochastic rounding draws each output element's random bits from a stream
     keyed on that element's index in the output. The result does not depend
-    on how the work is split across threads or batches.
+    on how the work is split across threads or batches. P3109 defines three
+    stochastic modes, ``SR`` (``StochasticA``, also spelled ``SR_A``),
+    ``SR_B`` and ``SR_C``, which differ in how they read the ``prng_bits``
+    random bits (:doc:`/concepts`, "Stochastic rounding").
 
     Example::
 
@@ -248,7 +251,22 @@ class RoundMode(Enum):
     RD = 3  #: The largest :math:`y` such that :math:`y \le x` (``TowardNegative``)
     RZ = 4  #: The largest :math:`y` such that :math:`|y| \le |x|` (``TowardZero``)
     RO = 5  #: Round to odd (``ToOdd``)
-    SR = 6  #: Stochastic rounding with ``prng_bits`` random bits (``StochasticA``)
+    #: Stochastic rounding with ``prng_bits`` = :math:`N` random bits :math:`R`
+    #: (``StochasticA``): with :math:`\eta` the fraction of :math:`|x|` between
+    #: its two neighbours, rounds away from zero iff
+    #: :math:`\lfloor \eta 2^N \rfloor + R \ge 2^N`
+    SR = 6
+    #: ``StochasticB``: away iff :math:`\lfloor \eta 2^{N+1} \rfloor + 2R + 1 \ge 2^{N+1}`
+    SR_B = 7
+    #: ``StochasticC``: away iff :math:`\mathrm{RNITE}(\eta 2^N) + R \ge 2^N`,
+    #: RNITE rounding to nearest with ties to even
+    SR_C = 8
+    SR_A = 6  #: ``StochasticA``: ``SR``'s other name (an alias)
+
+    @property
+    def is_stochastic(self) -> bool:
+        """Whether this mode draws random bits: ``SR`` (``SR_A``), ``SR_B`` or ``SR_C``."""
+        return self.value >= 6
 
 
 class AccumulateAlgorithm(Enum):

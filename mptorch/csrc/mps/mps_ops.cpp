@@ -73,4 +73,5 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_matmul_binaryK_fma_odd", TORCH_FN(binaryK_matmul_fma_odd_mps));
   m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_mps));
   m.impl("_carrier_odd", TORCH_FN(carrier_odd_mps));
+  m.impl("_stochastic_cast", TORCH_FN(stochastic_cast_mps));
 }

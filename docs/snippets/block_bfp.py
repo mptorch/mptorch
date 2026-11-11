@@ -27,7 +27,7 @@ print(
             fixedpoint_quantize(x / scale, 8, 6, symmetric=True, rounding_mode=m) * scale,
         )
         for m in RoundMode
-        if m is not RoundMode.SR
+        if not m.is_stochastic
     ),
 )
 

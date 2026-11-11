@@ -45,6 +45,8 @@ namespace mptorch
     case RoundMode::RZ:
     case RoundMode::RO:
     case RoundMode::SR:
+    case RoundMode::SR_B:
+    case RoundMode::SR_C:
       return true;
     }
     return false;

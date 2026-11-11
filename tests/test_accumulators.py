@@ -43,7 +43,7 @@ NAIVE, KAHAN, BLOCK, TREE = (
     AccumulateAlgorithm.BLOCK,
     AccumulateAlgorithm.TREE,
 )
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 
 # Every backend; a test that needs float64 tensors on its device (binary64,
 # the widening carrier) takes float64_devices instead.

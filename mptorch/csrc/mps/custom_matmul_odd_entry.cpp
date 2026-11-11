@@ -45,3 +45,11 @@ Tensor carrier_odd_mps(Tensor, Tensor, Tensor, int64_t)
 {
   no_metal_kernel("_carrier_odd");
 }
+
+// _stochastic_cast (common/stochastic_cast_host.h) is test-only, and has no
+// Metal kernel: tests/test_mps.py holds every MPS stochastic op to the CPU's
+// word for word instead, and the CPU's casts to P3109 through this op.
+Tensor stochastic_cast_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, int64_t)
+{
+  TORCH_CHECK(false, "_stochastic_cast: a test-only op with no MPS kernel; run it on a CPU or CUDA tensor");
+}

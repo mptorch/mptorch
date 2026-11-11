@@ -92,7 +92,7 @@ SUPERFP_FORMATS = [
 # SR repeats the probe so each input draws several times, which is what
 # reaches the rounding-up and the rounding-down arm of every value.
 SR_REPEATS = 16
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 
 
 def _probe() -> torch.Tensor:
@@ -166,14 +166,14 @@ def test_binaryK_quantize(device, inplace, carrier, signed, subnormals_mode):
     for (K, P, bias), saturation_mode, mode in itertools.product(
         BINARYK_FORMATS64 if wide else BINARYK_FORMATS, SaturationMode, RoundMode
     ):
-        xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
+        xs = x.repeat(SR_REPEATS) if mode.is_stochastic else x
         out = quantize(
             xs.to(device, copy=inplace),
             K,
             P,
             bias=bias,
             # binary64 draws from its 52 significand bits, which P = 53 fills
-            prng_bits=(min(8, 52 - (P - 1)) if wide else 8) if mode is RoundMode.SR else 0,
+            prng_bits=(min(8, 52 - (P - 1)) if wide else 8) if mode.is_stochastic else 0,
             is_signed=signed,
             rounding_mode=mode,
             saturation_mode=saturation_mode,
@@ -199,14 +199,14 @@ def test_superfp_quantize(device, inplace, carrier, signed):
     for (man_bits, exp_bits, normal_binades, bias), saturation_mode, mode in itertools.product(
         SUPERFP_FORMATS64 if wide else SUPERFP_FORMATS, SaturationMode, RoundMode
     ):
-        xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
+        xs = x.repeat(SR_REPEATS) if mode.is_stochastic else x
         out = quantize(
             xs.to(device, copy=inplace),
             man_bits,
             exp_bits,
             normal_binades,
             bias,
-            prng_bits=8 if mode is RoundMode.SR else 0,
+            prng_bits=8 if mode.is_stochastic else 0,
             is_signed=signed,
             rounding_mode=mode,
             saturation_mode=saturation_mode,
@@ -236,10 +236,10 @@ def test_fixedpoint_quantize(device, inplace, carrier, signed, symmetric):
     for (wl, fl), mode in itertools.product(
         FIXEDPOINT_FORMATS64 if wide else FIXEDPOINT_FORMATS, RoundMode
     ):
-        xs = x.repeat(SR_REPEATS) if mode is RoundMode.SR else x
+        xs = x.repeat(SR_REPEATS) if mode.is_stochastic else x
         mag_bits = wl - (1 if signed else 0)
         # the random bits fit beside the magnitude bits in the carrier's mantissa
-        prng_bits = min(8, (52 if wide else 23) - mag_bits) if mode is RoundMode.SR else 0
+        prng_bits = min(8, (52 if wide else 23) - mag_bits) if mode.is_stochastic else 0
         out = quantize(
             xs.to(device, copy=inplace),
             wl,
@@ -264,7 +264,7 @@ def test_storage_dtypes(device, dtype):
     x = _probe().to(dtype)
     failures = []
     for mode in RoundMode:
-        prng_bits = 4 if mode is RoundMode.SR else 0
+        prng_bits = 4 if mode.is_stochastic else 0
         for subnormals_mode in (SubnormalsMode.SUBNORMALS, SubnormalsMode.NORMALS):
             out = binaryK_quantize(
                 x.to(device),
@@ -325,7 +325,7 @@ def _gemm(op: str, a, b, mode: RoundMode, subnormals_mode: SubnormalsMode) -> to
     (smallest subnormal 2^-10). superfp: multiply in m12e8n254b127 (normal down
     to 2^-125), accumulate in m3e4n1b7 (underflows below 2^-112). The mixed ops
     put every element on slot 0, which is the same pair."""
-    prng = 4 if mode is RoundMode.SR else 0
+    prng = 4 if mode.is_stochastic else 0
     idx = torch.zeros(M, N, dtype=torch.int32, device=a.device)
     if op == "binaryK split":
         return binaryK_matmul(
@@ -503,7 +503,7 @@ MAC_KINDS = ["split", "split exact sum", "fused", "fused unrounded"]
 def _accumulated_mac(family: str, kind: str, algorithm, block_size, mode: RoundMode, outer: bool):
     """`_gemm`'s formats as a mac under `algorithm`: a multiply format that
     holds the products and an accumulate format they cancel below."""
-    prng = 4 if mode is RoundMode.SR else 0
+    prng = 4 if mode.is_stochastic else 0
     if family == "binaryK":
         mul, acc = BinaryK(16, 13, prng_bits=prng), BinaryK(8, 4, prng_bits=prng)
     else:

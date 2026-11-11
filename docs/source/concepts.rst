@@ -413,8 +413,8 @@ correspondence is in one table.
      - ``RU``, ``RD``, ``RZ``
    * - ``ToOdd``
      - ``RO``
-   * - ``StochasticA`` with :math:`N` random bits
-     - ``SR`` with ``prng_bits=N``
+   * - ``StochasticA``, ``StochasticB``, ``StochasticC`` with :math:`N` random bits
+     - ``SR`` (``SR_A``), ``SR_B``, ``SR_C`` with ``prng_bits=N``
 
 The top of the range is counted in P3109's code points. The top binade has
 :math:`2^{P-1}` codes:
@@ -1423,17 +1423,19 @@ representable values below and above :math:`x`. Then
 :math:`\lfloor x \rfloor_F \le x \le \lceil x \rceil_F`, with equality when
 :math:`x` is representable. The modes are:
 
-=======  ===================================  ==========================================================
-mode     name                                 :math:`Q(x)`
-=======  ===================================  ==========================================================
-``RNE``  round to nearest, ties to even       the nearer of the two; on a tie, the one with even mantissa
-``RNA``  round to nearest, ties away          the nearer of the two; on a tie, the larger in magnitude
-``RU``   round up (toward :math:`+\infty`)    :math:`\lceil x \rceil_F`
-``RD``   round down (toward :math:`-\infty`)  :math:`\lfloor x \rfloor_F`
-``RZ``   round toward zero (truncate)         :math:`\lfloor x \rfloor_F` if :math:`x > 0`, :math:`\lceil x \rceil_F` if :math:`x < 0`
-``RO``   round to odd                         :math:`x` if representable; else the neighbour with odd mantissa
-``SR``   stochastic rounding                  :math:`\lceil x \rceil_F` with probability :math:`\Pr(\text{up})`, else :math:`\lfloor x \rfloor_F`
-=======  ===================================  ==========================================================
+========  ===================================  ==========================================================
+mode      name                                 :math:`Q(x)`
+========  ===================================  ==========================================================
+``RNE``   round to nearest, ties to even       the nearer of the two; on a tie, the one with even mantissa
+``RNA``   round to nearest, ties away          the nearer of the two; on a tie, the larger in magnitude
+``RU``    round up (toward :math:`+\infty`)    :math:`\lceil x \rceil_F`
+``RD``    round down (toward :math:`-\infty`)  :math:`\lfloor x \rfloor_F`
+``RZ``    round toward zero (truncate)         :math:`\lfloor x \rfloor_F` if :math:`x > 0`, :math:`\lceil x \rceil_F` if :math:`x < 0`
+``RO``    round to odd                         :math:`x` if representable; else the neighbour with odd mantissa
+``SR``    stochastic rounding (StochasticA)    :math:`\lceil x \rceil_F` with probability :math:`\Pr(\text{up})`, else :math:`\lfloor x \rfloor_F`
+``SR_B``  stochastic rounding (StochasticB)    the same, with the probability read another way (below)
+``SR_C``  stochastic rounding (StochasticC)    the same, with the probability read a third way (below)
+========  ===================================  ==========================================================
 
 ``RNE`` is the default of IEEE arithmetic and is unbiased on average. ``RZ``
 is what cheap hardware does, and it is biased toward zero. ``RO`` is not a
@@ -1461,41 +1463,63 @@ depends on where :math:`x` sits between its two neighbours. Let
 be that fraction. The ideal rule is :math:`\Pr(\text{up}) = f`, which makes
 the rounding *unbiased*: :math:`\mathbb{E}[Q(x)] = x`.
 
-The implementation draws :math:`N` random bits (``prng_bits``), adds them
-just below the last kept mantissa bit, and truncates. The probability is
-therefore quantized to steps of :math:`2^{-N}`:
+P3109 defines three stochastic modes, which read :math:`N` random bits
+(``prng_bits``) three ways. Let :math:`\eta` be the fraction of :math:`|x|`
+between its two neighbours (:math:`\eta = f` when :math:`x > 0`), :math:`R` a
+uniform integer in :math:`[0, 2^N)` and :math:`X = \eta 2^N`. The magnitude
+rounds away from zero when:
 
-.. math::
+.. list-table::
+   :header-rows: 1
 
-   \Pr(\text{up}) = 1 - \frac{\lceil (1 - f)\, 2^{N} \rceil}{2^{N}}
-   \;\xrightarrow{\;N \to \infty\;}\; f .
+   * - mode
+     - P3109
+     - rounds away iff
+     - :math:`\Pr(\text{away})`
+   * - ``SR`` (``SR_A``)
+     - ``StochasticA``
+     - :math:`\lfloor X \rfloor + R \ge 2^N`
+     - :math:`\lfloor X \rfloor / 2^N`
+   * - ``SR_B``
+     - ``StochasticB``
+     - :math:`\lfloor 2X \rfloor + 2R + 1 \ge 2^{N+1}`
+     - :math:`\lfloor X + 1/2 \rfloor / 2^N`
+   * - ``SR_C``
+     - ``StochasticC``
+     - :math:`\mathrm{RNITE}(X) + R \ge 2^N`
+     - :math:`\mathrm{RNITE}(X) / 2^N`
 
-This is P3109's ``StochasticA`` rounding with :math:`N` random bits. Let
-:math:`\eta` be the fraction of :math:`|x|` between its neighbours
-(:math:`\eta = f` when :math:`x > 0`). The value is rounded away from zero
-when :math:`\lfloor \eta\, 2^{N} \rfloor + R \ge 2^{N}`, for a uniform
-integer :math:`R \in [0, 2^{N})`.
+RNITE rounds to the nearest integer, ties to even. Each mode quantizes the
+ideal probability :math:`\eta` to steps of :math:`2^{-N}`. StochasticA
+truncates it, which biases a value toward zero by less than one step.
+StochasticB and C round it to nearest, so they are off by at most half a step
+either way; they differ only at an exact half. All three tend to :math:`\eta`
+as :math:`N` grows.
 
 ``prng_bits`` is set on the format (``BinaryK(8, 4, prng_bits=8)``) and is
-ignored by every other rounding mode. Where the bits are drawn has three
-practical consequences:
+ignored by the deterministic modes. Three consequences of the definitions:
 
-- With ``prng_bits=0`` nothing is random, and ``SR`` becomes ``RZ``. The
-  ``SR`` row above comes from a format with no random bits and is identical
-  to the ``RZ`` row.
+- With ``prng_bits=0`` nothing is random. ``SR`` is ``RZ``, ``SR_B`` is
+  ``RNA``, and ``SR_C`` rounds to nearest with ties toward zero. The ``SR``
+  row above comes from a format with no random bits and is identical to the
+  ``RZ`` row.
 - The format's mantissa plus its random bits must fit in the carrier's
   mantissa: 23 bits in binary32, 52 in binary64. Each call checks this. A
   FixedPoint format's magnitude bits plus its random bits must fit the
-  carrier's precision, 24 bits or 53.
-- The bits are added to the input's own word, so the rule above is exact,
-  except in two regions: BinaryK's subnormals (under ``SUBNORMALS``) and the
-  region of a SuperFP below its smallest value. There the cast first adds a
-  power of two in the carrier, to move the value into a binade whose grid is
-  the format's, and that addition rounds :math:`|x|` to nearest at the
-  carrier's precision before the bits are added. An input within half a
-  carrier step below one of the :math:`2^{-N}` levels is then counted at the
-  level, so its probability can be :math:`2^{-N}` off. FixedPoint draws on the
-  word everywhere and is exact.
+  carrier's precision, 24 bits or 53. At that bound the carrier holds no bit
+  below the random ones, and ``SR_B`` and ``SR_C`` are ``SR``.
+- The definition holds in every region of every format, with the region's own
+  two neighbours:
+
+  - a BinaryK's normal binades and its subnormals;
+  - the floor of ``NORMALS`` and ``EXTENDED_NORMALS``, between zero and the
+    smallest value;
+  - a SuperFP's supernormal binades, and the region below its smallest value;
+  - FixedPoint everywhere.
+
+  The casts compute it on the input's word with integers, so nothing is
+  rounded in the carrier first, and the random bits are the same :math:`N`
+  bits everywhere.
 
 A float64 operand is rounded in binary64, and its bits are drawn there too,
 two random words per draw.
@@ -1513,10 +1537,11 @@ not depend on how the work is split across threads.
    :language: text
    :caption: output
 
-The output has two parts. The table shows the probability converging to the
-exact fraction as the number of random bits grows. With 1 to 3 bits,
-:math:`\lceil 0.4 \cdot 2^N \rceil / 2^N` is :math:`1/2`, so the coin is fair
-whatever the residual.
+The output has two parts. The table shows each mode's probability converging
+to the exact fraction, 0.6, as the number of random bits grows. With one or two
+bits all three round up half the time. From three bits on, StochasticB and C
+round the fraction to the nearest step and StochasticA truncates it, which is
+the bias the table above describes.
 
 The lines after the table show why the extra variance can be worth it. They
 add :math:`0.001` to :math:`1.0` two thousand times in ``Binary16p8``, which
@@ -1525,7 +1550,7 @@ is 3. An accumulator whose increments are smaller than half its spacing
 never moves under round-to-nearest, so the ``RNE`` accumulators all stay at
 :math:`1.0`. Stochastic rounding advances the sum by the right amount *on
 average*: the ``SR`` accumulators have a mean of 2.95, and range from 2.5 to
-3.47. A small weight update applied to a large weight is the same situation (see :doc:`tutorial` for an example).
+3.44. A small weight update applied to a large weight is the same situation (see :doc:`tutorial` for an example).
 
 Carriers
 --------

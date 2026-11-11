@@ -19,6 +19,7 @@
 // is bound as a buffer, byte for byte as the host builds it; gemm.metal
 // asserts its size and offsets on the GPU side.
 
+#include "../common/stochastic_host.h"
 #include "../common/block_host.h"
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "../quant_ops.h"
@@ -181,7 +182,10 @@ namespace
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
     const BlockExtents e = block_extents(x, op);
     block_dtype(x.scalar_type(), op);
-    const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
+    Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
+    // SR_B and SR_C run as SR with the variant in the element's prng_bits
+    mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
+                              round_mode, op);
     if (x.numel() == 0)
       return;
     const BlockFormatParams p = block_params<float>(f, elem_max, scale_max, tensor_scale, e.cols, e.rows);
@@ -197,7 +201,10 @@ std::tuple<Tensor, Tensor> block_pack_mps(Tensor x, c10::IntArrayRef fmt, double
   TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
   const BlockExtents e = block_extents(x, op);
   block_dtype(x.scalar_type(), op);
-  const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
+  Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, false);
+  // SR_B and SR_C run as SR with the variant in the element's prng_bits
+  mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
+                            round_mode, op);
   const BlockFormatParams p = block_params<float>(f, elem_max, scale_max, tensor_scale, e.cols, e.rows);
   Tensor data = at::empty(block_sizes(e, e.rows, p.row_bytes), x.options().dtype(at::kByte));
   Tensor scales = at::empty(block_sizes(e, p.row_tiles, p.scale_cols), x.options().dtype(at::kByte));

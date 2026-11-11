@@ -325,13 +325,15 @@ namespace mptorch::gemm
   // the GEMM driver's: shape checks, output, the empty return, the map, the
   // dtype, the RNG draw.
   template <class Backend, class Inner>
-  Tensor run_custom_conv(const char *op_name, const Inner &inner, Tensor a, Tensor b,
+  Tensor run_custom_conv(const char *op_name, const Inner &call_inner, Tensor a, Tensor b,
                          const Tensor *prec_idx, int64_t conv_pass, c10::IntArrayRef out_size,
                          c10::IntArrayRef stride, c10::IntArrayRef padding,
                          c10::IntArrayRef dilation, int64_t groups, int64_t round_mode)
   {
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
                 " is not a RoundMode");
+    // SR_B and SR_C run as SR with the variant in the formats (stochastic_host.h)
+    const Inner inner = mptorch::sr_canonical_args(call_inner, round_mode, op_name);
     ConvShape cs = conv_shape(a, b, conv_pass, out_size, stride, padding, dilation, groups, op_name);
 
     Tensor a_c = a.contiguous();

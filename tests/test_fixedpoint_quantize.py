@@ -65,7 +65,7 @@ SR_BITS = 8
 def _quantize(x_val, device, dtype=torch.float32, cfg=CFG, mode=RoundMode.RNE, **kw):
     """One value through ``fixedpoint_quantize``, as a Python float. Under SR it
     draws ``SR_BITS`` random bits unless the call names ``prng_bits``."""
-    if mode is RoundMode.SR:
+    if mode.is_stochastic:
         kw.setdefault("prng_bits", SR_BITS)
     x = torch.tensor([x_val], dtype=dtype, device=device)
     return fixedpoint_quantize(x, rounding_mode=mode, **cfg, **kw).item()
@@ -229,7 +229,7 @@ def test_nan_passes_through_whole(device, is_signed, nans, wl, fl):
         pytest.skip("MPS has no float64 tensors.")
     x = nans.view(torch.float32 if nans.dtype is torch.int32 else torch.float64).to(device)
     for mode in EVERY_MODE:
-        prng_bits = SR_BITS if mode is RoundMode.SR else 0
+        prng_bits = SR_BITS if mode.is_stochastic else 0
         got = fixedpoint_quantize(
             x, wl, fl, prng_bits=prng_bits, is_signed=is_signed, rounding_mode=mode
         )

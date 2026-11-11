@@ -147,6 +147,7 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_binaryK_fma_odd", kernel());
   m.impl("custom_matmul_superfp_fma_odd", kernel());
   m.impl("_carrier_odd", kernel());
+  m.impl("_stochastic_cast", kernel());
 }
 
 // The four in-place quantizers also need the ADInplaceOrView key, which is

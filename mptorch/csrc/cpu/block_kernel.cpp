@@ -30,6 +30,7 @@
 // can leave those out with the file. The entry points pick the carrier from
 // the dtype and check the format against it.
 
+#include "../common/stochastic_host.h"
 #include "../common/block_host.h"
 #include "../quant_ops.h"
 #include "block_kernel_f64.h"
@@ -107,7 +108,10 @@ namespace
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
     const BlockExtents e = block_extents(x, op);
     const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
-    const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
+    Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
+    // SR_B and SR_C run as SR with the variant in the element's prng_bits
+    mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
+                              round_mode, op);
     if (x.numel() == 0)
       return;
     with_carrier(dt, [&](auto t)
@@ -129,7 +133,10 @@ std::tuple<Tensor, Tensor> block_pack_cpu(Tensor x, c10::IntArrayRef fmt, double
   TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
   const BlockExtents e = block_extents(x, op);
   const mptorch::GemmDtype dt = block_dtype(x.scalar_type(), op);
-  const Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
+  Fmt f = checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op, dt == mptorch::GemmDtype::Double);
+  // SR_B and SR_C run as SR with the variant in the element's prng_bits
+  mptorch::sr_canonical_fmt(f, static_cast<int>(mptorch::block::BlockFmtField::ELEM_PRNG_BITS),
+                            round_mode, op);
   std::tuple<Tensor, Tensor> out;
   with_carrier(dt, [&](auto t)
   {

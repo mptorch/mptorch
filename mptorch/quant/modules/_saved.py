@@ -37,8 +37,6 @@ from typing import Any
 
 import torch
 
-from mptorch.number import RoundMode
-
 from ..mac import BlockQuant, Quant
 from .quantizer import Quantizer
 
@@ -106,7 +104,7 @@ def quantize_operand(
         known = _known(q)
         recompute = flag is not None or known is not None
     state = None
-    if recompute and (known is None or known.rounding is RoundMode.SR):
+    if recompute and (known is None or known.rounding.is_stochastic):
         state = _capture(x, known is None)
     q_x = q(x)
     if not needed:

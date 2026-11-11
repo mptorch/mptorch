@@ -2,6 +2,7 @@
 
 #include "bit_helper.h"
 #include "modes.h"
+#include "stochastic.h"
 
 // The fixed-point format cast, one function per rounding mode, in the same
 // shape as cast_binaryK.h and cast_superfp.h: each reads a FixedPointParamsT
@@ -297,27 +298,30 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_zero(T x, bool is_signed, const MPTORC
     return cast_fixedpoint_up(x, is_signed, p);
 }
 
-// Stochastic rounding with prng_bits = N random bits: P3109's StochasticA.
-// With eta the fraction of |x| between its two neighbours on the grid of step
-// 2^-fl, the magnitude rounds away from zero iff floor(eta * 2^N) + R >= 2^N,
-// R the top N of the draw's MAN_BITS bits, so N = 0 truncates, which is RZ.
-// rand_prob (a word of the carrier whose MAN_BITS low bits are the draw) and
-// prng_bits stay per-call arguments, as in cast_binaryK_stochastic.
+// Stochastic rounding with N random bits: P3109's StochasticA, B or C, as the
+// spec in prng_bits says (common/stochastic.h; R is the top N of the draw's
+// MAN_BITS bits, so N = 0 makes A RZ). With eta the fraction of |x| between
+// its two neighbours on the grid of step 2^-fl, the magnitude rounds away
+// from zero iff floor(eta * 2^N) + R >= 2^N (A), floor(eta * 2^(N+1)) + 2R +
+// 1 >= 2^(N+1) (B) or RNITE(eta * 2^N) + R >= 2^N (C). rand_prob (a word of
+// the carrier whose MAN_BITS low bits are the draw) and the spec stay
+// per-call arguments, as in cast_binaryK_stochastic.
 //
 // The arithmetic is integer, on the word. A value at or above the step keeps
-// exp_diff fraction bits above it: the draw goes in directly below the step,
-// the bits below the step are cleared, and a carry crosses a binade by
-// itself. A value under the step is zero or the step, and compares its top N
-// fraction bits with R. Nothing is rounded in the carrier first -- adding a
-// power of two above the range, as binaryK's subnormal SR arm does, rounds |x|
-// to nearest at MAN_BITS - mag_bits bits below the step before the draw sees
-// it, which made N = 0 RNE at mag_bits = MAN_BITS -- and no float operation
-// touches the input, so a subnormal is not flushed on Metal. The carrier
-// check's bound, mag_bits + N <= MAN_BITS + 1 (number.py), keeps every shift
-// in range: in the range exp_diff <= mag_bits - 1, so a value at or above the
-// step has at least N fraction bits.
+// exp_diff fraction bits above it: the draw goes in directly below the step
+// with the variant's constants below it, the bits below the step are cleared,
+// and a carry crosses a binade by itself. A value under the step is zero or
+// the step, by stochastic.h's bit test on its significand. Nothing is rounded
+// in the carrier first -- adding a power of two above the range, as binaryK's
+// subnormal SR arm once did, rounds |x| to nearest at MAN_BITS - mag_bits bits
+// below the step before the draw sees it, which made N = 0 RNE at mag_bits =
+// MAN_BITS -- and no float operation touches the input, so a subnormal is not
+// flushed on Metal. The carrier check's bound, mag_bits + N <= MAN_BITS + 1
+// (number.py), keeps every shift in range: in the range exp_diff <= mag_bits
+// - 1, so a value at or above the step has at least N fraction bits, and
+// exactly N where the bound is met (then B and C are A).
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T>::word_t rand_prob, int prng_bits,
+CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T>::word_t rand_prob, int spec,
                                                      bool is_signed, const MPTORCH_THREAD FixedPointParamsT<T> &p)
 {
     using F = FloatTraits<T>;
@@ -341,6 +345,8 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     if (target_exp >= p.shift_exp)
         return fixedpoint_saturate(x, p);
 
+    const int prng_bits = sr_spec_bits(spec);
+    const int variant = sr_spec_variant(spec);
     word_t r = (rand_prob & F::MAN_MASK) >> (F::MAN_BITS - prng_bits);
 
     // The fraction bits of |x| / step sit below bit `below` of the word. A
@@ -352,7 +358,9 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     if (exp_diff >= 0)
     {
         int below = F::MAN_BITS - exp_diff;
-        word_t q = (mag + (r << (below - prng_bits))) & ~((word_t(1) << below) - 1u);
+        word_t or_v, tie;
+        sr_word_constants<word_t>(below - prng_bits, prng_bits, variant, or_v, tie);
+        word_t q = sr_round_word<word_t>(mag, r, below - prng_bits, prng_bits, or_v, tie);
         // zero only for a subnormal input under a step the carrier holds as a
         // subnormal (fl >= BIAS): the sign goes back on a nonzero result only
         if (q == 0)
@@ -361,12 +369,12 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
         return fixedpoint_saturate(reinterpret_cast<const MPTORCH_THREAD T &>(signed_q), p);
     }
 
-    // Under the step: |x| / step = s * 2^(exp_diff - MAN_BITS), so its top N
-    // fraction bits are s >> (MAN_BITS - exp_diff - N), at least 1 bit of shift.
+    // Under the step: |x| / step = s * 2^(exp_diff - MAN_BITS), so s has
+    // MAN_BITS - exp_diff bits below the step.
     word_t s = (mag & F::MAN_MASK) | (field == 0 ? word_t(0) : (word_t(1) << F::MAN_BITS));
-    int shift = F::MAN_BITS - exp_diff - prng_bits;
-    word_t top = shift < F::WORD_BITS ? (s >> shift) : word_t(0);
-    if (top + r < (word_t(1) << prng_bits))
+    bool sticky;
+    const word_t top2 = sr_top2<word_t>(s, F::MAN_BITS - exp_diff, prng_bits, F::WORD_BITS, sticky);
+    if (!sr_away<word_t>(top2, sticky, r, prng_bits, variant))
         return T(0);
     // the step on the word, a subnormal of the carrier past fl = BIAS - 1
     word_t step = p.step_exponent_store >= 1 ? (word_t)p.step_exponent_store << F::MAN_BITS

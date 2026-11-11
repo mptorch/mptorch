@@ -1,4 +1,5 @@
 #include "../common/cast_binaryK.h"
+#include "../common/stochastic_host.h"
 #include "../common/modes.h"
 #include "../common/dispatch.h"
 #include "utils.h"
@@ -133,12 +134,15 @@ namespace
     const BinaryKParamsT<carrier_t<scalar_t>> p = make_binaryK_params<carrier_t<scalar_t>>(
         man_bits, exp_bits, bias, IsSigned, saturation_mode,
         subnormals_mode == SubnormalsMode::EXTENDED_NORMALS);
+    // the rounding's constants, once (prng_bits is the spec, stochastic.h)
+    const StochasticT<carrier_t<scalar_t>> st =
+        make_stochastic_binaryK<carrier_t<scalar_t>>(p, subnormals_mode, IsSigned, prng_bits);
 
     quant_kernel_sr(a, o, size, seed,
                     [=](scalar_t x, typename FloatTraits<carrier_t<scalar_t>>::word_t rv) -> scalar_t
                     {
                       return static_cast<scalar_t>(cast_binaryK_stochastic(
-                          static_cast<carrier_t<scalar_t>>(x), rv, prng_bits, IsSigned,
+                          static_cast<carrier_t<scalar_t>>(x), rv, st, IsSigned,
                           subnormals_mode, p));
                     });
   }
@@ -152,6 +156,14 @@ namespace
                              int64_t prng_bits, bool is_signed, int64_t round_mode,
                              int64_t saturation_mode, int64_t subnormals_mode)
   {
+    // SR_B and SR_C run as SR with the variant in prng_bits
+    // (common/stochastic_host.h)
+    {
+        int variant;
+        round_mode = mptorch::sr_canonical(round_mode, variant);
+        if (variant >= 0)
+            prng_bits = mptorch::sr_encode(prng_bits, variant, "binaryK_quant");
+    }
     const int64_t size = a.numel(); // int would truncate past 2^31 elements
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
     SubnormalsMode subnormals_mode_ =

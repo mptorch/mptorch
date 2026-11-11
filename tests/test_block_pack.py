@@ -177,7 +177,7 @@ BFP = {
 # every code against every scale code -- 2^16 x 2^8 here.
 WIDE_BFP = {"bfp11": bfp(11, 8), "bfp12": bfp(12, 16), "bfp16": bfp(16, 16)}
 FORMATS = PRESETS | SUPERFP | RULES | SCALES | SCALE_RULES | FOUR_OVER_SIX | BFP
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 
 # Every backend: the references run on the CPU, and test_mps_is_the_cpu holds
 # MPS to the CPU kernels' words. A float64 test takes float64_devices.

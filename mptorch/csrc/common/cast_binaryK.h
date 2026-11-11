@@ -2,6 +2,7 @@
 
 #include "bit_helper.h"
 #include "modes.h"
+#include "stochastic.h"
 
 // The binaryK format cast, one function per rounding mode.
 //
@@ -573,91 +574,195 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_zero(T origin_float, bool is_signed, Subn
         return cast_binaryK_up(origin_float, is_signed, subnormals, p);
 }
 
-// Stochastic rounding: adds rand_bits random bits below the retained
-// significand and truncates (P3109's StochasticA). Unlike the deterministic
-// modes this takes a per-call random value (rand_prob, a word of the carrier
-// whose MAN_BITS low bits are the draw) and rand_bits (fixed per
-// Multiplier/Adder but specific to its role, so not folded into
-// BinaryKParamsT); only the bitwise constants precompute away.
+// Stochastic rounding, P3109's StochasticA, B or C with N random bits, as
+// `st` says (common/stochastic.h): rand_prob is a word of the carrier whose
+// MAN_BITS low bits are the draw, of which the N bits directly below the
+// format's significand are R. Every region is the one definition on its own
+// two neighbours, computed in integers on the word:
+//
+//   * the normal binades, and a floor binade above the floor: the word form,
+//     A's add-and-truncate with the variant's two constants, then the clip's
+//     overflow test (nothing here can round below the floor);
+//   * SUBNORMALS, below 2^min_exp: the subnormal grid of step 2^q, q =
+//     min_exp - man, by the word form at the value's own shift where the
+//     value is on the grid or above its step, and under the step zero or the
+//     step, by the bit test on the input's significand;
+//   * NORMALS and EXTENDED_NORMALS, below the format's smallest value
+//     min_num: zero or min_num, by the bit test, cross-multiplied when
+//     min_num is not a power of two.
+//
+// A carrier subnormal is read with the exponent 1 - BIAS its field encodes,
+// which a value read off the field would misplace by a binade.
+//
+// How it is laid out is a measured choice (phase U; dev/continuation_plan.md
+// has the numbers). The GEMMs unroll the cast sixteen times a slab, and the
+// shape of that loop follows the cast's size: inline arms grown past what
+// they replaced cost the loop its unswitching and its vector loads, calls
+// cost it more (a call clobbers the registers the slab's operands sit in),
+// and a narrow format's products leave the normal range often enough that
+// most warps take an arm. So a value inside the normal range takes one
+// unsigned compare against StochasticT's bounds and a straight line, and
+// every other one, the arms in their order, an inline path of integer
+// selects; only the cross-multiplied floor, which no common format has, is
+// out of line.
+
+// EXTENDED_NORMALS below a floor min_num = 2^f (2^man + 1) 2^-man that is not
+// a power of two: zero or min_num, the input's significand m against it in
+// units of min_num / (d 2^(N+1)), d = 2^man + 1.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_binaryK_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
-                                                  int rand_bits, bool is_signed, SubnormalsMode subnormals,
-                                                  const MPTORCH_THREAD BinaryKParamsT<T> &p)
+MPTORCH_SR_COLD T sr_binaryK_floor_scaled(typename FloatTraits<T>::word_t target, typename FloatTraits<T>::word_t r,
+                                          int n, int variant, typename FloatTraits<T>::word_t min_num, int man_bits)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    const int field = (int)((target >> F::MAN_BITS) & F::FIELD_MASK);
+    const int f = (int)((min_num >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
+    const int e = field == 0 ? 1 - F::BIAS : field - F::BIAS;
+    const word_t m = (target & F::MAN_MASK) | (field == 0 ? word_t(0) : (word_t(1) << F::MAN_BITS));
+    const word_t d = (word_t(1) << man_bits) + word_t(1);
+    const bool up = sr_away_scaled<word_t>(m, e - F::MAN_BITS + n + 1 - f + man_bits, d, r, n, variant, F::WORD_BITS);
+    const word_t signed_out = min_num | (target & F::SIGN_MASK);
+    return up ? reinterpret_cast<const MPTORCH_THREAD T &>(signed_out) : T(0);
+}
+
+// Every input outside the normal range, in the cast's order.
+template <class T>
+CUDA_HOST_DEVICE_INLINE T sr_binaryK_outside(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                             const MPTORCH_THREAD StochasticT<T> &st, bool is_signed,
+                                             SubnormalsMode subnormals, const MPTORCH_THREAD BinaryKParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
     if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
-    word_t target, quantize_bits;
-    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
-    T quantized;
+    const word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
+    const int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
+    const int e = target_exp == -F::BIAS ? 1 - F::BIAS : target_exp;
+    const word_t m = (target & F::MAN_MASK) | (target_exp == -F::BIAS ? word_t(0) : (word_t(1) << F::MAN_BITS));
+    const word_t sign = target & F::SIGN_MASK;
 
-    int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
-    bool subnormal = (target_exp < p.min_exp);
-
-    // keep only the rand_bits draw bits directly below the retained significand
-    rand_prob = rand_prob & F::MAN_MASK;
-    rand_prob = rand_prob & ~((word_t(1) << (F::MAN_BITS - p.man_bits - rand_bits)) - 1u);
-
-    if (subnormal && (subnormals == SubnormalsMode::SUBNORMALS))
+    if (target_exp < p.min_exp && subnormals == SubnormalsMode::SUBNORMALS)
     {
-        // Adding 2^min_exp (with the input's sign) moves the value into the
-        // binade whose grid at man_bits is the subnormal step, so one
-        // stochastic round at man_bits lands on that grid; the exact
-        // subtraction afterwards moves it back.
-        T shift_float, val;
-        word_t shift_bits = (word_t)((typename F::sword_t)(F::BIAS + p.min_exp) << F::MAN_BITS) | (target & F::SIGN_MASK);
-        shift_float = reinterpret_cast<const MPTORCH_THREAD T &>(shift_bits);
-        val = MPTORCH_ADD_TO_POWER_OF_TWO(origin_float, shift_float);
-        target = reinterpret_cast<const MPTORCH_THREAD word_t &>(val);
-        quantize_bits = round_bitwise_stochastic(target, rand_prob, p.man_bits);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits) - shift_float;
-    }
-    else if (target_exp == F::INF_EXP)
-    {
-        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
-    }
-    else
-    {
-        quantize_bits = round_bitwise_stochastic(target, rand_prob, p.man_bits);
-#if defined(MPTORCH_FAST_CAST)
-        // Stochastic rounding itself has no hardware analogue (binary32 rounds
-        // to nearest, so nothing in the FPU reproduces "add random bits below
-        // the retained significand, then truncate"), and the line above stays
-        // bitwise. What SR shares with RNE is everything after the rounding:
-        // clip_normal_range_exponent, whose overflow test is one magnitude
-        // compare, followed by an underflow test and a sign re-attach.
-        //
-        // Two facts make the compare sufficient here, and both are already in
-        // the gate. Saturation is a magnitude test on the rounded value, and
-        // fast_rne's `saturation_mode != SAT_PROPAGATE` leaves the two modes
-        // whose saturated magnitude fast_ovf holds. And the clip's *underflow*
-        // arm is unreachable: `add_r & ~mask` clears low significand bits but
-        // never lowers an exponent, so a value that entered this branch at or
-        // above min_exp leaves it there too, which is what `subnormals ==
-        // SUBNORMALS` guarantees (anything below took the subnormal arm above).
-        //
-        // The flag is fast_rne rather than one of its own: its remaining
-        // conditions are the Veltkamp split's, which SR does not use, so
-        // reusing it only ever gates SR off where it could have run (man_bits
-        // == 0, and the split-product bound). One flag, one sweep: verified in
-        // dev/benchmarks/gemm_cast_sr_arith.cu. The test is outside the `if
-        // constexpr` for the reason the RNE cast gives.
-        if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
+        // exp_diff, the input's exponent less q. At or above the step the
+        // word keeps the value's bits from bit `below` up, so the result is
+        // the word form at the value's own shift, as fixed point's is; the
+        // shift is at least 1, since man + N <= MAN_BITS and exp_diff < man.
+        // Under the step, zero or the step by the bit test on m, which has
+        // MAN_BITS - exp_diff bits below it. A carrier subnormal reads as
+        // exponent 1 - BIAS with no leading bit, so under a step of 2^-126 or
+        // less (q <= 1 - BIAS) it takes the word form while under the step,
+        // and can round to zero there, which then must not take the sign.
+        const int q = p.min_exp - p.man_bits;
+        const int exp_diff = e - q;
+        const word_t r = sr_draw<T>(rand_prob, st);
+        if (exp_diff < 0)
         {
-            if constexpr (F::HAS_FAST_CAST)
-            {
-                T y = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
-                return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
-            }
+            const bool up = sr_away_below<word_t>(m, F::MAN_BITS - exp_diff - st.bits - 1, r, st.bits, st.variant,
+                                                  F::WORD_BITS);
+            // the step, which a format inside the carrier's range holds as a
+            // normal (q >= MIN_SIMULABLE_EXP)
+            const word_t out = sr_pow2_word<T>(q) | sign;
+            return up ? reinterpret_cast<const MPTORCH_THREAD T &>(out) : T(0);
         }
-#endif
-        quantize_bits = clip_normal_range_exponent<UnderflowMode::STOCHASTIC>(
-            target, quantize_bits, p.saturation_mode, p.min_num, p.half_num, p.max_num, rand_prob);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+        const int below = F::MAN_BITS - exp_diff;
+        word_t or_v, tie;
+        sr_word_constants<word_t>(below - st.bits, st.bits, st.variant, or_v, tie);
+        const word_t mag_out = sr_round_word<word_t>(target & F::ABS_MASK, r, below - st.bits, st.bits, or_v, tie);
+        const word_t out = mag_out | sign;
+        return mag_out == 0 ? T(0) : reinterpret_cast<const MPTORCH_THREAD T &>(out);
     }
+    if (target_exp == F::INF_EXP)
+    {
+        const word_t quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+    }
+    // below the floor min_num (the only input left outside the normal range):
+    // zero or min_num, by the bit test on m, which has MAN_BITS + f - e bits
+    // below a floor 2^f
+    if ((p.min_num & F::MAN_MASK) != 0)
+        return sr_binaryK_floor_scaled<T>(target, sr_draw<T>(rand_prob, st), st.bits, st.variant, p.min_num,
+                                          p.man_bits);
+    const int f = (int)((p.min_num >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
+    const bool up = sr_away_below<word_t>(m, F::MAN_BITS + f - e - st.bits - 1, sr_draw<T>(rand_prob, st), st.bits,
+                                          st.variant, F::WORD_BITS);
+    const word_t out = p.min_num | sign;
+    return up ? reinterpret_cast<const MPTORCH_THREAD T &>(out) : T(0);
+}
 
-    return quantized; // already unsigned where it is zero, see the RNE cast
+template <class T>
+CUDA_HOST_DEVICE_INLINE T cast_binaryK_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                                  const MPTORCH_THREAD StochasticT<T> &st, bool is_signed,
+                                                  SubnormalsMode subnormals, const MPTORCH_THREAD BinaryKParamsT<T> &p)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    const word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
+    if ((target & st.wmask) - st.lo >= st.span)
+        return sr_binaryK_outside(origin_float, rand_prob, st, is_signed, subnormals, p);
+
+    word_t quantize_bits = sr_round_in_place<T>(target, rand_prob, st);
+#if defined(MPTORCH_FAST_CAST)
+    // Stochastic rounding itself has no hardware analogue (binary32 rounds
+    // to nearest, so nothing in the FPU reproduces "add random bits below
+    // the retained significand, then truncate"), and the line above stays
+    // bitwise. What SR shares with RNE is everything after the rounding:
+    // clip_normal_range_exponent, whose overflow test is one magnitude
+    // compare, followed by a sign re-attach.
+    //
+    // Saturation is a magnitude test on the rounded value, and fast_rne's
+    // `saturation_mode != SAT_PROPAGATE` leaves the two modes whose saturated
+    // magnitude fast_ovf holds; nothing here is below the floor (that took
+    // the arms above), and the word form never lowers an exponent.
+    //
+    // The flag is fast_rne rather than one of its own: its remaining
+    // conditions are the Veltkamp split's, which SR does not use, so
+    // reusing it only ever gates SR off where it could have run (man_bits
+    // == 0, and the split-product bound). One flag, one sweep: verified in
+    // dev/benchmarks/gemm_cast_sr_arith.cu. The test is outside the `if
+    // constexpr` for the reason the RNE cast gives.
+    if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
+    {
+        if constexpr (F::HAS_FAST_CAST)
+        {
+            T y = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+            return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
+        }
+    }
+#endif
+    quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(target, quantize_bits, p.saturation_mode,
+                                                                    word_t(0), word_t(0), p.max_num, word_t(0));
+    return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+}
+
+// A binaryK format's stochastic constants: stochastic.h's, and the normal
+// range's bounds on the word. A signed format masks the sign off; an unsigned
+// one keeps it, so its negative inputs take sr_binaryK_outside. The range
+// starts at 2^min_exp's field under SUBNORMALS (whose arm is a field
+// compare) and at min_num under the other two (whose floor is a magnitude
+// compare), and ends at the infinities' field.
+template <class T>
+CUDA_HOST_DEVICE_INLINE StochasticT<T> make_stochastic_binaryK(const MPTORCH_THREAD BinaryKParamsT<T> &p,
+                                                               SubnormalsMode subnormals, bool is_signed, int spec)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    StochasticT<T> st = make_stochastic<T>(p.man_bits, spec);
+    st.wmask = is_signed ? F::ABS_MASK : ~word_t(0);
+    st.lo = subnormals == SubnormalsMode::SUBNORMALS ? sr_field_word<T>(p.min_exp) : p.min_num;
+    const word_t inf = (word_t)F::FIELD_MASK << F::MAN_BITS;
+    st.span = st.lo < inf ? inf - st.lo : word_t(0);
+    return st;
+}
+
+// The same cast, with the spec a format's prng_bits field carries
+// (stochastic.h): for a caller that rounds once per launch or per element and
+// so has no policy to hold the constants.
+template <class T>
+CUDA_HOST_DEVICE_INLINE T cast_binaryK_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                                  int spec, bool is_signed, SubnormalsMode subnormals,
+                                                  const MPTORCH_THREAD BinaryKParamsT<T> &p)
+{
+    const StochasticT<T> st = make_stochastic_binaryK<T>(p, subnormals, is_signed, spec);
+    return cast_binaryK_stochastic(origin_float, rand_prob, st, is_signed, subnormals, p);
 }

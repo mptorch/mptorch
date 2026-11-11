@@ -49,7 +49,7 @@ from tests.markers import requires_cuda
 
 # Every rounding mode but SR, which draws its own randomness and is compared
 # against a reference per backend in tests/test_sr_rng.py.
-DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
 
 # 100_003 is prime, so no backend's vector width divides it and the scalar
 # tail runs on both, the same argument tests/test_quantize_dispatch.py makes.

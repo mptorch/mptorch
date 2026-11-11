@@ -51,7 +51,7 @@ from mptorch.number import BinaryK, Domain, RoundMode, SaturationMode
 from mptorch.quant import Quant, binaryK_quantize
 from tests.markers import available_devices, has_float64
 
-DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
 
 # Each SaturationMode as P3109's (domain, saturation mode) pair.
 _P3109 = {

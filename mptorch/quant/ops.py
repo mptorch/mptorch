@@ -715,8 +715,9 @@ def _superfp_fma_accumulated_spec(
 # exact value only if every rounding boundary of the format is an even word of
 # the carrier. For a format of precision P, at most p - 2 under RNE and RNA
 # (the midpoints take a bit) and p - 1 under the directed modes and RO; under
-# SR, P + prng_bits at most p - 1, where p is 24 in binary32 and 53 in
-# binary64 (decision N-d: a format outside those raises). binary64's verdict
+# SR (StochasticA), P + prng_bits at most p - 1, and under SR_B and SR_C at
+# most p - 2 (B reads a bit below the draw, C a midpoint there); p is 24 in
+# binary32 and 53 in binary64 (decision N-d: a format outside those raises). binary64's verdict
 # raises when the spec is built, binary32's when a call rounds in binary32,
 # like every other carrier finding.
 
@@ -737,8 +738,9 @@ def _odd_findings(
     for name, P, prng_bits in slots:
         verdicts = []
         for p, carrier in _CARRIER_PRECISION:
-            if rounding_mode is RoundMode.SR:
-                bits, spelled, limit = P + prng_bits, "P + prng_bits", p - 1
+            if rounding_mode.is_stochastic:
+                bits, spelled = P + prng_bits, "P + prng_bits"
+                limit = p - 1 if rounding_mode is RoundMode.SR else p - 2
             else:
                 bits, spelled = P, "P"
                 limit = p - 2 if rounding_mode in (RoundMode.RNE, RoundMode.RNA) else p - 1

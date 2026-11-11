@@ -116,7 +116,7 @@ def test_matches_out_of_place(device, dtype, op, saturation_mode, rounding_mode)
     quantize, quantize_, fmt = OPS[op]
     kw = dict(
         fmt,
-        prng_bits=4 if rounding_mode is RoundMode.SR else 0,
+        prng_bits=4 if rounding_mode.is_stochastic else 0,
         rounding_mode=rounding_mode,
         saturation_mode=saturation_mode,
     )
@@ -345,7 +345,7 @@ def test_cuda_allocates_nothing(op, rounding_mode):
     """The out-of-place op's peak is one more tensor; the in-place op's is
     none, SR included (its draws are generated in the kernel)."""
     quantize, quantize_, fmt = OPS[op]
-    kw = dict(fmt, rounding_mode=rounding_mode, prng_bits=2 if rounding_mode is RoundMode.SR else 0)
+    kw = dict(fmt, rounding_mode=rounding_mode, prng_bits=2 if rounding_mode.is_stochastic else 0)
     x = torch.randn(1 << 20, device="cuda")
     nbytes = x.numel() * x.element_size()
 

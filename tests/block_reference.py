@@ -471,7 +471,7 @@ def reference(
     last and its leading dimensions folded (numpy integer arrays), and the
     decoded values as a tensor of ``x``'s shape in the carrier's dtype.
     """
-    assert mode is not RoundMode.SR
+    assert not mode.is_stochastic
     xs = x.detach().cpu().double().numpy()
     axis = axis % xs.ndim
     moved = np.moveaxis(xs, axis, -1)

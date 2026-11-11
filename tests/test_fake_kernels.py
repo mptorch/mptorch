@@ -9,7 +9,7 @@ meta device, ``FakeTensorMode``, ``torch.export`` and ``torch.compile`` run in
 the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
-  public-API calls on the CPU reaches all 43, recorded by a dispatch mode.
+  public-API calls on the CPU reaches all 44, recorded by a dispatch mode.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -182,6 +182,10 @@ def _workload():
     block_matmul(pa, pb, rounding=SR)
     block_matmul(pa, pb, accumulate_algorithm=A.KAHAN)
     torch.ops.mptorch._carrier_odd(x, x, x, 0)
+    # the test-only stochastic cast (phase U): binary8p4, StochasticB, N = 3
+    torch.ops.mptorch._stochastic_cast(
+        x, torch.zeros_like(x, dtype=torch.int64), 0, [8, 4, 7, 3, 1, 2, 0], 7
+    )
 
 
 class _Recorder(TorchDispatchMode):
@@ -233,7 +237,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 43
+    assert len(names) == 44
     for key in ("Meta", "Autograd"):
         missing = [
             n

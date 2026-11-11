@@ -232,7 +232,7 @@ def test_tier3_binary64_formats_batched_equal_loop(device, round_mode):
     exponent bits, batched, folded and in a palette, bit for bit."""
     a = torch.randn(3, 21, 30, device=device, dtype=torch.float64)
     b = torch.randn(3, 30, 13, device=device, dtype=torch.float64)
-    sr = round_mode is RoundMode.SR
+    sr = round_mode.is_stochastic
     fmt: dict[str, Any] = dict(
         mul_K=40,
         mul_P=30,

@@ -188,11 +188,6 @@ struct FloatTraits<float>
         return reinterpret_cast<const MPTORCH_THREAD value_t &>(bits);
     }
 
-    // 2^-MAN_BITS: what turns the MAN_BITS low bits of a random word into a
-    // uniform draw in [0, 1). Spelled as the quotient so it folds to the same
-    // constant it always has.
-    CUDA_HOST_DEVICE_INLINE static value_t ulp_scale() { return 1.0f / 8388608.0f; }
-
     // rn_add/rn_sub/rn_mul are the operations the Veltkamp split needs rounded
     // on their own. On the device that is what __fadd_rn and friends mean. On
     // the host the plain operators already are IEEE binary32 operations, and
@@ -264,7 +259,6 @@ struct FloatTraits<double>
         word_t bits = (word_t)(e + BIAS) << MAN_BITS;
         return reinterpret_cast<const MPTORCH_THREAD value_t &>(bits);
     }
-    CUDA_HOST_DEVICE_INLINE static value_t ulp_scale() { return 1.0 / 4503599627370496.0; }
 
     // see the binary32 specialization for what each of these promises
 #if defined(__CUDA_ARCH__)
@@ -575,25 +569,6 @@ CUDA_HOST_DEVICE_INLINE W round_bitwise_odd(W target, bool bypass, W mask)
     return (target & ~mask) | (sticky * lsb);
 }
 
-// Stochastic rounding of `target` to man_bits significand bits: adds random
-// bits below the retained significand and truncates. The value then moves up
-// to the next grid point with probability equal to its fractional distance
-// from the one below, which makes the rounding unbiased in expectation.
-// rand_prob is a word of the carrier whose MAN_BITS low bits are the draw;
-// the caller has already masked it to the number of random bits it wants
-// (see cast_binaryK_stochastic).
-template <class W>
-CUDA_HOST_DEVICE_INLINE W round_bitwise_stochastic(W target, W rand_prob, int man_bits)
-{ // target is the unrounded word; rand_prob supplies the bits added below it
-    using F = WordTraits<W>;
-    W mask = (W)(((typename F::sword_t)1 << (F::MAN_BITS - man_bits)) - 1);
-    // add the draw to the unmasked word so a carry can propagate upward
-    W add_r = target + (rand_prob & mask);
-    // then truncate the bits below the retained significand
-    W quantized = add_r & ~mask;
-    return quantized;
-}
-
 // Precomputed for clip_subnormal_range_exponent: min_exponent_store is the
 // carrier's exponent field of the format's smallest subnormal,
 // 2^(min_exp - man_bits) with min_exp = 1 - bias. The reference spelling in
@@ -858,83 +833,6 @@ inline bool metal_is_nonnegative(float x)
 #define MPTORCH_IS_NONNEGATIVE(x) ((x) >= 0)
 #endif
 
-// x + p, where p is a power of two of the carrier's normal range carrying
-// x's sign and |x| < |p|: the one float operation the SR casts apply to
-// their input (the subnormal arm of cast_binaryK_stochastic and the
-// underflow arm of cast_superfp_stochastic, which move x into p's binade so
-// that one stochastic round there lands on the grid below it). On the host
-// and CUDA it is the add it looks like.
-//
-// On an Apple GPU the add flushes a binary32 subnormal x to zero first, and
-// the SR draw then rounds p itself, where every other backend rounds p + x
-// and takes the step up with probability |x| over the step; that differs
-// whenever p's ulp is fine enough to see x, which for superfp is the common
-// case (a supernormal floor of 2^-111 is binary8p4-sized). So the Metal
-// spelling adds a subnormal x on the word, as the add would round it: in
-// p's binade x's mantissa m, worth m * 2^-149, is m / 2^k of p's ulps, with
-// k one less than p's exponent field, rounded to nearest even. The sum
-// cannot carry out of the binade (m < 2^23), so it is p's word plus that.
-// Every other x, and a p outside the normal range (a format no carrier
-// holds), goes to the float unit, which is IEEE for them.
-#if defined(__METAL_VERSION__)
-inline float metal_add_to_power_of_two(float x, float p)
-{
-    const uint32_t xw = as_type<uint32_t>(x);
-    const uint32_t pw = as_type<uint32_t>(p);
-    if ((xw & 0x7F800000u) != 0 || (xw & 0x007FFFFFu) == 0 || (pw & 0x7F800000u) == 0)
-        return x + p;
-    const uint32_t k = ((pw >> 23) & 0xFFu) - 1u;
-    const uint32_t m = xw & 0x007FFFFFu;
-    uint32_t q = 0;
-    if (k == 0)
-        q = m;
-    else if (k <= 24)
-    {
-        const uint32_t rest = m & ((1u << k) - 1u);
-        const uint32_t tie = 1u << (k - 1);
-        q = (m >> k);
-        q += (rest > tie || (rest == tie && (q & 1u))) ? 1u : 0u;
-    }
-    return as_type<float>(pw + q);
-}
-#define MPTORCH_ADD_TO_POWER_OF_TWO(x, p) metal_add_to_power_of_two(x, p)
-#else
-#define MPTORCH_ADD_TO_POWER_OF_TWO(x, p) ((x) + (p))
-#endif
-
-// u * m for a draw 0 <= u < 1 and the positive normal m: the bound the SR
-// floor below compares |x| with (clip_normal_range_magnitude's STOCHASTIC
-// arm). On the host and CUDA it is the multiply it looks like. On an Apple
-// GPU a product below 2^-126 comes out as zero, where IEEE rounds it to the
-// subnormal grid; that happens once m is below 2^-103, a NORMALS or
-// EXTENDED_NORMALS floor only a bias of 105 or more puts there. The Metal
-// spelling detects the flush (both operands normal, product zero) and
-// rounds the 48-bit product of the two significands onto the 2^-149 grid
-// itself, to nearest even, which is the word of the subnormal the other
-// backends get. The product is below 2^-126, so it lies at least 24 places
-// above that grid's unit and the shift is well defined.
-#if defined(__METAL_VERSION__)
-inline float metal_mul_draw(float u, float m)
-{
-    const float p = u * m;
-    const uint32_t uw = as_type<uint32_t>(u);
-    const uint32_t mw = as_type<uint32_t>(m);
-    if (p != 0.0f || (uw & 0x7F800000u) == 0 || (mw & 0x7F800000u) == 0)
-        return p;
-    const uint64_t s = uint64_t((uw & 0x007FFFFFu) | 0x00800000u) * uint64_t((mw & 0x007FFFFFu) | 0x00800000u);
-    const uint32_t k = 151u - ((uw >> 23) & 0xFFu) - ((mw >> 23) & 0xFFu); // 2^-149 in units of s's lsb
-    if (k >= 49u)
-        return 0.0f; // s < 2^48 is below half the grid's unit
-    const uint64_t q = s >> k;
-    const uint64_t rest = s & ((uint64_t(1) << k) - 1u);
-    const uint64_t tie = uint64_t(1) << (k - 1u);
-    return as_type<float>(uint32_t(q + ((rest > tie || (rest == tie && (q & 1u))) ? 1u : 0u)));
-}
-#define MPTORCH_MUL_DRAW(u, m) metal_mul_draw(u, m)
-#else
-#define MPTORCH_MUL_DRAW(u, m) ((u) * (m))
-#endif
-
 // IEEE binary32 a * b, a / b and a - b, rounded to nearest even with
 // subnormal operands and results, for the block formats' decode and pack
 // (block_decode.h's MPTORCH_BLOCK_MUL, _DIV and _SUB), which multiply by
@@ -1114,7 +1012,7 @@ enum class UnderflowMode
     NEAREST_AWAY, // at or above half, take it
     AWAY,         // any nonzero magnitude takes it: toward-away, and to-odd
     ZERO,         // toward zero
-    STOCHASTIC,   // take it with probability |x| / it
+    STOCHASTIC,   // unused since phase U (common/stochastic.h decides SR's floors); kept so NONE keeps its value
     // Nothing below the floor can reach the clip, so it carries no arm at all.
     // superfp is the case: its normal arm is entered only at or above
     // `normal_cutoff`, which a well-formed format puts at or above `min_exp`
@@ -1157,41 +1055,6 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
     else if constexpr (U == UnderflowMode::NONE)
     {
         // nothing to handle: see the enum
-    }
-    else if constexpr (U == UnderflowMode::STOCHASTIC)
-    {
-        // SR asks whether the *input* is below the floor, where the other
-        // policies ask the rounded word. For them the two agree: a value that
-        // rounds up onto the floor lands on the answer the arm would give it.
-        // SR's rounding is a draw, though, and the draw that carried a value
-        // onto the floor is the same word this arm would draw with, so asking
-        // the rounded word would take the floor with probability P(carry) +
-        // P(no carry) * P(|x| > u * min), which is 1.0 for a value at 0.75 of
-        // the floor at man_bits 0, where P3109 says 0.75. Asking the input
-        // discards the round below the floor and draws once.
-        if (ax < min_num)
-        {
-            // |x| > u * min_val with u uniform in [0, 1), which is the same
-            // draw as round_bitwise_stochastic's one step higher, written as a
-            // multiply because the step down here is min_val rather than a
-            // power of two (EXTENDED_NORMALS' floor is not one). The product
-            // is one rounding wide, which is below the resolution `rand_bits`
-            // asks for whenever that is under MAN_BITS + 1.
-            //
-            // The compare is on the words. Both sides are nonnegative and
-            // finite, where the order of the words is the order of the
-            // values, so this is `|x| > u * min_val` exactly; but |x| can be
-            // a subnormal of the carrier here, which an Apple GPU's float
-            // compare would flush to zero (see MPTORCH_IS_NEGATIVE above),
-            // taking the floor from it with probability 0 instead of
-            // |x| / min_val. MPTORCH_MUL_DRAW keeps the bound itself from
-            // flushing.
-            using T = typename F::value_t;
-            T min_val = reinterpret_cast<const MPTORCH_THREAD T &>(min_num);
-            T u = (T)(rand_prob & F::MAN_MASK) * F::ulp_scale();
-            T bound = MPTORCH_MUL_DRAW(u, min_val);
-            quantized_num = (ax > reinterpret_cast<const MPTORCH_THREAD W &>(bound)) ? min_num : W(0);
-        }
     }
     else if (quantized_num < min_num)
     {

@@ -57,7 +57,7 @@ from .markers import available_devices, has_float64, requires_mps
 
 # Every backend; test_mps_is_the_cpu holds MPS to the CPU kernel's words.
 devices = available_devices
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 SQ_NVFP4 = dataclasses.replace(NVFP4, block_rows=16)
 SQ_FOS = dataclasses.replace(SQ_NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
 SQ_MXFP8 = dataclasses.replace(MXFP8_E4M3, block_rows=32)
@@ -208,7 +208,7 @@ def test_tensor_scale_epilogue(device, mode, fused, pair):
     alpha = _alpha(pa, pb)
     assert alpha != 1.0
     assert torch.equal(got, unit * alpha)
-    if mode is not RoundMode.SR:
+    if not mode.is_stochastic:
         assert torch.equal(got, _flat(_unit(pa), _unit(pb), mode, fused, acc) * alpha)
 
 

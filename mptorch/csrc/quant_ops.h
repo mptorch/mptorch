@@ -820,3 +820,12 @@ at::Tensor superfp_matmul_fma_odd_mps(at::Tensor a, at::Tensor b, bool trans_a, 
 at::Tensor carrier_odd_cuda(at::Tensor a, at::Tensor b, at::Tensor c, int64_t op);
 at::Tensor carrier_odd_cpu(at::Tensor a, at::Tensor b, at::Tensor c, int64_t op);
 at::Tensor carrier_odd_mps(at::Tensor a, at::Tensor b, at::Tensor c, int64_t op);
+
+// _stochastic_cast (phase U, common/stochastic_cast_host.h): test-only; no
+// MPS kernel (the MPS entry raises).
+at::Tensor stochastic_cast_cpu(at::Tensor x, at::Tensor draws, int64_t family, c10::IntArrayRef format,
+                               int64_t stochastic_mode);
+at::Tensor stochastic_cast_cuda(at::Tensor x, at::Tensor draws, int64_t family, c10::IntArrayRef format,
+                                int64_t stochastic_mode);
+at::Tensor stochastic_cast_mps(at::Tensor x, at::Tensor draws, int64_t family, c10::IntArrayRef format,
+                               int64_t stochastic_mode);

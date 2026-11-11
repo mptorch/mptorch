@@ -54,7 +54,7 @@ print("bfloat16 result:", b.tolist(), "(no warning)")
 # CPU and CUDA return the same words in every deterministic mode.
 if torch.cuda.is_available():
     x = torch.randn(1 << 16) * 4
-    modes = [m for m in RoundMode if m is not RoundMode.SR]
+    modes = [m for m in RoundMode if not m.is_stochastic]
     same = all(
         torch.equal(
             fixedpoint_quantize(x, wl=8, fl=4, rounding_mode=m),

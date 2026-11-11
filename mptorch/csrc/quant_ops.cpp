@@ -337,4 +337,9 @@ TORCH_LIBRARY(mptorch, m)
         "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
         "int fma_prng_bits) -> Tensor", seeded);
   m.def("_carrier_odd(Tensor a, Tensor b, Tensor c, int op) -> Tensor", plain);
+  // Phase U (common/stochastic_cast.h): a format's stochastic cast with each
+  // element's random word given, test-only, so a test can count every draw.
+  // Its draws are inputs, so it is not nondeterministic_seeded.
+  m.def("_stochastic_cast(Tensor x, Tensor draws, int family, int[] format, "
+        "int stochastic_mode) -> Tensor", plain);
 }

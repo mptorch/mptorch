@@ -58,4 +58,5 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("custom_matmul_binaryK_fma_odd", binaryK_matmul_fma_odd_cuda);
     MPT_CUDA_IMPL("custom_matmul_superfp_fma_odd", superfp_matmul_fma_odd_cuda);
     MPT_CUDA_IMPL("_carrier_odd", carrier_odd_cuda);
+    MPT_CUDA_IMPL("_stochastic_cast", stochastic_cast_cuda);
 }

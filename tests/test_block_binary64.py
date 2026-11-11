@@ -57,7 +57,7 @@ from .test_accumulators import _Reference
 from .test_block_pack import FORMATS, FOUR_OVER_SIX_TILES, PRESETS, SUPERFP, _as3, _inputs
 
 devices = float64_devices
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 F64 = torch.float64
 _EXT = SubnormalsMode.EXTENDED_NORMALS
 

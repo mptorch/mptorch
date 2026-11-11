@@ -1,4 +1,5 @@
 #include "../common/cast_fixedpoint.h"
+#include "../common/stochastic_host.h"
 #include "../common/modes.h"
 #include "../common/dispatch.h"
 #include "utils.h"
@@ -107,6 +108,14 @@ namespace
                                 int64_t prng_bits, bool is_signed, bool symmetric,
                                 int64_t round_mode)
   {
+    // SR_B and SR_C run as SR with the variant in prng_bits
+    // (common/stochastic_host.h)
+    {
+        int variant;
+        round_mode = mptorch::sr_canonical(round_mode, variant);
+        if (variant >= 0)
+            prng_bits = mptorch::sr_encode(prng_bits, variant, "fixedpoint_quant");
+    }
     const int64_t size = a.numel(); // int would truncate past 2^31 elements
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
 

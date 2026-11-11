@@ -61,7 +61,7 @@ from tests.test_binaryk_p3109 import _project
 # kernels' scalar tail runs on every backend and dtype.
 SIZE = 100_003
 
-DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
 SATURATION_MODES = list(SaturationMode)
 
 
@@ -354,7 +354,7 @@ def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_m
     the same values drawing the same random words. Catches a widening that
     changes the SR stream or a result narrowed with more than one rounding."""
     x = (torch.randn(SIZE, device=device) * 8.0).to(dtype)
-    kw = dict(rounding_mode=round_mode, prng_bits=12 if round_mode is RoundMode.SR else 0)
+    kw = dict(rounding_mode=round_mode, prng_bits=12 if round_mode.is_stochastic else 0)
     torch.manual_seed(99)
     got = _quant_calls(x)[op](carrier=torch.float64, **kw)
     torch.manual_seed(99)
@@ -366,7 +366,7 @@ def test_binary64_carrier_is_the_widened_float64_call(device, op, dtype, round_m
     # bits per element in binary64 and 32 in binary32.
     torch.manual_seed(99)
     own = _quant_calls(x)[op](**kw)
-    assert torch.equal(own, got) is (round_mode is not RoundMode.SR)
+    assert torch.equal(own, got) is (not round_mode.is_stochastic)
 
 
 @pytest.mark.parametrize("device", float64_devices)
@@ -427,7 +427,7 @@ def test_a_contiguous_view_off_a_16_byte_boundary(device, op, dtype, round_mode)
     view in place is a misaligned-address fault that poisons the CUDA context,
     so the entry point must copy it (``csrc/cuda/vector_load.h``). SR draws are
     included: the copy must not move an element's index."""
-    kw = dict(rounding_mode=round_mode, prng_bits=4 if round_mode is RoundMode.SR else 0)
+    kw = dict(rounding_mode=round_mode, prng_bits=4 if round_mode.is_stochastic else 0)
     storage = (torch.randn(4099 + 3, device=device) * 8).to(dtype)
     for k in (1, 2, 3):
         view = storage[k:]

@@ -1,4 +1,5 @@
 #include "../common/cast_superfp.h"
+#include "../common/stochastic_host.h"
 #include "../common/modes.h"
 #include "../common/dispatch.h"
 #include "utils.h"
@@ -94,12 +95,14 @@ namespace
   {
     const SuperfpParamsT<carrier_t<scalar_t>> p = make_superfp_params<carrier_t<scalar_t>>(
         man_bits, exp_bits, normal_binades, bias, saturation_mode);
+    // the rounding's constants, once (prng_bits is the spec, stochastic.h)
+    const StochasticT<carrier_t<scalar_t>> st = make_stochastic_superfp<carrier_t<scalar_t>>(p, IsSigned, prng_bits);
 
     quant_kernel_sr(a, o, size, seed,
                     [=](scalar_t x, typename FloatTraits<carrier_t<scalar_t>>::word_t rv) -> scalar_t
                     {
                       return static_cast<scalar_t>(cast_superfp_stochastic(
-                          static_cast<carrier_t<scalar_t>>(x), rv, prng_bits, IsSigned, p));
+                          static_cast<carrier_t<scalar_t>>(x), rv, st, IsSigned, p));
                     });
   }
 
@@ -111,6 +114,14 @@ namespace
                              int64_t normal_binades, int64_t bias, int64_t prng_bits, bool is_signed,
                              int64_t round_mode, int64_t saturation_mode)
   {
+    // SR_B and SR_C run as SR with the variant in prng_bits
+    // (common/stochastic_host.h)
+    {
+        int variant;
+        round_mode = mptorch::sr_canonical(round_mode, variant);
+        if (variant >= 0)
+            prng_bits = mptorch::sr_encode(prng_bits, variant, "superfp_quant");
+    }
     const int64_t size = a.numel(); // int would truncate past 2^31 elements
     RoundMode round_mode_ = static_cast<RoundMode>(round_mode);
     SaturationMode saturation_mode_ = static_cast<SaturationMode>(saturation_mode);

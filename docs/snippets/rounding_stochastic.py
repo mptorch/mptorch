@@ -10,15 +10,20 @@ from mptorch.quant import Quant
 torch.manual_seed(0)
 
 # 1. The probability of rounding up follows the residual. 0.3 sits between
-#    the Binary8p4 neighbours 0.28125 and 0.3125, 60% of the way up.
+#    the Binary8p4 neighbours 0.28125 and 0.3125, 60% of the way up. Each of
+#    P3109's three stochastic modes reads prng_bits random bits its own way.
 x = torch.full((1_000_000,), 0.3)
 lo, hi = 0.28125, 0.3125
-print("prng_bits  P(round up)  mean of 1e6 draws")
+modes = (RoundMode.SR, RoundMode.SR_B, RoundMode.SR_C)
+print("P(round up) over 1e6 draws")
+print("prng_bits" + "".join(f"{m.name:>9}" for m in modes))
 for prng_bits in (1, 2, 3, 4, 8, 16):
-    q = Quant(BinaryK(8, 4, prng_bits=prng_bits), RoundMode.SR)(x)
-    p_up = (q == hi).float().mean().item()
-    print(f"{prng_bits:>9}  {p_up:>11.4f}  {q.mean().item():.6f}")
-print(f"{'exact':>9}  {(0.3 - lo) / (hi - lo):>11.4f}  0.300000")
+    row = f"{prng_bits:>9}"
+    for mode in modes:
+        q = Quant(BinaryK(8, 4, prng_bits=prng_bits), mode)(x)
+        row += f"{(q == hi).float().mean().item():>9.4f}"
+    print(row)
+print(f"{'exact':>9}" + f"{(0.3 - lo) / (hi - lo):>9.4f}" * 3)
 
 # 2. Accumulating small increments. In Binary16p8 (bfloat16's field widths: 8
 #    exponent, 7 mantissa bits) the spacing just above 1 is 2**-7 = 0.0078, so adding

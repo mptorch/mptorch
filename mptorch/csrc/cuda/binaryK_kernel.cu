@@ -1,4 +1,5 @@
 #include "../common/cast_binaryK.h"
+#include "../common/stochastic_host.h"
 #include "../common/dispatch.h"
 #include "../quant_ops.h"
 #include <ATen/cuda/CUDAContext.h>
@@ -187,6 +188,14 @@ namespace
                                int64_t prng_bits, bool is_signed, int64_t round_mode,
                                int64_t saturation_mode, int64_t subnormals_mode)
     {
+        // SR_B and SR_C run as SR with the variant in prng_bits
+        // (common/stochastic_host.h)
+        {
+            int variant;
+            round_mode = mptorch::sr_canonical(round_mode, variant);
+            if (variant >= 0)
+                prng_bits = mptorch::sr_encode(prng_bits, variant, "binaryK_quant");
+        }
         const int64_t size = a.numel(); // int would truncate past 2^31 elements
         if (size == 0)
             return;

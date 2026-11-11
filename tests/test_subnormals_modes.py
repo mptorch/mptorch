@@ -34,7 +34,7 @@ from mptorch import RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize
 from tests.markers import available_devices
 
-DETERMINISTIC = [rm for rm in RoundMode if rm is not RoundMode.SR]
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
 
 K, P, BIAS = 8, 4, 8
 MAN = P - 1

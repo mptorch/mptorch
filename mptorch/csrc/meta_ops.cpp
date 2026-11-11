@@ -9,6 +9,7 @@
 // (common/meta_host.h has the rules and the exceptions).
 
 #include "common/meta_host.h"
+#include "common/stochastic_cast_host.h"
 #include "meta_ops.h"
 #include <torch/library.h>
 
@@ -34,49 +35,71 @@ namespace
     return at::empty_like(a.contiguous());
   }
 
-  // An in-place quantizer's: the CPU's contiguity check, then the argument.
-  Tensor &quantized_in_place(Tensor &a, const char *op, const char *out_of_place)
+  // An in-place quantizer's contiguity check, which the CPU makes before
+  // anything else.
+  void check_in_place(const Tensor &a, const char *op, const char *out_of_place)
   {
     TORCH_CHECK(a.is_contiguous(), op, " writes its argument in place and needs a contiguous "
                 "tensor, got strides ", a.sym_strides(), " for sizes ", a.sym_sizes(), ": use ",
                 out_of_place, ", which copies a strided input");
-    check_quant_dtype(a, op);
-    return a;
+  }
+  // The quantizers' prng_bits refusal under a stochastic mode
+  // (common/stochastic_host.h), named as the CPU names it.
+  void check_quant_prng(int64_t prng_bits, int64_t round_mode, const char *op)
+  {
+    int variant;
+    mptorch::sr_canonical(round_mode, variant);
+    if (variant >= 0)
+      mptorch::sr_encode(prng_bits, variant, op);
   }
 } // namespace
 
-Tensor binaryK_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t,
-                             int64_t)
+Tensor binaryK_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
+                             int64_t round_mode, int64_t, int64_t)
 {
+  check_quant_prng(prng_bits, round_mode, "binaryK_quant");
   return quantized_like(a, "binaryK_quant");
 }
 
-Tensor &binaryK_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
-                               int64_t, int64_t)
+Tensor &binaryK_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
+                               int64_t round_mode, int64_t, int64_t)
 {
-  return quantized_in_place(a, "binaryK_quant_", "binaryK_quant");
+  check_in_place(a, "binaryK_quant_", "binaryK_quant");
+  check_quant_prng(prng_bits, round_mode, "binaryK_quant");
+  check_quant_dtype(a, "binaryK_quant_");
+  return a;
 }
 
-Tensor superfp_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
-                             int64_t)
+Tensor superfp_quantize_meta(Tensor a, int64_t, int64_t, int64_t, int64_t, int64_t prng_bits, bool,
+                             int64_t round_mode, int64_t)
 {
+  check_quant_prng(prng_bits, round_mode, "superfp_quant");
   return quantized_like(a, "superfp_quant");
 }
 
-Tensor &superfp_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t, int64_t, bool,
-                               int64_t, int64_t)
+Tensor &superfp_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, int64_t, int64_t prng_bits,
+                               bool, int64_t round_mode, int64_t)
 {
-  return quantized_in_place(a, "superfp_quant_", "superfp_quant");
+  check_in_place(a, "superfp_quant_", "superfp_quant");
+  check_quant_prng(prng_bits, round_mode, "superfp_quant");
+  check_quant_dtype(a, "superfp_quant_");
+  return a;
 }
 
-Tensor fixedpoint_quantize_meta(Tensor a, int64_t, int64_t, int64_t, bool, bool, int64_t)
+Tensor fixedpoint_quantize_meta(Tensor a, int64_t, int64_t, int64_t prng_bits, bool, bool,
+                                int64_t round_mode)
 {
+  check_quant_prng(prng_bits, round_mode, "fixedpoint_quant");
   return quantized_like(a, "fixedpoint_quant");
 }
 
-Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t, bool, bool, int64_t)
+Tensor &fixedpoint_quantize_meta_(Tensor &a, int64_t, int64_t, int64_t prng_bits, bool, bool,
+                                  int64_t round_mode)
 {
-  return quantized_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
+  check_in_place(a, "fixedpoint_quant_", "fixedpoint_quant");
+  check_quant_prng(prng_bits, round_mode, "fixedpoint_quant");
+  check_quant_dtype(a, "fixedpoint_quant_");
+  return a;
 }
 
 // narrow_float64_tensors (common/narrow_host.h).
@@ -132,6 +155,24 @@ Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op)
   return at::empty_like(a.contiguous());
 }
 
+// _stochastic_cast (common/stochastic_cast_host.h): check_tensors' checks on
+// symbolic sizes, the job's, and a result like x.
+Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
+                            int64_t stochastic_mode)
+{
+  TORCH_CHECK(x.scalar_type() == at::kFloat || x.scalar_type() == at::kDouble,
+              "_stochastic_cast: x is float32 or float64, got ", x.scalar_type());
+  SymBool same(draws.scalar_type() == at::kLong && draws.device() == x.device() && draws.dim() == x.dim());
+  for (int64_t i = 0; i < x.dim() && draws.dim() == x.dim(); ++i)
+    same = same & draws.sym_size(i).sym_eq(x.sym_size(i));
+  TORCH_SYM_CHECK(same, "_stochastic_cast: draws is an int64 tensor of x's shape and device");
+  if (x.scalar_type() == at::kFloat)
+    mptorch::stochastic_cast::make_job<float>(family, format, stochastic_mode);
+  else
+    mptorch::stochastic_cast::make_job<double>(family, format, stochastic_mode);
+  return at::empty_like(x.contiguous());
+}
+
 TORCH_LIBRARY_IMPL(mptorch, Meta, m)
 {
   m.impl("binaryK_quant", TORCH_FN(binaryK_quantize_meta));
@@ -179,4 +220,5 @@ TORCH_LIBRARY_IMPL(mptorch, Meta, m)
   m.impl("custom_matmul_binaryK_fma_odd", TORCH_FN(binaryK_matmul_fma_odd_meta));
   m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_meta));
   m.impl("_carrier_odd", TORCH_FN(carrier_odd_meta));
+  m.impl("_stochastic_cast", TORCH_FN(stochastic_cast_meta));
 }

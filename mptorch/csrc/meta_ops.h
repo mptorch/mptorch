@@ -40,6 +40,8 @@ Tensor block_quantize_meta(Tensor x, c10::IntArrayRef fmt, double elem_max, doub
 Tensor &block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, double scale_max,
                              double tensor_scale, int64_t round_mode);
 Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op);
+Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
+                            int64_t stochastic_mode);
 
 // meta_gemm.cpp
 Tensor binaryK_matmul_meta(Tensor a, Tensor b, bool trans_a, bool trans_b,

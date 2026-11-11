@@ -42,7 +42,7 @@ from mptorch.quant import (
 # Shapes chosen to straddle the 32x32 tiling: a full tile, ragged in one
 # dimension, ragged in both, and a single leftover row/column.
 SHAPES = [(64, 64, 64), (70, 33, 51), (33, 33, 33), (65, 17, 96), (96, 5, 1)]
-DETERMINISTIC = [m for m in RoundMode if m is not RoundMode.SR]
+DETERMINISTIC = [m for m in RoundMode if not m.is_stochastic]
 
 
 class _BKParams(TypedDict):
@@ -105,7 +105,7 @@ def ops(a, b, mode):
     global generator, so two calls that are meant to be compared have to
     start from the same generator state. Harmless for the other six modes,
     which never draw."""
-    pb = 4 if mode is RoundMode.SR else 0
+    pb = 4 if mode.is_stochastic else 0
 
     def seeded(fn):
         def run():

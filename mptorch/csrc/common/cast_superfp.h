@@ -2,6 +2,7 @@
 
 #include "bit_helper.h"
 #include "modes.h"
+#include "stochastic.h"
 
 // The superfp format cast, one function per rounding mode, in the same shape
 // as cast_binaryK.h: each reads a SuperfpParamsT built once instead of
@@ -770,83 +771,152 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_zero(T origin_float, bool is_signed, cons
         return cast_superfp_up(origin_float, is_signed, p);
 }
 
-// Stochastic rounding. Like cast_binaryK_stochastic, rand_prob (a word of
-// the carrier whose MAN_BITS low bits are the draw) and rand_bits stay
-// per-call arguments; only the region-cutoff and bitwise constants
-// precompute away. In the supernormal region the draw is applied to the
-// whole mantissa field, so the value moves to the next power of two with
-// probability equal to its fractional position between the two.
+// Stochastic rounding, P3109's StochasticA, B or C with N random bits, as
+// `st` says (common/stochastic.h; R is the draw's N bits directly below the
+// format's significand, as in cast_binaryK_stochastic). Each region on its
+// own two neighbours, in integers on the word:
+//
+//   * the normal binades: the word form, then the clip's overflow test;
+//   * a supernormal binade, whose values are its power of two 2^e and the
+//     next: the word form with no mantissa bit kept, so eta is the input's
+//     mantissa fraction, and R placed at bit MAN_BITS - N;
+//   * below the smallest value 2^c (c = supernormal_cutoff): zero or 2^c, by
+//     the bit test on the input's significand.
+//
+// A carrier subnormal is read with the exponent 1 - BIAS its field encodes;
+// one that a format's supernormal binades would reach (a cutoff past the
+// carrier's normals, which no carrier holds) takes the last arm. Laid out as
+// cast_binaryK_stochastic is, for its reasons: the supernormal binades and
+// then the normal ones each take one compare against StochasticT's bounds,
+// and every other input the inline path below. The supernormal binades come
+// first because they are most of a superfp format's range: SuperFP(3, 4, 2,
+// 7)'s normal binades start at 2^7, so every N(0,1) product is a supernormal.
+
+// The supernormal binades' word form: 2^e or 2^(e+1), never zero. R, which
+// the draw holds at bit `shift`, goes in at bit MAN_BITS - N, man_bits above.
 template <class T>
-CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
-                                                  int rand_bits, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
+CUDA_HOST_DEVICE_INLINE T sr_superfp_supernormal(typename FloatTraits<T>::word_t target,
+                                                 typename FloatTraits<T>::word_t rand_prob,
+                                                 const MPTORCH_THREAD StochasticT<T> &st, int man_bits)
+{
+    using word_t = typename FloatTraits<T>::word_t;
+    const word_t t = target + ((rand_prob & st.draw) << man_bits) + st.or_sup - ((rand_prob >> st.shift) & st.tie_sup);
+    const word_t quantize_bits = t & st.keep_sup;
+    return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+}
+
+// The normal binades' word form and overflow test.
+template <class T>
+CUDA_HOST_DEVICE_INLINE T sr_superfp_normal(T origin_float, typename FloatTraits<T>::word_t target,
+                                            typename FloatTraits<T>::word_t rand_prob,
+                                            const MPTORCH_THREAD StochasticT<T> &st,
+                                            const MPTORCH_THREAD SuperfpParamsT<T> &p)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    word_t quantize_bits = sr_round_in_place<T>(target, rand_prob, st);
+#if defined(MPTORCH_FAST_CAST)
+    // The same compare-instead-of-clip as cast_binaryK_stochastic's normal
+    // arm; see the note there for why one magnitude test reproduces
+    // clip_normal_range_exponent. The clip's underflow arm is unreachable
+    // for the same reason in different words: this arm is entered only at
+    // or above normal_cutoff, the gate's `normal_cutoff >= min_exp` puts
+    // that at or above the arm's floor, and `y` is nonzero.
+    if (p.fast_rne)
+    {
+        if constexpr (F::HAS_FAST_CAST)
+        {
+            T y = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+            return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
+        }
+    }
+#endif
+    quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(target, quantize_bits, p.saturation_mode,
+                                                                    word_t(0), word_t(0), p.max_num, word_t(0));
+    return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+}
+
+// Every input outside both ranges, in the cast's order.
+template <class T>
+CUDA_HOST_DEVICE_INLINE T sr_superfp_outside(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                             const MPTORCH_THREAD StochasticT<T> &st, bool is_signed,
+                                             const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
     if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
         return T(0);
 
-    word_t target, quantize_bits;
-    target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
-    T quantized;
-
-    int target_exp = (int)((target >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
-
-    bool supernormal = (target_exp < p.normal_cutoff && target_exp >= p.supernormal_cutoff);
-    bool underflow = target_exp < p.supernormal_cutoff;
-
-    word_t rand_bits_raw = rand_prob & F::MAN_MASK;
+    const word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
+    const int field = (int)((target >> F::MAN_BITS) & F::FIELD_MASK);
+    const int target_exp = field - F::BIAS;
 
     if (target_exp == F::INF_EXP)
     {
-        quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+        const word_t quantize_bits = saturate_nonfinite(target, p.saturation_mode, p.max_num);
+        return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
     }
-    else if (supernormal)
+    if (target_exp < p.normal_cutoff && target_exp >= p.supernormal_cutoff && field != 0)
+        return sr_superfp_supernormal<T>(target, rand_prob, st, p.man_bits);
+    if (target_exp < p.normal_cutoff)
     {
-        // see cast_superfp_nearest_even's supernormal arm
-        quantize_bits = unsigned_zero_bits(round_bitwise_stochastic(target, rand_bits_raw, 0));
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
+        // zero or 2^c, by the bit test on the input's significand m, which
+        // has MAN_BITS + c - e bits below 2^c; 2^c is a normal of a format
+        // inside the carrier's range, and of one only warned about perhaps
+        // nothing
+        const int e = field == 0 ? 1 - F::BIAS : target_exp;
+        const word_t m = (target & F::MAN_MASK) | (field == 0 ? word_t(0) : (word_t(1) << F::MAN_BITS));
+        const bool up = sr_away_below<word_t>(m, F::MAN_BITS + p.supernormal_cutoff - e - st.bits - 1,
+                                              sr_draw<T>(rand_prob, st), st.bits, st.variant, F::WORD_BITS);
+        const word_t step = sr_pow2_word<T>(p.supernormal_cutoff);
+        const word_t out = step | (target & F::SIGN_MASK);
+        return (up && step != 0) ? reinterpret_cast<const MPTORCH_THREAD T &>(out) : T(0);
     }
-    else if (underflow)
-    {
-        // Adding the smallest supernormal (with the input's sign) moves the
-        // value into that binade, where a stochastic round to zero mantissa
-        // bits picks between it and the next power of two; the exact
-        // subtraction afterwards turns that into a pick between 0 and the
-        // smallest supernormal, with probability proportional to |x|.
-        word_t sign_bit = target & F::SIGN_MASK;
-        word_t shift_bits = ((word_t)(p.supernormal_cutoff + F::BIAS) << F::MAN_BITS) | sign_bit;
-        T shift_float = reinterpret_cast<const MPTORCH_THREAD T &>(shift_bits);
-        T val = MPTORCH_ADD_TO_POWER_OF_TWO(origin_float, shift_float);
-        word_t target2 = reinterpret_cast<const MPTORCH_THREAD word_t &>(val);
-        quantize_bits = round_bitwise_stochastic(target2, rand_bits_raw, 0);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits) - shift_float;
-    }
-    else
-    {
-        word_t rand_prob_man = rand_bits_raw & ~((word_t(1) << (F::MAN_BITS - p.man_bits - rand_bits)) - 1u);
-        quantize_bits = round_bitwise_stochastic(target, rand_prob_man, p.man_bits);
-#if defined(MPTORCH_FAST_CAST)
-        // The same compare-instead-of-clip as cast_binaryK_stochastic's normal
-        // arm; see the note there for why one magnitude test reproduces
-        // clip_normal_range_exponent. The clip's underflow arm is unreachable
-        // for the same reason in different words: this arm is entered only at
-        // or above normal_cutoff, the gate's `normal_cutoff >= min_exp` puts
-        // that at or above the arm's floor, and `y` is nonzero.
-        if (p.fast_rne)
-        {
-            if constexpr (F::HAS_FAST_CAST)
-            {
-                T y = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
-                return (fabsf(y) > p.fast_max_finite) ? copysignf(p.fast_ovf, origin_float) : y;
-            }
-        }
-#endif
-        quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(
-            target, quantize_bits, p.saturation_mode, word_t(0), word_t(0), p.max_num,
-            rand_prob_man);
-        quantized = reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
-    }
+    return sr_superfp_normal<T>(origin_float, target, rand_prob, st, p);
+}
 
-    return quantized; // already unsigned where it is zero, see the arms above
+template <class T>
+CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                                  const MPTORCH_THREAD StochasticT<T> &st, bool is_signed,
+                                                  const MPTORCH_THREAD SuperfpParamsT<T> &p)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    const word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
+    const word_t w = target & st.wmask;
+    if (w - st.lo_sup < st.span_sup)
+        return sr_superfp_supernormal<T>(target, rand_prob, st, p.man_bits);
+    if (w - st.lo < st.span)
+        return sr_superfp_normal<T>(origin_float, target, rand_prob, st, p);
+    return sr_superfp_outside(origin_float, rand_prob, st, is_signed, p);
+}
+
+// A superfp format's stochastic constants: stochastic.h's, and the bounds of
+// its normal binades (from normal_cutoff's field to the infinities') and of
+// its supernormal ones (from supernormal_cutoff's field, and never field 0,
+// to normal_cutoff's), as cast_binaryK_stochastic's are built.
+template <class T>
+CUDA_HOST_DEVICE_INLINE StochasticT<T> make_stochastic_superfp(const MPTORCH_THREAD SuperfpParamsT<T> &p,
+                                                               bool is_signed, int spec)
+{
+    using F = FloatTraits<T>;
+    using word_t = typename F::word_t;
+    StochasticT<T> st = make_stochastic<T>(p.man_bits, spec);
+    st.wmask = is_signed ? F::ABS_MASK : ~word_t(0);
+    const word_t inf = (word_t)F::FIELD_MASK << F::MAN_BITS;
+    st.lo = sr_field_word<T>(p.normal_cutoff);
+    st.span = st.lo < inf ? inf - st.lo : word_t(0);
+    st.lo_sup = sr_field_word<T>(p.supernormal_cutoff > 1 - F::BIAS ? p.supernormal_cutoff : 1 - F::BIAS);
+    st.span_sup = st.lo > st.lo_sup ? st.lo - st.lo_sup : word_t(0);
+    return st;
+}
+
+// The same cast, with the spec a format's prng_bits field carries (stochastic.h).
+template <class T>
+CUDA_HOST_DEVICE_INLINE T cast_superfp_stochastic(T origin_float, typename FloatTraits<T>::word_t rand_prob,
+                                                  int spec, bool is_signed,
+                                                  const MPTORCH_THREAD SuperfpParamsT<T> &p)
+{
+    const StochasticT<T> st = make_stochastic_superfp<T>(p, is_signed, spec);
+    return cast_superfp_stochastic(origin_float, rand_prob, st, is_signed, p);
 }

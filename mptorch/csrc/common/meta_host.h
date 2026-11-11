@@ -50,6 +50,7 @@
 #include "gemm_conv_host.h"
 #include "gemm_cross_host.h"
 #include "gemm_host.h"
+#include "stochastic_host.h"
 #include <ATen/core/Tensor.h>
 #include <ATen/ops/empty.h>
 #include <ATen/ops/empty_like.h>
@@ -154,6 +155,7 @@ namespace mptorch::meta
   {
     static_assert(!Args::mixed, "use meta_custom_matmul_mixed for a palette op");
     g::check_matmul_inputs(a, b, op_name, round_mode, accumulate_algorithm);
+    mptorch::sr_canonical_args(args, round_mode, op_name); // the prng_bits refusal
     g::check_accumulate_algorithm(args, op_name, accumulate_algorithm);
     const SymMatmulShape s = sym_matmul_output_shape(a, b, trans_a, trans_b, op_name);
     Tensor c = sym_empty(sym_output_sizes(s.batch, s.M, s.N, s.batched), a.options());
@@ -176,7 +178,7 @@ namespace mptorch::meta
     g::check_naive_only(op_name, accumulate_algorithm);
     precheck();
     const SymMatmulShape s = sym_matmul_output_shape(a, b, trans_a, trans_b, op_name);
-    make_args(); // the palette-length checks
+    mptorch::sr_canonical_args(make_args(), round_mode, op_name); // palette lengths, prng_bits
     Tensor c = sym_empty(sym_output_sizes(s.batch, s.M, s.N, s.batched), a.options());
     if (sym_is_empty(s.batch, s.M, s.N))
       return c;
@@ -358,13 +360,14 @@ namespace mptorch::meta
 
   // run_custom_conv (gemm_conv_host.h).
   template <class Inner>
-  Tensor meta_custom_conv(const char *op_name, const Inner &, const Tensor &a, const Tensor &b,
+  Tensor meta_custom_conv(const char *op_name, const Inner &inner, const Tensor &a, const Tensor &b,
                           const Tensor *prec_idx, int64_t conv_pass, c10::IntArrayRef out_size,
                           c10::IntArrayRef stride, c10::IntArrayRef padding,
                           c10::IntArrayRef dilation, int64_t groups, int64_t round_mode)
   {
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op_name, ": ", round_mode,
                 " is not a RoundMode");
+    mptorch::sr_canonical_args(inner, round_mode, op_name); // the prng_bits refusal
     const SymConvShape cs =
         sym_conv_shape(a, b, conv_pass, out_size, stride, padding, dilation, groups, op_name);
     Tensor c = sym_empty(cs.out_sizes, a.options());
@@ -495,8 +498,9 @@ namespace mptorch::meta
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
     const SymBlockExtents e = sym_block_extents(x, op);
     const mptorch::GemmDtype dt = blk::block_dtype(x.scalar_type(), op);
-    const blk::Fmt f = blk::checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op,
-                                              dt == mptorch::GemmDtype::Double);
+    blk::Fmt f = blk::checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op,
+                                        dt == mptorch::GemmDtype::Double);
+    mptorch::sr_canonical_fmt(f, static_cast<int>(blk::BlockFmtField::ELEM_PRNG_BITS), round_mode, op);
     const SymBlockLayout l = sym_block_layout(f, e.cols, e.rows);
     Tensor data = sym_empty(sym_block_sizes(e, e.rows, l.row_bytes), x.options().dtype(at::kByte));
     Tensor scales =
@@ -513,8 +517,9 @@ namespace mptorch::meta
     TORCH_CHECK(mptorch::is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
     sym_block_extents(x, op);
     const mptorch::GemmDtype dt = blk::block_dtype(x.scalar_type(), op);
-    blk::checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op,
-                           dt == mptorch::GemmDtype::Double);
+    blk::Fmt f = blk::checked_block_fmt(fmt, elem_max, scale_max, tensor_scale, op,
+                                        dt == mptorch::GemmDtype::Double);
+    mptorch::sr_canonical_fmt(f, static_cast<int>(blk::BlockFmtField::ELEM_PRNG_BITS), round_mode, op);
   }
 
   // unpack_extents (block_host.h).
@@ -670,6 +675,8 @@ namespace mptorch::meta
       {
         TORCH_CHECK(tail.block_size == 0 && !tail.outer_quant, op,
                     ": AccumulateAlgorithm.NAIVE takes no block_size and no outer format");
+        int64_t rm = round_mode;
+        mptorch::sr_canonical_args(base, rm, op); // the prng_bits refusal
         return meta_run_custom_matmul_block(op, call, round_mode);
       }
       g::AccumulateArgs<Base> args;
@@ -680,6 +687,8 @@ namespace mptorch::meta
       args.outer = tail.outer;
       args.outer_c = tail.outer_c;
       g::check_accumulate_algorithm(args, op, accumulate_algorithm);
+      int64_t rm = round_mode;
+      mptorch::sr_canonical_args(args, rm, op); // the prng_bits refusal
       return meta_run_custom_matmul_block(op, call, round_mode);
     };
     if (fused)

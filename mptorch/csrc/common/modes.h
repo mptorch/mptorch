@@ -100,9 +100,15 @@ Round towards zero (TowardZero)
 RO:
 Round to odd (ToOdd)
 
-SR:
-Stochastic rounding (StochasticA, with N = prng_bits random bits added below
-the retained significand before it is truncated)
+SR, SR_B, SR_C:
+Stochastic rounding with N = prng_bits random bits R (StochasticA, B and C).
+With eta the fraction of |x| between its two neighbours, the magnitude rounds
+away from zero iff floor(eta * 2^N) + R >= 2^N (A), floor(eta * 2^(N+1)) +
+2R + 1 >= 2^(N+1) (B), or RNITE(eta * 2^N) + R >= 2^N (C, RNITE rounding to
+nearest with ties to even), in every region of every format
+(common/stochastic.h). SR_B and SR_C reach the entry points only: these map
+them to SR and put the variant beside N in the format's prng_bits, so a
+kernel has one stochastic instantiation.
 */
 enum class RoundMode
 {
@@ -112,7 +118,9 @@ enum class RoundMode
     RD,
     RZ,
     RO,
-    SR
+    SR,
+    SR_B,
+    SR_C
 };
 
 /*

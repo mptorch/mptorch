@@ -525,7 +525,7 @@ def _strided_operands(geometry, device, seed=0):
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("geometry", list(STRIDED))
 @pytest.mark.parametrize(
-    "mode", [m for m in RoundMode if m is not RoundMode.SR], ids=lambda m: m.name
+    "mode", [m for m in RoundMode if not m.is_stochastic], ids=lambda m: m.name
 )
 def test_strided_igrad_is_the_zero_inserted_sum_under_naive(device, geometry, mode):
     # Leaving out the zeros a stride inserts changes nothing where adding a

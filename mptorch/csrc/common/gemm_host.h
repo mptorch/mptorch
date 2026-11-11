@@ -34,6 +34,7 @@
 #include "gemm_accumulate.h"
 #include "gemm_args.h"
 #include "gemm_policy.h"
+#include "stochastic_host.h"
 #include <ATen/core/Tensor.h>
 #include <ATen/ops/aminmax.h>
 #include <ATen/ops/empty.h>
@@ -429,12 +430,14 @@ namespace mptorch::gemm
   // it is for, and so that a rejected operand pair does not advance the
   // generator first.
   template <class Backend, class Args>
-  Tensor run_custom_matmul(const char *op_name, const Args &args, Tensor a, Tensor b,
+  Tensor run_custom_matmul(const char *op_name, const Args &call_args, Tensor a, Tensor b,
                            bool trans_a, bool trans_b, int64_t accumulate_algorithm,
                            int64_t round_mode)
   {
     static_assert(!Args::mixed, "use run_custom_matmul_mixed for a palette op");
     check_matmul_inputs(a, b, op_name, round_mode, accumulate_algorithm);
+    // SR_B and SR_C run as SR with the variant in the formats (stochastic_host.h)
+    const Args args = mptorch::sr_canonical_args(call_args, round_mode, op_name);
     check_accumulate_algorithm(args, op_name, accumulate_algorithm);
 
     int64_t M, K, N, batch, stride_a, stride_b;
@@ -497,7 +500,8 @@ namespace mptorch::gemm
     matmul_output_shape(a, b, trans_a, trans_b, op_name, M, K, N, batch, stride_a, stride_b,
                         batched);
 
-    const Args args = make_args();
+    // SR_B and SR_C run as SR with the variant in the formats (stochastic_host.h)
+    const Args args = mptorch::sr_canonical_args(make_args(), round_mode, op_name);
 
     Tensor a_c = a.contiguous();
     Tensor b_c = b.contiguous();

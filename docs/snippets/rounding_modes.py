@@ -16,9 +16,11 @@ for mode in RoundMode:
     y = Quant(f, mode)(x)
     print(f"{mode.name:<6}", [f"{v:8.4f}" for v in y.tolist()])
 
-# RoundMode.SR draws its random bits from the *format's* prng_bits. The format
-# above has prng_bits=0, so its SR row is plain truncation (the RZ row): give
-# the format some random bits and the same input rounds differently per draw.
+# The stochastic modes draw their random bits from the *format's* prng_bits.
+# The format above has prng_bits=0, so they are deterministic there: SR is
+# truncation (the RZ row), SR_B rounds to nearest with ties away (the RNA row)
+# and SR_C to nearest with ties toward zero. Give the format some random bits
+# and the same input rounds differently per draw.
 f_sr = BinaryK(8, 4, prng_bits=8)
 for draw in range(3):
     y = Quant(f_sr, RoundMode.SR)(x)

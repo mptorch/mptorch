@@ -80,12 +80,44 @@ struct BinaryKMultiplierT
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
-            return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR)
-            return cast_binaryK_stochastic(x, rng.next64(), prng_bits, is_signed, subnormals_mode, params);
         else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
+    }
+};
+
+// The stochastic instantiation: the primary template's members, then the
+// variant's constants, built once with the policy (common/stochastic.h), so a
+// step pays the word form's two integer operations and nothing to rebuild
+// them. A specialization rather than a member of the primary template, whose
+// layout every deterministic kernel keeps.
+template <class T>
+struct BinaryKMultiplierT<T, RoundMode::SR>
+{
+    using value_t = T;
+    bool is_signed;
+    SubnormalsMode subnormals_mode;
+    int prng_bits;
+    BinaryKParamsT<T> params;
+    StochasticT<T> sr;
+
+    BinaryKMultiplierT() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKMultiplierT(int man_bits, int exp_bits, int bias, bool is_signed,
+                                               SaturationMode saturation_mode,
+                                               SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
+          params(make_binaryK_params<T>(man_bits, exp_bits, bias, is_signed, saturation_mode,
+                                        subnormals_mode == SubnormalsMode::EXTENDED_NORMALS)),
+          sr(make_stochastic_binaryK<T>(params, subnormals_mode, is_signed, prng_bits))
+    {
+    }
+
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
+    {
+        T x = a * b;
+        if constexpr (std::is_same_v<T, float>)
+            return cast_binaryK_stochastic(x, rng(), sr, is_signed, subnormals_mode, params);
+        else
+            return cast_binaryK_stochastic(x, rng.next64(), sr, is_signed, subnormals_mode, params);
     }
 };
 
@@ -119,12 +151,38 @@ struct SuperfpMultiplierT
             return cast_superfp_zero(x, is_signed, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
-            return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
-        else if constexpr (RM == RoundMode::SR)
-            return cast_superfp_stochastic(x, rng.next64(), prng_bits, is_signed, params);
         else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
+    }
+};
+
+// The stochastic instantiation (see BinaryKMultiplierT's).
+template <class T>
+struct SuperfpMultiplierT<T, RoundMode::SR>
+{
+    using value_t = T;
+    bool is_signed;
+    int prng_bits;
+    SuperfpParamsT<T> params;
+    StochasticT<T> sr;
+
+    SuperfpMultiplierT() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpMultiplierT(int man_bits, int exp_bits, int normal_binades, int bias,
+                                               bool is_signed, SaturationMode saturation_mode,
+                                               int prng_bits = 0)
+        : is_signed(is_signed), prng_bits(prng_bits),
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode)),
+          sr(make_stochastic_superfp<T>(params, is_signed, prng_bits))
+    {
+    }
+
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
+    {
+        T x = a * b;
+        if constexpr (std::is_same_v<T, float>)
+            return cast_superfp_stochastic(x, rng(), sr, is_signed, params);
+        else
+            return cast_superfp_stochastic(x, rng.next64(), sr, is_signed, params);
     }
 };
 
@@ -165,12 +223,39 @@ struct BinaryKAdderT
             return cast_binaryK_zero(x, is_signed, subnormals_mode, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_binaryK_odd(x, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
-            return cast_binaryK_stochastic(x, rng(), prng_bits, is_signed, subnormals_mode, params);
-        else if constexpr (RM == RoundMode::SR)
-            return cast_binaryK_stochastic(x, rng.next64(), prng_bits, is_signed, subnormals_mode, params);
         else // RoundMode::RNE
             return cast_binaryK_nearest_even(x, is_signed, subnormals_mode, params);
+    }
+};
+
+// The stochastic instantiation (see BinaryKMultiplierT's).
+template <class T>
+struct BinaryKAdderT<T, RoundMode::SR>
+{
+    using value_t = T;
+    bool is_signed;
+    SubnormalsMode subnormals_mode;
+    int prng_bits;
+    BinaryKParamsT<T> params;
+    StochasticT<T> sr;
+
+    BinaryKAdderT() = default;
+    CUDA_HOST_DEVICE_INLINE BinaryKAdderT(int man_bits, int exp_bits, int bias, bool is_signed,
+                                          SaturationMode saturation_mode,
+                                          SubnormalsMode subnormals_mode, int prng_bits = 0)
+        : is_signed(is_signed), subnormals_mode(subnormals_mode), prng_bits(prng_bits),
+          params(make_binaryK_params<T>(man_bits, exp_bits, bias, is_signed, saturation_mode,
+                                        subnormals_mode == SubnormalsMode::EXTENDED_NORMALS)),
+          sr(make_stochastic_binaryK<T>(params, subnormals_mode, is_signed, prng_bits))
+    {
+    }
+
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine &rng) const
+    {
+        if constexpr (std::is_same_v<T, float>)
+            return cast_binaryK_stochastic(x, rng(), sr, is_signed, subnormals_mode, params);
+        else
+            return cast_binaryK_stochastic(x, rng.next64(), sr, is_signed, subnormals_mode, params);
     }
 };
 
@@ -203,12 +288,37 @@ struct SuperfpAdderT
             return cast_superfp_zero(x, is_signed, params);
         else if constexpr (RM == RoundMode::RO)
             return cast_superfp_odd(x, is_signed, params);
-        else if constexpr (RM == RoundMode::SR && std::is_same_v<T, float>)
-            return cast_superfp_stochastic(x, rng(), prng_bits, is_signed, params);
-        else if constexpr (RM == RoundMode::SR)
-            return cast_superfp_stochastic(x, rng.next64(), prng_bits, is_signed, params);
         else // RoundMode::RNE
             return cast_superfp_nearest_even(x, is_signed, params);
+    }
+};
+
+// The stochastic instantiation (see BinaryKMultiplierT's).
+template <class T>
+struct SuperfpAdderT<T, RoundMode::SR>
+{
+    using value_t = T;
+    bool is_signed;
+    int prng_bits;
+    SuperfpParamsT<T> params;
+    StochasticT<T> sr;
+
+    SuperfpAdderT() = default;
+    CUDA_HOST_DEVICE_INLINE SuperfpAdderT(int man_bits, int exp_bits, int normal_binades, int bias,
+                                          bool is_signed, SaturationMode saturation_mode,
+                                          int prng_bits = 0)
+        : is_signed(is_signed), prng_bits(prng_bits),
+          params(make_superfp_params<T>(man_bits, exp_bits, normal_binades, bias, saturation_mode)),
+          sr(make_stochastic_superfp<T>(params, is_signed, prng_bits))
+    {
+    }
+
+    CUDA_HOST_DEVICE_INLINE T operator()(T x, MPTORCH_THREAD PhiloxEngine &rng) const
+    {
+        if constexpr (std::is_same_v<T, float>)
+            return cast_superfp_stochastic(x, rng(), sr, is_signed, params);
+        else
+            return cast_superfp_stochastic(x, rng.next64(), sr, is_signed, params);
     }
 };
 

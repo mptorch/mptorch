@@ -18,6 +18,7 @@
 // out-of-place op makes, which the kernel would write instead of the caller's
 // tensor.
 
+#include "../common/stochastic_host.h"
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "../quant_ops.h"
 #include "launch_params.h"
@@ -47,6 +48,12 @@ namespace
   void quantize_into(const char *op, const Tensor &a, const Tensor &o, int64_t round_mode,
                      bool is_signed, int64_t prng_bits, const std::string &format)
   {
+    // SR_B and SR_C run as SR with the variant in prng_bits, as on the CPU
+    // (common/stochastic_host.h)
+    int variant;
+    round_mode = mptorch::sr_canonical(round_mode, variant);
+    if (variant >= 0)
+      prng_bits = mptorch::sr_encode(prng_bits, variant, op);
     const int64_t rm = cpu_round_mode(round_mode);
     const bool sr = rm == static_cast<int64_t>(RoundMode::SR);
     const uint64_t seed = sr ? draw_cpu_seed() : 0;
