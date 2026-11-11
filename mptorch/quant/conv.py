@@ -26,7 +26,7 @@ from typing import Any
 
 import torch
 
-from mptorch.number import Number
+from mptorch.number import Number, RoundMode
 
 from .mac import FusedMac, Mac, SplitMac, spec_for_mac
 from .modules.format import QAffineFormats
@@ -400,6 +400,11 @@ def conv_formats(
         mac = SplitMac(mac, mac)
     if not isinstance(mac, SplitMac | FusedMac):
         raise TypeError(f"mac must be a SplitMac, a FusedMac or a Number, got {type(mac).__name__}")
+    if mac.carrier_rounding is not RoundMode.RNE:
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO has no conv kernels (dev/continuation_plan.md, "
+            "phase N): the odd step is in the NAIVE GEMMs only, which QLinear and QMatmul run"
+        )
     spec = spec_for_mac(mac)
     maps = (prec_idx, igrad_prec_idx, wgrad_prec_idx)
     if spec.mixed and prec_idx is None:

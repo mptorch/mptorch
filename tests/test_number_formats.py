@@ -55,13 +55,17 @@ from mptorch.quant.ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
     _binaryK_fma_mixed_spec,
+    _binaryK_fma_odd_spec,
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
+    _binaryK_odd_spec,
     _binaryK_spec,
     _superfp_accumulated_spec,
     _superfp_fma_mixed_spec,
+    _superfp_fma_odd_spec,
     _superfp_fma_spec,
     _superfp_mixed_spec,
+    _superfp_odd_spec,
     _superfp_spec,
 )
 from tests.markers import available_devices, float64_devices
@@ -153,6 +157,32 @@ def test_fused_macs_resolve_to_flat_specs(rm):
     assert spec_for_mac(FusedMac(SuperFP(3, 4, 8, 7), rounding=rm)) == _superfp_fma_spec(
         fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=8, fma_bias=7, rounding_mode=rm
     )
+
+
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.RU, RoundMode.SR])
+def test_odd_macs_resolve_to_flat_specs(rm):
+    """``carrier_rounding=RoundMode.RO`` resolves to the ``*_odd`` builders'
+    specs: the twin's schema arguments, the odd op, and the findings of the
+    twin plus the guarantee's (none for these formats)."""
+    odd: dict[str, Any] = dict(rounding=rm, carrier_rounding=RoundMode.RO)
+    assert spec_for_mac(FusedMac(BinaryK(8, 4), **odd)) == _binaryK_fma_odd_spec(
+        fma_K=8, fma_P=4, rounding_mode=rm
+    )
+    assert spec_for_mac(FusedMac(SuperFP(3, 4, 8, 7), **odd)) == _superfp_fma_odd_spec(
+        fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=8, fma_bias=7, rounding_mode=rm
+    )
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), BinaryK(16, 11), **odd)) == _binaryK_odd_spec(
+        mul_K=8, mul_P=4, acc_K=16, acc_P=11, rounding_mode=rm
+    )
+    sfp: dict[str, Any] = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+    assert spec_for_mac(SplitMac(SuperFP(**sfp), None, **odd)) == _superfp_odd_spec(
+        **{f"mul_{k}": v for k, v in sfp.items()}, accumulate_quant=False, rounding_mode=rm
+    )
+    spec = spec_for_mac(FusedMac(BinaryK(8, 4), **odd))
+    plain = spec_for_mac(FusedMac(BinaryK(8, 4), rounding=rm))
+    assert spec.op is torch.ops.mptorch.custom_matmul_binaryK_fma_odd.default
+    assert spec.args == plain.args  # the twin's schema, argument for argument
+    assert FusedMac(BinaryK(8, 4), **odd) != FusedMac(BinaryK(8, 4), rounding=rm)  # memo key
 
 
 def test_fused_mac_without_a_format_is_the_unrounded_step():
@@ -312,7 +342,7 @@ def test_a_naive_spec_is_what_it_was_before_the_other_algorithms():
     op and the arguments it named before they existed, and calling it costs
     what it did."""
     ops = torch.ops.mptorch
-    sfp = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+    sfp: dict[str, Any] = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
     sfp_mul: dict[str, Any] = {f"mul_{k}": v for k, v in sfp.items()}
     sfp_fma: dict[str, Any] = {f"fma_{k}": v for k, v in sfp.items()}
     for spec, op, n_args in (

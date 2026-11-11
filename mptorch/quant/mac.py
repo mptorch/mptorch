@@ -67,8 +67,10 @@ from .ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
     _binaryK_fma_mixed_spec,
+    _binaryK_fma_odd_spec,
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
+    _binaryK_odd_spec,
     _binaryK_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_spec,
@@ -80,8 +82,10 @@ from .ops import (
     _superfp_binaryK_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_spec,
+    _superfp_fma_odd_spec,
     _superfp_fma_spec,
     _superfp_mixed_spec,
+    _superfp_odd_spec,
     _superfp_spec,
     binaryK_quantize,
     binaryK_quantize_,
@@ -595,6 +599,43 @@ def _checked_accumulation(
         )
 
 
+def _checked_carrier_rounding(
+    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...]
+) -> None:
+    """Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.
+
+    ``RO`` selects the ``custom_matmul_*_odd`` ops (phase N of
+    ``dev/continuation_plan.md``), which exist for the NAIVE single-format,
+    single-family GEMMs only, and whose step must be rounded by a format
+    afterwards. Each refusal says so here rather than at the call.
+    """
+    mode = mac.carrier_rounding
+    if not isinstance(mode, RoundMode) or mode not in (RoundMode.RNE, RoundMode.RO):
+        raise ValueError(
+            f"carrier_rounding is RoundMode.RNE (the carrier's nearest step) or RoundMode.RO "
+            f"(rounded to odd), got {mode!r}"
+        )
+    if mode is RoundMode.RNE:
+        return
+    where = "(dev/continuation_plan.md, phase N)"
+    if mac.accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
+        raise ValueError(
+            f"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only "
+            f"{where}: KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest"
+        )
+    if any(_varies(slot) for slot in slots):
+        raise ValueError(f"carrier_rounding=RoundMode.RO has no palette ops {where}")
+    if slots[0] is None:
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "
+            "step rounded to odd is only correct when a format rounds it again, and "
+            "FusedMac(None) is the carrier's own nearest FMA"
+        )
+    present = [slot for slot in slots if slot is not None]
+    if len({type(slot[0]) for slot in present}) > 1:
+        raise ValueError(f"carrier_rounding=RoundMode.RO has no cross-family ops {where}")
+
+
 @dataclass(frozen=True)
 class SplitMac:
     """Quantize the product and the running sum separately: two roundings.
@@ -635,9 +676,8 @@ class SplitMac:
             pairwise, rounding every pair's sum to ``acc``, and adds the
             block's root to the total in the same way.
             :class:`mptorch.AccumulateAlgorithm` states each precisely.
-            ``KAHAN``, ``BLOCK`` and ``TREE`` are binary32-only so far:
-            float64 operands, ``carrier=torch.float64`` and a palette in any
-            slot raise. Default: ``AccumulateAlgorithm.NAIVE``
+            ``KAHAN``, ``BLOCK`` and ``TREE`` run in both carriers; a
+            palette in any slot raises. Default: ``AccumulateAlgorithm.NAIVE``
         carrier (torch.dtype, optional): the float arithmetic that both halves
             and everything between them are computed in, as the argument of
             the same name of :func:`mptorch.quant.binaryK_matmul`. ``None``
@@ -656,12 +696,27 @@ class SplitMac:
             ``None`` leaves the total in the carrier's precision, as
             ``acc=None`` does for the sum. When given, the result holds this
             format's values. Default: ``None``
+        carrier_rounding (RoundMode): how the carrier rounds the product and
+            the sum before the formats do. ``RoundMode.RNE`` is the carrier's
+            nearest multiply and add. ``RoundMode.RO`` rounds both to odd
+            instead, so each format rounds the exact product and the exact
+            sum (see :doc:`/kernels/arithmetic`, "What the carrier rounds"),
+            for formats narrow enough: ``P`` at most 22 under ``RNE`` and
+            ``RNA``, 23 under the directed modes and ``RO``, and
+            ``P + prng_bits`` at most 23 under ``SR``, in binary32 (51, 52
+            and 52 in binary64); a call outside those raises. ``RO`` is
+            implemented for ``NAIVE``, one format per slot and one family,
+            on CPU and CUDA tensors. With ``acc=None`` only the product is
+            rounded to odd, since no format rounds the sum after it.
+            Default: ``RoundMode.RNE``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
             different lengths, if ``mul`` and ``acc`` are of different
             families and either is a palette, if ``carrier`` names no carrier,
-            or if ``block_size`` or ``outer`` does not fit the algorithm.
+            if ``block_size`` or ``outer`` does not fit the algorithm, or if
+            ``carrier_rounding`` is neither ``RNE`` nor ``RO`` or is ``RO``
+            with something it does not implement.
         TypeError: if ``outer`` is of another family than the accumulate
             format or not a single format, or ``carrier`` is not a
             ``torch.dtype``.
@@ -695,6 +750,7 @@ class SplitMac:
     carrier: torch.dtype | None = None
     block_size: int | None = None
     outer: Number | None = None
+    carrier_rounding: RoundMode = RoundMode.RNE
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
@@ -714,6 +770,7 @@ class SplitMac:
                     f"got {len(mul)} and {len(acc)}"
                 )
         _checked_accumulation(self, (mul, acc), has_product=True)
+        _checked_carrier_rounding(self, (mul, acc))
         object.__setattr__(self, "mul", mul)
         object.__setattr__(self, "acc", acc)
 
@@ -723,7 +780,9 @@ class FusedMac:
     """One hardware-style fused multiply-add per K-step, rounded once.
 
     Each step computes ``s = round_fma(s + a * b)`` with the product exact,
-    so there is one rounding per step where :class:`SplitMac` has two.
+    so there is one rounding per step where :class:`SplitMac` has two. The
+    carrier's FMA rounds ``s + a * b`` to nearest before the format does,
+    unless ``carrier_rounding=RoundMode.RO``.
     ``fma`` is a format, a palette, or ``None``. ``None`` gives an unrounded
     fused step: the carrier's own FMA, in order. It has no format for
     ``prec_idx`` to select, so it never selects a ``_mixed`` op.
@@ -742,10 +801,14 @@ class FusedMac:
         block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
         outer (Number, optional): as for :class:`SplitMac`. With ``fma=None``
             it may be of either family. Default: ``None``
+        carrier_rounding (RoundMode): as for :class:`SplitMac`, for the fused
+            step's one carrier rounding. ``RoundMode.RO`` needs a format
+            (``fma=None`` raises). Default: ``RoundMode.RNE``
 
     Raises:
-        ValueError: if ``carrier`` names no carrier, a palette is invalid, or
-            ``block_size`` or ``outer`` does not fit the algorithm.
+        ValueError: if ``carrier`` names no carrier, a palette is invalid,
+            ``block_size`` or ``outer`` does not fit the algorithm, or
+            ``carrier_rounding`` does not fit the mac.
         TypeError: if ``carrier`` is not a ``torch.dtype``, or ``outer`` is of
             another family or not a single format.
 
@@ -766,11 +829,13 @@ class FusedMac:
     carrier: torch.dtype | None = None
     block_size: int | None = None
     outer: Number | None = None
+    carrier_rounding: RoundMode = RoundMode.RNE
 
     def __post_init__(self) -> None:
         _checked_carrier(self.carrier)
         fma = _as_palette(self.fma)
         _checked_accumulation(self, (fma,), has_product=False)
+        _checked_carrier_rounding(self, (fma,))
         object.__setattr__(self, "fma", fma)
 
 
@@ -911,6 +976,10 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         if _varies(fma):
             build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
             return build(**fields)
+        if mac.carrier_rounding is RoundMode.RO:
+            # NAIVE, one format (`_checked_carrier_rounding`)
+            build = _binaryK_fma_odd_spec if binaryK else _superfp_fma_odd_spec
+            return build(**fields)
         if naive:
             build = _binaryK_fma_spec if binaryK else _superfp_fma_spec
         else:
@@ -948,6 +1017,10 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         return build(**fields)
     if n > 1:
         build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
+        return build(**fields)
+    if mac.carrier_rounding is RoundMode.RO:
+        # NAIVE, one format per slot, one family (`_checked_carrier_rounding`)
+        build = _binaryK_odd_spec if binaryK else _superfp_odd_spec
         return build(**fields)
     if naive:
         build = _binaryK_spec if binaryK else _superfp_spec

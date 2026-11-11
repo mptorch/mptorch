@@ -34,8 +34,10 @@ hardware FMA unit:
 
    s_k = Q_{\text{fma}}\big(a_{ik}\, b_{kj} + s_{k-1}\big).
 
-The product is exact inside the FMA. With ``fma=None`` nothing is rounded at
-all, and the dot product is a sequence of FMAs.
+The product is exact inside the FMA; the carrier still rounds the FMA's
+result once before the format does (`What the carrier rounds`_, below). With
+``fma=None`` nothing is rounded at all, and the dot product is a sequence of
+FMAs.
 
 In both arithmetics the operands :math:`a_{ik}` and :math:`b_{kj}` are read
 as they are. Rounding *them* is a quantizer's job, and the layers apply one
@@ -118,6 +120,102 @@ one family again). Every algorithm of the next section applies, with an
 .. literalinclude:: ../../snippets/gemm_cross_family.out
    :language: text
    :caption: output
+
+What the carrier rounds
+-----------------------
+
+The equations above name the formats' roundings. Each step also has one they
+do not name: the carrier computes the product, the sum and the FMA to its own
+precision first, 24 bits in binary32 and 53 in binary64, rounding to nearest,
+and the format's cast then rounds that. Usually the second rounding absorbs
+the first. It does not when the exact value lies within the carrier's last
+place of a format value: the carrier rounds it onto that value, and a
+directed mode then keeps it instead of going to the neighbour it should have
+gone to. ``1 + 2^-30`` rounded up to eight bits is ``1 + 2^-7``, but its
+binary32 sum is exactly 1, which every mode keeps. binary64 holds that gap,
+but not ``2^-61``:
+
+.. literalinclude:: ../../snippets/gemm_carrier_rounding.py
+   :language: python
+   :caption: docs/snippets/gemm_carrier_rounding.py
+
+.. literalinclude:: ../../snippets/gemm_carrier_rounding.out
+   :language: text
+   :caption: output
+
+On random data the effect follows the formats' precision.
+``dev/benchmarks/carrier_double_rounding.py rates`` counts the outputs on
+which the binary32 and binary64 carriers disagree, at M = N = 256 over N(0, 1)
+operands quantized to the format. At K = 256 FP8 formats disagree on at most
+0.04% of outputs, and formats of up to eleven bits of precision on at most
+0.06% (split) and 0.5% (fused), under the directed modes. The widest
+disagree most: Binary16p12 fused on 1.4%, Binary24p16 on 4.6% split and 22%
+fused. A fused product of two P-bit operands has 2P bits before the add, more
+than binary32 keeps.
+
+**Rounding the carrier step to odd.** ``carrier_rounding=RoundMode.RO`` on a
+:class:`~mptorch.quant.SplitMac` or :class:`~mptorch.quant.FusedMac` (and on
+the flat functions and the ``*_gemm_formats`` layer factories) rounds the
+carrier's product, sum and FMA to odd instead. This is round toward zero onto
+the carrier's grid with the last bit set whenever the result is inexact. An
+odd result stays strictly between the two carrier values next to the exact
+one, so every format whose rounding boundaries are all even carrier values
+rounds it exactly as it would the exact value (Boldo and Melquiond, "When
+double rounding is odd"). In terms of the format's precision ``P``:
+
+========================= ======================== =========================
+the format's rounding     binary32 (p = 24)        binary64 (p = 53)
+========================= ======================== =========================
+``RNE``, ``RNA``          ``P <= 22``              ``P <= 51``
+``RU``, ``RD``, ``RZ``,   ``P <= 23``              ``P <= 52``
+``RO``
+``SR``                    ``P + prng_bits <= 23``  ``P + prng_bits <= 52``
+========================= ======================== =========================
+
+The midpoints that ``RNE`` and ``RNA`` round at take the extra bit. The bound
+holds below the carrier's normal range and for saturating formats, but not
+for ``SR`` below the format's smallest value, whose arms compute in the
+carrier before they draw. A call whose format is outside the bound raises.
+In binary32 the error names ``carrier=torch.float64`` where binary64 holds
+the format.
+
+Two results change beyond the corrected neighbours:
+
+- A finite exact sum larger than the carrier's largest value reaches the cast
+  as that value instead of as infinity, so ``SAT_PROPAGATE`` saturates it, as
+  P3109 says a finite value should.
+- With ``acc=None`` only the product is rounded to odd: no format rounds the
+  sum after it, so it stays the carrier's nearest add.
+
+The odd step is implemented for the ``NAIVE`` single-format GEMMs of one
+family, split and fused, on CPU and CUDA tensors in both carriers. The
+``custom_matmul_*_odd`` ops are separate, so the default ones are what they
+were. ``KAHAN``, ``BLOCK`` and ``TREE`` rely on error-free transforms rounded
+to nearest, and refuse it. So do palettes, the cross-family macs, the
+convolutions (:func:`~mptorch.quant.conv_formats`) and an Apple GPU. On the
+CPU it assumes the default floating-point environment; a flush-to-zero mode
+(``torch.set_flush_denormal(True)``) breaks it in subnormal ranges, as it does
+the carrier arithmetic everywhere else.
+
+It costs time, mostly on the CPU (``carrier_double_rounding.py bench``,
+measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU):
+
+============================= ===================== =====================
+time against the nearest step fused                 split
+============================= ===================== =====================
+CUDA, binary32                1.06-1.16x            1.05-1.16x
+CUDA, binary64 (GeForce)      1.2x (SR) - 2.1x (RU) 1.2x (SR) - 1.5x
+CPU, binary32                 1.4-2.4x              1.6-2.1x
+CPU, binary64                 1.5-2.6x              1.1-1.7x
+============================= ===================== =====================
+
+On a GPU, binary32 rounds to odd with two FMAs in the hardware's directed
+modes and a select. The binary64 kernels of a consumer GPU are limited by its
+FP64 rate, which the second FMA and the directed modes' own FP64 compares
+share. The CPU has no directed rounding to call, so each step is a sequence
+of error-free transforms on the sum's dependency chain: a binary64 sum and an
+exact correction in binary32, and in binary64 an exact product split, two
+sums and a fix of the last bit.
 
 Summing differently: KAHAN, BLOCK and TREE
 ------------------------------------------

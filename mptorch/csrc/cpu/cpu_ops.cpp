@@ -50,4 +50,9 @@ TORCH_LIBRARY_IMPL(mptorch, CPU, m)
   m.impl("custom_matmul_superfp_binaryK_accumulated", TORCH_FN(superfp_binaryK_matmul_accumulated_cpu));
   m.impl("custom_conv_binaryK_superfp", TORCH_FN(binaryK_superfp_conv_cpu));
   m.impl("custom_conv_superfp_binaryK", TORCH_FN(superfp_binaryK_conv_cpu));
+  m.impl("custom_matmul_binaryK_odd", TORCH_FN(binaryK_matmul_odd_cpu));
+  m.impl("custom_matmul_superfp_odd", TORCH_FN(superfp_matmul_odd_cpu));
+  m.impl("custom_matmul_binaryK_fma_odd", TORCH_FN(binaryK_matmul_fma_odd_cpu));
+  m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_cpu));
+  m.impl("_carrier_odd", TORCH_FN(carrier_odd_cpu));
 }

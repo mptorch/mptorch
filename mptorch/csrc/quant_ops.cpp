@@ -295,4 +295,33 @@ TORCH_LIBRARY(mptorch, m)
         "int acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits, int block_size, "
         "bool outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, "
         "int outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor");
+
+  // Phase N (common/carrier_odd.h): the four NAIVE single-family GEMMs with
+  // the mac's carrier steps rounded to odd, each on its twin's schema, and
+  // the primitives themselves, elementwise, for the tests (op: 0 fma(a, b, c),
+  // 1 add(a, b), 2 mul(a, b)).
+  m.def("custom_matmul_binaryK_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int mul_subnormals_mode, "
+        "int acc_saturation_mode, int acc_subnormals_mode, "
+        "int mul_prng_bits, int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_man_bits, int mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, "
+        "bool accumulate_quant, int acc_man_bits, int acc_exp_bits, int acc_normal_binades, "
+        "int acc_bias, bool acc_is_signed, "
+        "int accumulate_algorithm, int round_mode, "
+        "int mul_saturation_mode, int acc_saturation_mode, "
+        "int mul_prng_bits, int acc_prng_bits) -> Tensor");
+  m.def("custom_matmul_binaryK_fma_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_K, int fma_P, int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_subnormals_mode, int fma_prng_bits) -> Tensor");
+  m.def("custom_matmul_superfp_fma_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "bool fma_quant, int fma_man_bits, int fma_exp_bits, int fma_normal_binades, "
+        "int fma_bias, bool fma_is_signed, "
+        "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
+        "int fma_prng_bits) -> Tensor");
+  m.def("_carrier_odd(Tensor a, Tensor b, Tensor c, int op) -> Tensor");
 }

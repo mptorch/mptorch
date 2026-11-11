@@ -1,0 +1,15 @@
+exact      mode   correct | carrier    nearest       odd
+1 + 2^-30  RNE  1.0000000 | binary32 1.0000000 1.0000000
+1 + 2^-30  RNE  1.0000000 | binary64 1.0000000 1.0000000
+1 + 2^-61  RNE  1.0000000 | binary64 1.0000000 1.0000000
+1 + 2^-30  RU   1.0078125 | binary32 1.0000000 1.0078125
+1 + 2^-30  RU   1.0078125 | binary64 1.0078125 1.0078125
+1 + 2^-61  RU   1.0078125 | binary64 1.0000000 1.0078125
+1 - 2^-30  RD   0.9960938 | binary32 1.0000000 0.9960938
+1 - 2^-30  RD   0.9960938 | binary64 0.9960938 0.9960938
+1 - 2^-61  RD   0.9960938 | binary64 1.0000000 0.9960938
+1 + 2^-30  RO   1.0078125 | binary32 1.0000000 1.0078125
+1 + 2^-30  RO   1.0078125 | binary64 1.0078125 1.0078125
+1 + 2^-61  RO   1.0078125 | binary64 1.0000000 1.0078125
+
+ValueError: carrier_rounding=RoundMode.RO: the multiply format's P is 23, and a binary32 step rounded to odd is rounded exactly under RoundMode.RNE only for P <= 22; binary64 holds it: pass carrier=torch.float64

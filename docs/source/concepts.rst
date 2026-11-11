@@ -1439,7 +1439,10 @@ mode     name                                 :math:`Q(x)`
 is what cheap hardware does, and it is biased toward zero. ``RO`` is not a
 mode to compute in. Its use is in two-step rounding: rounding to odd at an
 intermediate width and then to nearest at the final one avoids the *double
-rounding* error that two nearest roundings can make.
+rounding* error that two nearest roundings can make. The GEMMs use it that
+way: ``carrier_rounding=RoundMode.RO`` rounds each mac step to odd in the
+carrier so that the format's cast rounds the exact value
+(:doc:`kernels/arithmetic`, "What the carrier rounds").
 
 .. literalinclude:: ../snippets/rounding_modes.py
    :language: python
