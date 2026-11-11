@@ -80,16 +80,17 @@ CUDA_HOST_DEVICE_INLINE void sr_word_constants(int s, int n, int variant, MPTORC
     tie = W(0);
     if (s >= 1 && variant != 0)
     {
-        const W half = W(1) << (s - 1);
+        // Not `half`: that is a type in MSL, which compiles this header too.
+        const W half_unit = W(1) << (s - 1);
         if (variant == 1)
-            or_v = half;
+            or_v = half_unit;
         else if (n >= 1)
         {
-            or_v = half;
+            or_v = half_unit;
             tie = W(1);
         }
         else
-            or_v = half - W(1);
+            or_v = half_unit - W(1);
     }
 }
 
