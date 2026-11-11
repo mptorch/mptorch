@@ -250,6 +250,49 @@ every call, which the resolved objects avoid. The convolutions' operators
 have no functions at this tier (`Convolutions`_, above), and the block
 product's function is :func:`~mptorch.quant.block_matmul` itself.
 
+torch.compile and torch.export
+------------------------------
+
+Every operator has a fake (Meta) kernel. It runs the CPU operator's checks
+and allocates a result of the shape, dtype and layout the CPU allocates, but
+computes nothing and draws no random state. The meta device,
+``FakeTensorMode``, :func:`torch.export.export` and :func:`torch.compile`
+run it in the operator's place. Its sizes may be symbolic: a batch, a
+matrix extent or a channel count can stay dynamic in a compiled graph or an
+exported program. An extent passed to an operator as an integer cannot:
+the spatial size of a convolution's output, and the length of a block
+format's packed axis. Those specialize.
+
+.. literalinclude:: ../../snippets/compile_export.py
+   :language: python
+   :caption: docs/snippets/compile_export.py
+
+.. literalinclude:: ../../snippets/compile_export.out
+   :language: text
+   :caption: output
+
+What to expect:
+
+- **An exported layer is its forward.** Export inlines the layer's autograd
+  function, so the program holds the GEMM operator and no gradient. Run it
+  under ``torch.no_grad()``: in grad mode the operator meets a parameter that
+  requires a gradient, and refuses it, as it refuses any (an operator's
+  gradient is its layer's to compute).
+- **The flat functions compile into one graph.** The layers'
+  autograd functions break the graph on torch 2.14, so each layer runs
+  eagerly between the compiled pieces. The results are the same either way.
+- **Stochastic rounding.** Every operator that takes a rounding mode is
+  tagged ``nondeterministic_seeded``, so a compiled graph never merges two
+  identical stochastic calls into one draw. Inductor may still reorder
+  independent random operators, and it removes one whose result is unused,
+  as it does PyTorch's own random operators. The compiled draws are then
+  valid but not eager's. ``torch._inductor.config.fallback_random = True``
+  keeps them in program order, and the result is eager's, bit for bit.
+- **The checks that need values run when the operator does.** These are a
+  palette's ``prec_idx`` bounds, CUDA's alignment check on an in-place
+  quantizer's view, and the operators that MPS refuses. The fake kernel
+  cannot read tensor values or addresses.
+
 Performance notes
 -----------------
 
