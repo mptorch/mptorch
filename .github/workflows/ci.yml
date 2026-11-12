@@ -3,24 +3,128 @@ name: Build and test
 on: [push]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Install lint tools
+      run: uv pip install --system -r requirements-dev.txt
+    - name: Ruff check
+      run: ruff check mptorch tests dev/benchmarks
+    - name: Ruff format check
+      run: ruff format --check mptorch tests dev/benchmarks
+    - name: Install runtime dependencies for ty's import resolution
+      run: uv pip install --system -r requirements.txt
+    - name: ty check
+      run: ty check mptorch
+
   build-linux:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 5
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
-        cache: 'pip'
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
+        uv pip install --system setuptools
+        uv pip install --system -r requirements.txt
+    # torch.utils.cpp_extension puts ccache in front of the compilers when it is
+    # on PATH, and this action keeps the cache between runs, so a push that
+    # leaves mptorch/csrc alone compiles nothing: a clean build was 452 s of
+    # this job on Linux and 240 s on macOS. The statistics step says how much
+    # of the build the cache served. If they show no hits with a warm cache,
+    # the installed torch has no compiler wrapper of its own: set
+    # `create-symlink: true` here, which puts ccache in front by name instead.
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2.24
+      with:
+        key: ${{ github.job }}
+        max-size: 500M
     - name: Install mptorch library version to test
       run: |
-        pip install -e .
+        uv pip install --system -e ".[test]" --no-build-isolation
+    - name: Compiler cache statistics
+      run: ccache --show-stats
+    - name: Test with pytest
+      run: |
+        pytest tests
+
+  # The same on Apple silicon: Apple clang builds the CPU and MPS backends,
+  # and the suite runs on both. GitHub's macOS runners are VMs. macos-15's
+  # GPU does run MPS, but a VM's GPU has been reported available and then
+  # unable to allocate, so tests/markers.py probes it with an allocation and
+  # skips the MPS tests when it fails, and the job summary says which
+  # happened. The build itself is checked either way.
+  build-macos:
+    runs-on: macos-15
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      run: |
+        uv pip install --system setuptools
+        uv pip install --system -r requirements.txt
+    # The compiler cache, as in build-linux.
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2.24
+      with:
+        key: ${{ github.job }}
+        max-size: 500M
+    - name: Install mptorch library version to test
+      run: |
+        uv pip install --system -e ".[test]" --no-build-isolation
+    - name: Compiler cache statistics
+      run: ccache --show-stats
+    - name: Check that the MPS kernels were built
+      # The ops the extension registers must be exactly the schemas that
+      # quant_ops.cpp defines (so the check below cannot pass on a build that
+      # registered none or only some), and each must have an MPS kernel.
+      run: |
+        python - <<'EOF'
+        import re
+        import torch, mptorch
+        assert torch.backends.mps.is_built(), 'this torch was built without MPS'
+        src = open('mptorch/csrc/quant_ops.cpp').read()
+        schemas = sorted('mptorch::' + n for n in re.findall(r'm\.def\("(\w+)\(', src))
+        ops = sorted(n for n in torch._C._dispatch_get_all_op_names() if n.startswith('mptorch::'))
+        assert schemas, 'no m.def("...") schema found in mptorch/csrc/quant_ops.cpp'
+        assert ops == schemas, {'registered, not in quant_ops.cpp': sorted(set(ops) - set(schemas)),
+                                'in quant_ops.cpp, not registered': sorted(set(schemas) - set(ops))}
+        missing = [n for n in ops if not torch._C._dispatch_has_kernel_for_dispatch_key(n, 'MPS')]
+        assert not missing, missing
+        print(f'{len(ops)} mptorch ops, each with an MPS kernel')
+        EOF
+    - name: Probe the Apple GPU
+      run: |
+        python -c "
+        from tests.markers import HAS_MPS
+        print('MPS runs on this runner: the MPS tests will run.' if HAS_MPS else 'MPS does not run on this runner: the MPS tests will be skipped.')
+        " | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Test with pytest
       run: |
         pytest tests

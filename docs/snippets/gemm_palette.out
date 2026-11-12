@@ -1,0 +1,7 @@
+rows [0, 1] == 8/4 single-format rows: True
+rows [2, 3] == 8/3 single-format rows: True
+rows [4, 5] == 16/8 single-format rows: True
+per-column map: (6, 4)
+dense map:      (6, 4)
+grad through a palette: (6, 32)
+ValueError: this format is a palette, so its gradient of a needs its own prec_idx map (shaped like that pass's output): pass agrad_prec_idx= to matmul_formats

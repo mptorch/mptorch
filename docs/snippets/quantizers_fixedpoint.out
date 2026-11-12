@@ -1,0 +1,16 @@
+x                 tensor([ 1.54100, -0.29343, -2.17879,  0.56843, -1.08452, -1.39860])
+wl=8, fl=4        tensor([ 1.56250, -0.31250, -2.18750,  0.56250, -1.06250, -1.37500])
+wl=8, fl=6        tensor([ 1.54688, -0.29688, -2.00000,  0.56250, -1.07812, -1.40625])
+SR, 8 random bits tensor([ 1.50000, -0.31250, -2.18750,  0.56250, -1.12500, -1.37500])
+
+Quant == function: True
+in place:          True True
+
+float32: ValueError: FixedPoint(wl=26, fl=20) asks for 25 bits of precision, its magnitude bits, and it is rounded in binary32, which has 24. binary64 holds all of it: a float64 tensor's carrier, which carrier=torch.float64 gives a narrower tensor too.
+float64: [1.5409965515136719, -0.2934284210205078]
+
+float16 result:  [1.0, 2.0]
+  warning: FixedPoint(wl=16, fl=14)'s largest value is not a float16 value; saturated results are rounded again
+bfloat16 result: [1.0, 1.984375] (no warning)
+
+CPU == CUDA on 65536 values in 6 modes: True

@@ -1,0 +1,6 @@
+float weights: 5.005 MiB
+layers frozen: 2
+frozen:        0.635 MiB
+same output: True
+weight: None | buffers: ['weight_codes', 'weight_scales']
+loaded output: True

@@ -1,0 +1,4 @@
+output (4, 8, 8, 8) input grad (4, 3, 16, 16)
+forward == qmatmul(Q(W), unfold(Q(x))) + b: True
+grouped, dilated, KAHAN under SR: (2, 8, 10, 10)
+per-channel palette: (1, 8, 6, 6)

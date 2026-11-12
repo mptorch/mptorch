@@ -1,0 +1,1038 @@
+"""The value types a quantized computation is spelled with: :class:`Quant` for
+an elementwise step, :class:`SplitMac` and :class:`FusedMac` for a reduction,
+and :class:`Palette` for a set of formats selected per output element.
+
+Every step of a quantized layer is one of exactly two things, and only one of
+them needs an arithmetic policy:
+
+* an **elementwise** step (a weight, activation or gradient quantizer) computes
+  in the carrier and rounds the result to a format. That is a format plus a
+  rounding mode, and it yields a callable: :class:`Quant`.
+* a **reduction** step is the only place the *internal* arithmetic is
+  simulated, so it is the only place a multiply/accumulate policy means
+  anything. That is the GEMM: :class:`SplitMac` and :class:`FusedMac`, named
+  after the two policies the kernels implement (``common/gemm_policy.h``).
+
+The vocabulary is therefore two value types that do not grow with the number
+of ops, rather than one formats class per layer kind, each with its own slots
+and its own bookkeeping of which slots are in use.
+
+Two things follow from spelling a reduction as a value:
+
+* ``accumulate_quant`` and ``fma_quant`` stop being booleans.
+  ``SplitMac(mul=f, acc=None)`` *is* the full-precision-sum case, so the state
+  where an accumulate format is present but ignored cannot be expressed.
+* the palette stops being a separate op family. Any format slot takes a
+  ``Number`` or a sequence of them, and a sequence anywhere selects the
+  ``_mixed`` op and requires a ``prec_idx``; op choice is a table keyed on
+  ``(family, mac kind, is palette)`` rather than eight function names. A
+  :class:`SplitMac` whose two formats are of different families selects one
+  of the cross-family ops, which take one format per slot.
+
+Resolution to a ``_GemmSpec`` happens once and is memoized on the value: the
+classes are frozen dataclasses, so they hash by value, and :func:`spec_for_mac`
+caches on them. Re-deriving a format's defaults and carrier checks costs 2.3 to
+6.4 microseconds per call, more than the rest of the Python call path, so an
+object API that resolved per call would be slower than the flat wrappers it
+sits over.
+"""
+
+import weakref
+from collections.abc import Callable, Sequence
+from dataclasses import KW_ONLY, dataclass, field, replace
+from functools import lru_cache
+from typing import Any, cast
+
+import torch
+
+from mptorch.number import (
+    AccumulateAlgorithm,
+    BinaryK,
+    BlockFormat,
+    FixedPoint,
+    Number,
+    RoundMode,
+    SuperFP,
+)
+
+from .block import (
+    BlockPacked,
+    _block_gemm_spec,
+    _BlockGemmSpec,
+    block_pack,
+    block_quantize,
+    block_quantize_,
+)
+from .ops import (
+    _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_spec,
+    _binaryK_fma_mixed_spec,
+    _binaryK_fma_odd_spec,
+    _binaryK_fma_spec,
+    _binaryK_mixed_spec,
+    _binaryK_odd_spec,
+    _binaryK_spec,
+    _binaryK_superfp_accumulated_spec,
+    _binaryK_superfp_spec,
+    _checked_block_size,
+    _checked_carrier,
+    _GemmSpec,
+    _superfp_accumulated_spec,
+    _superfp_binaryK_accumulated_spec,
+    _superfp_binaryK_spec,
+    _superfp_fma_accumulated_spec,
+    _superfp_fma_mixed_spec,
+    _superfp_fma_odd_spec,
+    _superfp_fma_spec,
+    _superfp_mixed_spec,
+    _superfp_odd_spec,
+    _superfp_spec,
+    binaryK_quantize,
+    binaryK_quantize_,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
+    superfp_quantize,
+    superfp_quantize_,
+)
+
+__all__ = ["Quant", "Palette", "SplitMac", "FusedMac", "BlockQuant", "BlockMac"]
+
+
+# The formats a GEMM kernel exists for. `Number` is the wider vocabulary, the
+# base class a fixed-point or block format would join; this is the part of it
+# the eight ops implement today, and a Palette validates membership against it.
+GemmFormat = BinaryK | SuperFP
+
+# The fields the mixed schemas take once for a whole palette rather than per
+# entry: the kernels tabulate only the format *widths* (`BinaryKCommon` and
+# `SuperfpCommon` in common/gemm_args.h), so every entry must agree on these.
+_SHARED_FIELDS: dict[type, tuple[str, ...]] = {
+    BinaryK: ("is_signed", "prng_bits", "saturation", "subnormals"),
+    SuperFP: ("is_signed", "prng_bits", "saturation"),
+}
+
+MAX_PALETTE = 8  # must equal MAX_GEMM_FORMATS in common/gemm_policy.h
+
+
+@dataclass(frozen=True, init=False)
+class Palette:
+    """Up to eight formats of one family, selected per output element.
+
+    A GEMM slot holds a palette when the format varies across the output. The
+    ``_mixed`` ops take the palette's widths as a table, and a ``prec_idx``
+    map picks one entry per output element. A plain sequence of formats works
+    anywhere a ``Palette`` does and is converted to one; the class exists for
+    the validation. Every entry must be of the same family. Some fields are
+    shared across the palette by the schema: sign, stochastic bits,
+    saturation and subnormals. Entries that disagree on one of them are
+    rejected here, with an error naming the first such entry. The palette
+    does not silently take entry 0's value.
+
+    Args:
+        formats (Number or Sequence[Number] or Palette): one format, a
+            sequence of up to ``MAX_PALETTE`` formats, or another palette
+            (copied).
+
+    Raises:
+        ValueError: for an empty sequence, more than eight formats, or entries
+            that disagree on a shared field.
+        TypeError: for a format family no GEMM kernel takes, or a mix of
+            families.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import Palette, SplitMac, qmm
+        >>> palette = Palette([BinaryK(8, 4), BinaryK(8, 5), BinaryK(16, 11)])
+        >>> len(palette)
+        3
+        >>> prec_idx = torch.randint(3, (4, 3))
+        >>> qmm(torch.randn(4, 8), torch.randn(8, 3), SplitMac(palette, palette),
+        ...     prec_idx=prec_idx).shape
+        torch.Size([4, 3])
+    """
+
+    formats: tuple[GemmFormat, ...]
+
+    def __init__(self, formats: "Number | Sequence[Number] | Palette"):
+        if isinstance(formats, Palette):
+            formats = formats.formats
+        elif isinstance(formats, Number):
+            formats = (formats,)
+        object.__setattr__(self, "formats", tuple(formats))
+        self._validate()
+
+    def _validate(self) -> None:
+        if not self.formats:
+            raise ValueError("a Palette needs at least one format")
+        if len(self.formats) > MAX_PALETTE:
+            raise ValueError(
+                f"a Palette holds at most {MAX_PALETTE} formats, got {len(self.formats)}"
+            )
+        first = self.formats[0]
+        if type(first) not in _SHARED_FIELDS:
+            raise TypeError(f"no GEMM kernel takes {type(first).__name__} formats")
+        for i, fmt in enumerate(self.formats[1:], start=1):
+            if type(fmt) is not type(first):
+                raise TypeError(
+                    f"every format in a Palette must be the same type: entry {i} is "
+                    f"{type(fmt).__name__}, entry 0 is {type(first).__name__}"
+                )
+            for name in _SHARED_FIELDS[type(first)]:
+                if getattr(fmt, name) != getattr(first, name):
+                    raise ValueError(
+                        f"a Palette shares {name} across its entries (the kernel tabulates "
+                        f"only the format widths): entry {i} has {name}={getattr(fmt, name)!r}, "
+                        f"entry 0 has {getattr(first, name)!r}"
+                    )
+
+    def __len__(self) -> int:
+        return len(self.formats)
+
+    def __iter__(self):
+        return iter(self.formats)
+
+    def __getitem__(self, i: int) -> GemmFormat:
+        return self.formats[i]
+
+
+def _as_palette(slot: "Number | Sequence[Number] | Palette | None") -> Palette | None:
+    """Normalize a format slot to a ``Palette``; ``None`` means the step is not
+    quantized and stays ``None``."""
+    return None if slot is None else Palette(slot)
+
+
+def _varies(slot: Palette | None) -> bool:
+    """Whether this slot asks for a ``_mixed`` op, that is, holds more than one
+    format."""
+    return slot is not None and len(slot) > 1
+
+
+# --- an elementwise quantizer ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Quant:
+    """A format plus a rounding mode, as a callable ``Tensor -> Tensor``.
+
+    Calling it rounds every element of a tensor to the format, in the carrier,
+    and returns a tensor of the same dtype and shape. Every ``*_quant`` slot
+    of a ``QAffineFormats`` or ``QMatmulFormats`` takes one, and a
+    straight-through :class:`mptorch.quant.Quantizer` or a QAT observer wraps
+    one. The call is bound at construction, so each call costs only the op.
+    The class is frozen, so a ``Quant`` can be a dictionary key and a
+    memoization key, like the mac objects.
+
+    Args:
+        fmt (Number): the format to round to: a :class:`mptorch.BinaryK`, a
+            :class:`mptorch.SuperFP`, a :class:`mptorch.FixedPoint`, or a
+            :class:`mptorch.BlockFormat`. A block format's blocks run along
+            the last axis; use :class:`BlockQuant` for another axis or a
+            tensor scale.
+        rounding (RoundMode): the rounding mode. Default: ``RoundMode.RNE``
+        carrier (torch.dtype, optional): the float arithmetic the cast rounds
+            in, as the argument of the same name of
+            :func:`mptorch.quant.binaryK_quantize`. ``None`` rounds in the
+            tensor's own default carrier: binary32 for float16, bfloat16 and
+            float32 tensors, and binary64 for float64 ones.
+            ``torch.float64`` rounds in binary64 whatever the tensor.
+            ``torch.float32`` rounds in binary32 and refuses a float64 tensor.
+            Default: ``None``
+        inplace (bool): round the tensor in place and return it, instead of
+            allocating a result. This goes through
+            :func:`mptorch.quant.binaryK_quantize_`,
+            :func:`mptorch.quant.superfp_quantize_` or
+            :func:`mptorch.quant.fixedpoint_quantize_`. Use it for a tensor the
+            caller owns, such as a weight quantized once at load. Never use
+            it in a ``*_quant`` slot of a layer's formats, because a layer's
+            input belongs to the graph of whatever produced it. The call
+            refuses what the in-place ops refuse: a tensor that is not
+            contiguous, a CUDA view off a 16-byte boundary, and a ``carrier``
+            wider than the tensor. Default: ``False``
+
+    Raises:
+        TypeError: for a format with no elementwise quantizer, or a
+            ``carrier`` that is not a ``torch.dtype``.
+        ValueError: for a ``carrier`` dtype that names no carrier.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK, RoundMode, SuperFP
+        >>> from mptorch.quant import QAffineFormats, Quant
+        >>> q = Quant(BinaryK(8, 4))
+        >>> q(torch.tensor([1.0, 0.3, 0.7]))
+        tensor([1.0000, 0.3125, 0.6875])
+        >>> formats = QAffineFormats()
+        >>> formats.input_quant = Quant(SuperFP(3, 4, 8, 7), RoundMode.SR)
+    """
+
+    fmt: Number
+    rounding: RoundMode = RoundMode.RNE
+    _: KW_ONLY
+    carrier: torch.dtype | None = None
+    inplace: bool = False
+    _call: Callable[[torch.Tensor], torch.Tensor] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        fmt, rm, carrier = self.fmt, self.rounding, _checked_carrier(self.carrier)
+        if isinstance(fmt, BinaryK):
+            binaryK = binaryK_quantize_ if self.inplace else binaryK_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return binaryK(
+                    x,
+                    K=fmt.K,
+                    P=fmt.P,
+                    bias=fmt.bias,
+                    prng_bits=fmt.prng_bits,
+                    is_signed=fmt.is_signed,
+                    rounding_mode=rm,
+                    saturation_mode=fmt.saturation,
+                    subnormals_mode=fmt.subnormals,
+                    carrier=carrier,
+                )
+
+        elif isinstance(fmt, SuperFP):
+            superfp = superfp_quantize_ if self.inplace else superfp_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return superfp(
+                    x,
+                    man_bits=fmt.man_bits,
+                    exp_bits=fmt.exp_bits,
+                    normal_binades=fmt.normal_binades,
+                    bias=fmt.bias,
+                    prng_bits=fmt.prng_bits,
+                    is_signed=fmt.is_signed,
+                    rounding_mode=rm,
+                    saturation_mode=fmt.saturation,
+                    carrier=carrier,
+                )
+        elif isinstance(fmt, FixedPoint):
+            fixedpoint = fixedpoint_quantize_ if self.inplace else fixedpoint_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return fixedpoint(
+                    x,
+                    wl=fmt.wl,
+                    fl=fmt.fl,
+                    prng_bits=fmt.prng_bits,
+                    is_signed=fmt.is_signed,
+                    symmetric=fmt.symmetric,
+                    rounding_mode=rm,
+                    carrier=carrier,
+                )
+
+        elif isinstance(fmt, BlockFormat):
+            block = block_quantize_ if self.inplace else block_quantize
+
+            def call(x: torch.Tensor) -> torch.Tensor:
+                return block(x, fmt, -1, rounding=rm, carrier=carrier)
+
+        else:
+            raise TypeError(f"no elementwise quantizer for {type(fmt).__name__}")
+        object.__setattr__(self, "_call", call)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return self._call(x)
+
+
+# --- a block format ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BlockQuant:
+    """A block format plus a rounding mode: a fake quantizer, and a packer.
+
+    Calling it is :func:`mptorch.quant.block_quantize` along ``axis``. It
+    returns the decoded values, with the tensor's shape and dtype. That is
+    what a ``*_quant`` slot of a layer's formats or a
+    :class:`mptorch.quant.Quantizer` takes.
+
+    :meth:`pack` is :func:`mptorch.quant.block_pack` instead. It returns the
+    codes themselves, which :func:`mptorch.quant.block_gemm_formats` and
+    :func:`mptorch.quant.block_matmul_formats` multiply without decoding them
+    first. Use ``BlockQuant(fmt, axis=1).pack`` as a ``QLinear``'s
+    ``weight_quant`` to pack its weight once instead of in every hook. The
+    packing is memoized on the tensor, its version counter, its device and
+    its dtype. It is therefore redone after each optimizer step (which writes
+    the weight in place) and after the module is moved or converted
+    (``.to()``, ``.cuda()``, ``.half()``, which keep the parameter and its
+    version), and not otherwise. The memo does not see a write that the
+    version counter does not see (one made through ``.data``).
+
+    Args:
+        fmt (BlockFormat): the format.
+        rounding (RoundMode): the elements' rounding mode. Default:
+            ``RoundMode.RNE``
+        axis (int): the axis the blocks run along. Default: ``-1``
+        tensor_scale (float, optional): a static per-tensor scale, for a
+            format that has one (NVFP4). ``None`` derives it per call.
+            Default: ``None``
+        carrier (torch.dtype, optional): as for
+            :func:`mptorch.quant.block_quantize`. Default: ``None``
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import MXFP8_E4M3
+        >>> from mptorch.quant import BlockQuant
+        >>> q = BlockQuant(MXFP8_E4M3)
+        >>> q(torch.tensor([[1.0, 0.1, -3.3, 100.0]]))
+        tensor([[ 1.0000,  0.1016, -3.2500, 96.0000]])
+        >>> w = torch.randn(16, 64)
+        >>> q.pack(w, axis=1) is q.pack(w, axis=1)
+        True
+    """
+
+    fmt: BlockFormat
+    rounding: RoundMode = RoundMode.RNE
+    _: KW_ONLY
+    axis: int = -1
+    tensor_scale: float | None = None
+    carrier: torch.dtype | None = None
+    # The last packing, as (tensor, its version, axis, device, dtype, result):
+    # one entry, since a BlockQuant packs one weight. The device and the dtype
+    # are there because nn.Module's conversions swap a parameter's data and
+    # leave the object and its version as they were.
+    _memo: list = field(default_factory=lambda: [None], init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fmt, BlockFormat):
+            raise TypeError(f"BlockQuant takes a BlockFormat, got {type(self.fmt).__name__}")
+        _checked_carrier(self.carrier)
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return block_quantize(
+            x,
+            self.fmt,
+            self.axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+
+    def pack(self, x: torch.Tensor, axis: int | None = None) -> BlockPacked:
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, memoized on
+        ``x``, its version, its device and its dtype. ``axis`` defaults to this
+        quantizer's."""
+        axis = self.axis if axis is None else axis
+        memo = self._memo[0]
+        if memo is not None:
+            ref, version, memo_axis, device, dtype, packed = memo
+            if (
+                ref() is x
+                and x._version == version
+                and memo_axis == axis
+                and x.device == device
+                and x.dtype == dtype
+            ):
+                return packed
+        packed = block_pack(
+            x,
+            self.fmt,
+            axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+        self._memo[0] = (weakref.ref(x), x._version, axis, x.device, x.dtype, packed)
+        return packed
+
+    def pack_fresh(self, x: torch.Tensor, axis: int) -> BlockPacked:
+        """:func:`mptorch.quant.block_pack` of ``x`` along ``axis``, not memoized.
+        Use it for an activation or a gradient, which is a new tensor on
+        every call."""
+        return block_pack(
+            x,
+            self.fmt,
+            axis,
+            rounding=self.rounding,
+            tensor_scale=self.tensor_scale,
+            carrier=self.carrier,
+        )
+
+
+def _as_block_quant(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+    """A block operand slot as a ``BlockQuant``: a bare format packs to nearest even."""
+    if isinstance(slot, BlockQuant):
+        return slot
+    if isinstance(slot, BlockFormat):
+        return BlockQuant(slot)
+    raise TypeError(f"{name} is a BlockFormat or a BlockQuant, got {type(slot).__name__}")
+
+
+@dataclass(frozen=True)
+class BlockMac:
+    """The block GEMM: two block-format operands and the arithmetic of their product.
+
+    ``a`` and ``b`` are the formats that the left and right operands are
+    packed in. Each is a :class:`mptorch.BlockFormat` (packed to nearest
+    even) or a :class:`BlockQuant` (which specifies the rounding and a tensor
+    scale). ``b`` defaults to ``a``.
+
+    The product decodes both operands in the carrier and sums their products
+    as :func:`mptorch.quant.block_matmul` describes. In a split mac, each
+    product is rounded to the carrier and the sum to ``acc``. With
+    ``fused=True``, each fused multiply-add is rounded to ``acc``.
+    ``acc=None`` leaves the sum in the carrier. The accumulate algorithms are
+    those of :class:`SplitMac`.
+
+    :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` accept a
+    ``BlockMac`` (:func:`mptorch.quant.block_matmul_formats` builds their
+    formats). They also accept a bare ``BlockFormat``, which means
+    ``BlockMac(fmt)``.
+
+    Args:
+        a (BlockFormat or BlockQuant): the left operand's format.
+        b (BlockFormat or BlockQuant, optional): the right operand's. Default:
+            ``None``, ``a``'s.
+        acc (BinaryK, optional): the accumulate format. Default: ``None``
+        fused (bool): a fused multiply-add per step. Default: ``False``
+        rounding (RoundMode): the sum's rounding mode. Default:
+            ``RoundMode.RNE``
+        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`
+            (``TREE`` needs ``fused=False``). Default: ``AccumulateAlgorithm.NAIVE``
+        carrier (torch.dtype, optional): ``torch.float64`` packs the operands
+            and multiplies them in binary64, whatever their dtype (an operand
+            ``BlockQuant`` that names a carrier of its own keeps it).
+            Default: ``None``, the operands': binary64 for float64 tensors,
+            binary32 otherwise.
+        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
+        outer (BinaryK, optional): as for :class:`SplitMac`. Default: ``None``
+        tensor_scale_epilogue (bool): apply the operands' per-tensor scales
+            once, to the result, as NVIDIA's NVFP4 GEMMs do, instead of in
+            each decoded element (:func:`mptorch.quant.block_matmul`).
+            Default: ``False``
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK, MXFP8_E4M3, MXFP4_E2M1
+        >>> from mptorch.quant import BlockMac, qmm
+        >>> mac = BlockMac(MXFP8_E4M3, MXFP4_E2M1, BinaryK(16, 11))
+        >>> qmm(torch.randn(4, 64), torch.randn(64, 8), mac).shape
+        torch.Size([4, 8])
+    """
+
+    a: "BlockFormat | BlockQuant"
+    b: "BlockFormat | BlockQuant | None" = None
+    acc: BinaryK | None = None
+    _: KW_ONLY
+    fused: bool = False
+    rounding: RoundMode = RoundMode.RNE
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: BinaryK | None = None
+    tensor_scale_epilogue: bool = False
+
+    def __post_init__(self) -> None:
+        def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
+            q = _as_block_quant(slot, name)
+            # the mac's carrier packs too, unless the operand names its own
+            if self.carrier is torch.float64 and q.carrier is None:
+                q = replace(q, carrier=torch.float64)
+            return q
+
+        a = operand(self.a, "BlockMac's a")
+        b = a if self.b is None else operand(self.b, "BlockMac's b")
+        object.__setattr__(self, "a", a)
+        object.__setattr__(self, "b", b)
+        spec_for_block_mac(self)  # every error the arithmetic can raise, raised now
+
+
+@lru_cache(maxsize=256)
+def spec_for_block_mac(mac: BlockMac) -> _BlockGemmSpec:
+    """The resolved block GEMM a ``BlockMac`` names, memoized on the value."""
+    return _block_gemm_spec(
+        mac.acc,
+        mac.fused,
+        mac.rounding,
+        mac.accumulate_algorithm,
+        mac.block_size,
+        mac.outer,
+        mac.carrier,
+        mac.tensor_scale_epilogue,
+    )
+
+
+# --- the two reduction policies ----------------------------------------------
+
+
+def _checked_accumulation(
+    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...], has_product: bool
+) -> None:
+    """Validate a mac's ``accumulate_algorithm``, ``block_size`` and ``outer``.
+
+    ``slots`` is the mac's normalized format slots, the last of them the one
+    whose family ``outer`` must share (the accumulate format, else the
+    multiply's; a fused mac's one format): the outer format rounds a total of
+    that format's values, and no kernel folds them into another family. The
+    block-size rule is the flat wrappers'
+    (:func:`mptorch.quant.ops._checked_block_size`), so the two tiers raise
+    the same errors.
+    """
+    outer = mac.outer
+    if outer is not None and not isinstance(outer, GemmFormat):
+        raise TypeError(
+            f"outer must be one BinaryK or SuperFP format or None, got {type(outer).__name__}: "
+            "a palette of outer formats is not implemented"
+        )
+    _checked_block_size(mac.accumulate_algorithm, mac.block_size, outer is not None, has_product)
+    if mac.accumulate_algorithm is AccumulateAlgorithm.NAIVE:
+        return
+    if any(_varies(slot) for slot in slots):
+        raise ValueError(
+            f"AccumulateAlgorithm.{mac.accumulate_algorithm.name} is implemented for a single "
+            "format per slot: the palette ops accumulate with NAIVE only, since no kernel runs "
+            "a palette of accumulators or of outer formats; give each slot one format, or use "
+            "NAIVE with the palette"
+        )
+    family = next((slot[0] for slot in reversed(slots) if slot is not None), None)
+    if outer is not None and family is not None and type(outer) is not type(family):
+        raise TypeError(
+            f"outer must be of the accumulate format's family (the multiply format's when the "
+            f"sum is left unrounded): got {type(outer).__name__} over "
+            f"{type(family).__name__}; no kernel folds a total into another family"
+        )
+
+
+def _checked_carrier_rounding(
+    mac: "SplitMac | FusedMac", slots: tuple[Palette | None, ...]
+) -> None:
+    """Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.
+
+    ``RO`` selects the ``custom_matmul_*_odd`` ops, whose carrier steps round
+    to odd so that the format's cast rounds the exact value. They exist for
+    the NAIVE single-format, single-family GEMMs only, and their step must be
+    rounded by a format afterwards. Each refusal says so here rather than at
+    the call.
+    """
+    mode = mac.carrier_rounding
+    if not isinstance(mode, RoundMode) or mode not in (RoundMode.RNE, RoundMode.RO):
+        raise ValueError(
+            f"carrier_rounding is RoundMode.RNE (the carrier's nearest step) or RoundMode.RO "
+            f"(rounded to odd), got {mode!r}"
+        )
+    if mode is RoundMode.RNE:
+        return
+    where = "keep carrier_rounding=RoundMode.RNE"
+    if mac.accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
+        raise ValueError(
+            f"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only, "
+            f"as KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest: use "
+            f"NAIVE, or {where} (the default)"
+        )
+    if any(_varies(slot) for slot in slots):
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO has no palette ops, as the odd step is implemented "
+            f"for one format per slot only: give each slot one format, or {where}"
+        )
+    if slots[0] is None:
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "
+            "step rounded to odd is only correct when a format rounds it again, and "
+            "FusedMac(None) is the carrier's own nearest FMA"
+        )
+    present = [slot for slot in slots if slot is not None]
+    if len({type(slot[0]) for slot in present}) > 1:
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO has no cross-family ops, as the odd step is "
+            f"implemented for one family per mac only: use one family in both slots, or {where}"
+        )
+
+
+@dataclass(frozen=True)
+class SplitMac:
+    """Quantize the product and the running sum separately: two roundings.
+
+    Each step of a dot product computes ``s = round_acc(s + round_mul(a * b))``
+    in the carrier. The product is rounded to the ``mul`` format and the new
+    partial sum to the ``acc`` format. ``mul`` and ``acc`` are each a format
+    or a sequence of formats. A sequence is a palette; it selects the
+    ``_mixed`` op and requires a ``prec_idx`` at the call. ``acc`` alone may
+    also be ``None``, which leaves the running sum in the carrier's full
+    precision. The two may be of different families, a
+    :class:`~mptorch.BinaryK` multiply with a :class:`~mptorch.SuperFP`
+    accumulate or the reverse, as long as each slot holds one format: the
+    cross-family ops (:func:`mptorch.quant.binaryK_superfp_matmul`,
+    :func:`mptorch.quant.superfp_binaryK_matmul`) have no palette variant.
+
+    ``rounding`` is one mode for both halves. The kernels take the rounding
+    mode as a template parameter, because a runtime switch inside the
+    accumulate step cost 1.2 to 2.3 times the kernel time, and a mode per
+    format would square the number of kernel instantiations. Saturation,
+    subnormals and the stochastic-rounding width *are* per format, and are
+    set on the format objects.
+
+    Args:
+        mul (Number or Sequence[Number] or Palette): the multiply format, or a
+            palette of them.
+        acc (Number or Sequence[Number] or Palette, optional): the accumulate
+            format, or a palette of them; ``None`` leaves the running sum
+            unrounded. Default: ``None``
+        rounding (RoundMode): rounding mode of both halves.
+            Default: ``RoundMode.RNE``
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries a
+            compensation term next to the sum, in the ``acc`` format.
+            ``BLOCK`` runs the step above over blocks of ``block_size``
+            products and adds each block's sum to a total with a third
+            rounding, ``outer``. ``TREE`` sums each block's products
+            pairwise, rounding every pair's sum to ``acc``, and adds the
+            block's root to the total in the same way.
+            :class:`mptorch.AccumulateAlgorithm` states each precisely.
+            ``KAHAN``, ``BLOCK`` and ``TREE`` run in both carriers; a
+            palette in any slot raises. Default: ``AccumulateAlgorithm.NAIVE``
+        carrier (torch.dtype, optional): the float arithmetic that both halves
+            and everything between them are computed in, as the argument of
+            the same name of :func:`mptorch.quant.binaryK_matmul`. ``None``
+            takes the operands' carrier (binary64 for float64, binary32 for
+            the rest). ``torch.float64`` widens narrower operands to binary64
+            and narrows the result back to their dtype. ``torch.float32``
+            refuses float64 operands. Every call checks the formats against
+            that carrier. Default: ``None``
+        block_size (int, optional): products per block. ``BLOCK`` requires
+            one, which must divide 16 or be a multiple of 16. ``TREE`` takes a
+            power of two in [2, 256] and defaults to 16. ``NAIVE`` and
+            ``KAHAN`` take none. Default: ``None``
+        outer (Number, optional): the format, of the accumulate format's
+            family (the multiply's when ``acc`` is ``None``), that ``BLOCK``
+            and ``TREE`` round the total to after each block is added.
+            ``None`` leaves the total in the carrier's precision, as
+            ``acc=None`` does for the sum. When given, the result holds this
+            format's values. Default: ``None``
+        carrier_rounding (RoundMode): how the carrier rounds the product and
+            the sum before the formats do. ``RoundMode.RNE`` is the carrier's
+            nearest multiply and add. ``RoundMode.RO`` rounds both to odd
+            instead, so each format rounds the exact product and the exact
+            sum (see :doc:`/kernels/arithmetic`, "What the carrier rounds"),
+            for formats narrow enough: ``P`` at most 22 under ``RNE`` and
+            ``RNA``, 23 under the directed modes and ``RO``, and
+            ``P + prng_bits`` at most 23 under ``SR``, in binary32 (51, 52
+            and 52 in binary64); a call outside those raises. ``RO`` is
+            implemented for ``NAIVE``, one format per slot and one family,
+            on CPU and CUDA tensors. With ``acc=None`` only the product is
+            rounded to odd, since no format rounds the sum after it.
+            Default: ``RoundMode.RNE``
+
+    Raises:
+        ValueError: if ``mul`` is ``None``, if both slots are palettes of
+            different lengths, if ``mul`` and ``acc`` are of different
+            families and either is a palette, if ``carrier`` names no carrier,
+            if ``block_size`` or ``outer`` does not fit the algorithm, or if
+            ``carrier_rounding`` is neither ``RNE`` nor ``RO`` or is ``RO``
+            with something it does not implement.
+        TypeError: if ``outer`` is of another family than the accumulate
+            format or not a single format, or ``carrier`` is not a
+            ``torch.dtype``.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import SplitMac, qmm
+        >>> binary8p4 = BinaryK(8, 4)
+        >>> mac = SplitMac(binary8p4, BinaryK(16, 11))   # Binary8p4 products, 11-bit sums
+        >>> qmm(torch.randn(4, 8), torch.randn(8, 3), mac).shape
+        torch.Size([4, 3])
+        >>> exact_sum = SplitMac(binary8p4, None)   # products rounded, sum exact
+        >>> from mptorch import AccumulateAlgorithm
+        >>> blocked = SplitMac(binary8p4, binary8p4, block_size=8, outer=BinaryK(16, 11),
+        ...                    accumulate_algorithm=AccumulateAlgorithm.BLOCK)
+        >>> qmm(torch.randn(4, 64), torch.randn(64, 3), blocked).shape
+        torch.Size([4, 3])
+        >>> from mptorch import SuperFP
+        >>> cross = SplitMac(binary8p4, SuperFP(3, 4, 8, 7))   # binaryK products, superfp sums
+        >>> qmm(torch.randn(4, 8), torch.randn(8, 3), cross).shape
+        torch.Size([4, 3])
+    """
+
+    mul: "Number | Sequence[Number] | Palette"
+    acc: "Number | Sequence[Number] | Palette | None" = None
+    _: KW_ONLY
+    rounding: RoundMode = RoundMode.RNE
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: Number | None = None
+    carrier_rounding: RoundMode = RoundMode.RNE
+
+    def __post_init__(self) -> None:
+        _checked_carrier(self.carrier)
+        mul, acc = _as_palette(self.mul), _as_palette(self.acc)
+        if mul is None:
+            raise ValueError("a SplitMac needs a multiply format")
+        if acc is not None:
+            if type(acc[0]) is not type(mul[0]) and (_varies(mul) or _varies(acc)):
+                raise ValueError(
+                    f"a SplitMac whose multiply and accumulate formats are of different families "
+                    f"({type(mul[0]).__name__} and {type(acc[0]).__name__}) takes one format per "
+                    "slot: the cross-family ops have no palette variant"
+                )
+            if _varies(mul) and _varies(acc) and len(mul) != len(acc):
+                raise ValueError(
+                    "a SplitMac's multiply and accumulate palettes must have the same length, "
+                    f"got {len(mul)} and {len(acc)}"
+                )
+        _checked_accumulation(self, (mul, acc), has_product=True)
+        _checked_carrier_rounding(self, (mul, acc))
+        object.__setattr__(self, "mul", mul)
+        object.__setattr__(self, "acc", acc)
+
+
+@dataclass(frozen=True)
+class FusedMac:
+    """One hardware-style fused multiply-add per K-step, rounded once.
+
+    Each step computes ``s = round_fma(s + a * b)`` with the product exact,
+    so there is one rounding per step where :class:`SplitMac` has two. The
+    carrier's FMA rounds ``s + a * b`` to nearest before the format does,
+    unless ``carrier_rounding=RoundMode.RO``.
+    ``fma`` is a format, a palette, or ``None``. ``None`` gives an unrounded
+    fused step: the carrier's own FMA, in order. It has no format for
+    ``prec_idx`` to select, so it never selects a ``_mixed`` op.
+
+    Args:
+        fma (Number or Sequence[Number] or Palette, optional): the format each
+            fused step is rounded to, a palette of them, or ``None``.
+        rounding (RoundMode): rounding mode of the fused step.
+            Default: ``RoundMode.RNE``
+        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`,
+            with the fused step in place of the split one. ``TREE`` raises,
+            because a fused multiply-add has no product term to sum pairwise.
+            Default: ``AccumulateAlgorithm.NAIVE``
+        carrier (torch.dtype, optional): as for :class:`SplitMac`.
+            Default: ``None``
+        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``
+        outer (Number, optional): as for :class:`SplitMac`. With ``fma=None``
+            it may be of either family. Default: ``None``
+        carrier_rounding (RoundMode): as for :class:`SplitMac`, for the fused
+            step's one carrier rounding. ``RoundMode.RO`` needs a format
+            (``fma=None`` raises). Default: ``RoundMode.RNE``
+
+    Raises:
+        ValueError: if ``carrier`` names no carrier, a palette is invalid,
+            ``block_size`` or ``outer`` does not fit the algorithm, or
+            ``carrier_rounding`` does not fit the mac.
+        TypeError: if ``carrier`` is not a ``torch.dtype``, or ``outer`` is of
+            another family or not a single format.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import FusedMac, qmm
+        >>> qmm(torch.randn(4, 8), torch.randn(8, 3), FusedMac(BinaryK(8, 4))).shape
+        torch.Size([4, 3])
+        >>> unrounded = FusedMac(None)   # unrounded FMAs in the carrier
+    """
+
+    fma: "Number | Sequence[Number] | Palette | None"
+    _: KW_ONLY
+    rounding: RoundMode = RoundMode.RNE
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE
+    carrier: torch.dtype | None = None
+    block_size: int | None = None
+    outer: Number | None = None
+    carrier_rounding: RoundMode = RoundMode.RNE
+
+    def __post_init__(self) -> None:
+        _checked_carrier(self.carrier)
+        fma = _as_palette(self.fma)
+        _checked_accumulation(self, (fma,), has_product=False)
+        _checked_carrier_rounding(self, (fma,))
+        object.__setattr__(self, "fma", fma)
+
+
+Mac = SplitMac | FusedMac
+
+
+# --- resolution to the op ----------------------------------------------------
+#
+# One table keyed on (family, mac kind, does a slot vary) instead of eight
+# function names. A slot of one format is spelled as scalars, which is both
+# what a single-format op takes and what a `_mixed` op broadcasts across the
+# other slot's palette, so a palette on one side of a SplitMac and a single
+# format on the other needs no special case.
+
+
+def _resolved(slot: object) -> Palette:
+    """The ``Palette`` a mac's ``__post_init__`` put in one of its slots.
+
+    The declared field types are what a *caller* may pass (a format, a
+    sequence, a Palette); what is stored is always the normalized form, and
+    this is where that invariant is stated for the reader and the type
+    checker.
+    """
+    assert isinstance(slot, Palette), f"mac slot was not normalized: {slot!r}"
+    return slot
+
+
+def _slot_fields(pal: Palette, prefix: str, n: int) -> dict[str, Any]:
+    """One format slot as the schema arguments that name it.
+
+    ``n`` is the call's palette size, the longer of the two slots, since a
+    ``SplitMac`` may vary one and not the other. A slot of one format opposite
+    a palette is repeated to that length rather than left a scalar: the mixed
+    schemas take the palette size from the *first* pair of lists, so a scalar
+    there would leave the op with no length to read.
+    """
+    first = pal[0]
+    # Every entry is `first`'s type; Palette._validate is what guarantees it.
+    entries = list(pal.formats) if len(pal) > 1 else [first] * n
+    widths: dict[str, list]
+    if isinstance(first, BinaryK):
+        bk = cast(list[BinaryK], entries)
+        widths = {
+            f"{prefix}_K": [f.K for f in bk],
+            f"{prefix}_P": [f.P for f in bk],
+            f"{prefix}_bias": [f.bias for f in bk],
+        }
+    else:
+        sfp = cast(list[SuperFP], entries)
+        widths = {
+            f"{prefix}_man_bits": [f.man_bits for f in sfp],
+            f"{prefix}_exp_bits": [f.exp_bits for f in sfp],
+            f"{prefix}_normal_binades": [f.normal_binades for f in sfp],
+            f"{prefix}_bias": [f.bias for f in sfp],
+        }
+    fields: dict[str, Any] = widths if n > 1 else {k: v[0] for k, v in widths.items()}
+    fields[f"{prefix}_is_signed"] = first.is_signed
+    fields[f"{prefix}_prng_bits"] = first.prng_bits
+    return fields
+
+
+def _outer_fields(outer: Number | None) -> dict[str, Any]:
+    """A mac's outer format as the schema arguments that name it; none for ``None``."""
+    if outer is None:
+        return {}
+    # `_checked_accumulation` has held it to the two families the ops take.
+    assert isinstance(outer, GemmFormat), f"mac.outer was not validated: {outer!r}"
+    fields: dict[str, Any] = {
+        "outer_bias": outer.bias,
+        "outer_is_signed": outer.is_signed,
+        "outer_prng_bits": outer.prng_bits,
+        "outer_saturation_mode": outer.saturation,
+    }
+    if isinstance(outer, BinaryK):
+        return fields | {
+            "outer_K": outer.K,
+            "outer_P": outer.P,
+            "outer_subnormals_mode": outer.subnormals,
+        }
+    return fields | {
+        "outer_man_bits": outer.man_bits,
+        "outer_exp_bits": outer.exp_bits,
+        "outer_normal_binades": outer.normal_binades,
+    }
+
+
+@lru_cache(maxsize=256)
+def spec_for_mac(mac: Mac) -> _GemmSpec:
+    """The resolved GEMM this mac names, as a ``_GemmSpec``.
+
+    It is the same ``_GemmSpec`` the flat ``ops.py`` wrapper for that op
+    builds from the same numbers; ``tests/test_number_formats.py`` asserts
+    the equality, which is what keeps the two API tiers from drifting apart.
+
+    Memoized on the mac value, which is the reason the mac classes are frozen
+    (and so hashable by value): an ad-hoc ``qmatmul(a, b, SplitMac(...))`` in
+    a loop would otherwise re-derive every default on every call, at 2.3 to
+    6.4 microseconds, more than an object API saves. A cache miss costs
+    exactly what the flat wrapper costs.
+    """
+    fields: dict[str, Any] = {
+        "accumulate_algorithm": mac.accumulate_algorithm,
+        "rounding_mode": mac.rounding,
+        "carrier": mac.carrier,
+    }
+    # A NAIVE mac resolves through the builders it always resolved through.
+    # Any other algorithm is single-format (`_checked_accumulation`) and goes
+    # through the builder of its family's `*_accumulated` op, which also takes
+    # the block size and the outer format.
+    naive = mac.accumulate_algorithm is AccumulateAlgorithm.NAIVE
+    if not naive:
+        fields |= {"block_size": mac.block_size} | _outer_fields(mac.outer)
+
+    if isinstance(mac, FusedMac):
+        if mac.fma is None:
+            # Nothing is rounded per step, so no cast reads the widths and the
+            # family is the outer format's, if there is one; without one it
+            # does not matter, and binaryK's op is as good as superfp's.
+            if naive:
+                return _binaryK_fma_spec(fma_K=2, fma_P=1, fma_quant=False, **fields)
+            if isinstance(mac.outer, SuperFP):
+                return _superfp_fma_accumulated_spec(
+                    fma_man_bits=1,
+                    fma_exp_bits=2,
+                    fma_normal_binades=1,
+                    fma_bias=1,
+                    fma_quant=False,
+                    **fields,
+                )
+            return _binaryK_fma_accumulated_spec(fma_K=2, fma_P=1, fma_quant=False, **fields)
+        fma = _resolved(mac.fma)
+        fma_0 = fma[0]
+        binaryK = isinstance(fma_0, BinaryK)
+        fields |= _slot_fields(fma, "fma", len(fma))
+        fields["saturation_mode"] = fma_0.saturation
+        if isinstance(fma_0, BinaryK):
+            fields["subnormals_mode"] = fma_0.subnormals
+        if _varies(fma):
+            build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
+            return build(**fields)
+        if mac.carrier_rounding is RoundMode.RO:
+            # NAIVE, one format (`_checked_carrier_rounding`)
+            build = _binaryK_fma_odd_spec if binaryK else _superfp_fma_odd_spec
+            return build(**fields)
+        if naive:
+            build = _binaryK_fma_spec if binaryK else _superfp_fma_spec
+        else:
+            build = _binaryK_fma_accumulated_spec if binaryK else _superfp_fma_accumulated_spec
+        return build(fma_quant=True, **fields)
+
+    mul = _resolved(mac.mul)
+    acc = None if mac.acc is None else _resolved(mac.acc)
+    mul_0 = mul[0]
+    # One palette size for the call: a SplitMac may vary its multiply, its
+    # accumulate, or both, and the op takes a single tabulated length.
+    n = max(len(mul), len(acc) if acc is not None else 1)
+    fields |= _slot_fields(mul, "mul", n)
+    fields["saturation_mode"] = mul_0.saturation
+    if isinstance(mul_0, BinaryK):
+        fields["subnormals_mode"] = mul_0.subnormals
+    fields["accumulate_quant"] = acc is not None
+    if acc is not None:
+        acc_0 = acc[0]
+        fields |= _slot_fields(acc, "acc", n)
+        fields["acc_saturation_mode"] = acc_0.saturation
+        if isinstance(acc_0, BinaryK):
+            fields["acc_subnormals_mode"] = acc_0.subnormals
+    binaryK = isinstance(mul_0, BinaryK)
+    if acc is not None and type(acc[0]) is not type(mul_0):
+        # Cross-family: one format per slot (`SplitMac.__post_init__`), and
+        # the accumulate format is always rounded, so the ops take no flag.
+        del fields["accumulate_quant"]
+        if naive:
+            build = _binaryK_superfp_spec if binaryK else _superfp_binaryK_spec
+        else:
+            build = (
+                _binaryK_superfp_accumulated_spec if binaryK else _superfp_binaryK_accumulated_spec
+            )
+        return build(**fields)
+    if n > 1:
+        build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
+        return build(**fields)
+    if mac.carrier_rounding is RoundMode.RO:
+        # NAIVE, one format per slot, one family (`_checked_carrier_rounding`)
+        build = _binaryK_odd_spec if binaryK else _superfp_odd_spec
+        return build(**fields)
+    if naive:
+        build = _binaryK_spec if binaryK else _superfp_spec
+    else:
+        build = _binaryK_accumulated_spec if binaryK else _superfp_accumulated_spec
+    return build(**fields)

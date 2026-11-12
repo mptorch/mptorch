@@ -1,0 +1,10 @@
+cosine similarity to the float32 layer
+  output       0.99917
+  input grad   0.99814
+  weight grad  0.99830
+
+E4M3: 67.1% of a gradient of size ~1e-3 rounds to zero
+
+E5M2: 0.6% of a gradient of size ~1e-3 rounds to zero
+scaled E4M3: 0.0% of the same gradient rounds to zero, cos to unrounded 0.99965
+scaled E5M2: 0.0% of the same gradient rounds to zero, cos to unrounded 0.99861

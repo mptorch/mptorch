@@ -1,33 +1,21 @@
-from .linear import QLinear, QLazyLinear
-from .conv import (
-    QConv1d,
-    QConv2d,
-    QConv3d,
-    QConvTranspose1d,
-    QConvTranspose2d,
-    QConvTranspose3d,
-)
+"""The quantized layers and their format containers, re-exported for
+``mptorch.quant``."""
+
+from .conv import QConv1d, QConv2d, QConv3d
+from .format import QAffineFormats, QMatmulFormats
+from .linear import QLinear, QPackedLinear, freeze_packed_
+from .matmul import QMatmul
 from .quantizer import Quantizer
-from .batchnorm import QBatchNorm1d, QBatchNorm2d
-from .layernorm import QLayerNorm
-from .softmax import QSoftmax
-from .gelu import QGELU
-from .pooling import QAvgPool2d
 
 __all__ = [
-    "Quantizer",
+    "QAffineFormats",
+    "QMatmulFormats",
     "QLinear",
-    "QLazyLinear",
+    "QPackedLinear",
+    "freeze_packed_",
+    "QMatmul",
     "QConv1d",
     "QConv2d",
     "QConv3d",
-    "QConvTranspose1d",
-    "QConvTranspose2d",
-    "QConvTranspose3d",
-    "QAvgPool2d",
-    "QBatchNorm1d",
-    "QBatchNorm2d",
-    "QLayerNorm",
-    "QSoftmax",
-    "QGELU",
+    "Quantizer",
 ]

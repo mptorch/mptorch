@@ -1,0 +1,8 @@
+binaryK_matmul       (4, 3) cos to float32: 0.9998
+== a @ b.T           True
+binaryK_matmul_fma   (4, 3)
+superfp_matmul       (4, 3)
+superfp_matmul_fma   (4, 3)
+binaryK_matmul_mixed (4, 3)
+
+RuntimeError: mptorch::custom_matmul_binaryK is not differentiable: it simulates the arithmetic of its own reduction, so which format  ...

@@ -1,0 +1,59 @@
+// The CPU dispatch-key registrations: binds each op declared in quant_ops.cpp
+// to its CPU implementation (declared in quant_ops.h, defined in the kernel
+// files of this directory). The op schema is declared once, in
+// quant_ops.cpp's TORCH_LIBRARY block, and each backend registers its
+// implementation under its own key in a block like this one, so a call to
+// torch.ops.mptorch.<op> reaches the CPU or CUDA function according to the
+// device of its tensors. cuda/cuda_ops.cpp is this file's CUDA twin,
+// mps/mps_ops.cpp its MPS one, and autograd_ops.cpp registers the Autograd key.
+
+#include "../quant_ops.h"
+#include <torch/library.h>
+
+TORCH_LIBRARY_IMPL(mptorch, CPU, m)
+{
+  m.impl("binaryK_quant", TORCH_FN(binaryK_quantize_cpu));
+  m.impl("superfp_quant", TORCH_FN(superfp_quantize_cpu));
+  m.impl("binaryK_quant_", TORCH_FN(binaryK_quantize_cpu_));
+  m.impl("superfp_quant_", TORCH_FN(superfp_quantize_cpu_));
+  m.impl("fixedpoint_quant", TORCH_FN(fixedpoint_quantize_cpu));
+  m.impl("fixedpoint_quant_", TORCH_FN(fixedpoint_quantize_cpu_));
+  m.impl("narrow_float64", TORCH_FN(narrow_float64_cpu));
+  m.impl("custom_matmul_binaryK", TORCH_FN(binaryK_matmul_cpu));
+  m.impl("custom_matmul_superfp", TORCH_FN(superfp_matmul_cpu));
+  m.impl("custom_matmul_binaryK_fma", TORCH_FN(binaryK_matmul_fma_cpu));
+  m.impl("custom_matmul_superfp_fma", TORCH_FN(superfp_matmul_fma_cpu));
+  m.impl("custom_matmul_binaryK_mixed", TORCH_FN(binaryK_matmul_mixed_cpu));
+  m.impl("custom_matmul_superfp_mixed", TORCH_FN(superfp_matmul_mixed_cpu));
+  m.impl("custom_matmul_binaryK_fma_mixed", TORCH_FN(binaryK_matmul_fma_mixed_cpu));
+  m.impl("custom_matmul_superfp_fma_mixed", TORCH_FN(superfp_matmul_fma_mixed_cpu));
+  m.impl("custom_matmul_binaryK_accumulated", TORCH_FN(binaryK_matmul_accumulated_cpu));
+  m.impl("custom_matmul_superfp_accumulated", TORCH_FN(superfp_matmul_accumulated_cpu));
+  m.impl("custom_matmul_binaryK_fma_accumulated", TORCH_FN(binaryK_matmul_fma_accumulated_cpu));
+  m.impl("custom_matmul_superfp_fma_accumulated", TORCH_FN(superfp_matmul_fma_accumulated_cpu));
+  m.impl("custom_conv_binaryK", TORCH_FN(binaryK_conv_cpu));
+  m.impl("custom_conv_binaryK_mixed", TORCH_FN(binaryK_conv_mixed_cpu));
+  m.impl("custom_conv_binaryK_fma", TORCH_FN(binaryK_conv_fma_cpu));
+  m.impl("custom_conv_binaryK_fma_mixed", TORCH_FN(binaryK_conv_fma_mixed_cpu));
+  m.impl("custom_conv_superfp", TORCH_FN(superfp_conv_cpu));
+  m.impl("custom_conv_superfp_mixed", TORCH_FN(superfp_conv_mixed_cpu));
+  m.impl("custom_conv_superfp_fma", TORCH_FN(superfp_conv_fma_cpu));
+  m.impl("custom_conv_superfp_fma_mixed", TORCH_FN(superfp_conv_fma_mixed_cpu));
+  m.impl("block_pack", TORCH_FN(block_pack_cpu));
+  m.impl("block_unpack", TORCH_FN(block_unpack_cpu));
+  m.impl("block_quant", TORCH_FN(block_quantize_cpu));
+  m.impl("block_quant_", TORCH_FN(block_quantize_cpu_));
+  m.impl("custom_matmul_block", TORCH_FN(block_matmul_cpu));
+  m.impl("custom_matmul_binaryK_superfp", TORCH_FN(binaryK_superfp_matmul_cpu));
+  m.impl("custom_matmul_superfp_binaryK", TORCH_FN(superfp_binaryK_matmul_cpu));
+  m.impl("custom_matmul_binaryK_superfp_accumulated", TORCH_FN(binaryK_superfp_matmul_accumulated_cpu));
+  m.impl("custom_matmul_superfp_binaryK_accumulated", TORCH_FN(superfp_binaryK_matmul_accumulated_cpu));
+  m.impl("custom_conv_binaryK_superfp", TORCH_FN(binaryK_superfp_conv_cpu));
+  m.impl("custom_conv_superfp_binaryK", TORCH_FN(superfp_binaryK_conv_cpu));
+  m.impl("custom_matmul_binaryK_odd", TORCH_FN(binaryK_matmul_odd_cpu));
+  m.impl("custom_matmul_superfp_odd", TORCH_FN(superfp_matmul_odd_cpu));
+  m.impl("custom_matmul_binaryK_fma_odd", TORCH_FN(binaryK_matmul_fma_odd_cpu));
+  m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_cpu));
+  m.impl("_carrier_odd", TORCH_FN(carrier_odd_cpu));
+  m.impl("_stochastic_cast", TORCH_FN(stochastic_cast_cpu));
+}
