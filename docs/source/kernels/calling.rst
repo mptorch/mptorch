@@ -324,8 +324,9 @@ Performance notes
   signed, keep their subnormals, not saturate with ``SAT_PROPAGATE``, and
   have a precision from 2 to 23 bits and a range well inside binary32's (in
   practice at most seven exponent bits). The results are the scalar loop's,
-  word for word. On a Ryzen 9 7940HS that is 7-9x the scalar loop on one
-  thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen. Every other mode,
+  word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-9x the scalar loop
+  on one thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen; on an M3
+  Pro (NEON) about 4x at every thread count (0.69 ns a split step on one). Every other mode,
   format and accumulator runs the scalar loop, and so does any call under
   the environment variable ``MPTORCH_CPU_SIMD=0``, read when mptorch loads.
 - **Block products and convolutions cost what their matrix products cost.**
