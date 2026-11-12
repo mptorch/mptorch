@@ -1,9 +1,9 @@
 #pragma once
 
-// P3109's three stochastic rounding modes, in integers on the carrier's word
-// (phase U of dev/continuation_plan.md). With eta the fraction of |x| between
-// its two neighbouring values, R a random integer in [0, 2^N) and N the
-// format's prng_bits, each rounds the magnitude away from zero iff
+// P3109's three stochastic rounding modes, in integers on the carrier's word.
+// With eta the fraction of |x| between its two neighbouring values, R a
+// random integer in [0, 2^N) and N the format's prng_bits, each rounds the
+// magnitude away from zero iff
 // (arXiv:2606.04028, Fig. 2):
 //
 //   StochasticA   floor(eta * 2^N) + R >= 2^N                 RoundMode::SR
@@ -248,8 +248,8 @@ CUDA_HOST_DEVICE_INLINE bool sr_away_below(W m, int sh, W r, int n, int variant,
 // definition's answer for every input at or above 2^f (X >= 2^N there); one
 // below it in such a format goes up too, where the definition would go up
 // with probability |x| / 2^f. The exact answer, floor(2X) = m << -sh, was
-// measured (phase U): its few instructions, in arms most kernels never run,
-// cost the CUDA SR split GEMMs 6-8% through the unrolled K-loop's
+// measured with gemm_sr_ab.cu: its few instructions, in arms most kernels never
+// run, cost the CUDA SR split GEMMs 6-8% through the unrolled K-loop's
 // instruction footprint, for every format, so the user chose this rule
 // (2026-11-11). dev/benchmarks/sweeps/reference_casts.h states it in the
 // format's terms, and tests/test_stochastic_rounding.py holds both cases to it.

@@ -15,9 +15,9 @@
 // A Four Over Six rule's calls leave for block_kernel_fos.cpp before any of
 // that (run_pack). The rule reads a tile's elements between the two passes,
 // and written into pack_tiles, even behind a template parameter, it moved the
-// register and stack assignment of every other rule's instantiation
-// (dev/gemm_roadmap.md, R-3), so pack_tiles is the text it was before the
-// rule and is not the place for the next one either.
+// register and stack assignment of every other rule's instantiation, so
+// pack_tiles is its text at 4abbc6e, from before the rule, and is not the
+// place for the next one either.
 //
 // Tiles are disjoint and each element's stochastic draw is keyed on its own
 // index (common/block_kernels.h), so results do not depend on the thread

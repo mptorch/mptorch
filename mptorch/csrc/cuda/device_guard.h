@@ -1,5 +1,5 @@
 #pragma once
-// Every CUDA op runs on its tensors' device (phase W of dev/continuation_plan.md).
+// Every CUDA op runs on its tensors' device (since cb8cf52).
 //
 // PyTorch's own operators get a device guard from its code generator; an
 // operator registered through TORCH_LIBRARY_IMPL gets none. mptorch's CUDA

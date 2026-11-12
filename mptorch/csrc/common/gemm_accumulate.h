@@ -11,10 +11,10 @@
 // compilers, and nothing here may move them. The CUDA and CPU kernel headers
 // include this one and recognize its accumulators by `positional` below; a
 // NaiveAccumulator, which has no such member, takes exactly the code path it
-// took before this file existed (dev/gemm_roadmap.md, R-2, has the binary
-// comparison). The Metal prelude includes it too (mps/gemm.metal drives the
-// accumulators through the same contract, and recognizes them with a trait
-// of its own, since is_positional_accumulator_v is a C++20 requires-
+// took before this file existed (byte for byte when 0479b96 added it). The
+// Metal prelude includes it too (mps/gemm.metal drives the accumulators
+// through the same contract, and recognizes them with a trait of its own,
+// since is_positional_accumulator_v is a C++20 requires-
 // expression), so it is written the way the other common/ headers are, with
 // MPTORCH_THREAD on references and function objects rather than lambdas.
 //

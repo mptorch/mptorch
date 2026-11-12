@@ -402,8 +402,9 @@ def conv_formats(
         raise TypeError(f"mac must be a SplitMac, a FusedMac or a Number, got {type(mac).__name__}")
     if mac.carrier_rounding is not RoundMode.RNE:
         raise ValueError(
-            "carrier_rounding=RoundMode.RO has no conv kernels (dev/continuation_plan.md, "
-            "phase N): the odd step is in the NAIVE GEMMs only, which QLinear and QMatmul run"
+            "carrier_rounding=RoundMode.RO has no conv kernels: the odd step is in the NAIVE "
+            "GEMMs only, which QLinear and QMatmul run; a QConv*d keeps "
+            "carrier_rounding=RoundMode.RNE"
         )
     spec = spec_for_mac(mac)
     maps = (prec_idx, igrad_prec_idx, wgrad_prec_idx)

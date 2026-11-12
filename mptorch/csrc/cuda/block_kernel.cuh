@@ -5,9 +5,9 @@
 // instantiates binary32's (float32, float16, bfloat16) and block_kernel_f64.cu
 // binary64's (float64), so that MPTORCH_NO_FP64 leaves those out with the
 // file. block_kernel.cu says how the kernels work. The bodies are that file's
-// from before binary64 had block kernels, with the carrier spelled T: a
-// binary32 kernel compiles to what it compiled to there, under a name that
-// carries T (dev/gemm_roadmap.md, phase G).
+// at f9a6aa9, from before binary64 had block kernels, with the carrier
+// spelled T: a binary32 kernel compiles to what it compiled to there, under
+// a name that carries T.
 
 #include "block_kernel.h"
 #include "../common/philox.h"

@@ -1,10 +1,10 @@
-// The Meta kernels of the 31 GEMM-shaped ops (phase O of
-// dev/continuation_plan.md): the NAIVE, accumulated, cross-family and odd
-// GEMMs, the conv ops and the block GEMM. Each body is its CPU entry
-// point's, with the driver swapped for its twin in common/meta_host.h, which
-// holds the rules: the CPU's checks, in its order, and a result of the shape,
-// dtype and layout the CPU allocates, with no launch and no RNG draw. The
-// registrations are meta_ops.cpp's.
+// The Meta kernels of the 31 GEMM-shaped ops: the NAIVE, accumulated,
+// cross-family and odd GEMMs, the conv ops and the block GEMM. Each
+// body is its CPU entry point's, with the driver swapped for its twin
+// in common/meta_host.h, which holds the rules: the CPU's checks, in
+// its order, and a result of the shape, dtype and layout the CPU
+// allocates, with no launch and no RNG draw. The registrations are
+// meta_ops.cpp's.
 
 #include "common/meta_host.h"
 #include "meta_ops.h"

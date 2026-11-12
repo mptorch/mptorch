@@ -594,17 +594,17 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_zero(T origin_float, bool is_signed, Subn
 // A carrier subnormal is read with the exponent 1 - BIAS its field encodes,
 // which a value read off the field would misplace by a binade.
 //
-// How it is laid out is a measured choice (phase U; dev/continuation_plan.md
-// has the numbers). The GEMMs unroll the cast sixteen times a slab, and the
-// shape of that loop follows the cast's size: inline arms grown past what
-// they replaced cost the loop its unswitching and its vector loads, calls
-// cost it more (a call clobbers the registers the slab's operands sit in),
-// and a narrow format's products leave the normal range often enough that
-// most warps take an arm. So a value inside the normal range takes one
-// unsigned compare against StochasticT's bounds and a straight line, and
-// every other one, the arms in their order, an inline path of integer
-// selects; only the cross-multiplied floor, which no common format has, is
-// out of line.
+// How it is laid out is a measured choice: dev/benchmarks/timing/gemm_sr_ab.cu
+// timed it against the casts of 4164cee on 2026-11-11. The GEMMs unroll the
+// cast sixteen times a slab, and the shape of that loop follows the cast's
+// size: inline arms grown past what they replaced cost the loop its
+// unswitching and its vector loads, calls cost it more (a call clobbers the
+// registers the slab's operands sit in), and a narrow format's products leave
+// the normal range often enough that most warps take an arm. So a value inside
+// the normal range takes one unsigned compare against StochasticT's bounds and
+// a straight line, and every other one, the arms in their order, an inline
+// path of integer selects; only the cross-multiplied floor, which no common
+// format has, is out of line.
 
 // EXTENDED_NORMALS below a floor min_num = 2^f (2^man + 1) 2^-man that is not
 // a power of two: zero or min_num, the input's significand m against it in

@@ -2,7 +2,7 @@
 A layer that keeps an operand raw for backward and quantizes it again there.
 
 ``CustomArithLinear``, ``CustomArithConvNd`` and ``CustomArithMatmul`` need
-each quantized operand again in backward. Since phase V they can keep the raw
+each quantized operand again in backward. Since b35b568 they can keep the raw
 operand instead of the quantized copy and run the quantizer a second time
 (``mptorch/quant/modules/_saved.py``), which saves the copy wherever the raw
 operand is alive anyway. The claims this rests on, each checked here:
@@ -170,7 +170,7 @@ def test_the_node_holds_the_raw_operand_when_it_is_recomputed(device, kind, flag
 @pytest.mark.parametrize("kind", KINDS)
 def test_formats_without_the_flags_take_the_default(kind):
     """
-    A formats object without the attributes (one pickled before phase V)
+    A formats object without the attributes (one pickled before b35b568)
     behaves as if both were ``None``.
     """
     f = _formats(kind, Quant(BinaryK(8, 4)))

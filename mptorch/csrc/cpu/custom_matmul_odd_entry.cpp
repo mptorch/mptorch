@@ -1,5 +1,5 @@
-// The CPU entry points of the four custom_matmul_*_odd ops (phase N of
-// dev/continuation_plan.md): their twins' entry points with the mac's
+// The CPU entry points of the four custom_matmul_*_odd ops
+// (carrier_rounding=RoundMode.RO): their twins' entry points with the mac's
 // carrier steps rounded to odd. The bodies are common/carrier_odd_host.h's,
 // shared with the CUDA file; the kernels are instantiated by the
 // custom_matmul_{binaryK,superfp}{_fma,}_odd{,_f64} files.

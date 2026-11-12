@@ -1,9 +1,9 @@
 #pragma once
 
-// The Meta kernels of every op (phase O of dev/continuation_plan.md),
-// registered by meta_ops.cpp: the GEMM-shaped ones are meta_gemm.cpp's, the
-// others meta_ops.cpp's. Each takes its op's schema, as the CPU, CUDA and
-// MPS entry points of quant_ops.h do.
+// The Meta kernels of every op, registered by meta_ops.cpp: the
+// GEMM-shaped ones are meta_gemm.cpp's, the others meta_ops.cpp's. Each
+// takes its op's schema, as the CPU, CUDA and MPS entry points of
+// quant_ops.h do.
 
 #include <ATen/core/Tensor.h>
 #include <cstdint>

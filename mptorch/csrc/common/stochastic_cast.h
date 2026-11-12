@@ -1,11 +1,11 @@
 #pragma once
 
-// _stochastic_cast (phase U of dev/continuation_plan.md): a format's
-// stochastic cast with its random word given rather than drawn, elementwise,
-// so that a test can run every draw R of N bits against P3109's definition
-// and count exactly (tests/test_stochastic_rounding.py). Test-only, like
-// _carrier_odd. ATen-free, for the CPU kernel and the .cu alike; the checks
-// and the job's construction are stochastic_cast_host.h's.
+// _stochastic_cast: a format's stochastic cast with its random word given
+// rather than drawn, elementwise, so that a test can run every draw R of N
+// bits against P3109's definition and count exactly
+// (tests/test_stochastic_rounding.py). Test-only, like _carrier_odd.
+// ATen-free, for the CPU kernel and the .cu alike; the checks and the job's
+// construction are stochastic_cast_host.h's.
 
 #include "cast_binaryK.h"
 #include "cast_fixedpoint.h"

@@ -1,5 +1,5 @@
 // The vectorized binaryK RNE tiles of the CPU GEMM (cpu/gemm_rne_tile.h;
-// phase P of dev/continuation_plan.md, step 1).
+// added in eafa9aa).
 //
 // Each function is one packed tile's K-block, its column loop vectorized by
 // the compiler over the shipped cast_binaryK_rne_fast: a lane computes what
@@ -22,8 +22,8 @@
 //     arm64's NEON is its baseline.
 //
 // Measured (dev/benchmarks/timing/cpu_gemm_ab.cpp, Ryzen 9 7940HS, 256^3 on one
-// thread, against the scalar kernel after P0): split 7.5 -> 1.44 ns/mac with
-// AVX-512, 2.25 with AVX2; fused 5.3 -> 0.50 and 0.77.
+// thread, against the scalar kernel after eafa9aa's sign-test reorder): split
+// 7.5 -> 1.44 ns/mac with AVX-512, 2.25 with AVX2; fused 5.3 -> 0.50 and 0.77.
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("no-trapping-math")

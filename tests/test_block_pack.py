@@ -158,7 +158,7 @@ FOUR_OVER_SIX_TILES = {
         E2M1, E4M3, 128, block_rows=128, scale_rounding=_R.FOUR_OVER_SIX_MSE
     ),
 }
-# Block floating point (phase K, step 2): FixedPoint elements, sign-magnitude
+# Block floating point (`bfp`): FixedPoint elements, sign-magnitude
 # integer codes, which the kernels run as the binaryK layout they are
 # (`mptorch.number._minifloat`) and `block_reference` as integers times 2^-fl.
 # One magnitude bit, odd widths, OCP MXINT8's shape, another fl (the same
@@ -325,7 +325,7 @@ def test_wide_bfp_pack_equals_the_reference(device, mode, name):
 @pytest.mark.parametrize("mode", DETERMINISTIC)
 @pytest.mark.parametrize("bits", range(2, 17))
 def test_bfp_is_fixedpoint_quantize_of_the_scaled_block(device, mode, bits):
-    """One definition of the grid (risk R2 of phase D, retired): a block of
+    """One grid for the block and the elementwise ops, not two: a block of
     bfp(bits) is FixedPoint(bits, bits - 2, symmetric=True) of each element
     over its block's scale, 2^floor(log2 amax), times that scale, in every
     deterministic mode -- the block kernels' binaryK layout and the
@@ -1200,8 +1200,8 @@ def test_sr_reproducible_and_unbiased(device):
 def test_bfp_sr_is_unbiased(device, value):
     """bfp8's SR, in the upper half of the element's range (the binaryK
     layout's exponent field 1, rounded on the word) and in the lower half
-    (field 0, binaryK's SUBNORMALS arm, which rounds |x| in the carrier
-    first: decision K-g, a deviation far below this tolerance here)."""
+    (field 0, binaryK's SUBNORMALS arm, which before cf69807 rounded |x| in
+    the carrier first, a deviation far below this tolerance here)."""
     elem = FixedPoint(8, 6, symmetric=True, prng_bits=12)
     fmt = BlockFormat(elem, E8M0, 32)
     v = torch.full((1, 32), value, device=device)
@@ -1332,7 +1332,9 @@ def test_format_validation():
     with pytest.raises(TypeError, match="a BinaryK, a SuperFP or a FixedPoint"):
         BlockFormat(1, E8M0, 32)  # type: ignore
     # a fixed-point element: sign-magnitude, so signed and symmetric, and every
-    # code a value (decision K-e)
+    # code a value (an unsigned element would lose its top code to the
+    # unsigned binaryK layout's NaN, and two's complement is no sign-magnitude
+    # code)
     with pytest.raises(ValueError, match="signed and symmetric"):
         BlockFormat(FixedPoint(8, 6), E8M0, 32)  # two's complement
     with pytest.raises(ValueError, match="signed and symmetric"):
@@ -1521,7 +1523,8 @@ def test_mx_presets_match_gfloat(mode, name):
     """The MX presets against gfloat's quantize_block (the pinned commit in
     requirements-test.txt), an OCP implementation of its own, in every
     deterministic mode. The first row puts values between elem_max and
-    2^(emax + 1) in a block (risk R4): both saturate them to elem_max."""
+    2^(emax + 1) in a block, where gfloat's saturation could differ from
+    mptorch's: both saturate them to elem_max."""
     gfloat = pytest.importorskip("gfloat")
     from gfloat import formats as gf
     from gfloat.types import RoundMode as GR

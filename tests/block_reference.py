@@ -10,9 +10,11 @@ layout are each spelled out again, in numpy, from their definitions. The
 rounding is a search of the element's sorted value set, where the kernels run
 the binaryK cast and a clamp; the scale is the OCP formula on the block's
 largest magnitude; the layout is a Python integer the codes are OR-ed into.
-A reference that shared the kernels' rules would share their bugs (the
-roadmap's lesson on T5 and T8), which is why this one is built from the
-definitions and the value sets instead.
+A reference that shared the kernels' rules would share their bugs: twice,
+below a ``NORMALS`` or ``EXTENDED_NORMALS`` floor, the exhaustive cast sweeps
+agreed with a reference that spelled the kernels' own rule while both were
+wrong, once in every rounding mode and once under SR. That is why this one is
+built from the definitions and the value sets instead.
 
 float64 is exact for everything MX computes here (every value is a dyadic
 rational well inside its range); NVFP4's tensor-scaled arithmetic is what the

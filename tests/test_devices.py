@@ -1,16 +1,16 @@
 """
-Every op on its tensors' device (phase W).
+Every op on its tensors' device.
 
 Custom operators get no device guard from PyTorch's dispatcher, and mptorch's
-CUDA entry points take the current device's stream and generator. Since phase
-W every CUDA op is registered through ``OnOperandDevice``
+CUDA entry points take the current device's stream and generator. Since
+cb8cf52 every CUDA op is registered through ``OnOperandDevice``
 (``mptorch/csrc/cuda/device_guard.h``), which makes its first CUDA tensor's
 device current for the call, and the GEMM driver refuses operands on two
 devices, as the conv and block drivers did already. Two kinds of test:
 
 - **Operands on two devices** (one GPU, or the Mac): every GEMM-shaped op
   with one operand on the CPU raises a clean error, and leaves the device's
-  context usable. Before phase W the GEMM ops dispatched to the device kernel
+  context usable. Before cb8cf52 the GEMM ops dispatched to the device kernel
   with a host pointer, which on CUDA was "an illegal memory access", fatal to
   the process's CUDA context.
 - **A second GPU** (skipped without two CUDA devices): every CUDA op on
@@ -125,7 +125,7 @@ def test_a_gemm_refuses_operands_on_two_devices(device, name, host):
 
 @pytest.mark.parametrize("device", devices)
 def test_a_conv_and_a_block_gemm_refuse_operands_on_two_devices(device):
-    """The conv and block drivers' own checks, which phase W left as they were."""
+    """The conv and block drivers' own checks, which cb8cf52 left as they were."""
     conv = QConv2d(3, 4, 3, padding=1, formats=conv_formats(MACS["binaryK"])).to(device)
     with pytest.raises(RuntimeError, match="one device"):
         conv(_cpu(2, 3, 6, 6))
@@ -246,9 +246,10 @@ def _linear(input_quant, weight_quant, recompute=None):
 
 
 # Every case: each quantizer, each of the 16 GEMM ops (all under SR), three
-# conv macs, the block GEMM, and three layers: phase V's replay with the
-# weight and input recomputed, the same with the copies kept, and a
-# fixed-point input with a block-format weight.
+# conv macs, the block GEMM, and three layers: the recompute replay (the
+# quantizer run again in backward under the generator states its forward call
+# saw) with the weight and input recomputed, the same with the copies kept,
+# and a fixed-point input with a block-format weight.
 CASES = {
     **{f"quantize {n}": _quantize(n) for n in QUANTIZERS},
     **{f"gemm {n}": (lambda d, n=n: _gemm(n, d)) for n in MACS},
@@ -296,7 +297,7 @@ def test_a_case_runs_on_its_tensors_gpu(name):
 
 @requires_two_gpus
 def test_recomputing_agrees_with_the_copies_on_the_second_gpu():
-    """Phase V's replay rewinds the tensor's own generator on ``cuda:1`` too."""
+    """The recompute replay rewinds the tensor's own generator on ``cuda:1`` too."""
     recomputed, _, _ = _run(CASES["linear, recomputed"], 1)
     kept, _, _ = _run(CASES["linear, copies kept"], 1)
     for r, k in zip(recomputed, kept, strict=True):

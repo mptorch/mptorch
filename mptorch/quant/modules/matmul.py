@@ -87,7 +87,8 @@ class CustomArithMatmul(torch.autograd.Function):
     #: A matmul's operands are activations, and whether anything else keeps
     #: one alive depends on the model: attention's ``softmax(...) @ V`` can
     #: recompute ``a``, which softmax keeps, but not ``V``, a Linear's output
-    #: that nothing keeps (``_saved``; phase V, decision V-a).
+    #: that nothing keeps (``_saved``: a raw operand is kept only where it is
+    #: known to be alive anyway).
     _RECOMPUTE_DEFAULT = (False, False)
 
     @staticmethod

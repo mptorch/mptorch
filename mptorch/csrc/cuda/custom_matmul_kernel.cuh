@@ -262,8 +262,8 @@ namespace mptorch::gemm_cuda
     // BLOCKSIZE^2 threads) and roughly halved their throughput (34.7 -> 68.3
     // ms at 1024^3 on sm_89) on every single-format launch, which is nearly
     // all of them. Two instantiations double the kernel count, and the
-    // single-format path keeps its speed. dev/gemm_perf_audit.md, finding G4,
-    // holds the A/B.
+    // single-format path keeps its speed. Measured for 6bde6e9 on an RTX 4060
+    // Laptop, with a copy of this kernel, the prologue compiled in or not.
     template <bool MIXED, class Accumulator>
     __global__ __launch_bounds__(BLOCKSIZE * BLOCKSIZE)
     void custom_matmul_kernel(
@@ -315,7 +315,7 @@ namespace mptorch::gemm_cuda
         // thread's part of the addresses here. Every use is behind
         // `if constexpr`, and for any other policy this is an empty object:
         // the 230 device functions the other ops run compile to the bytes
-        // they did before (dev/gemm_roadmap.md, R-4).
+        // they did before b16a3aa added it.
         constexpr bool GATHERED = mptorch::gemm::is_gathered_v<Accumulator>;
         [[maybe_unused]] const auto ct = conv_thread<GATHERED>(acc_proto, bId, rId, cId);
 
@@ -418,7 +418,7 @@ namespace mptorch::gemm_cuda
             // binary64 kernels are bound by the device's FP64 rate rather
             // than by instruction fetch, so their unroll is flat within 1%
             // from 2 to 8; 2 has the fewest spills and the smallest binary.
-            // dev/gemm_roadmap.md, K1; dev/benchmarks/timing/gemm_f64_unroll.cu.
+            // Timed on sm_89; binary64 with dev/benchmarks/timing/gemm_f64_unroll.cu.
             //
             // A positional accumulator (KAHAN, BLOCK, TREE;
             // common/gemm_accumulate.h) names its own factor, takes the
@@ -428,8 +428,8 @@ namespace mptorch::gemm_cuda
             // one would part the device from the CPU's order under SR), and
             // is told when a slab ends. All of it is behind `if constexpr`,
             // so a NaiveAccumulator's kernel is the code it was: every one
-            // of the 230 device functions that existed before compiles to
-            // the same bytes (dev/gemm_roadmap.md, R-2).
+            // of the 230 device functions that existed before 0479b96
+            // compiled to the same bytes after it.
             constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
             constexpr int UNROLL = std::is_same_v<T, double> ? MPTORCH_GEMM_F64_UNROLL
                                    : MIXED                   ? 4
@@ -439,7 +439,7 @@ namespace mptorch::gemm_cuda
                 // A whole slab runs the unrolled loop, with no test per step;
                 // the last, partial one a plain loop over the steps it has. A
                 // `k < K` guard inside one loop instead cost 5-15% on every
-                // kernel (dev/gemm_roadmap.md, R-2).
+                // kernel (binaryK RNE on sm_89, measured for 0479b96).
                 const int64_t left = K - t * BLOCKSIZE;
                 if (left >= BLOCKSIZE)
                 {

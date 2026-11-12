@@ -1,8 +1,8 @@
 #pragma once
 
-// The host side of the custom_matmul_*_odd ops (phase N of
-// dev/continuation_plan.md, common/carrier_odd.h): one body per op, written
-// once on the backend, which {cpu,cuda}/custom_matmul_odd_entry.cpp name.
+// The host side of the custom_matmul_*_odd ops (common/carrier_odd.h): one
+// body per op, written once on the backend, which
+// {cpu,cuda}/custom_matmul_odd_entry.cpp name.
 // Each is its twin's entry point with the packed Args wrapped in OddArgs:
 // the schema, the checks and the driver are the twin's, so a call differs
 // from the twin's only in the kernel it runs. The driver refuses every

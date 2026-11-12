@@ -95,7 +95,7 @@ class CustomArithConvNd(torch.autograd.Function):
     #: quantized again in backward rather than kept. The weight is alive
     #: anyway as the layer's parameter, and a convolution's input usually is
     #: too, as the output a ReLU keeps for its own backward or as the data
-    #: batch (``_saved``; phase V, decision V-a).
+    #: batch (``_saved``: a raw operand is kept only where it is alive anyway).
     _RECOMPUTE_DEFAULT = (True, True)
 
     @staticmethod

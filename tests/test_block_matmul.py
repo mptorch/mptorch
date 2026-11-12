@@ -113,7 +113,7 @@ PAIRS = {
         SQ_FOS,
         dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_ABS_MAX),
     ),
-    # block floating point (phase K, step 2): fixed-point elements against
+    # block floating point (``bfp``): fixed-point elements against
     # float ones, and with a cast scale, square-tiled
     "nvfp4_bfp8": (NVFP4, bfp(8, 16)),
     "bfp8_mxfp8": (bfp(8, 32), MXFP8_E4M3),

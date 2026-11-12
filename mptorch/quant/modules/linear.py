@@ -10,7 +10,7 @@ and replace each of the three GEMMs with custom arithmetic. Any slot left
 ``nn.Linear``.
 
 ``QPackedLinear`` is a ``QLinear`` over block formats whose weight is stored
-only as its block codes (phase L): ``freeze_packed_`` switches a layer's class
+only as its block codes: ``freeze_packed_`` switches a layer's class
 to it in place, and ``unfreeze_packed_`` back.
 """
 
@@ -61,7 +61,8 @@ class CustomArithLinear(torch.autograd.Function):
     #: weight is alive anyway as the layer's parameter; the input is kept,
     #: since a Linear's input usually comes from an op that keeps its own
     #: input rather than its output (LayerNorm, GELU, SiLU), so the raw input
-    #: would be alive only for this layer (``_saved``; phase V, decision V-a).
+    #: would be alive only for this layer (``_saved``: a raw operand is kept
+    #: only where it is alive anyway).
     _RECOMPUTE_DEFAULT = (False, True)
 
     @staticmethod
@@ -312,7 +313,8 @@ def _switch_class(layer: Any, cls: type) -> None:
 
 
 #: The version of a frozen layer's checkpoint layout, in its extra state.
-#: A layout a checkpoint file exists in is a commitment (risk L4).
+#: A layout a checkpoint file exists in is a commitment, which is why the
+#: extra state has carried this version since the first layout.
 _PACKED_LAYOUT = 1
 
 #: The dtypes a packing records, by the names its extra state uses.

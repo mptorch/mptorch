@@ -47,11 +47,11 @@ extern "C"
 // spells a format. They are ops of their own, rather than nine more arguments
 // on the four they extend, because an argument costs every call that does not
 // use it: with them appended and defaulted a NAIVE call measured 1.0-1.4 us
-// slower through torch.ops, a tenth of the whole call (dev/gemm_roadmap.md,
-// R-2). The four *_mixed ops are NAIVE only.
+// slower through torch.ops, a tenth of the whole call. The four *_mixed ops
+// are NAIVE only.
 TORCH_LIBRARY(mptorch, m)
 {
-  // Tags (phase O). Every op passes torch.library.opcheck
+  // Tags. Every op passes torch.library.opcheck
   // (tests/test_fake_kernels.py), which pt2_compliant_tag says. An op that
   // takes round_mode draws its RNG state from the default generator under
   // SR, so torch.compile must not merge two identical calls of it:
@@ -309,10 +309,10 @@ TORCH_LIBRARY(mptorch, m)
         "bool outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, "
         "int outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor", seeded);
 
-  // Phase N (common/carrier_odd.h): the four NAIVE single-family GEMMs with
-  // the mac's carrier steps rounded to odd, each on its twin's schema, and
-  // the primitives themselves, elementwise, for the tests (op: 0 fma(a, b, c),
-  // 1 add(a, b), 2 mul(a, b)).
+  // Round to odd (common/carrier_odd.h): the four NAIVE single-family GEMMs
+  // with the mac's carrier steps rounded to odd, each on its twin's schema,
+  // and the primitives themselves, elementwise, for the tests
+  // (op: 0 fma(a, b, c), 1 add(a, b), 2 mul(a, b)).
   m.def("custom_matmul_binaryK_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
         "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, "
         "bool accumulate_quant, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, "
@@ -337,9 +337,9 @@ TORCH_LIBRARY(mptorch, m)
         "int accumulate_algorithm, int round_mode, int fma_saturation_mode, "
         "int fma_prng_bits) -> Tensor", seeded);
   m.def("_carrier_odd(Tensor a, Tensor b, Tensor c, int op) -> Tensor", plain);
-  // Phase U (common/stochastic_cast.h): a format's stochastic cast with each
-  // element's random word given, test-only, so a test can count every draw.
-  // Its draws are inputs, so it is not nondeterministic_seeded.
+  // _stochastic_cast (common/stochastic_cast.h): a format's stochastic cast
+  // with each element's random word given, test-only, so a test can count
+  // every draw. Its draws are inputs, so it is not nondeterministic_seeded.
   m.def("_stochastic_cast(Tensor x, Tensor draws, int family, int[] format, "
         "int stochastic_mode) -> Tensor", plain);
 }

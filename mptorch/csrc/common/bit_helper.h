@@ -65,19 +65,19 @@
 // The device's spelling still wins there, because warps are close to
 // region-uniform and its selects are nearly free; on a host the same
 // spelling ran at 0.85-0.98x of the integer path on supernormal operands
-// (0.74x when first measured) and 0.77-0.84x under KAHAN, so until phase F
+// (0.74x when first measured) and 0.77-0.84x under KAHAN, so until f9a6aa9
 // the host kept the integer path for that cast. Its own spelling, the
 // integer path's shape with the fast path's arithmetic, measured 1.05-1.32x
 // on supernormal operands in the superfp GEMMs (split, FMA, KAHAN), parity
 // in the cross-family one whose products are binaryK's, and 1.04-1.40x
 // elementwise; normal-region operands 0.97x or better, except bfloat16
 // elementwise on one thread, 0.90-0.95x, a path slow in every rounding mode
-// for reasons of its own (cast_superfp.h, at the function;
-// dev/gemm_roadmap.md, C5b). The Apple GPU does not take it, and that one is correctness: Metal
-// compiles the device's spelling, whose underflow test compares against
-// fast_super_half, which for a format with no underflow region is a
-// binary32 subnormal, and the GPU flushes a subnormal operand of a compare
-// to zero (see "The Apple GPU's flush of binary32 subnormals" below).
+// for reasons of its own (cast_superfp.h, at the function). The Apple GPU
+// does not take it, and that one is correctness: Metal compiles the
+// device's spelling, whose underflow test compares against fast_super_half,
+// which for a format with no underflow region is a binary32 subnormal, and
+// the GPU flushes a subnormal operand of a compare to zero (see "The Apple
+// GPU's flush of binary32 subnormals" below).
 #if defined(MPTORCH_FAST_CAST) && !defined(__METAL_VERSION__)
 #define MPTORCH_FAST_CAST_SUPERFP_RNE 1
 #endif
@@ -840,8 +840,8 @@ inline bool metal_is_nonnegative(float x)
 // of its input before reading the policy's (loop-invariant) is_signed, and
 // the sign of an N(0, 1) product or sum is a coin flip: about one mispredict
 // per CPU split-mac step, which made the RNE split GEMM 3.4x slower than its
-// two casts cost (phase P, P0). The elementwise quantizers take is_signed as
-// a template constant, which folds either order. The device and Metal keep
+// two casts cost (until eafa9aa). The elementwise quantizers take is_signed
+// as a template constant, which folds either order. The device and Metal keep
 // the order they were built with: nvcc predicates the test, and the CUDA RNE
 // GEMMs timed the same either way, so their code stays what it was.
 #if defined(__CUDA_ARCH__) || defined(__METAL_VERSION__)
@@ -1029,7 +1029,7 @@ enum class UnderflowMode
     NEAREST_AWAY, // at or above half, take it
     AWAY,         // any nonzero magnitude takes it: toward-away, and to-odd
     ZERO,         // toward zero
-    STOCHASTIC,   // unused since phase U (common/stochastic.h decides SR's floors); kept so NONE keeps its value
+    STOCHASTIC,   // unused since cf69807 (common/stochastic.h decides SR's floors); kept so NONE keeps its value
     // Nothing below the floor can reach the clip, so it carries no arm at all.
     // superfp is the case: its normal arm is entered only at or above
     // `normal_cutoff`, which a well-formed format puts at or above `min_exp`

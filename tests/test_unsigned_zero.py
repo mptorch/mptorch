@@ -485,9 +485,9 @@ def test_gemm_backends_agree_on_zero(op, dtype):
 #
 # KAHAN's `t - s` and its compensation, BLOCK's and TREE's fold into an
 # unrounded total: carrier arithmetic with, in some configurations, no cast
-# after it, which is where T2 found the NAIVE GEMM's leak. The argument that
-# none of them can return -0.0 (every sum starts from +0.0, no cast returns
-# -0.0, and x + y is -0.0 only when both are) is in
+# after it, which is where a NAIVE GEMM leaked -0.0 before c7da4c6. The
+# argument that none of them can return -0.0 (every sum starts from +0.0, no
+# cast returns -0.0, and x + y is -0.0 only when both are) is in
 # csrc/common/gemm_accumulate.h; this is the check.
 
 ALGORITHMS = [
@@ -621,9 +621,9 @@ def _block_formats():
 @pytest.mark.parametrize("fmt", range(10))
 def test_block_formats(device, fmt):
     """block_quantize, block_quantize_ and block_unpack return no -0.0 in any
-    rounding mode (dev/continuation_plan.md, phase D, decision 7): the encoder
-    never writes the sign-only code, the decoder reads it as +0.0, and a
-    product that underflows is +0.0. The probe reaches every binade, so some
+    rounding mode (the library's one zero, though OCP MX allows both): the
+    encoder never writes the sign-only code, the decoder reads it as +0.0, and
+    a product that underflows is +0.0. The probe reaches every binade, so some
     of every block's values round to zero from below its smallest value."""
     from mptorch.quant import block_pack, block_quantize, block_quantize_, block_unpack
 

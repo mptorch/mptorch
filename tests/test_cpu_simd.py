@@ -1,4 +1,4 @@
-"""The CPU GEMM's vectorized RNE tiles return the scalar kernel's words (phase P).
+"""The CPU GEMM's vectorized RNE tiles return the scalar kernel's words.
 
 ``cpu/gemm_rne_tile.cpp`` runs a binaryK RNE GEMM's packed tiles through a
 vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit

@@ -298,10 +298,10 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // compare against NaN is false so NaN takes the supernormal one.
 //
 // On a host this spelling ran at 0.85-0.98x of the integer path on
-// supernormal operands in the shipped kernels, and 0.77-0.84x under KAHAN
-// (dev/gemm_roadmap.md, C5 and C5b): the integer path's supernormal arm is
-// a branch on the exponent field and a round of the signed word, and the
-// selects cost a host what they do not cost a GPU. So the host's spelling is
+// supernormal operands in the shipped kernels, and 0.77-0.84x under KAHAN:
+// the integer path's supernormal arm is a branch on the exponent field and a
+// round of the signed word, and the selects cost a host what they do not cost
+// a GPU. So the host's spelling is
 // the integer path's shape with the fast path's arithmetic: one unsigned
 // range test on |x|'s word sends everything from 1.5 * 2^supernormal_cutoff
 // to 2^normal_cutoff to a round of the signed word, five operations with
@@ -311,7 +311,7 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // below it) is a branch ordinary data does not take. Against the integer
 // path, in the shipped kernels: split-mac GEMMs 1.24-1.32x on supernormal
 // operands and 1.08-1.10x on normal ones, FMA 1.05-1.12x and 0.97-1.05x,
-// elementwise binary32 1.24-1.31x and 0.98-1.73x (C5b). The sweep checks
+// elementwise binary32 1.24-1.31x and 0.98-1.73x (f9a6aa9). The sweep checks
 // each spelling over all 2^32 inputs on the backend that compiles it.
 //
 // binary32's only, like the binaryK twin, and behind MPTORCH_FAST_CAST for

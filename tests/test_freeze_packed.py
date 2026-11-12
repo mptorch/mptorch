@@ -1,4 +1,4 @@
-"""A ``QLinear`` that holds only its block codes: ``freeze_packed_`` (phase L).
+"""A ``QLinear`` that holds only its block codes: ``freeze_packed_``.
 
 A frozen layer must return what the layer returned before the freeze, word
 for word, on every backend and in both carriers. It must also hold nothing of
@@ -63,7 +63,11 @@ FORMATS = {
     "superfp": SFP8,
 }
 
-# how the unfrozen layer's weight slot is set: decision L-d's three cases
+# how the unfrozen layer's weight slot is set, the three cases a freeze packs
+# from: unset (the recorded BlockQuant's packing of the weight), a BlockQuant's
+# `.pack` (its memoized packing) and any other tensor-valued slot (the
+# recorded quant's packing of its result; here the BlockQuant as a fake
+# quantizer)
 WEIGHT_SLOTS = ["unset", "pack", "fake"]
 
 
@@ -500,7 +504,7 @@ def test_repr_names_the_format_and_the_bytes():
     assert isinstance(layer.packed_weight, BlockPacked)
 
 
-# --- torch.export and torch.compile (risk L2) -----------------------------------------
+# --- the class switch under torch.export and torch.compile --------------------------------
 
 
 def test_a_frozen_layer_exports():

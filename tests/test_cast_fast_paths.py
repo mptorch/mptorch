@@ -11,7 +11,8 @@ setup.py passes ``-ffp-contract=off`` together with ``-DMPTORCH_FAST_CAST=1``
 and ``FLT_EVAL_METHOD == 0`` holds (mptorch/csrc/common/bit_helper.h states
 the contract). And ``cast_superfp_rne_fast`` is spelled twice, once for each
 backend: the device's form was slower than the integer path on a host, so
-the host has a form of its own (dev/gemm_roadmap.md, C5b).
+the host has a form of its own since f9a6aa9: the integer path's shape with
+the fast path's arithmetic.
 
 So for one format and one rounding mode the two backends can be running
 different code: binaryK RNE is the same float path on both, superfp RNE is

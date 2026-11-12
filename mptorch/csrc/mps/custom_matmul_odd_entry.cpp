@@ -1,10 +1,10 @@
-// The custom_matmul_*_odd ops and _carrier_odd on an Apple GPU (phase N of
-// dev/continuation_plan.md): not yet. Metal has no directed rounding and
-// flushes binary32 subnormals, so the odd step would be error-free
-// transforms with integer paths for tiny magnitudes, which phase N left for
-// later (decision N-c). The ops are registered here all the same, so that an
-// MPS tensor gets this message rather than a dispatch error that names
-// nothing, and CI's check that every schema has an MPS kernel holds.
+// The custom_matmul_*_odd ops and _carrier_odd on an Apple GPU: not yet.
+// Metal has no directed rounding and flushes binary32 subnormals, so the odd
+// step would be error-free transforms with integer paths for tiny
+// magnitudes, which a13760a, the commit that added the odd ops, left for
+// later, choosing to raise on MPS. The ops are registered here all the same,
+// so that an MPS tensor gets this message rather than a dispatch error that
+// names nothing, and CI's check that every schema has an MPS kernel holds.
 
 #include "../quant_ops.h"
 #include <c10/util/Exception.h>
@@ -16,8 +16,8 @@ namespace
   [[noreturn]] void no_metal_kernel(const char *op_name)
   {
     TORCH_CHECK(false, op_name,
-                ": the carrier step rounded to odd has no MPS kernel (dev/continuation_plan.md, "
-                "phase N); run it on a CPU or CUDA tensor");
+                ": the carrier step rounded to odd has no MPS kernel: Metal has no directed rounding, "
+                "and the error-free-transform version is not written yet; run it on a CPU or CUDA tensor");
   }
 } // namespace
 

@@ -1,4 +1,4 @@
-"""What the layers' autograd Functions keep for backward (phase V).
+"""What the layers' autograd Functions keep for backward.
 
 ``CustomArithLinear``, ``CustomArithConvNd`` and ``CustomArithMatmul`` need
 each quantized operand again in backward, one per gradient: the quantized
@@ -90,13 +90,13 @@ def quantize_operand(
     """Quantize one operand, and decide what backward keeps of it.
 
     Returns ``(q_x, saved, replay)``: the quantized operand for the forward's
-    math; what to save for backward (``None`` when no gradient reads it,
-    which is P2's rule); and ``None`` if ``saved`` is the quantized value, or
-    the ``(quantizer, generator states)`` that turns the raw ``saved`` back
-    into it. ``q`` is a slot (``None`` is the identity), ``flag`` the
-    formats' recompute flag and ``default`` what ``None`` means here. An
-    operand that is not a tensor (a frozen layer's ``BlockPacked`` weight) is
-    passed through unquantized.
+    math; what to save for backward (``None`` when no gradient reads it: the
+    forward saves nothing its backward never reads); and ``None`` if ``saved``
+    is the quantized value, or the ``(quantizer, generator states)`` that
+    turns the raw ``saved`` back into it. ``q`` is a slot (``None`` is the
+    identity), ``flag`` the formats' recompute flag and ``default`` what
+    ``None`` means here. An operand that is not a tensor (a frozen layer's
+    ``BlockPacked`` weight) is passed through unquantized.
     """
     if not q:
         return x, (x if needed else None), None

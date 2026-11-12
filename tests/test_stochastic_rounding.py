@@ -1,6 +1,5 @@
 """
-P3109's three stochastic rounding modes, exactly (phase U of
-``dev/continuation_plan.md``).
+P3109's three stochastic rounding modes, exactly.
 
 With :math:`\\eta` the fraction of :math:`|x|` between its two neighbouring
 values, :math:`R` the draw's :math:`N` random bits (``prng_bits``) and
@@ -19,7 +18,7 @@ three subnormal modes, superfp's supernormal binades and the region below its
 smallest value, fixed point, both carriers, on the CPU and CUDA. The reference
 is the figure on ``Fraction``, with the neighbours from the kernels'
 deterministic casts; gfloat's three modes are a second oracle for binaryK.
-Before phase U, binaryK's subnormal arm and superfp's arm below its smallest
+Before cf69807, binaryK's subnormal arm and superfp's arm below its smallest
 value rounded ``|x|`` in the carrier first, and three arms ignored
 ``prng_bits`` (``dev/benchmarks/sweeps/cast_all_modes_sweep.cu sr-mean-old`` is that
 negative control).
@@ -364,7 +363,7 @@ def _paths():
                 qmatmul(a.to(d), b.to(d), m, prec_idx=None if p is None else p.to(d))
                 for m, p in calls
             ]
-            if d != "mps":  # the odd carrier step has no MPS kernel (phase N)
+            if d != "mps":  # the odd carrier step has no MPS kernel
                 odd = SplitMac(BK, BK_ACC, rounding=mode, carrier_rounding=R.RO)
                 out.append(qmatmul(a.to(d), b.to(d), odd))
             return out
@@ -462,8 +461,8 @@ def test_raw_ops_refuse_prng_bits_past_a_byte(mode):
 
 
 def test_odd_carrier_bounds_per_variant():
-    """The odd carrier step (phase N) holds A for P + prng_bits <= 23 in binary32
-    and B and C for P + prng_bits <= 22."""
+    """The odd carrier step (``carrier_rounding=RO``) holds A for
+    P + prng_bits <= 23 in binary32 and B and C for P + prng_bits <= 22."""
     a, b = torch.randn(4, 8), torch.randn(8, 3)
     at_a = FusedMac(BinaryK(16, 11, prng_bits=12), rounding=R.SR, carrier_rounding=R.RO)
     qmatmul(a, b, at_a)
@@ -478,7 +477,8 @@ def test_odd_carrier_bounds_per_variant():
 @pytest.mark.parametrize("mode", [R.SR_B, R.SR_C], ids=lambda m: m.name)
 def test_recompute_replays_the_new_modes(mode):
     """A layer that re-quantizes its operands in backward replays the draws of
-    the new modes too (phase V's capture), so its gradients are the copies'."""
+    the new modes too (the generator states captured before its forward call),
+    so its gradients are the copies'."""
     torch.manual_seed(0)
     f = binaryK_gemm_formats(
         8, 4, mul_prng_bits=4, acc_K=16, acc_P=11, acc_prng_bits=4, rounding_mode=mode

@@ -587,8 +587,9 @@ def _checked_accumulation(
     if any(_varies(slot) for slot in slots):
         raise ValueError(
             f"AccumulateAlgorithm.{mac.accumulate_algorithm.name} is implemented for a single "
-            "format per slot: the palette ops accumulate with NAIVE only (a palette of "
-            "accumulators is a follow-up of dev/continuation_plan.md's phase B)"
+            "format per slot: the palette ops accumulate with NAIVE only, since no kernel runs "
+            "a palette of accumulators or of outer formats; give each slot one format, or use "
+            "NAIVE with the palette"
         )
     family = next((slot[0] for slot in reversed(slots) if slot is not None), None)
     if outer is not None and family is not None and type(outer) is not type(family):
@@ -604,10 +605,11 @@ def _checked_carrier_rounding(
 ) -> None:
     """Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.
 
-    ``RO`` selects the ``custom_matmul_*_odd`` ops (phase N of
-    ``dev/continuation_plan.md``), which exist for the NAIVE single-format,
-    single-family GEMMs only, and whose step must be rounded by a format
-    afterwards. Each refusal says so here rather than at the call.
+    ``RO`` selects the ``custom_matmul_*_odd`` ops, whose carrier steps round
+    to odd so that the format's cast rounds the exact value. They exist for
+    the NAIVE single-format, single-family GEMMs only, and their step must be
+    rounded by a format afterwards. Each refusal says so here rather than at
+    the call.
     """
     mode = mac.carrier_rounding
     if not isinstance(mode, RoundMode) or mode not in (RoundMode.RNE, RoundMode.RO):
@@ -617,14 +619,18 @@ def _checked_carrier_rounding(
         )
     if mode is RoundMode.RNE:
         return
-    where = "(dev/continuation_plan.md, phase N)"
+    where = "keep carrier_rounding=RoundMode.RNE"
     if mac.accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
         raise ValueError(
-            f"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only "
-            f"{where}: KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest"
+            f"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only, "
+            f"as KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest: use "
+            f"NAIVE, or {where} (the default)"
         )
     if any(_varies(slot) for slot in slots):
-        raise ValueError(f"carrier_rounding=RoundMode.RO has no palette ops {where}")
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO has no palette ops, as the odd step is implemented "
+            f"for one format per slot only: give each slot one format, or {where}"
+        )
     if slots[0] is None:
         raise ValueError(
             "carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "
@@ -633,7 +639,10 @@ def _checked_carrier_rounding(
         )
     present = [slot for slot in slots if slot is not None]
     if len({type(slot[0]) for slot in present}) > 1:
-        raise ValueError(f"carrier_rounding=RoundMode.RO has no cross-family ops {where}")
+        raise ValueError(
+            "carrier_rounding=RoundMode.RO has no cross-family ops, as the odd step is "
+            f"implemented for one family per mac only: use one family in both slots, or {where}"
+        )
 
 
 @dataclass(frozen=True)

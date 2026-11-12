@@ -2151,9 +2151,9 @@ def _minifloat(f: "BinaryK | SuperFP | FixedPoint") -> _Minifloat:
     layout with one exponent bit, ``M - 1`` mantissa bits and bias ``2 - M +
     fl``: field 0, the subnormals, holds ``m * 2**-fl``, and field 1 holds
     ``(2**(M-1) + m) * 2**-fl``, so the code ``c`` is the value ``c *
-    2**-fl``. The block kernels decode, round and encode it as that binaryK
-    (decision K-d of ``dev/continuation_plan.md``): one step from zero to the
-    top, which the element's ``elem_max`` keeps it to."""
+    2**-fl``. The block kernels decode, round and encode it as that binaryK,
+    so no kernel knows about fixed point: one step from zero to the top,
+    which the element's ``elem_max`` keeps it to."""
     if isinstance(f, FixedPoint):
         m = f.mag_bits
         return _Minifloat(f.is_signed, 1, m - 1, 2 - m + f.fl, False)

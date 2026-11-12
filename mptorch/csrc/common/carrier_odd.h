@@ -1,6 +1,6 @@
 #pragma once
 
-// The carrier's mac step rounded to odd (phase N of dev/continuation_plan.md).
+// The carrier's mac step rounded to odd (the custom_matmul_*_odd ops).
 //
 // A NAIVE step rounds twice: the carrier's add or fused multiply-add to
 // nearest, then the format's cast (gemm_policy.h's SplitMac and FusedMac).
@@ -15,7 +15,7 @@
 //
 // This header is what the custom_matmul_*_odd ops add: the three primitives
 // in both carriers, the two macs that use them, and the Args that builds the
-// macs from an existing op's. No translation unit that existed before phase N
+// macs from an existing op's. No translation unit that existed before a13760a
 // includes it, so the existing kernels are the bytes they were.
 //
 // What every primitive returns, the same on every backend, since the CPU and
@@ -41,9 +41,9 @@
 // with x beyond it gives Omega | 1 = Omega.
 //
 // The algorithms were designed and checked by an independent review on
-// 2026-11-10 against an exact Fraction reference (the phase N section of
-// dev/continuation_plan.md has the cases); tests/test_carrier_rounding.py
-// holds the kernels to the same reference through the _carrier_odd op.
+// 2026-11-10 against an exact Fraction reference;
+// tests/test_carrier_rounding.py holds the kernels to the same reference
+// through the _carrier_odd op.
 //
 // The host primitives assume what every host kernel here assumes: round to
 // nearest, no contraction (setup.py's -ffp-contract=off; clang is told so

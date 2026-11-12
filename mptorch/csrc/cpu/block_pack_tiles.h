@@ -8,10 +8,10 @@
 // build with MPTORCH_NO_FP64 leaves the binary64 ones out with that file.
 // block_kernel.cpp says how they work.
 //
-// The bodies are block_kernel.cpp's from before binary64 had block kernels,
-// with the carrier spelled T: a binary32 instantiation compiles to what it
-// compiled to there (dev/gemm_roadmap.md, phase G). In an unnamed namespace,
-// as they were, so that each including file keeps its own copies.
+// The bodies are block_kernel.cpp's at f9a6aa9, from before binary64 had
+// block kernels, with the carrier spelled T: a binary32 instantiation
+// compiles to what it compiled to there. In an unnamed namespace, as they
+// were, so that each including file keeps its own copies.
 
 #include "../common/block_kernels.h"
 #include "../common/dispatch.h"

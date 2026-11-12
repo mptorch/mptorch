@@ -1,13 +1,13 @@
 #pragma once
 
 // A convolution's three passes as GEMMs whose operands are gathers of the
-// convolution's tensors (dev/gemm_roadmap.md, R-4). Nothing is unfolded: the
-// kernels' tile loads compute each operand element's address from the
-// geometry below and read it in place, or read zero where the element is
-// padding. The K-loop, the Mac and Accumulator policies and the SR keying are
-// the GEMM's own, so every format, accumulate algorithm and rounding mode
-// applies, and each pass is bit-identical to a GEMM over explicitly gathered
-// operands, in the same K order and with the same [batch, M, N] output index
+// convolution's tensors. Nothing is unfolded: the kernels' tile loads compute
+// each operand element's address from the geometry below and read it in
+// place, or read zero where the element is padding. The K-loop, the Mac and
+// Accumulator policies and the SR keying are the GEMM's own, so every format,
+// accumulate algorithm and rounding mode applies, and each pass is
+// bit-identical to a GEMM over explicitly gathered operands, in the same K
+// order and with the same [batch, M, N] output index
 // (tests/test_qconv_gemm.py builds those operands and calls the GEMM op).
 //
 // The passes, for a convolution of x [B, G*Cg, *in] with W [G*Coutg, Cg, *k]
@@ -391,12 +391,12 @@ namespace mptorch::gemm
   // kernels drive it through the same calls; what they add for it is behind
   // `if constexpr (is_gathered_v<Accumulator>)`, which no other Accumulator
   // satisfies, so the kernels every other op runs compile to what they
-  // compiled before (dev/gemm_roadmap.md, R-4). The geometry rides on the
-  // policy because the policy is already the kernels' one by-value parameter
-  // that says how an op differs; a new kernel parameter would have changed
-  // every existing kernel's signature. The CPU's and CUDA's only: Metal has
-  // no derived classes, and the MPS kernel binds the geometry as a buffer of
-  // its own (mps/gemm.metal).
+  // compiled before b16a3aa. The geometry rides on the policy because the
+  // policy is already the kernels' one by-value parameter that says how an op
+  // differs; a new kernel parameter would have changed every existing
+  // kernel's signature. The CPU's and CUDA's only: Metal has no derived
+  // classes, and the MPS kernel binds the geometry as a buffer of its own
+  // (mps/gemm.metal).
   template <class Acc>
   struct Gathered : Acc
   {

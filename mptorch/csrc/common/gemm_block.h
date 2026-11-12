@@ -13,8 +13,8 @@
 // (common/gemm_gather.h): the kernels take the block load behind
 // `if constexpr (is_blocked_v<Accumulator>)`, which no other policy
 // satisfies, so the kernels every other op runs compile to the bytes they
-// compiled before (dev/gemm_roadmap.md, R-3). A template parameter of the
-// kernels would have renamed all of them.
+// compiled before 6f4b3fd. A template parameter of the kernels would have
+// renamed all of them.
 //
 // Operands. A is logically [M, K] and B [N, K], both with K along the packed
 // axis unless their `trans` flag says the operand is stored with K as its

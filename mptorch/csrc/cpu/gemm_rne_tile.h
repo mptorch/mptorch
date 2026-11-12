@@ -1,7 +1,7 @@
 #pragma once
 
-// The CPU GEMM's binaryK RNE steps, vectorized (phase P of
-// dev/continuation_plan.md, step 1).
+// The CPU GEMM's binaryK RNE steps, vectorized, beside the scalar loop of
+// cpu/custom_matmul_kernel.h (added in eafa9aa).
 //
 // cpu/custom_matmul_kernel.h runs a packed tile's K-block through one of the
 // functions below in place of its scalar loop when that computes the same
@@ -21,8 +21,8 @@
 //
 // Every other kernel instantiation sees only declarations here: the trait is
 // 0 for it, and the kernel's branch is an `if constexpr` that names nothing
-// the lambda does not already capture or declare (rule 11), so its code is
-// what it was.
+// the lambda does not already capture or declare, so its code is what it
+// would be without the branch.
 
 #include "../common/gemm_gather.h"
 #include "../common/gemm_policy.h"

@@ -1,10 +1,11 @@
-"""What the carrier rounds in a mac step (phase N of dev/continuation_plan.md).
+"""What the carrier rounds in a mac step.
 
 A NAIVE GEMM step rounds twice: the carrier's add or fused multiply-add
 rounds to nearest (binary32 for float32 operands, binary64 for float64 ones),
 and the format's cast rounds the result again. Under the directed modes that
 returns the wrong neighbour whenever the exact sum lies within the carrier's
-last place of a format value (the appendix's F1). ``carrier_rounding=RO``
+last place of a format value (in binary32, an exact sum of 1 + 2^-30 rounded
+up into binary16p8 gives 1 instead of 1.0078125). ``carrier_rounding=RO``
 runs the ``custom_matmul_*_odd`` ops instead, whose carrier steps round to
 odd (``csrc/common/carrier_odd.h``), so that the cast rounds the exact value.
 
@@ -202,48 +203,71 @@ def _call(a, b, c, op, dtype, device):
 
 
 OMEGA32, OMEGA64 = 3.4028234663852886e38, 1.7976931348623157e308
-# (a, b, c, op, dtype, the word RO gives): the design review's vectors (the
-# phase N section of dev/continuation_plan.md says what each one catches).
+# (a, b, c, op, dtype, the word RO gives): the vectors of the odd step's
+# design review (2026-11-10), each group under what it catches.
 VECTORS = [
+    # double rounding; the binade fix
     (1, 1, 2**-30, FMA, torch.float32, 0x3F800001),
     (1, 1, -(2**-30), FMA, torch.float32, 0x3F7FFFFF),
+    # a spurious sticky bit
     (1, 1, 2**-22, FMA, torch.float32, 0x3F800002),
+    # RO above x
     (1, 1 + 2**-23, -(2**-40), FMA, torch.float32, 0x3F800001),
+    # a grid point, the residual toward zero
     (1, 1 + 2**-22, -(2**-40), FMA, torch.float32, 0x3F800001),
+    # an exact midpoint of the carrier, 1 + 2^-24
     (1 + 2**-12, 1 + 2**-12, -(2**-11), FMA, torch.float32, 0x3F800001),
+    # Fast2Sum in either fixed order
     (2**-50, 2**-50, 1, FMA, torch.float32, 0x3F800001),
     (1, 1, 2**-100, FMA, torch.float32, 0x3F800001),
     (2**-50, -(2**-50), 1, FMA, torch.float32, 0x3F7FFFFF),
+    # never flushed to zero
     (2**-75, 2**-75, 0, FMA, torch.float32, 0x00000001),
     (2**-75, 2**-75, -(2**-149), FMA, torch.float32, 0x80000001),
+    # subnormal parity
     (7 * 2**-75, 2**-75, 0, FMA, torch.float32, 0x00000003),
     (9 * 2**-75, 2**-75, 0, FMA, torch.float32, 0x00000005),
+    # the normal/subnormal boundary
     (2**-63 * (1 - 2**-24), 2**-63, 0, FMA, torch.float32, 0x007FFFFF),
+    # overflow to the largest finite value, not infinity
     (2**64, 2**64, 0, FMA, torch.float32, 0x7F7FFFFF),
     (OMEGA32, 1, 2**103, FMA, torch.float32, 0x7F7FFFFF),
+    # a product out of range, the result in it
     (2**64, 2**64, -OMEGA32, FMA, torch.float32, 0x73800000),
+    # gaps past p
     (1, 2**100, 2**-100, FMA, torch.float32, 0x71800001),
     (1, -(2**-100), 2**100, FMA, torch.float32, 0x717FFFFF),
+    # zero signs
     (1, 1, -1, FMA, torch.float32, 0x00000000),
     (-0.0, 1, -0.0, FMA, torch.float32, 0x80000000),
     (0.0, 1, -0.0, FMA, torch.float32, 0x00000000),
     (-1, 0, -0.0, FMA, torch.float32, 0x80000000),
+    # rounding a * b to nearest first would give NaN
     (2**64, 2**64, -math.inf, FMA, torch.float32, 0xFF800000),
+    # binary64: double rounding
     (1, 1, 2**-60, FMA, torch.float64, 0x3FF0000000000001),
     (1, 1, -(2**-60), FMA, torch.float64, 0x3FEFFFFFFFFFFFFF),
+    # x is TwoProd's low part exactly
     (1 + 2**-52, 1 + 2**-52, -(1 + 2**-51), FMA, torch.float64, 0x3970000000000000),
+    # TwoProd's underflow edge
     (2**-484 * (1 + 2**-52), 2**-484 * (1 + 2**-52), 0, FMA, torch.float64, 0x0370000000000003),
     (2**-486 * (1 + 2**-52), 2**-486 * (1 + 2**-52), 0, FMA, torch.float64, 0x0330000000000003),
+    # below the subnormals
     (2**-540, 2**-540, 0, FMA, torch.float64, 0x0000000000000001),
     (2**-540, 2**-540, -5e-324, FMA, torch.float64, 0x8000000000000001),
+    # c dominates
     (2**-1000, 1, 1, FMA, torch.float64, 0x3FF0000000000001),
     (-(2**-1000), 1, 1, FMA, torch.float64, 0x3FEFFFFFFFFFFFFF),
+    # the scaled-down path, and overflow
     (2**512, 2**512, 0, FMA, torch.float64, 0x7FEFFFFFFFFFFFFF),
     (2**512, 2**512, -OMEGA64, FMA, torch.float64, 0x7CA0000000000000),
     (2**600, 2**600, -OMEGA64, FMA, torch.float64, 0x7FEFFFFFFFFFFFFF),
     (OMEGA64, 1, 2**970, FMA, torch.float64, 0x7FEFFFFFFFFFFFFF),
+    # rounding a * b to nearest first would give NaN
     (2**600, 2**600, -math.inf, FMA, torch.float64, 0xFFF0000000000000),
+    # 2Sum's spurious overflow
     (OMEGA64, -1.5 * 2**971, 0, ADD, torch.float64, 0x7FEFFFFFFFFFFFFD),
+    # the zero-sign fix
     (-0.0, 5, -0.0, FMA, torch.float64, 0x8000000000000000),
     (0.0, -0.0, -0.0, FMA, torch.float64, 0x8000000000000000),
 ]
@@ -334,9 +358,9 @@ def test_a_nan_passes_through_the_host_primitives_whole(dtype, op):
 @requires_mps
 def test_the_odd_ops_have_no_mps_kernel():
     a = torch.ones(2, 2, device="mps")
-    with pytest.raises(RuntimeError, match="phase N"):
+    with pytest.raises(RuntimeError, match="no MPS kernel"):
         odd_op(a, a, a, FMA)
-    with pytest.raises(RuntimeError, match="phase N"):
+    with pytest.raises(RuntimeError, match="no MPS kernel"):
         binaryK_matmul_fma(a, a, fma_K=8, fma_P=4, carrier_rounding=R.RO)
 
 

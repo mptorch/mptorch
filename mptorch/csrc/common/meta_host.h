@@ -1,10 +1,10 @@
 #pragma once
 
-// The Meta ("fake") side of every op (phase O of dev/continuation_plan.md):
-// what the meta device, FakeTensorMode, torch.export and torch.compile run
-// in an op's place to learn its result's shape, dtype and strides without
-// computing it. Only meta_gemm.cpp and meta_ops.cpp include this header, so
-// no object of the real ops changes.
+// The Meta ("fake") side of every op: what the meta device,
+// FakeTensorMode, torch.export and torch.compile run in an op's place to
+// learn its result's shape, dtype and strides without computing it. Only
+// meta_gemm.cpp and meta_ops.cpp include this header, so no object of the
+// real ops changes.
 //
 // A meta kernel accepts what the CPU op accepts and raises what it raises,
 // with the CPU op's messages and in its order; what it leaves out needs

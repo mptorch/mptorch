@@ -1,4 +1,4 @@
-"""The conv ops: a convolution's three passes as gathered GEMMs (R-4).
+"""The conv ops: a convolution's three passes as gathered GEMMs.
 
 ``mptorch/csrc/common/gemm_gather.h`` states what each pass computes: the
 forward and the weight gradient are the GEMM of their mac over the operands

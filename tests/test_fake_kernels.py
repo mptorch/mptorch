@@ -1,5 +1,5 @@
 """
-Fake (Meta) kernels for every op (phase O of dev/continuation_plan.md).
+Fake (Meta) kernels for every op.
 
 Every mptorch op has a Meta kernel (``mptorch/csrc/meta_ops.cpp`` and
 ``meta_gemm.cpp``, over ``common/meta_host.h``): the CPU op's checks, in its
@@ -23,8 +23,8 @@ the op's place. What is tested here:
   equal eager's, under SR as well once Inductor keeps the random ops in
   program order (``fallback_random``). The ``nondeterministic_seeded`` tag is
   what keeps a compiled graph from merging two identical SR calls; without
-  it the CSE test below returned one draw twice (``dev/continuation_plan.md``,
-  phase O's log).
+  it the CSE test below returned one draw twice under ``aot_eager`` and
+  ``inductor`` (a build without the tags, 2026-11-11).
 """
 
 import copy
@@ -182,7 +182,7 @@ def _workload():
     block_matmul(pa, pb, rounding=SR)
     block_matmul(pa, pb, accumulate_algorithm=A.KAHAN)
     torch.ops.mptorch._carrier_odd(x, x, x, 0)
-    # the test-only stochastic cast (phase U): binary8p4, StochasticB, N = 3
+    # the test-only stochastic cast: binary8p4, StochasticB, N = 3
     torch.ops.mptorch._stochastic_cast(
         x, torch.zeros_like(x, dtype=torch.int64), 0, [8, 4, 7, 3, 1, 2, 0], 7
     )
@@ -663,8 +663,9 @@ def test_a_compiled_model_equals_eager(backend, rounding):
 
 
 def test_compile_graph_breaks_are_recorded():
-    """Not an assertion: the graph breaks that remain in the layers (phase J's
-    question), printed for the log. On torch 2.14 there is one per layer:
+    """Not an assertion: the graph breaks that remain in the layers (how much
+    of a model ``torch.compile`` traces into one graph), printed (``pytest -s``
+    shows them). On torch 2.14 there is one per layer:
     Dynamo cannot read ``_RECOMPUTE_DEFAULT`` off an autograd.Function."""
     torch._dynamo.reset()
     explanation = torch._dynamo.explain(_mlp(SR, 8))(torch.randn(4, 32))

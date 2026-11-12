@@ -295,7 +295,8 @@ that. The other two tables show them with formats:
 The price is kernel time, in proportion to the roundings per step. On an RTX
 4060 laptop GPU a 1024\ :sup:`3` split-mac GEMM takes 1.2 times ``NAIVE``'s
 time under ``BLOCK``, 1.3 under ``TREE`` and 2.2 under ``KAHAN``
-(``dev/gemm_roadmap.md``, R-2). The three are implemented for the
+(``BinaryK(8, 4)`` products into ``BinaryK(16, 11)`` sums under ``RNE``,
+September 2026). The three are implemented for the
 single-format ops, on the CPU, CUDA and Apple GPUs, in both carriers (next
 section) where the device has float64. A palette raises.
 

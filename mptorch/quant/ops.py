@@ -363,8 +363,10 @@ class _GemmSpec(NamedTuple):
 # fold each block's sum into the total with. They are separate ops rather than
 # more arguments on the four because an argument costs every call: appended
 # and defaulted, the nine measured 1.0-1.4 us on a NAIVE call through
-# `torch.ops` (`dev/gemm_roadmap.md`, R-2). A NAIVE spec is therefore the op
-# and the `args` it was before the three existed.
+# `torch.ops` (CPU, 1x1x1, when 0479b96 added the three: the dispatcher fills
+# and unboxes every schema argument whether or not the caller passes it). A
+# NAIVE spec is therefore the op and the `args` it was before the three
+# existed.
 
 
 class _Accumulation(NamedTuple):
@@ -561,7 +563,7 @@ def _accumulated(
 # names NAIVE and nothing else. They are separate functions, and the NAIVE
 # builders are the text they were, because a flat wrapper resolves on every
 # call: eight more keywords passed through them, and the test that they are
-# all unset, measured 0.3-1.3 us on a NAIVE call (`dev/gemm_roadmap.md`, R-2).
+# all unset, measured 0.3-1.3 us on a NAIVE call (when 0479b96 added them).
 #
 # The outer format's sign, saturation and subnormals default to those of the
 # mac's last format, which are read back from the resolved NAIVE spec rather
@@ -708,18 +710,19 @@ def _superfp_fma_accumulated_spec(
     )
 
 
-# The carrier step rounded to odd (phase N of dev/continuation_plan.md,
-# csrc/common/carrier_odd.h). Each `custom_matmul_*_odd` op takes its twin's
-# schema, so its spec is the twin's with the op replaced, plus what the
-# guarantee needs of the formats: the cast of an odd carrier result rounds the
-# exact value only if every rounding boundary of the format is an even word of
-# the carrier. For a format of precision P, at most p - 2 under RNE and RNA
-# (the midpoints take a bit) and p - 1 under the directed modes and RO; under
-# SR (StochasticA), P + prng_bits at most p - 1, and under SR_B and SR_C at
-# most p - 2 (B reads a bit below the draw, C a midpoint there); p is 24 in
-# binary32 and 53 in binary64 (decision N-d: a format outside those raises). binary64's verdict
-# raises when the spec is built, binary32's when a call rounds in binary32,
-# like every other carrier finding.
+# The carrier step rounded to odd (csrc/common/carrier_odd.h). Each
+# `custom_matmul_*_odd` op takes its twin's schema, so its spec is the twin's
+# with the op replaced, plus what the guarantee needs of the formats: the cast
+# of an odd carrier result rounds the exact value only if every rounding
+# boundary of the format is an even word of the carrier. For a format of
+# precision P, at most p - 2 under RNE and RNA (the midpoints take a bit) and
+# p - 1 under the directed modes and RO; under SR (StochasticA), P + prng_bits
+# at most p - 1, and under SR_B and SR_C at most p - 2 (B reads a bit below the
+# draw, C a midpoint there); p is 24 in binary32 and 53 in binary64. A format
+# outside those raises rather than warns, per call and per carrier, naming
+# carrier=torch.float64 where binary64 holds it: binary64's verdict raises when
+# the spec is built, binary32's when a call rounds in binary32, like every
+# other carrier finding.
 
 _RNE = RoundMode.RNE
 _CARRIER_PRECISION = ((24, "binary32"), (53, "binary64"))
@@ -779,9 +782,9 @@ def _odd(
 def _checked_naive(accumulate_algorithm: AccumulateAlgorithm) -> None:
     if accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
         raise ValueError(
-            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only "
-            "(dev/continuation_plan.md, phase N): KAHAN, BLOCK and TREE rely on error-free "
-            "transforms rounded to nearest"
+            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only: "
+            "KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest; use NAIVE, "
+            "or keep carrier_rounding=RoundMode.RNE with the other algorithms"
         )
 
 
@@ -863,8 +866,10 @@ def _checked_carrier_rounding_call(carrier_rounding: RoundMode, accumulated: boo
         )
     if accumulated:
         raise ValueError(
-            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only "
-            "(dev/continuation_plan.md, phase N): it takes no block_size and no outer format"
+            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only: "
+            "it takes no block_size and no outer format, since KAHAN, BLOCK and TREE rely on "
+            "error-free transforms rounded to nearest; drop them, or keep "
+            "carrier_rounding=RoundMode.RNE"
         )
 
 
@@ -3751,7 +3756,7 @@ def superfp_matmul_fma_mixed(
 # --- the cross-family split mac ------------------------------------------------
 #
 # A binaryK multiply with a superfp accumulate, or the reverse
-# (`csrc/common/gemm_cross.h`; `dev/gemm_roadmap.md`, R-1): two NAIVE ops and
+# (`csrc/common/gemm_cross.h`): two NAIVE ops and
 # their `*_accumulated` twins, laid out as the single-family split ops are, so
 # that a NAIVE cross-family call pays what a single-family one does. The
 # schema is the single-family split op's with the accumulate format spelled in

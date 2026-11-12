@@ -407,8 +407,8 @@ namespace mptorch::gemm_cpu
       // itself. Every use of it is behind `if constexpr`, and it is read
       // through the caller's acc_proto rather than through a second local:
       // even an empty local of a NaiveAccumulator's moved the register
-      // allocation of two of that kernel's existing instantiations, and the
-      // NAIVE objects are held byte-identical (dev/gemm_roadmap.md, R-2).
+      // allocation of two of that kernel's existing instantiations, and
+      // 0479b96 added the accumulators with the NAIVE objects byte-identical.
       constexpr bool POSITIONAL = is_positional_accumulator_v<Accumulator>;
       const Mac *slot_of[MIXED ? TI * TJ : 1]; // the mixed path's per-element slots
 
@@ -491,9 +491,9 @@ namespace mptorch::gemm_cpu
           int64_t tk = std::min<int64_t>(TK, K - k0);
           // A gathered policy (the conv ops) packs the same tiles through
           // its geometry; nothing else about the loop changes for it, and
-          // every other policy compiles to the code it did
-          // (dev/gemm_roadmap.md, R-4; the branch order is the mixed
-          // map's, above).
+          // every other policy compiles to the code it would without the
+          // branch (b16a3aa added it with the other objects byte-identical;
+          // the branch order is the mixed map's, above).
           if constexpr (!mptorch::gemm::is_gathered_v<Accumulator> &&
                         !mptorch::gemm::is_blocked_v<Accumulator>)
           {
@@ -517,7 +517,7 @@ namespace mptorch::gemm_cpu
           // the vectorized tile (cpu/gemm_rne_tile.h), word for word what the
           // loop below computes. The branch names nothing the lambda does not
           // already capture or declare, so the instantiations it does not
-          // cover compile to what they did (rule 11).
+          // cover compile to what they did without it.
           if constexpr (!MIXED && rne_tile_kind<Accumulator>::value != 0)
           {
             static_assert(TI * TJ <= RNE_TILE_MAX);
