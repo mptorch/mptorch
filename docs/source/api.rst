@@ -127,7 +127,12 @@ See :doc:`layers`.
 .. autoclass:: mptorch.quant.QAffineFormats
 
 .. autoclass:: mptorch.quant.QLinear
-   :members: forward
+   :members: forward, freeze_packed_
+
+.. autoclass:: mptorch.quant.QPackedLinear
+   :members: packed_weight, unfreeze_packed_
+
+.. autofunction:: mptorch.quant.freeze_packed_
 
 .. autoclass:: mptorch.quant.QConv1d
 

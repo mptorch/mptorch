@@ -33,10 +33,11 @@ tensor's device's.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import torch
 
+from ..block import BlockPacked
 from ..mac import BlockQuant, Quant
 from .quantizer import Quantizer
 
@@ -80,7 +81,7 @@ def _capture(x: torch.Tensor, every: bool) -> _State:
 
 
 def quantize_operand(
-    x: torch.Tensor,
+    x: "torch.Tensor | BlockPacked",
     q: Callable | None,
     flag: bool | None,
     default: bool,
@@ -93,9 +94,17 @@ def quantize_operand(
     which is P2's rule); and ``None`` if ``saved`` is the quantized value, or
     the ``(quantizer, generator states)`` that turns the raw ``saved`` back
     into it. ``q`` is a slot (``None`` is the identity), ``flag`` the
-    formats' recompute flag and ``default`` what ``None`` means here.
+    formats' recompute flag and ``default`` what ``None`` means here. An
+    operand that is not a tensor (a frozen layer's ``BlockPacked`` weight) is
+    passed through unquantized.
     """
     if not q:
+        return x, (x if needed else None), None
+    if type(x) is BlockPacked:
+        # Quantized already: a frozen layer's packed weight (QPackedLinear),
+        # whose codes are what its slot made before the freeze. Tested here,
+        # behind the slot, so that a layer without quantizers pays nothing,
+        # and by type, which is half an isinstance against torch.Tensor.
         return x, (x if needed else None), None
     # _known only where it decides something: whether None may recompute,
     # and whether True must rewind.
@@ -105,7 +114,7 @@ def quantize_operand(
         recompute = flag is not None or known is not None
     state = None
     if recompute and (known is None or known.rounding.is_stochastic):
-        state = _capture(x, known is None)
+        state = _capture(cast(torch.Tensor, x), known is None)  # not a BlockPacked, above
     q_x = q(x)
     if not needed:
         return q_x, None, None

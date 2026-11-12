@@ -18,7 +18,10 @@
 ``layer``
     QLinear forward and backward with block_gemm_formats against
     binaryK_gemm_formats at 4096 x 4096, with a 1D weight format packed per
-    hook and a 16 x 16 one packed once per step, and the peak memory of each.
+    hook and a 16 x 16 one packed once per step, and the peak memory of each;
+    then, under no_grad, the forward and the memory a layer holds, packed
+    once or frozen to its codes (``freeze_packed_``, phase L, on a tree that
+    has it).
 
 Each row is the minimum of ``--rounds`` timed runs after a warm-up. Run on a
 CUDA device (``--device cpu`` for the CPU kernels, at smaller sizes).
@@ -217,6 +220,39 @@ def layer(args):
         t = timed(step, args.device, args.rounds)
         peak = torch.cuda.max_memory_allocated() / 2**20 if args.device == "cuda" else float("nan")
         print(f"{name:<34}{t * 1e3:>12.2f}{peak:>10.1f}")
+        del lin, xi, step
+
+    # Inference. "held MB" is what the layer itself holds (its parameters, its
+    # buffers and a BlockQuant's memoized packing), counted after a forward;
+    # "peak MB" the CUDA allocator's peak over the forwards, from a reset
+    # after the layer was built.
+    frozen = hasattr(QLinear, "freeze_packed_")
+    infer: dict[str, tuple[BlockFormat, bool]] = {
+        "1D weight, packed once": (NVFP4, False),
+        "16x16 weight, packed once": (w16, False),
+    }
+    if frozen:
+        infer["1D weight, frozen"] = (NVFP4, True)
+        infer["16x16 weight, frozen"] = (w16, True)
+    print(f"\n{'inference (no_grad)':<34}{'fwd ms':>12}{'held MB':>10}{'peak MB':>10}")
+    for name, (wfmt, freeze) in infer.items():
+        formats = block_gemm_formats(NVFP4, wfmt, acc=acc)
+        quant = BlockQuant(wfmt, axis=1)
+        formats.weight_quant = quant.pack
+        lin = QLinear(n, n, formats=formats).to(args.device)
+        if freeze:
+            lin.freeze_packed_()
+        with torch.no_grad():
+            lin(x)
+            if args.device == "cuda":
+                torch.cuda.reset_peak_memory_stats()
+            t = timed(lambda lin=lin: lin(x), args.device, args.rounds)
+        tensors = [*lin.parameters(), *lin.buffers()]
+        memo = quant._memo[0]
+        held = sum(v.nbytes for v in tensors) + (memo[-1].nbytes if memo else 0)
+        peak = torch.cuda.max_memory_allocated() / 2**20 if args.device == "cuda" else float("nan")
+        print(f"{name:<34}{t * 1e3:>12.2f}{held / 2**20:>10.1f}{peak:>10.1f}")
+        del lin, formats, quant, tensors, memo  # each row's peak starts from nothing of the last
 
 
 def main():

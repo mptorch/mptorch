@@ -220,17 +220,71 @@ input's). There are two recipes for the weight:
    :language: text
    :caption: output
 
-Packing the weight once does not save memory, in training or in inference.
-The layer's parameter stays the float weight, and the packing is a second
-copy beside it, held by the ``BlockQuant``: 0.504 bytes per element for
-NVFP4's 16 x 16 tiles and 1.03 for MXFP8, next to float32's 4. In training,
-the float weight that a 1D layer saves for its backward pass is the parameter
-itself, and the 16 x 16 packing is an extra allocation, kept alive from the
-forward pass to the input gradient. In inference the packing is made once and
-kept for as long as the weight does not change. A ``BlockQuant`` remembers
-one weight, so give each layer its own. What packing once buys is time and
-consistency: the weight is quantized once, and every product reads the same
-codes. Each GEMM's result is float32, stored in the input's dtype.
+Packing the weight once does not save memory by itself. The layer's
+parameter stays the float weight, and the packing is a second copy beside
+it, held by the ``BlockQuant``: 0.504 bytes per element for NVFP4's 16 x 16
+tiles and 1.03 for MXFP8, next to float32's 4. In training, the float weight
+that a 1D layer saves for its backward pass is the parameter itself, and the
+16 x 16 packing is an extra allocation, kept alive from the forward pass to
+the input gradient. A ``BlockQuant`` remembers one weight, so give each layer
+its own. What packing once buys is time and consistency: the weight is
+quantized once, and every product reads the same codes. Each GEMM's result is
+float32, stored in the input's dtype. To drop the float weight, freeze the
+layer (next section).
+
+Freezing a layer to its codes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For inference, or to train other layers around a fixed one,
+:meth:`~mptorch.quant.QLinear.freeze_packed_` replaces a layer's float weight
+by its block codes, in place, and :func:`~mptorch.quant.freeze_packed_` does
+so for every block-format ``QLinear`` of a model, one layer at a time. The
+layer becomes a :class:`~mptorch.quant.QPackedLinear`. It is still a
+``QLinear``, its ``weight`` is ``None``, and its codes and scales are two
+``uint8`` buffers, ``weight_codes`` and ``weight_scales``, which follow
+``.to()`` and stay ``uint8`` under ``.half()``. On a 4096 x 4096 weight that is
+8.06 MiB for NVFP4's 16 x 16 tiles, 9.00 for its 1 x 16 blocks and 16.5 for
+MXFP8, where the layer held 64 MiB of float32 and the codes besides. The
+codes are what the layer's forward multiplies (its ``weight_quant`` packing,
+or the weight packed in the format the layer's formats name), so the frozen
+layer returns what it returned before, word for word.
+
+.. literalinclude:: ../snippets/block_freeze.py
+   :language: python
+   :caption: docs/snippets/block_freeze.py
+
+.. literalinclude:: ../snippets/block_freeze.out
+   :language: text
+   :caption: output
+
+* **Gradients.** A square-tiled weight still serves the input gradient, so
+  layers below a frozen one can train. A 1D weight raises there, because its
+  packing reads differently along the other axis and there is no float
+  weight left to pack again. A frozen layer has no weight gradient, and its
+  bias stays a float parameter.
+* **Memory.** The float weight is freed once nothing else refers to it, so
+  freeze before building an optimizer or any copy of the parameters, which
+  would keep it alive. A model that does not fit on its device as float can
+  be frozen on the CPU and then moved. On CUDA the freed memory returns to
+  torch's caching allocator; ``torch.cuda.empty_cache()`` hands it back to the
+  driver.
+* **Stochastic rounding.** A freeze draws once. With the packed-once recipe it
+  keeps the packing the last forward used, draws included. A layer that packs
+  in each hook draws again in every forward.
+* **Checkpoints.** The format is code, as every hook of the layer's formats
+  is. The ``state_dict`` holds the codes, the bias and an ``_extra_state``
+  that records the packing's format, shape, tensor scale, dtype and carrier.
+  To load, build the model as it was built, freeze it with ``pack=False``
+  (zeroed codes, nothing packed), and load. A model built on the meta device
+  allocates nothing until ``load_state_dict(..., assign=True)``, so its float
+  weights never exist. A checkpoint frozen in another format or shape
+  raises, naming both, and a float checkpoint does not load into a frozen
+  model, nor the reverse.
+* **Code that reads** ``layer.weight`` (a model summary, an initializer) meets
+  ``None``, and ``reset_parameters`` raises.
+  :meth:`~mptorch.quant.QPackedLinear.unfreeze_packed_` turns the layer back
+  into a ``QLinear`` whose weight is the decoded codes: the quantized weight,
+  not the original.
 
 ``tensor_scale_epilogue=True`` applies a format's per-tensor scales to each
 product's result instead of in the decode, as NVIDIA's NVFP4 GEMMs do

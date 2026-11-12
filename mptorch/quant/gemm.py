@@ -1094,7 +1094,9 @@ def _reused(x: "torch.Tensor | BlockPacked", q: BlockQuant, where: str) -> Block
             f"{where} reads the operand the forward pass packed along its other axis, and "
             f"{x.fmt}'s tiles are not square, so its values along that axis are not the ones "
             f"this pass rounds to: leave the *_quant slot unset so it is packed per pass, or use "
-            f"a square tile, {_square_tile_hint(x.fmt)}, which quantizes the same along either axis"
+            f"a square tile, {_square_tile_hint(x.fmt)}, which quantizes the same along either "
+            "axis (a layer frozen by freeze_packed_ has no float weight to pack again: freeze it "
+            "in a square-tile format to train below it)"
         )
     return x
 
@@ -1222,6 +1224,10 @@ def block_gemm_formats(
     in such a format therefore raises in the input gradient. To train with
     one, leave ``weight_quant`` unset.
 
+    For inference, :meth:`mptorch.quant.QLinear.freeze_packed_` replaces the
+    layer's float weight by its codes in ``weight``'s format, and the layer
+    then holds only those (:class:`mptorch.quant.QPackedLinear`).
+
     Args:
         input (BlockFormat or BlockQuant): the input's format (a
             ``BlockQuant`` names its rounding and tensor scale).
@@ -1308,4 +1314,7 @@ def block_gemm_formats(
         out = _run_block_gemm(spec, qg.pack_fresh(g_flat, 0).mT, qi.pack_fresh(i_flat, 0))
         return _stored_as(spec, out, q_wgrad_output.dtype)
 
-    return QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
+    formats = QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
+    # the weight's format, which QLinear.freeze_packed_ packs a frozen weight in
+    formats._block_weight = qw
+    return formats

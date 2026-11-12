@@ -28,7 +28,9 @@ from .modules import (
     QLinear,
     QMatmul,
     QMatmulFormats,
+    QPackedLinear,
     Quantizer,
+    freeze_packed_,
 )
 from .ops import (
     binaryK_matmul,
@@ -91,6 +93,8 @@ __all__ = [
     "QAffineFormats",
     "QMatmulFormats",
     "QLinear",
+    "QPackedLinear",
+    "freeze_packed_",
     "QMatmul",
     "QConv1d",
     "QConv2d",

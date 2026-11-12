@@ -10,8 +10,12 @@ with, is decided by the autograd Function that reads the container
 """
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from torch import nn
+
+if TYPE_CHECKING:
+    from ..mac import BlockQuant
 
 
 class QAffineFormats(nn.Module):
@@ -98,6 +102,11 @@ class QAffineFormats(nn.Module):
         >>> layer = QLinear(256, 64, formats=formats)
         >>> plain = QLinear(256, 64, formats=QAffineFormats())   # as nn.Linear
     """
+
+    #: The weight's format, set by :func:`mptorch.quant.block_gemm_formats`
+    #: for :meth:`mptorch.quant.QLinear.freeze_packed_` to pack in. A class
+    #: attribute, so that other formats carry nothing.
+    _block_weight: "BlockQuant | None" = None
 
     def __init__(
         self,
