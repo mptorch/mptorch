@@ -309,12 +309,25 @@ Performance notes
 - **Stochastic rounding is not free.** Each rounding draws from a
   per-element Philox stream, so a ``RoundMode.SR`` GEMM is slower than a
   deterministic one.
-- **binary64 is slower on a GPU.** On an RTX 4060 a float64 GEMM took
-  2.7-3.1x the time of the same product computed in binary32 (up to 6x for a
-  stochastic split step). On the CPU the two are within a percent. A float64
-  model whose formats binary32 can carry gets the binary32 speed back as a
-  float32 model. A float32 model with ``carrier=torch.float64`` pays the
-  binary64 time plus the widening and narrowing copies.
+- **binary64 is slower.** On an RTX 4060 a float64 GEMM took 2.7-3.1x the
+  time of the same product computed in binary32 (up to 6x for a stochastic
+  split step). On the CPU the two are within a percent, except where binary32
+  runs vector code (next item), which binary64 does not. A float64 model
+  whose formats binary32 can carry gets the binary32 speed back as a float32
+  model. A float32 model with ``carrier=torch.float64`` pays the binary64
+  time plus the widening and narrowing copies.
+- **On the CPU, binaryK under round-to-nearest-even is the fast case.** A
+  binaryK split or fused product, or one that quantizes only the products,
+  in binary32 under ``RoundMode.RNE``, with the ``NAIVE`` accumulator and one
+  format per slot, runs its tiles in vector code (AVX-512 or AVX2 on x86-64,
+  NEON on arm64), and so do the convolutions on it. Its formats must be
+  signed, keep their subnormals, not saturate with ``SAT_PROPAGATE``, and
+  have a precision from 2 to 23 bits and a range well inside binary32's (in
+  practice at most seven exponent bits). The results are the scalar loop's,
+  word for word. On a Ryzen 9 7940HS that is 7-9x the scalar loop on one
+  thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen. Every other mode,
+  format and accumulator runs the scalar loop, and so does any call under
+  the environment variable ``MPTORCH_CPU_SIMD=0``, read when mptorch loads.
 - **Block products and convolutions cost what their matrix products cost.**
   Decoding a block operand adds 5-18% to the flat product on the decoded
   operands (:doc:`block`, "How the kernel decodes"). A convolution's

@@ -127,7 +127,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_even(T x, bool is_signed, cons
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);
@@ -160,7 +160,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_nearest_away(T x, bool is_signed, cons
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);
@@ -189,7 +189,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_odd(T x, bool is_signed, const MPTORCH
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);
@@ -253,7 +253,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_up(T x, bool is_signed, const MPTORCH_
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     // A NaN or an infinity is settled before the sign is taken off, so the
@@ -275,7 +275,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_down(T x, bool is_signed, const MPTORC
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     // see cast_fixedpoint_up
@@ -327,7 +327,7 @@ CUDA_HOST_DEVICE_INLINE T cast_fixedpoint_stochastic(T x, typename FloatTraits<T
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
 
-    if (MPTORCH_IS_NEGATIVE(x) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed))
         return T(0);
 
     word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(x);

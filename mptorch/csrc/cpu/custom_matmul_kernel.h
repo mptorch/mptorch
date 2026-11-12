@@ -21,6 +21,7 @@
 #include "../common/gemm_policy.h"
 #include "../common/modes.h"
 #include "gemm_backend.h"
+#include "gemm_rne_tile.h"
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h> // at::internal::GRAIN_SIZE lives here
 #include <algorithm>
@@ -511,6 +512,18 @@ namespace mptorch::gemm_cpu
             // a_off and b_off are in bytes for it.
             pack_block_a(A, a_pack, acc_proto.block_a, bId, a_off, i0, k0, ti, tk);
             pack_block_b(B, b_pack, acc_proto.block_b, bId, b_off, k0, j0, tk, tj);
+          }
+          // A binaryK RNE GEMM whose formats admit it runs this K-block in
+          // the vectorized tile (cpu/gemm_rne_tile.h), word for word what the
+          // loop below computes. The branch names nothing the lambda does not
+          // already capture or declare, so the instantiations it does not
+          // cover compile to what they did (rule 11).
+          if constexpr (!MIXED && rne_tile_kind<Accumulator>::value != 0)
+          {
+            static_assert(TI * TJ <= RNE_TILE_MAX);
+            if (run_rne_tile<rne_tile_kind<Accumulator>::value>(mac_single, a_pack, b_pack,
+                                                                  tv.sums, ti, tk, tj))
+              continue;
           }
           for (int64_t i = 0; i < ti; ++i)
           {

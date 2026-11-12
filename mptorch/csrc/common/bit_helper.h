@@ -833,6 +833,23 @@ inline bool metal_is_nonnegative(float x)
 #define MPTORCH_IS_NONNEGATIVE(x) ((x) >= 0)
 #endif
 
+// Whether a cast returns its unsigned format's zero for a negative input:
+// the first test of every binaryK, superfp and fixed-point cast. On the host
+// the format's signedness goes first. GCC branches on the operands in the
+// order they are written, so with the sign first a cast branched on the sign
+// of its input before reading the policy's (loop-invariant) is_signed, and
+// the sign of an N(0, 1) product or sum is a coin flip: about one mispredict
+// per CPU split-mac step, which made the RNE split GEMM 3.4x slower than its
+// two casts cost (phase P, P0). The elementwise quantizers take is_signed as
+// a template constant, which folds either order. The device and Metal keep
+// the order they were built with: nvcc predicates the test, and the CUDA RNE
+// GEMMs timed the same either way, so their code stays what it was.
+#if defined(__CUDA_ARCH__) || defined(__METAL_VERSION__)
+#define MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed) (MPTORCH_IS_NEGATIVE(x) && !(is_signed))
+#else
+#define MPTORCH_NEGATIVE_TO_UNSIGNED(x, is_signed) (!(is_signed) && MPTORCH_IS_NEGATIVE(x))
+#endif
+
 // IEEE binary32 a * b, a / b and a - b, rounded to nearest even with
 // subnormal operands and results, for the block formats' decode and pack
 // (block_decode.h's MPTORCH_BLOCK_MUL, _DIV and _SUB), which multiply by

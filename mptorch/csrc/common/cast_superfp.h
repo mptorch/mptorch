@@ -432,7 +432,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_even(T origin_float, bool is_sign
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
 #if defined(MPTORCH_FAST_CAST_SUPERFP_RNE)
@@ -509,7 +509,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_nearest_away(T origin_float, bool is_sign
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
     word_t target, quantize_bits;
@@ -564,7 +564,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_odd(T origin_float, bool is_signed, const
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
     word_t target, quantize_bits;
@@ -733,7 +733,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_absolute_down(T origin_float, const MPTOR
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
     // NaN comparisons are always false, so a NaN takes the negating arm
@@ -752,7 +752,7 @@ CUDA_HOST_DEVICE_INLINE T cast_superfp_up(T origin_float, bool is_signed, const 
 template <class T>
 CUDA_HOST_DEVICE_INLINE T cast_superfp_down(T origin_float, bool is_signed, const MPTORCH_THREAD SuperfpParamsT<T> &p)
 {
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
     // see cast_superfp_up
@@ -844,7 +844,7 @@ CUDA_HOST_DEVICE_INLINE T sr_superfp_outside(T origin_float, typename FloatTrait
 {
     using F = FloatTraits<T>;
     using word_t = typename F::word_t;
-    if (MPTORCH_IS_NEGATIVE(origin_float) && !is_signed)
+    if (MPTORCH_NEGATIVE_TO_UNSIGNED(origin_float, is_signed))
         return T(0);
 
     const word_t target = reinterpret_cast<const MPTORCH_THREAD word_t &>(origin_float);
