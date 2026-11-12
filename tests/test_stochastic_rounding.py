@@ -210,6 +210,67 @@ def test_every_draw_counts_as_p3109_says(fmt, mode, dtype, device):
         assert int(up[i]) == want, (x[i].item(), int(up[i]), want)
 
 
+# A superfp whose smallest value 2^c is itself a carrier subnormal: binary32's
+# c = -145 (SuperFP(0, 8, 1, 146)) and binary64's c = -1070 (SuperFP(3, 4, 1,
+# 966)). A carrier subnormal takes the arm below 2^c, read at the exponent
+# 1 - BIAS, with the shift sh = MAN + c - (1 - BIAS) - N - 1 (3 - N for both),
+# which was undefined behaviour when negative. The arm's rule
+# (stochastic.h's sr_away_below_or_above, reference_casts.h's
+# ref_sr_coarse_floor): zero or 2^c, and while sh >= 0 P3109's count on
+# |x| / 2^c below it and every draw up at or above it; once sh < 0, every draw
+# up, which is the definition at or above 2^c and the user's choice below it
+# (the exact answer cost the CUDA SR GEMMs 6-8%). The formats warn that the
+# carrier cannot place their bottom; this pins the result they get.
+SUBNORMAL_FLOOR = {
+    torch.float32: ([0, 8, 1, 146, None, 1, SAT.value], -145, -149),
+    torch.float64: ([3, 4, 1, 966, None, 1, SAT.value], -1070, -1074),
+}
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["binary32", "binary64"])
+@pytest.mark.parametrize("mode", STOCHASTIC, ids=lambda m: m.name)
+@pytest.mark.parametrize("n", [1, 2, 8, 12])
+def test_a_carrier_subnormal_under_a_subnormal_floor(n, mode, dtype, device):
+    fields, c, tiny = SUBNORMAL_FLOOR[dtype]
+    fields = [n if f is None else f for f in fields]
+    sh = MAN[dtype] + c - (tiny + MAN[dtype]) - n - 1  # 1 - BIAS = tiny + MAN
+    step = 2 ** (c - tiny)  # 2^c in units of the carrier's smallest subnormal
+    ks = [
+        1,
+        2,
+        3,
+        5,
+        7,
+        step // 2 - 1,
+        step // 2,
+        step // 2 + 1,
+        step - 1,
+        step,
+        step + 1,
+        3 * step,
+        1000,
+    ]
+    x = torch.tensor([k * 2.0**tiny for k in ks], dtype=dtype)
+    x = torch.cat([x, -x])
+    man = fields[0]
+    draws = (torch.arange(2**n, dtype=torch.int64) << (MAN[dtype] - man - n)).repeat(x.numel())
+    y = CAST(x.repeat_interleave(2**n).to(device), draws.to(device), 1, fields, mode.value).cpu()
+    y = y.view(x.numel(), 2**n)
+    v = 2.0**c
+    for i in range(x.numel()):
+        xi = Fraction(x[i].item())
+        row = y[i]
+        assert bool(((row == 0) | (row.abs() == v)).all()), (xi, row.unique())
+        assert bool((row[row != 0].sign() == (1 if xi > 0 else -1)).all())
+        up = int((row != 0).sum())
+        if sh < 0 or abs(xi) >= Fraction(v):
+            want = 2**n
+        else:
+            want = _expected_up(xi, Fraction(0), Fraction(v), n, mode)
+        assert up == want, (float(xi), sh, up, want)
+
+
 def test_n0_is_rz_rna_and_half_toward_zero():
     """With no random bits, A is RZ, B is round-half-away and C rounds half
     toward zero (P3109's definitions at N = 0)."""

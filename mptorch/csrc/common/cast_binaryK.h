@@ -684,8 +684,8 @@ CUDA_HOST_DEVICE_INLINE T sr_binaryK_outside(T origin_float, typename FloatTrait
         return sr_binaryK_floor_scaled<T>(target, sr_draw<T>(rand_prob, st), st.bits, st.variant, p.min_num,
                                           p.man_bits);
     const int f = (int)((p.min_num >> F::MAN_BITS) & F::FIELD_MASK) - F::BIAS;
-    const bool up = sr_away_below<word_t>(m, F::MAN_BITS + f - e - st.bits - 1, sr_draw<T>(rand_prob, st), st.bits,
-                                          st.variant, F::WORD_BITS);
+    const bool up = sr_away_below_or_above<word_t>(m, F::MAN_BITS + f - e - st.bits - 1, sr_draw<T>(rand_prob, st),
+                                                   st.bits, st.variant, F::WORD_BITS);
     const word_t out = p.min_num | sign;
     return up ? reinterpret_cast<const MPTORCH_THREAD T &>(out) : T(0);
 }

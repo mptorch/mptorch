@@ -1520,6 +1520,15 @@ ignored by the deterministic modes. Three consequences of the definitions:
   The casts compute it on the input's word with integers, so nothing is
   rounded in the carrier first, and the random bits are the same :math:`N`
   bits everywhere.
+- One exception, in formats that already warn that the carrier cannot place
+  their bottom. In a SuperFP whose smallest value is itself a carrier
+  subnormal, and in a ``P = 1`` format whose floor is :math:`2^{-126}`
+  (:math:`2^{-1022}`) and whose random bits fill the carrier's mantissa, the
+  floor's draw step can be finer than the carrier's subnormal spacing. A
+  carrier subnormal below the floor then always rounds up to it, where the
+  definition would round up with probability :math:`|x| / x_{\min}`. Inputs
+  at or above the floor are unaffected. Computing the exact probability there
+  cost the CUDA stochastic GEMMs 6–8% for every format, so the casts do not.
 
 A float64 operand is rounded in binary64, and its bits are drawn there too,
 two random words per draw.

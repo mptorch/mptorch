@@ -866,8 +866,8 @@ CUDA_HOST_DEVICE_INLINE T sr_superfp_outside(T origin_float, typename FloatTrait
         // nothing
         const int e = field == 0 ? 1 - F::BIAS : target_exp;
         const word_t m = (target & F::MAN_MASK) | (field == 0 ? word_t(0) : (word_t(1) << F::MAN_BITS));
-        const bool up = sr_away_below<word_t>(m, F::MAN_BITS + p.supernormal_cutoff - e - st.bits - 1,
-                                              sr_draw<T>(rand_prob, st), st.bits, st.variant, F::WORD_BITS);
+        const bool up = sr_away_below_or_above<word_t>(m, F::MAN_BITS + p.supernormal_cutoff - e - st.bits - 1,
+                                                       sr_draw<T>(rand_prob, st), st.bits, st.variant, F::WORD_BITS);
         const word_t step = sr_pow2_word<T>(p.supernormal_cutoff);
         const word_t out = step | (target & F::SIGN_MASK);
         return (up && step != 0) ? reinterpret_cast<const MPTORCH_THREAD T &>(out) : T(0);

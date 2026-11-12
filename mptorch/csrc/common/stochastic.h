@@ -237,6 +237,28 @@ CUDA_HOST_DEVICE_INLINE bool sr_away_below(W m, int sh, W r, int n, int variant,
     return top2 + (r << 1) + d >= (W(1) << (n + 1));
 }
 
+// The same where sh can be negative, which rounds away. Only a carrier
+// subnormal, read at the exponent 1 - BIAS, gets a negative sh, and only
+// under a floor 2^f whose draw quantum's half, 2^(f - N - 1), is finer than
+// the carrier's subnormal spacing: binaryK's NORMALS floor at 2^-126 with
+// man + N = MAN_BITS, and a superfp whose smallest value 2^c is itself a
+// carrier subnormal (c between -149 and -126 in binary32). Both are formats
+// that warn that the carrier cannot place their bottom, and their
+// deterministic casts misplace these inputs too. Rounding away is the
+// definition's answer for every input at or above 2^f (X >= 2^N there); one
+// below it in such a format goes up too, where the definition would go up
+// with probability |x| / 2^f. The exact answer, floor(2X) = m << -sh, was
+// measured (phase U): its few instructions, in arms most kernels never run,
+// cost the CUDA SR split GEMMs 6-8% through the unrolled K-loop's
+// instruction footprint, for every format, so the user chose this rule
+// (2026-11-11). dev/benchmarks/reference_casts.h states it in the format's
+// terms, and tests/test_stochastic_rounding.py holds both cases to it.
+template <class W>
+CUDA_HOST_DEVICE_INLINE bool sr_away_below_or_above(W m, int sh, W r, int n, int variant, int word_bits)
+{
+    return sh < 0 || sr_away_below<W>(m, sh, r, n, variant, word_bits);
+}
+
 // floor(2X) and the fraction flag for X = m * 2^(N - below): a value m on a
 // grid that has `below` bits below its step (below may exceed the word's
 // width, or be less than N + 1, when m is a significand far under the step).
