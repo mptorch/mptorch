@@ -18,7 +18,7 @@ different code: binaryK RNE is the same float path on both, superfp RNE is
 the float path in two different spellings, and the directed modes take the
 integer path on both. All are meant to be the same function of the input,
 and this file is what says so. The exhaustive proof is
-dev/benchmarks/gemm_cast_{float,superfp,sr}_arith.cu, which compare every one
+dev/benchmarks/sweeps/gemm_cast_{float,superfp,sr}_arith.cu, which compare every one
 of the 2^32 float inputs against a reference and build for the host as well
 as the device, but that runs in minutes rather than in a test suite, and it
 compares a path against its own build. This compares the two builds against

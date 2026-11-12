@@ -305,7 +305,7 @@ Performance notes
 - **One launch per batch.** A batched call is one kernel launch (one
   parallel region on the CPU) over the whole batch. On attention-shaped
   operands it is 2-4x faster than the loop of 2D calls it replaces
-  (``dev/benchmarks/benchmark_qmatmul.py``).
+  (``dev/benchmarks/timing/benchmark_qmatmul.py``).
 - **Stochastic rounding is not free.** Each rounding draws from a
   per-element Philox stream, so a ``RoundMode.SR`` GEMM is slower than a
   deterministic one.

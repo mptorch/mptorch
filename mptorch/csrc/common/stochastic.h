@@ -251,8 +251,8 @@ CUDA_HOST_DEVICE_INLINE bool sr_away_below(W m, int sh, W r, int n, int variant,
 // measured (phase U): its few instructions, in arms most kernels never run,
 // cost the CUDA SR split GEMMs 6-8% through the unrolled K-loop's
 // instruction footprint, for every format, so the user chose this rule
-// (2026-11-11). dev/benchmarks/reference_casts.h states it in the format's
-// terms, and tests/test_stochastic_rounding.py holds both cases to it.
+// (2026-11-11). dev/benchmarks/sweeps/reference_casts.h states it in the
+// format's terms, and tests/test_stochastic_rounding.py holds both cases to it.
 template <class W>
 CUDA_HOST_DEVICE_INLINE bool sr_away_below_or_above(W m, int sh, W r, int n, int variant, int word_bits)
 {

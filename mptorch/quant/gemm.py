@@ -20,7 +20,7 @@ they resolve. Each resolves its format once, at construction, into a
 ``_GemmSpec``: a layer's format is fixed for its lifetime, and re-deriving the
 ``acc_*`` fallbacks, the default exponent biases and the carrier checks on
 every forward and backward pass would cost 2.3 to 6.4 microseconds per call
-(measured by ``dev/benchmarks/python_call_overhead.py``), more than the rest
+(measured by ``dev/benchmarks/timing/python_call_overhead.py``), more than the rest
 of the Python call path.
 
 These factories set only the ``*_math`` hooks. Elementwise operand

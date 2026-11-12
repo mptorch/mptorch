@@ -34,7 +34,7 @@ from tests.markers import available_devices
 # binades, bias 7. Exponent fields 4 .. 7 are the normal binades, exponents -3
 # .. 0, a grid of 32 codes from 0.125 to 1.75 in steps of 2**e / 4; fields
 # 0 .. 3 hold 16 codes, zero and the fifteen supernormal powers of two 2**-18
-# .. 2**-4 (dev/benchmarks/superfp_values.py lists them).
+# .. 2**-4 (dev/benchmarks/formats/superfp_values.py lists them).
 CFG: dict[str, Any] = {"man_bits": 2, "exp_bits": 3, "normal_binades": 4, "bias": 7}
 SMALLEST_SUPERNORMAL = 2.0**-18  # the lowest supernormal level
 HALF_SMALLEST = 2.0**-19  # the tie between zero and SMALLEST_SUPERNORMAL

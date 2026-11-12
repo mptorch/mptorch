@@ -9,7 +9,7 @@
 // re-deriving its constants from man_bits/exp_bits/normal_binades/bias on
 // every call, and is a template on the carrier (bit_helper.h's FloatTraits).
 // The format-taking spelling that the exhaustive sweeps check these against
-// lives in dev/benchmarks/reference_casts.h, written independently on
+// lives in dev/benchmarks/sweeps/reference_casts.h, written independently on
 // purpose.
 
 // superfp has no subnormals. Its top `normal_binades` binades hold ordinary
@@ -165,9 +165,9 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
             // from the magic add's headroom, which superfp has no use for, so
             // the only limit left is the split constant's own. At man_bits ==
             // 24 its exponent 23 - man_bits goes negative and the identity
-            // breaks (the sweep in dev/benchmarks/gemm_cast_superfp_arith.cu
-            // shows 23 clean and 24 mismatching on ~1.7e7 inputs per
-            // configuration).
+            // breaks (the sweep in
+            // dev/benchmarks/sweeps/gemm_cast_superfp_arith.cu shows 23 clean
+            // and 24 mismatching on ~1.7e7 inputs per configuration).
             man_bits >= 1 && man_bits <= 23 &&
             // SAT_PROPAGATE clamps a finite value that overflows but keeps an
             // infinite input infinite, which one saturating compare cannot
@@ -288,14 +288,14 @@ CUDA_HOST_DEVICE_INLINE SuperfpParamsT<T> make_superfp_params(int man_bits, int 
 // 2^normal_cutoff, where ordinary data lives (normal_binades is usually 1 or
 // 2), is already five operations in the integer path, so computing the
 // normal arm as well and selecting it away costs 7% in the GEMM
-// (dev/benchmarks/gemm_cast_superfp_arith.cu measures both forms). Warps are
-// close to region-uniform for real operand distributions, so the branch is
-// nearly free where the extra arm is not. Its supernormal arm rounds the
-// magnitude, signs it with a copysign and selects the floor, the flush and
-// NaN over it, and neither NaN nor inf needs a branch of its own: `inf >=
-// fast_normal_min` is true so inf takes the normal arm, where the clamp and
-// the saturating compare produce exactly fast_ovf, and every compare against
-// NaN is false so NaN takes the supernormal one.
+// (dev/benchmarks/sweeps/gemm_cast_superfp_arith.cu measures both forms).
+// Warps are close to region-uniform for real operand distributions, so the
+// branch is nearly free where the extra arm is not. Its supernormal arm
+// rounds the magnitude, signs it with a copysign and selects the floor, the
+// flush and NaN over it, and neither NaN nor inf needs a branch of its own:
+// `inf >= fast_normal_min` is true so inf takes the normal arm, where the
+// clamp and the saturating compare produce exactly fast_ovf, and every
+// compare against NaN is false so NaN takes the supernormal one.
 //
 // On a host this spelling ran at 0.85-0.98x of the integer path on
 // supernormal operands in the shipped kernels, and 0.77-0.84x under KAHAN
@@ -322,8 +322,8 @@ CUDA_HOST_DEVICE_INLINE float cast_superfp_rne_fast(float origin_float, const MP
     using F = FloatTraits<float>;
     // MPTORCH_SUPERFP_RNE_HOST_SPELLING is for the sweeps alone: it lets a
     // device pass compile the host's spelling, so the GPU can run its format
-    // grids over it (dev/benchmarks/gemm_cast_superfp_arith.cu). Nothing the
-    // extension builds defines it.
+    // grids over it (dev/benchmarks/sweeps/gemm_cast_superfp_arith.cu).
+    // Nothing the extension builds defines it.
 #if (!defined(__CUDA_ARCH__) && !defined(__METAL_VERSION__)) || defined(MPTORCH_SUPERFP_RNE_HOST_SPELLING)
     // The host's spelling (see the note above). Everything is read off the
     // word: |x|'s for the region tests, the signed one for the round.

@@ -41,7 +41,7 @@ TREE replaces the running sum's rounding by a little under one merge per
 product. Two more rows time the cross-family split macs (binaryK products
 with superfp sums, and the reverse), which have no fused form.
 
-Run: python3 dev/benchmarks/benchmark_qmatmul.py [--device cuda] [--n 1024]
+Run: python3 dev/benchmarks/timing/benchmark_qmatmul.py [--device cuda] [--n 1024]
 """
 
 import argparse

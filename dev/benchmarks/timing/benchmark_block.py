@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Block formats (dev/continuation_plan.md, phase D): what the kernels cost.
+"""Block formats (``mptorch.BlockFormat``, packed storage): what the kernels cost.
 
 ``elementwise``
     block_pack, block_unpack and block_quantize against the elementwise
@@ -20,8 +20,8 @@
     binaryK_gemm_formats at 4096 x 4096, with a 1D weight format packed per
     hook and a 16 x 16 one packed once per step, and the peak memory of each;
     then, under no_grad, the forward and the memory a layer holds, packed
-    once or frozen to its codes (``freeze_packed_``, phase L, on a tree that
-    has it).
+    once or frozen to its codes (``freeze_packed_``, on a tree that has it:
+    13f73db or later).
 
 Each row is the minimum of ``--rounds`` timed runs after a warm-up. Run on a
 CUDA device (``--device cpu`` for the CPU kernels, at smaller sizes).

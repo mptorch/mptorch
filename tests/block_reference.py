@@ -1,7 +1,7 @@
 """An independent reference for the block formats (``mptorch.BlockFormat``).
 
 Written from the OCP Microscaling Formats (MX) v1.0 specification, NVIDIA's
-description of NVFP4, SuperFP's definition (``dev/benchmarks/superfp_values.py``
+description of NVFP4, SuperFP's definition (``dev/benchmarks/formats/superfp_values.py``
 enumerates it from its code points), FixedPoint's integer definition (a code
 ``c`` is ``c * 2**-fl``; the kernels run it as a binaryK layout, this does not)
 and each element format's value set, and

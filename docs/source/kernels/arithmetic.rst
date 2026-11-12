@@ -144,7 +144,7 @@ but not ``2^-61``:
    :caption: output
 
 On random data the effect follows the formats' precision.
-``dev/benchmarks/carrier_double_rounding.py rates`` counts the outputs on
+``dev/benchmarks/timing/carrier_double_rounding.py rates`` counts the outputs on
 which the binary32 and binary64 carriers disagree, at M = N = 256 over N(0, 1)
 operands quantized to the format. At K = 256 FP8 formats disagree on at most
 0.04% of outputs, and formats of up to eleven bits of precision on at most

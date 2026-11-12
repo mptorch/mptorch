@@ -21,7 +21,7 @@ is the figure on ``Fraction``, with the neighbours from the kernels'
 deterministic casts; gfloat's three modes are a second oracle for binaryK.
 Before phase U, binaryK's subnormal arm and superfp's arm below its smallest
 value rounded ``|x|`` in the carrier first, and three arms ignored
-``prng_bits`` (``dev/benchmarks/cast_all_modes_sweep.cu sr-mean-old`` is that
+``prng_bits`` (``dev/benchmarks/sweeps/cast_all_modes_sweep.cu sr-mean-old`` is that
 negative control).
 
 Then every op that rounds stochastically takes the two new modes, CPU and CUDA

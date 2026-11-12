@@ -16,7 +16,7 @@ Five properties follow, one section each.
 * **The binary32 image.** A float64 tensor holding float32 values, quantized
   to a format binary32 simulates faithfully, gives exactly the float32
   result: the answer does not depend on which carrier held the input.
-  ``dev/benchmarks/cast_all_modes_sweep.cu image64`` checks that for the casts
+  ``dev/benchmarks/sweeps/cast_all_modes_sweep.cu image64`` checks that for the casts
   over every float32 input. These tests hold the kernels' dtype dispatch,
   vector loads and scalar tail to the same claim.
 * **Rounding once.** Where the float64 value is not a float32 value, the

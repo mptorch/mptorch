@@ -12,7 +12,7 @@ own arithmetic in Python, one sequential pass over K per output element with
 the elementwise quantizer applied where the kernel rounds, and demands
 bit-for-bit agreement. That reference is trustworthy because the elementwise
 quantizers are checked exhaustively over every binary32 input against
-independent reference casts (``dev/benchmarks/gemm_cast_*_arith.cu``), so a
+independent reference casts (``dev/benchmarks/sweeps/gemm_cast_*_arith.cu``), so a
 tier 3 mismatch points at the GEMM's rounding placement, its summation order
 or its operand handling, not at the cast.
 

@@ -51,13 +51,13 @@ namespace mptorch::gemm_cuda
     // memory; the two buffers let the next tile's global loads overlap the
     // current tile's arithmetic. This one-element-per-thread shape was
     // benchmarked against a register-blocked variant (several outputs per
-    // thread) in dev/cuda/custom_matmul.cu and came out slightly faster here.
+    // thread; mm_kernel4, 4472a20^:dev/cuda/custom_matmul.cu): slightly faster.
     constexpr int BLOCKSIZE = 16;
 
     // The K-loop's unroll factor for every binary64 kernel (see the loop for
-    // the measurements). A macro only so that dev/benchmarks/gemm_f64_unroll.cu
-    // can time the shipped kernels at other factors; nothing in the build
-    // defines it.
+    // the measurements). A macro only so that
+    // dev/benchmarks/timing/gemm_f64_unroll.cu can time the shipped kernels at
+    // other factors; nothing in the build defines it.
 #if !defined(MPTORCH_GEMM_F64_UNROLL)
 #define MPTORCH_GEMM_F64_UNROLL 2
 #endif
@@ -262,7 +262,7 @@ namespace mptorch::gemm_cuda
     // BLOCKSIZE^2 threads) and roughly halved their throughput (34.7 -> 68.3
     // ms at 1024^3 on sm_89) on every single-format launch, which is nearly
     // all of them. Two instantiations double the kernel count, and the
-    // single-format path keeps its speed. dev/benchmarks/gemm_kernel_tuning.cu
+    // single-format path keeps its speed. dev/gemm_perf_audit.md, finding G4,
     // holds the A/B.
     template <bool MIXED, class Accumulator>
     __global__ __launch_bounds__(BLOCKSIZE * BLOCKSIZE)
@@ -418,7 +418,7 @@ namespace mptorch::gemm_cuda
             // binary64 kernels are bound by the device's FP64 rate rather
             // than by instruction fetch, so their unroll is flat within 1%
             // from 2 to 8; 2 has the fewest spills and the smallest binary.
-            // Measured with dev/benchmarks/gemm_unroll_sweep.cu.
+            // dev/gemm_roadmap.md, K1; dev/benchmarks/timing/gemm_f64_unroll.cu.
             //
             // A positional accumulator (KAHAN, BLOCK, TREE;
             // common/gemm_accumulate.h) names its own factor, takes the

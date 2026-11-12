@@ -15,7 +15,7 @@ the floor and ``RD`` rounds away from zero. A reference cast that carries the
 same arm agrees with such a kernel, so the exhaustive cast sweeps cannot see
 it. The table is therefore written from the definition of each rounding mode
 over the two candidates, not from a second cast, which is also how
-``dev/benchmarks/format_limits.py`` checks the casts (against the format's own
+``dev/benchmarks/formats/format_limits.py`` checks the casts (against the format's own
 value set).
 
 The table runs twice: in binary32, on a format whose floor is well inside it,

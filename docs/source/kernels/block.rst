@@ -232,7 +232,7 @@ as in every product of the routine.
 
 The decode costs little compared with the arithmetic. At :math:`1024^3` on
 an RTX 4060 laptop GPU, the block product was compared with the flat product
-on the decoded float32 operands (``dev/benchmarks/benchmark_block.py``):
+on the decoded float32 operands (``dev/benchmarks/timing/benchmark_block.py``):
 
 - with a fused mac under round-to-nearest, the cheapest arithmetic and so
   the one where the decode shows most, it takes 1.15 to 1.18 times as long;

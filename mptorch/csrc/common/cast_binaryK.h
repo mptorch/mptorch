@@ -18,11 +18,11 @@
 // construction (gemm_policy.h) for the GEMM and once per tensor for the
 // elementwise quantizers, rather than re-deriving its constants from
 // man_bits/exp_bits/bias on every call. A second spelling of each cast, which
-// takes the format parameters directly and derives everything per call, lives
-// in dev/benchmarks/reference_casts.h; the exhaustive sweeps there check the
-// bodies below against it over all 2^32 float inputs. The two are independent
-// derivations of the same format on purpose: change one and change the other,
-// or the sweeps will say so.
+// takes the format parameters directly and derives everything per call,
+// lives in dev/benchmarks/sweeps/reference_casts.h; the exhaustive sweeps
+// there check the bodies below against it over all 2^32 float inputs. The
+// two are independent derivations of the same format on purpose: change one
+// and change the other, or the sweeps will say so.
 
 // The constants the casts read. Round-mode-agnostic: every field uses the
 // same formula whichever cast reads it, so one struct serves all of them and
@@ -218,7 +218,7 @@ CUDA_HOST_DEVICE_INLINE BinaryKParamsT<T> make_binaryK_params(int man_bits, int 
 // Roughly 14 instructions and no branches, against ~125 instructions with
 // ~17 data-dependent branches for the integer path. Verified against that
 // path over all 2^32 float inputs for every admitted format by
-// dev/benchmarks/gemm_cast_float_arith.cu.
+// dev/benchmarks/sweeps/gemm_cast_float_arith.cu.
 //
 // Correct only where the arithmetic is not contracted: the identity depends
 // on `t` being a separately rounded binary32 value, and letting the compiler
@@ -719,7 +719,7 @@ CUDA_HOST_DEVICE_INLINE T cast_binaryK_stochastic(T origin_float, typename Float
     // conditions are the Veltkamp split's, which SR does not use, so
     // reusing it only ever gates SR off where it could have run (man_bits
     // == 0, and the split-product bound). One flag, one sweep: verified in
-    // dev/benchmarks/gemm_cast_sr_arith.cu. The test is outside the `if
+    // dev/benchmarks/sweeps/gemm_cast_sr_arith.cu. The test is outside the `if
     // constexpr` for the reason the RNE cast gives.
     if (p.fast_rne && subnormals == SubnormalsMode::SUBNORMALS)
     {

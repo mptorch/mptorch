@@ -411,7 +411,7 @@ CUDA_HOST_DEVICE_INLINE W round_bitwise_nearest_even(W target)
 //                     a per-value exp_diff in their subnormal branches, so it
 //                     is live in the extension, not only in the sweeps.
 //   clip_*            precomputed only. The format-taking forms live in
-//                     dev/benchmarks/reference_casts.h, as part of the
+//                     dev/benchmarks/sweeps/reference_casts.h, as part of the
 //                     reference the exhaustive sweeps check these against.
 
 // Precomputed for round_bitwise_nearest_even(target, man_bits) and reused by
@@ -571,9 +571,9 @@ CUDA_HOST_DEVICE_INLINE W round_bitwise_odd(W target, bool bypass, W mask)
 
 // Precomputed for clip_subnormal_range_exponent: min_exponent_store is the
 // carrier's exponent field of the format's smallest subnormal,
-// 2^(min_exp - man_bits) with min_exp = 1 - bias. The reference spelling in
-// dev/benchmarks/reference_casts.h also takes exp_bits, for symmetry with its
-// sibling clip functions, but does not use it.
+// 2^(min_exp - man_bits) with min_exp = 1 - bias. The reference spelling
+// in dev/benchmarks/sweeps/reference_casts.h also takes exp_bits, for
+// symmetry with its sibling clip functions, but does not use it.
 struct SubnormalRangeParams
 {
     int min_exponent_store;

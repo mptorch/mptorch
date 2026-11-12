@@ -211,7 +211,7 @@ same bytes either way. On CUDA the two take the same time at every size
 measured. On the CPU they also do, as long as the allocator recycles the
 result's block. A result large enough to be mapped fresh from the system on
 every call pays for its pages on first touch, which can cost more than the
-rounding (``dev/benchmarks/cpu_quantize_elementwise.py`` compares the two).
+rounding (``dev/benchmarks/timing/cpu_quantize_elementwise.py`` compares the two).
 
 Block quantization and packed storage
 -------------------------------------

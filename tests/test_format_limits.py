@@ -35,7 +35,7 @@ quantizer's inputs are already the dtype's values, so only three edges of the
 range can land off the dtype's grid, and those warn.
 
 The pinned boundaries are not derived from the checks under test. They are the
-ones ``dev/benchmarks/format_limits.py`` measured against the kernels, with an
+ones ``dev/benchmarks/formats/format_limits.py`` measured against the kernels, with an
 oracle built from the format's value set rather than from a second cast:
 ``sweep --audit`` for binary32, ``sweep --carrier binary64 --audit`` for
 binary64, and ``sweep --dtype float16 --audit`` (and ``--dtype bfloat16``) for
@@ -481,7 +481,7 @@ def test_a_fixedpoint_end_past_the_carrier_raises(dtype, ok, bad, match):
 #
 # The same derivation one carrier wider (53 bits, 2**1023, floors 2**-1021 and
 # 2**-1022, ten exponent bits), rounded in by a float64 tensor. Measured by
-# `dev/benchmarks/format_limits.py sweep --carrier binary64 --audit`: every
+# `dev/benchmarks/formats/format_limits.py sweep --carrier binary64 --audit`: every
 # `ok` below is a format whose audit found no wrong answer and no lost value,
 # and every `bad` one whose audit found both, one parameter step away.
 
@@ -821,7 +821,7 @@ def test_a_format_object_is_checked_once_per_call_at_the_callers_line():
 # whose values the result holds, and by one of two rules, because the two ops
 # reach different parts of that format. float16's bounds are 11 bits of
 # precision, a top of 65504 and a finest step of 2**-24, and bfloat16's
-# precision is 8 bits. `dev/benchmarks/format_limits.py sweep --dtype float16
+# precision is 8 bits. `dev/benchmarks/formats/format_limits.py sweep --dtype float16
 # --audit` measured every boundary below through both ops: a fused GEMM over
 # operands of the dtype, and the elementwise quantizer over every value of it.
 

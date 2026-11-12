@@ -1,6 +1,6 @@
 """Layer timings: QLinear and QConv2d, and the conv passes on the GEMM core.
 
-``python dev/benchmarks/benchmark_qlayers.py`` times the two layers with
+``python dev/benchmarks/timing/benchmark_qlayers.py`` times the two layers with
 elementwise quantizers (the default, ``layers``). ``conv-gemm`` times each
 pass of a convolution three ways, with the peak memory each allocates beyond
 its inputs: the gathered conv ops (``mptorch.quant.conv_formats``), the same

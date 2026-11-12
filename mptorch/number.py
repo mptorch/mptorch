@@ -342,7 +342,7 @@ class AccumulateAlgorithm(Enum):
 # its carrier is quantized *partially*: the result is still a tensor of
 # plausible numbers, and some of the format's values are simply never among
 # them. The checks below are what stops that being invisible.
-# `dev/benchmarks/format_limits.py` measures the bounds stated here against
+# `dev/benchmarks/formats/format_limits.py` measures the bounds stated here against
 # the kernels, over ~17 M inputs per format in every rounding mode, and
 # `tests/test_format_limits.py` pins the boundaries it found.
 #
@@ -701,7 +701,7 @@ def _binaryK_extent(
     #                   (2**-1075); the carrier holds it as 2**-127, and
     #                   round-to-nearest-away takes that input up to the floor.
     #
-    # `dev/benchmarks/cast_all_modes_sweep.cu` found both in binary32 by
+    # `dev/benchmarks/sweeps/cast_all_modes_sweep.cu` found both in binary32 by
     # checking every rounding mode over all 2**32 inputs; binary64 is exact
     # at both points, and the same bounds apply one carrier wider.
     if subnormals is SubnormalsMode.SUBNORMALS:
@@ -943,7 +943,7 @@ def _fixedpoint_findings(
     bits below the step in the same significand, so they share it; and both
     ends of the range must be carrier values, which in two's complement is the
     bottom, -2^(mag_bits - fl), one binade past the top. Measured with
-    ``dev/benchmarks/format_limits.py fixedpoint ... --audit`` and the
+    ``dev/benchmarks/formats/format_limits.py fixedpoint ... --audit`` and the
     ``fixed-beyond`` modes of the cast sweeps (2026-11-10), after SR became
     integer arithmetic on the word; until then it added 2^(mag_bits - fl) in
     the carrier, which cost one bit and one binade. The layout is checked

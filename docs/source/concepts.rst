@@ -429,10 +429,10 @@ The largest finite value is the highest code left: :math:`224` for
 top binade's, which moves the largest finite value a binade or two lower. A
 finite result above it saturates in every rounding mode.
 
-``dev/benchmarks/binaryK_values.py`` prints the whole code-point table of a
+``dev/benchmarks/formats/binaryK_values.py`` prints the whole code-point table of a
 format: every value, one per line, infinities and NaN included. With
 ``--verify`` it quantizes each value and checks that the kernel returns it
-unchanged. ``dev/benchmarks/superfp_values.py`` does the same for SuperFP.
+unchanged. ``dev/benchmarks/formats/superfp_values.py`` does the same for SuperFP.
 
 Two test files compare the formats to the standard:
 
@@ -1771,7 +1771,7 @@ A ``carrier=torch.float64`` call is held to binary64's bounds even on a
 float32 tensor, because binary64 is what rounds it. Its result is also held
 to what the tensor's dtype can store, which the next section describes.
 
-``dev/benchmarks/format_limits.py`` reports all of this for a given format,
+``dev/benchmarks/formats/format_limits.py`` reports all of this for a given format,
 in binary32 or with ``--carrier binary64``. With ``--audit`` it checks the
 kernels against the format's value set. Its ``sweep --audit`` walks every
 bound in the table above across its edge; each was measured where this

@@ -275,7 +275,7 @@ def test_formats_on_binary64s_edges_are_exact(device, K, P, bias):
 
     Inputs are random words in the binades around both ends of the format,
     binary64 subnormals included (exponent field 0). The bounds are the ones
-    ``dev/benchmarks/format_limits.py sweep --carrier binary64 --audit``
+    ``dev/benchmarks/formats/format_limits.py sweep --carrier binary64 --audit``
     measures, and an off-by-one in them would warn here or misround there."""
     exp_bits = K - P
     bottom, top = 1 - bias - (P - 1), 2**exp_bits - 1 - bias
