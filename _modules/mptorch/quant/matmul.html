@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.matmul &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/matmul';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.matmul</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.matmul</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The differentiable matmul entry points: ``qmm``, ``qbmm`` and ``qmatmul``.</span>
+
+<span class="sd">These are the functions to reach for. The eight ``*_matmul*`` wrappers in</span>
+<span class="sd">``mptorch.quant.ops`` are the schema-faithful tier, one function per op with</span>
+<span class="sd">every schema argument spelled out and no autograd; these sit above them,</span>
+<span class="sd">taking a format object instead of twenty integers and carrying a gradient.</span>
+
+<span class="sd">``formats`` accepts, in increasing order of specificity:</span>
+
+<span class="sd">* ``None``: plain ``torch.matmul``, which is what an A/B against unquantized</span>
+<span class="sd">  arithmetic wants;</span>
+<span class="sd">* a ``Number`` (``BinaryK(8, 4)``): shorthand for</span>
+<span class="sd">  ``SplitMac(mul=fmt, acc=fmt)``, the common case where one format is used</span>
+<span class="sd">  for both halves of the dot product, and for a ``BlockFormat``,</span>
+<span class="sd">  ``BlockMac(fmt)``: both operands packed in it, the sum in binary32;</span>
+<span class="sd">* a ``BlockMac``: two packed block-format operands and the arithmetic of</span>
+<span class="sd">  their product (:func:`mptorch.quant.block_matmul_formats`);</span>
+<span class="sd">* a ``SplitMac`` / ``FusedMac``: the dot-product arithmetic, with a palette</span>
+<span class="sd">  in any slot selecting the per-output-element op and requiring ``prec_idx``,</span>
+<span class="sd">  and a ``carrier`` choosing the float arithmetic it is computed in (binary64</span>
+<span class="sd">  for any operands with ``torch.float64``, never narrower than theirs);</span>
+<span class="sd">* a ``QMatmulFormats``: per-pass arithmetic *and* operand quantizers, that is,</span>
+<span class="sd">  everything the layer can vary.</span>
+
+<span class="sd">The first three are resolved (and memoized) into the fourth, so there is one</span>
+<span class="sd">implementation and one thing to test.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">lru_cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockFormat</span><span class="p">,</span> <span class="n">Number</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.gemm</span><span class="w"> </span><span class="kn">import</span> <span class="n">block_matmul_formats</span><span class="p">,</span> <span class="n">matmul_formats</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.mac</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockMac</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">Mac</span><span class="p">,</span> <span class="n">SplitMac</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.modules.format</span><span class="w"> </span><span class="kn">import</span> <span class="n">QMatmulFormats</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.modules.matmul</span><span class="w"> </span><span class="kn">import</span> <span class="n">CustomArithMatmul</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"qmm"</span><span class="p">,</span> <span class="s2">"qbmm"</span><span class="p">,</span> <span class="s2">"qmatmul"</span><span class="p">,</span> <span class="s2">"as_matmul_formats"</span><span class="p">]</span>
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_formats_for</span><span class="p">(</span><span class="n">spelling</span><span class="p">:</span> <span class="s2">"Number | Mac | BlockMac"</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QMatmulFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One ``QMatmulFormats`` per (format spelling, prec_idx), built once.</span>
+
+<span class="sd">    Memoized for the same reason ``spec_for_mac`` is: an ad-hoc</span>
+<span class="sd">    ``qmatmul(a, b, BinaryK(8, 4))`` in a loop must not pay the 2.3 to 6.4</span>
+<span class="sd">    microseconds of re-resolution per call. The bare-``Number`` shorthand is</span>
+<span class="sd">    expanded *inside* the cache rather than outside it, so that spelling costs</span>
+<span class="sd">    one lookup on the format rather than a fresh ``SplitMac`` (and the two</span>
+<span class="sd">    ``Palette`` objects it wraps) per call. ``prec_idx`` enters the key by</span>
+<span class="sd">    identity, since a tensor is not hashable by value, and that is the right</span>
+<span class="sd">    key: a map rebuilt per call defeats this cache and the C++ side's memo of</span>
+<span class="sd">    the map's bounds check alike, while a map held and reused hits both.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">BlockFormat</span><span class="p">):</span>
+        <span class="n">spelling</span> <span class="o">=</span> <span class="n">BlockMac</span><span class="p">(</span><span class="n">spelling</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">Number</span><span class="p">):</span>
+        <span class="n">spelling</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">spelling</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">BlockMac</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"prec_idx selects a palette entry, and a block format has none"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">block_matmul_formats</span><span class="p">(</span><span class="n">spelling</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">SplitMac</span> <span class="o">|</span> <span class="n">FusedMac</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">matmul_formats</span><span class="p">(</span><span class="n">spelling</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="as_matmul_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.matmul.as_matmul_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">as_matmul_formats</span><span class="p">(</span><span class="n">formats</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QMatmulFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Normalize whatever a caller passed as ``formats`` to a ``QMatmulFormats``.</span>
+
+<span class="sd">    The four spellings listed in the module docstring are told apart here and</span>
+<span class="sd">    nowhere else, so :func:`qmatmul` and :class:`mptorch.quant.QMatmul` accept</span>
+<span class="sd">    exactly the same values.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        formats (None or Number or SplitMac or FusedMac or QMatmulFormats):</span>
+<span class="sd">            the arithmetic, in any of the accepted spellings.</span>
+<span class="sd">        prec_idx (Tensor, optional): the forward's palette map, for a</span>
+<span class="sd">            ``SplitMac``/``FusedMac`` holding a palette. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QMatmulFormats: ``formats`` itself if it already was one, an empty</span>
+<span class="sd">        ``QMatmulFormats()`` for ``None``, or the memoized one for a mac.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a ``prec_idx`` given with ``None`` (nothing to</span>
+<span class="sd">            select from) or with a ``QMatmulFormats`` (whose maps were bound</span>
+<span class="sd">            by :func:`mptorch.quant.matmul_formats`).</span>
+<span class="sd">        TypeError: for any other ``formats`` value.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">formats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"prec_idx has no meaning without a format to select"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">QMatmulFormats</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">QMatmulFormats</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">"a QMatmulFormats already carries its math hooks: give prec_idx to the "</span>
+                <span class="s2">"factory that built it (mptorch.quant.matmul_formats) rather than to the call"</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">formats</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">Number</span> <span class="o">|</span> <span class="n">SplitMac</span> <span class="o">|</span> <span class="n">FusedMac</span> <span class="o">|</span> <span class="n">BlockMac</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+            <span class="s2">"formats must be None, a Number, a SplitMac/FusedMac/BlockMac or a QMatmulFormats, "</span>
+            <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_formats_for</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="qmatmul">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.matmul.qmatmul">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmatmul</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``torch.matmul``'s contract, computed in the arithmetic ``formats`` names.</span>
+
+<span class="sd">    It accepts everything ``torch.matmul`` accepts: 1D promotion on either</span>
+<span class="sd">    operand, and leading dimensions of any rank broadcast against each other.</span>
+<span class="sd">    It is differentiable in both operands, and each gradient is computed in</span>
+<span class="sd">    the arithmetic of its own hook. Float64 operands are computed in</span>
+<span class="sd">    binary64. The others are computed in binary32, unless a mac's ``carrier``</span>
+<span class="sd">    asks for binary64. In both cases each pass checks the formats against its</span>
+<span class="sd">    carrier and warns (:class:`mptorch.FormatRangeWarning`) about what the</span>
+<span class="sd">    carrier cannot hold.</span>
+
+<span class="sd">    Two shapes need no copy:</span>
+
+<span class="sd">    * An operand that is the transpose of a contiguous tensor (``q @ k.mT``)</span>
+<span class="sd">      sets the kernel's transpose flag and is not materialized.</span>
+<span class="sd">    * ``[..., M, K] @ [K, N]`` folds its batch into ``M``, giving one large</span>
+<span class="sd">      GEMM instead of a batch of small ones.</span>
+
+<span class="sd">    Both are bit-identical to the batched spelling, stochastic rounding</span>
+<span class="sd">    included, because each output element's random stream is keyed on its</span>
+<span class="sd">    index into the output.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a (Tensor): the left operand, 1D or higher.</span>
+<span class="sd">        b (Tensor): the right operand, 1D or higher, of the same dtype.</span>
+<span class="sd">        formats (None or Number or SplitMac or FusedMac or QMatmulFormats):</span>
+<span class="sd">            the arithmetic. The module docstring says what each spelling</span>
+<span class="sd">            means. Default: ``None`` (plain ``torch.matmul``)</span>
+<span class="sd">        prec_idx (Tensor, optional): an integer map of the forward pass's</span>
+<span class="sd">            output shape (``[M, N]``, ``[M, 1]`` or ``[1, N]``, optionally</span>
+<span class="sd">            batched) that selects a palette entry per output element. It is</span>
+<span class="sd">            required by a palette format and by nothing else. It is the</span>
+<span class="sd">            *forward's* map. A palette that also has to differentiate needs</span>
+<span class="sd">            one map per pass; use the ``agrad_prec_idx`` and</span>
+<span class="sd">            ``bgrad_prec_idx`` arguments of</span>
+<span class="sd">            :func:`mptorch.quant.matmul_formats` for those. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tensor: ``a @ b`` in the operands' dtype, with ``torch.matmul``'s</span>
+<span class="sd">        output shape.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a palette without ``prec_idx``, a ``prec_idx`` with</span>
+<span class="sd">            no palette, or a ``carrier`` narrower than the operands.</span>
+<span class="sd">        TypeError: for a ``formats`` value of another type.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import SplitMac, qmatmul</span>
+<span class="sd">        &gt;&gt;&gt; a, b = torch.randn(5, 2, 4, 8), torch.randn(8, 3)</span>
+<span class="sd">        &gt;&gt;&gt; qmatmul(a, b, BinaryK(8, 4)).shape</span>
+<span class="sd">        torch.Size([5, 2, 4, 3])</span>
+<span class="sd">        &gt;&gt;&gt; qmatmul(a, b, SplitMac(BinaryK(8, 4), acc=None)).shape</span>
+<span class="sd">        torch.Size([5, 2, 4, 3])</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">CustomArithMatmul</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">as_matmul_formats</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="qmm">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.matmul.qmm">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qmm</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">""":func:`qmatmul` restricted to two matrices, as ``torch.mm`` is.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a (Tensor): a ``[M, K]`` matrix.</span>
+<span class="sd">        b (Tensor): a ``[K, N]`` matrix of the same dtype.</span>
+<span class="sd">        formats: as for :func:`qmatmul`. Default: ``None``</span>
+<span class="sd">        prec_idx (Tensor, optional): as for :func:`qmatmul`. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tensor: the ``[M, N]`` product.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if either operand is not 2D, plus :func:`qmatmul`'s.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import qmm</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 8), torch.randn(8, 3), BinaryK(8, 4)).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">b</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"qmm expects 2D tensors, got </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D and </span><span class="si">{</span><span class="n">b</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="qbmm">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.matmul.qbmm">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">qbmm</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">""":func:`qmatmul` restricted to two batches of matrices, as ``torch.bmm`` is.</span>
+
+<span class="sd">    There is no broadcasting: both batch dimensions must be equal.</span>
+<span class="sd">    ``torch.bmm`` makes this check and ``qmatmul`` does not.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a (Tensor): a ``[B, M, K]`` batch of matrices.</span>
+<span class="sd">        b (Tensor): a ``[B, K, N]`` batch of the same dtype.</span>
+<span class="sd">        formats: as for :func:`qmatmul`. Default: ``None``</span>
+<span class="sd">        prec_idx (Tensor, optional): as for :func:`qmatmul`. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tensor: the ``[B, M, N]`` batch of products.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if either operand is not 3D or the batch sizes differ,</span>
+<span class="sd">            plus :func:`qmatmul`'s.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import FusedMac, qbmm</span>
+<span class="sd">        &gt;&gt;&gt; a, b = torch.randn(2, 4, 8), torch.randn(2, 8, 3)</span>
+<span class="sd">        &gt;&gt;&gt; qbmm(a, b, FusedMac(BinaryK(8, 4))).shape</span>
+<span class="sd">        torch.Size([2, 4, 3])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">3</span> <span class="ow">or</span> <span class="n">b</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"qbmm expects 3D tensors, got </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D and </span><span class="si">{</span><span class="n">b</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">D"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">b</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"qbmm expects equal batch dimensions, got </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">b</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

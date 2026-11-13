@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Calling the kernels &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'kernels/calling';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Layers" href="../layers.html" />
+    <link rel="prev" title="Convolutions" href="convolutions.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+  <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
+  </svg>
+  <span class="pst-collapse-sidebar-label">Collapse Sidebar</span>
+  <span class="pst-expand-sidebar-label">Expand Sidebar</span>
+</button></div>
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="arithmetic.html">Dot-product arithmetic</a></li>
+<li class="toctree-l1"><a class="reference internal" href="block.html">Block matrix products</a></li>
+<li class="toctree-l1"><a class="reference internal" href="convolutions.html">Convolutions</a></li>
+<li class="toctree-l1 current active"><a aria-current="page" class="current reference internal" href="#">Calling the kernels</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Quantized numerical kernels</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Calling the kernels</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="calling-the-kernels">
+<h1>Calling the kernels<a class="headerlink" href="#calling-the-kernels" title="Link to this heading">#</a></h1>
+<p>This page lists the entry points to the core routine (<a class="reference internal" href="index.html"><span class="doc">Quantized numerical kernels</span></a>), from the
+value objects that describe an arithmetic to the functions that spell out
+every argument of a kernel. The equations are in <a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>,
+<a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a> and <a class="reference internal" href="convolutions.html"><span class="doc">Convolutions</span></a>. This page explains how to request them.</p>
+<section id="saying-which-arithmetic">
+<h2>Saying which arithmetic<a class="headerlink" href="#saying-which-arithmetic" title="Link to this heading">#</a></h2>
+<p>Four value types describe an arithmetic. All are frozen, so build them once
+and keep them; the library memoizes their resolution.</p>
+<dl class="simple">
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">SplitMac</span></code> <code class="docutils literal notranslate"><span class="pre">(mul,</span> <span class="pre">acc=None,</span> <span class="pre">*,</span> <span class="pre">rounding=RNE,</span> <span class="pre">accumulate_algorithm=NAIVE,</span> <span class="pre">carrier=None,</span> <span class="pre">block_size=None,</span> <span class="pre">outer=None)</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">mul</span></code> and <code class="docutils literal notranslate"><span class="pre">acc</span></code> are each a format or a sequence of formats (a palette,
+<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>). <code class="docutils literal notranslate"><span class="pre">acc</span></code> can also be <code class="docutils literal notranslate"><span class="pre">None</span></code>. The two may be of
+different families (a BinaryK multiply with a SuperFP accumulate, or the
+reverse) when each holds one format. <code class="docutils literal notranslate"><span class="pre">carrier</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code> (the
+operands’ own), <code class="docutils literal notranslate"><span class="pre">torch.float32</span></code>
+(binary32) or <code class="docutils literal notranslate"><span class="pre">torch.float64</span></code> (binary64).</p>
+</dd>
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">FusedMac</span></code> <code class="docutils literal notranslate"><span class="pre">(fma=None,</span> <span class="pre">*,</span> <span class="pre">rounding=RNE,</span> <span class="pre">accumulate_algorithm=NAIVE,</span> <span class="pre">carrier=None,</span> <span class="pre">block_size=None,</span> <span class="pre">outer=None)</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">fma</span></code> is a format, a palette, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">Palette</span></code> <code class="docutils literal notranslate"><span class="pre">(formats)</span></code></dt><dd><p>Up to eight formats of one family, selected per output element. A plain
+list works anywhere a <code class="docutils literal notranslate"><span class="pre">Palette</span></code> does; the class exists to validate.</p>
+</dd>
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">BlockMac</span></code> <code class="docutils literal notranslate"><span class="pre">(a,</span> <span class="pre">b=None,</span> <span class="pre">acc=None,</span> <span class="pre">*,</span> <span class="pre">fused=False,</span> <span class="pre">rounding=RNE,</span> <span class="pre">accumulate_algorithm=NAIVE,</span> <span class="pre">carrier=None,</span> <span class="pre">block_size=None,</span> <span class="pre">outer=None,</span> <span class="pre">tensor_scale_epilogue=False)</span></code></dt><dd><p>A product of two block-format operands. <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> are each a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">BlockFormat</span></code> or a <a class="reference internal" href="../api.html#mptorch.quant.BlockQuant" title="mptorch.quant.BlockQuant"><code class="xref py py-class docutils literal notranslate"><span class="pre">BlockQuant</span></code></a>
+(which specifies the rounding and a tensor scale). <code class="docutils literal notranslate"><span class="pre">acc</span></code> is a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryK</span></code> or <code class="docutils literal notranslate"><span class="pre">None</span></code>. The multiply is binary32’s own
+(<a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a>). <code class="docutils literal notranslate"><span class="pre">tensor_scale_epilogue</span></code> moves the operands’ tensor
+scales out of the loop.</p>
+</dd>
+</dl>
+<p><code class="docutils literal notranslate"><span class="pre">accumulate_algorithm</span></code> selects how partial products are added to the sum:
+<code class="xref py py-attr docutils literal notranslate"><span class="pre">NAIVE</span></code>, the sequential recurrence, or
+<code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>, <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> or <code class="docutils literal notranslate"><span class="pre">TREE</span></code> (<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>, “Summing differently”).
+<code class="docutils literal notranslate"><span class="pre">block_size</span></code> applies to <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> and <code class="docutils literal notranslate"><span class="pre">TREE</span></code>. <code class="docutils literal notranslate"><span class="pre">outer</span></code> is the one format
+that they round the total to, of the accumulate format’s family (the
+multiply’s when <code class="docutils literal notranslate"><span class="pre">acc</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>); <code class="docutils literal notranslate"><span class="pre">None</span></code> leaves the total in the
+carrier’s precision. A mac with an algorithm other than <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code>
+holds one format per slot, not a palette.</p>
+</section>
+<section id="qmatmul-qmm-and-qbmm">
+<h2>qmatmul, qmm and qbmm<a class="headerlink" href="#qmatmul-qmm-and-qbmm" title="Link to this heading">#</a></h2>
+<p><code class="xref py py-func docutils literal notranslate"><span class="pre">qmatmul()</span></code> is <code class="docutils literal notranslate"><span class="pre">torch.matmul</span></code> in the arithmetic you
+choose, and it is differentiable. Its <code class="docutils literal notranslate"><span class="pre">formats</span></code> argument accepts, from the
+least to the most specific:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: plain <code class="docutils literal notranslate"><span class="pre">torch.matmul</span></code>, for a comparison against float32;</p></li>
+<li><p>a format (<code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">4)</span></code>): shorthand for <code class="docutils literal notranslate"><span class="pre">SplitMac(f,</span> <span class="pre">f)</span></code>;</p></li>
+<li><p>a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> or <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code>;</p></li>
+<li><p>a <code class="xref py py-class docutils literal notranslate"><span class="pre">BlockMac</span></code> (or a bare
+<code class="xref py py-class docutils literal notranslate"><span class="pre">BlockFormat</span></code>), which packs both operands in block formats
+and multiplies them with the block product (<a class="reference internal" href="#block-products">Block products</a>, below);</p></li>
+<li><p>a <a class="reference internal" href="../api.html#mptorch.quant.QMatmulFormats" title="mptorch.quant.QMatmulFormats"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmulFormats</span></code></a>, which also carries quantizers
+for the operands and for each gradient (next section).</p></li>
+</ul>
+<p>It accepts everything <code class="docutils literal notranslate"><span class="pre">torch.matmul</span></code> accepts: matrices, batches of
+matrices, broadcasting between leading dimensions, and 1D operands, which
+are promoted and squeezed back in the same way. Two common shapes need no
+copy:</p>
+<ul class="simple">
+<li><p>An operand that is the transpose of a contiguous tensor (<code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">&#64;</span> <span class="pre">k.mT</span></code>)
+sets the kernel’s transpose flag and is not materialized.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">M,</span> <span class="pre">K]</span> <span class="pre">&#64;</span> <span class="pre">[K,</span> <span class="pre">N]</span></code> folds its batch into <code class="docutils literal notranslate"><span class="pre">M</span></code>, giving one large
+product instead of a batch of small ones.</p></li>
+</ul>
+<p>Both are bit-identical to the batched spelling, not merely close. Stochastic
+rounding keys each output element’s random stream on its global index, which
+is the same either way.</p>
+<p>The gradients are the usual ones. Each is computed as a GEMM in the
+arithmetic of its own hook (by default, the forward’s):</p>
+<div class="math notranslate nohighlight">
+\[\frac{\partial L}{\partial A} = G\, B^{\top}, \qquad
+\frac{\partial L}{\partial B} = A^{\top} G, \qquad
+G = \frac{\partial L}{\partial C},\]</div>
+<p>followed by a reduction over any dimensions that the forward pass broadcast.
+<code class="xref py py-func docutils literal notranslate"><span class="pre">qmm()</span></code> and <code class="xref py py-func docutils literal notranslate"><span class="pre">qbmm()</span></code> are the same
+function with the rank checks of <code class="docutils literal notranslate"><span class="pre">torch.mm</span></code> and <code class="docutils literal notranslate"><span class="pre">torch.bmm</span></code>.</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_qmatmul.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""qmatmul: torch.matmul's contract, in the arithmetic you name."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QMatmulFormats</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qbmm</span><span class="p">,</span> <span class="n">qmatmul</span><span class="p">,</span> <span class="n">qmm</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="c1"># Every formats spelling, from the loosest to the most specific.</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"None (plain torch.matmul)  "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">),</span> <span class="n">a</span> <span class="o">@</span> <span class="n">b</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"BinaryK == SplitMac(f, f)  "</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">),</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">))),</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"QMatmulFormats() (nothing) "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">QMatmulFormats</span><span class="p">()),</span> <span class="n">a</span> <span class="o">@</span> <span class="n">b</span><span class="p">))</span>
+
+<span class="c1"># The operand rules are torch.matmul's: batches, broadcasting, 1D promotion.</span>
+<span class="n">cases</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">"2D @ 2D          "</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"batched          "</span><span class="p">,</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"broadcast b      "</span><span class="p">,</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"broadcast leading"</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"1D @ 2D          "</span><span class="p">,</span> <span class="p">(</span><span class="mi">8</span><span class="p">,),</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"2D @ 1D          "</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="p">(</span><span class="mi">8</span><span class="p">,)),</span>
+    <span class="p">(</span><span class="s2">"1D @ 1D          "</span><span class="p">,</span> <span class="p">(</span><span class="mi">8</span><span class="p">,),</span> <span class="p">(</span><span class="mi">8</span><span class="p">,)),</span>
+<span class="p">]</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">sa</span><span class="p">,</span> <span class="n">sb</span> <span class="ow">in</span> <span class="n">cases</span><span class="p">:</span>
+    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="o">*</span><span class="n">sa</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="o">*</span><span class="n">sb</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">sa</span><span class="p">))</span><span class="si">:</span><span class="s2">&lt;14</span><span class="si">}</span><span class="s2"> @ </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">sb</span><span class="p">))</span><span class="si">:</span><span class="s2">&lt;12</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
+        <span class="sa">f</span><span class="s2">"   shape as torch: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span>
+    <span class="p">)</span>
+
+<span class="c1"># qmm / qbmm are the rank-checked spellings, like torch.mm / torch.bmm.</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">qmm  "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">qmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">),</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">)))</span>
+<span class="n">x3</span><span class="p">,</span> <span class="n">y3</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"qbmm "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">qbmm</span><span class="p">(</span><span class="n">x3</span><span class="p">,</span> <span class="n">y3</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">),</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">x3</span><span class="p">,</span> <span class="n">y3</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">)))</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qbmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"qbmm on 2D:"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="c1"># It is differentiable in both operands. With no format the gradients are</span>
+<span class="c1"># torch's own; with one, each gradient is a GEMM in that arithmetic.</span>
+<span class="n">a</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">b</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">ga</span><span class="p">,</span> <span class="n">gb</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+<span class="n">a</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">(</span><span class="n">a</span> <span class="o">@</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">no format: grads equal torch's:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">ga</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">gb</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="p">))</span>
+
+<span class="n">a</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">cos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">cosine_similarity</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Binary8p4: cos(grad_a, torch) ="</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">ga</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>None (plain torch.matmul)   True
+BinaryK == SplitMac(f, f)   True
+QMatmulFormats() (nothing)  True
+2D @ 2D           (4, 8)         @ (8, 3)       -&gt; (4, 3)   shape as torch: True
+batched           (5, 4, 8)      @ (5, 8, 3)    -&gt; (5, 4, 3)   shape as torch: True
+broadcast b       (5, 4, 8)      @ (8, 3)       -&gt; (5, 4, 3)   shape as torch: True
+broadcast leading (2, 1, 4, 8)   @ (3, 8, 3)    -&gt; (2, 3, 4, 3)   shape as torch: True
+1D @ 2D           (8,)           @ (8, 3)       -&gt; (3,)   shape as torch: True
+2D @ 1D           (4, 8)         @ (8,)         -&gt; (4,)   shape as torch: True
+1D @ 1D           (8,)           @ (8,)         -&gt; ()   shape as torch: True
+
+qmm   True
+qbmm  True
+qbmm on 2D: qbmm expects 3D tensors, got 2D and 2D
+
+no format: grads equal torch's: True True
+Binary8p4: cos(grad_a, torch) = 0.9994
+</pre></div>
+</div>
+</div>
+</section>
+<section id="qmatmulformats-and-qmatmul">
+<h2>QMatmulFormats and QMatmul<a class="headerlink" href="#qmatmulformats-and-qmatmul" title="Link to this heading">#</a></h2>
+<p><a class="reference internal" href="../api.html#mptorch.quant.QMatmulFormats" title="mptorch.quant.QMatmulFormats"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmulFormats</span></code></a> holds everything a quantized matmul
+can vary. Its slots mirror the layer formats of <a class="reference internal" href="../layers.html"><span class="doc">Layers</span></a>, renamed for
+an operation whose two operands play the same role:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>slot</p></th>
+<th class="head"><p>what it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">a_quant</span></code></p></td>
+<td><p>quantizer applied to <code class="docutils literal notranslate"><span class="pre">a</span></code> before the product</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">b_quant</span></code></p></td>
+<td><p>quantizer applied to <code class="docutils literal notranslate"><span class="pre">b</span></code> before the product</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agrad_quant</span></code></p></td>
+<td><p>quantizer applied to <span class="math notranslate nohighlight">\(G\)</span> before <code class="docutils literal notranslate"><span class="pre">a</span></code>’s gradient is computed</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bgrad_quant</span></code></p></td>
+<td><p>quantizer applied to <span class="math notranslate nohighlight">\(G\)</span> before <code class="docutils literal notranslate"><span class="pre">b</span></code>’s gradient is computed</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fwd_math</span></code></p></td>
+<td><p>the forward product, <code class="docutils literal notranslate"><span class="pre">(q_a,</span> <span class="pre">q_b)</span> <span class="pre">-&gt;</span> <span class="pre">q_a</span> <span class="pre">&#64;</span> <span class="pre">q_b</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bwd_agrad_math</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">a</span></code>’s gradient product, <code class="docutils literal notranslate"><span class="pre">(q_grad,</span> <span class="pre">q_b)</span> <span class="pre">-&gt;</span> <span class="pre">q_grad</span> <span class="pre">&#64;</span> <span class="pre">q_b^T</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bwd_bgrad_math</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">b</span></code>’s gradient product, <code class="docutils literal notranslate"><span class="pre">(q_grad,</span> <span class="pre">q_a)</span> <span class="pre">-&gt;</span> <span class="pre">q_a^T</span> <span class="pre">&#64;</span> <span class="pre">q_grad</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every slot is optional, and <code class="docutils literal notranslate"><span class="pre">None</span></code> means “plain PyTorch”. There is no
+<code class="docutils literal notranslate"><span class="pre">output_quant</span></code>, on purpose: rounding the result is an elementwise step, so
+apply a <a class="reference internal" href="../api.html#mptorch.quant.Quantizer" title="mptorch.quant.Quantizer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quantizer</span></code></a> after the product.</p>
+<p><a class="reference internal" href="../api.html#mptorch.quant.matmul_formats" title="mptorch.quant.matmul_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">matmul_formats()</span></code></a> builds a <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code> with the
+three math hooks set to the arithmetic of a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> or <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code>. It
+sets nothing else, so quantizers are added separately.
+<a class="reference internal" href="../api.html#mptorch.quant.QMatmul" title="mptorch.quant.QMatmul"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmul</span></code></a> is the module form: an <code class="docutils literal notranslate"><span class="pre">nn.Module</span></code> holding
+a <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code>, so that a quantizer with state is registered in the
+model. A quantized attention head calls two of them:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/qmatmul_module.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QMatmul: the module form, for quantizers that carry state."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QMatmul</span><span class="p">,</span> <span class="n">QMatmulFormats</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">Quantizer</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">matmul_formats</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">QAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""One attention head with both matmuls in Binary8p4 arithmetic."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">formats</span><span class="p">:</span> <span class="n">QMatmulFormats</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">dim</span><span class="o">**-</span><span class="mf">0.5</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qk</span> <span class="o">=</span> <span class="n">QMatmul</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>  <span class="c1"># scores = q @ k^T</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pv</span> <span class="o">=</span> <span class="n">QMatmul</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>  <span class="c1"># out = p @ v</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qk</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span>  <span class="c1"># k^T is a view: no copy</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">pv</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+
+
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">matmul_formats</span><span class="p">(</span><span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>  <span class="c1"># Binary8p4 products, float32 sums</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">a_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)</span>  <span class="c1"># round both operands to Binary8p4 on the way in</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">b_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">agrad_quant</span> <span class="o">=</span> <span class="n">Quantizer</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">))</span>  <span class="c1"># stochastic Binary8p3 on the gradient</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">agrad_quant</span>
+
+<span class="n">head</span> <span class="o">=</span> <span class="n">QAttention</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="p">)</span>
+<span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">))</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">head</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+<span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"output"</span><span class="p">,</span>
+    <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+    <span class="s2">" grads:"</span><span class="p">,</span>
+    <span class="nb">tuple</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+    <span class="nb">tuple</span><span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+    <span class="nb">tuple</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="c1"># The Quantizer is registered under the QMatmul that holds it, so any state a</span>
+<span class="c1"># quantizer keeps travels with the model. (named_modules lists a shared module</span>
+<span class="c1"># once: both heads hold the same formats, and both gradient slots the same</span>
+<span class="c1"># Quantizer.)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">submodules:"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">head</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">name</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"  "</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>output (2, 128, 64)  grads: (2, 128, 64) (2, 128, 64) (2, 128, 64)
+
+submodules:
+   qk
+   qk.formats
+   qk.formats.agrad_quant
+   pv
+</pre></div>
+</div>
+</div>
+</section>
+<section id="palettes-a-map-per-pass-held-and-reused">
+<h2>Palettes: a map per pass, held and reused<a class="headerlink" href="#palettes-a-map-per-pass-held-and-reused" title="Link to this heading">#</a></h2>
+<p>A palette (<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>, “Palettes”) picks a format per output element
+through an integer map, <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code>, indexed by <em>output</em> element. The three
+passes of a differentiable matmul have three output shapes: <code class="docutils literal notranslate"><span class="pre">[M,</span> <span class="pre">N]</span></code>,
+<code class="docutils literal notranslate"><span class="pre">[M,</span> <span class="pre">K]</span></code> and <code class="docutils literal notranslate"><span class="pre">[K,</span> <span class="pre">N]</span></code>. A palette that has to differentiate therefore
+needs one map per pass, given to <code class="docutils literal notranslate"><span class="pre">matmul_formats</span></code> as <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code>,
+<code class="docutils literal notranslate"><span class="pre">agrad_prec_idx</span></code> and <code class="docutils literal notranslate"><span class="pre">bgrad_prec_idx</span></code>. If a pass’s map is missing, the
+pass raises when it is reached and names the argument. It does not fall back
+to something unquantized.</p>
+<p>Keep the map and reuse it. The bounds check on its values is memoized
+against the tensor you pass, and an <code class="docutils literal notranslate"><span class="pre">int32</span></code>, contiguous map on the
+operands’ device is passed to the kernel unchanged. A map rebuilt on every
+call is re-checked and re-packed on every call.</p>
+</section>
+<section id="block-products">
+<h2>Block products<a class="headerlink" href="#block-products" title="Link to this heading">#</a></h2>
+<p><a class="reference internal" href="../api.html#mptorch.quant.block_matmul" title="mptorch.quant.block_matmul"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_matmul()</span></code></a> multiplies two packed tensors, the
+<a class="reference internal" href="../api.html#mptorch.quant.BlockPacked" title="mptorch.quant.BlockPacked"><code class="xref py py-class docutils literal notranslate"><span class="pre">BlockPacked</span></code></a> objects that
+<a class="reference internal" href="../api.html#mptorch.quant.block_pack" title="mptorch.quant.block_pack"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_pack()</span></code></a> returns. <code class="docutils literal notranslate"><span class="pre">a</span></code> is logically
+<code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">M,</span> <span class="pre">K]</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> is <code class="docutils literal notranslate"><span class="pre">[...,</span> <span class="pre">K,</span> <span class="pre">N]</span></code>. Each has its own format, so an
+MXFP4 weight can multiply an MXFP8 activation. This is the block product of
+<a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a>. It is bit for bit the flat binaryK product on the decoded
+operands with a binary32 multiply:</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/block_gemm.py</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""The block GEMM: two packed operands, decoded in the kernel's tile loads."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">MXFP4_E2M1</span><span class="p">,</span> <span class="n">MXFP8_E4M3</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockMac</span><span class="p">,</span> <span class="n">binaryK_matmul</span><span class="p">,</span> <span class="n">block_matmul</span><span class="p">,</span> <span class="n">block_pack</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">x</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">256</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span>
+
+<span class="n">xp</span> <span class="o">=</span> <span class="n">block_pack</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">MXFP8_E4M3</span><span class="p">)</span>  <span class="c1"># [8, 256], blocks along K</span>
+<span class="n">wp</span> <span class="o">=</span> <span class="n">block_pack</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">MXFP4_E2M1</span><span class="p">)</span>  <span class="c1"># [32, 256], blocks along K, as a weight is stored</span>
+<span class="n">acc</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">)</span>  <span class="c1"># the running sum rounded to binary16's precision</span>
+
+<span class="n">y</span> <span class="o">=</span> <span class="n">block_matmul</span><span class="p">(</span><span class="n">xp</span><span class="p">,</span> <span class="n">wp</span><span class="o">.</span><span class="n">mT</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="n">acc</span><span class="p">)</span>  <span class="c1"># x @ w.T; .mT reads w's codes transposed</span>
+
+<span class="c1"># The same numbers as the flat binaryK GEMM on the decoded operands, with a</span>
+<span class="c1"># binary32 multiply: binary32 itself as a binaryK format, the identity on</span>
+<span class="c1"># every product here (the warning is that its top, 2^128, is past binary32's).</span>
+<span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+    <span class="n">flat</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span>
+        <span class="n">xp</span><span class="o">.</span><span class="n">unpack</span><span class="p">(),</span> <span class="n">wp</span><span class="o">.</span><span class="n">unpack</span><span class="p">(),</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span> <span class="n">mul_bias</span><span class="o">=</span><span class="mi">127</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">11</span>
+    <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"equal to the flat GEMM on the decoded operands:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">flat</span><span class="p">))</span>
+<span class="n">ref</span> <span class="o">=</span> <span class="n">x</span> <span class="o">@</span> <span class="n">w</span><span class="o">.</span><span class="n">T</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"relative error against float32: </span><span class="si">{</span><span class="p">((</span><span class="n">y</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">ref</span><span class="p">)</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">ref</span><span class="o">.</span><span class="n">norm</span><span class="p">())</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The differentiable spelling: qmatmul packs both operands in the forward</span>
+<span class="c1"># and each gradient pass packs what it multiplies</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">BlockMac</span><span class="p">(</span><span class="n">MXFP8_E4M3</span><span class="p">,</span> <span class="n">MXFP4_E2M1</span><span class="p">,</span> <span class="n">acc</span><span class="p">))</span>
+<span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"gradients:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>equal to the flat GEMM on the decoded operands: True
+relative error against float32: 0.118
+gradients: (8, 256) (256, 32)
+</pre></div>
+</div>
+</div>
+<p>Each operand is read along K. An operand packed along its K is the natural
+case: a weight <code class="docutils literal notranslate"><span class="pre">[N,</span> <span class="pre">K]</span></code> blocked along K is read through
+<a class="reference internal" href="../api.html#mptorch.quant.BlockPacked.mT" title="mptorch.quant.BlockPacked.mT"><code class="xref py py-attr docutils literal notranslate"><span class="pre">mT</span></code></a>. An operand packed along its other
+dimension is read transposed.</p>
+<p><code class="xref py py-class docutils literal notranslate"><span class="pre">BlockMac</span></code> is the value spelling.
+<code class="xref py py-func docutils literal notranslate"><span class="pre">qmatmul()</span></code> and <a class="reference internal" href="../api.html#mptorch.quant.QMatmul" title="mptorch.quant.QMatmul"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmul</span></code></a> accept
+one, and a bare <code class="docutils literal notranslate"><span class="pre">BlockFormat</span></code> means <code class="docutils literal notranslate"><span class="pre">BlockMac(fmt)</span></code>. The forward pass
+packs <code class="docutils literal notranslate"><span class="pre">a</span></code> and <code class="docutils literal notranslate"><span class="pre">b</span></code> along their K. Each gradient pass packs what it
+multiplies along the dimension it sums over, as <a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a> explains.
+<a class="reference internal" href="../api.html#mptorch.quant.block_matmul_formats" title="mptorch.quant.block_matmul_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_matmul_formats()</span></code></a> builds the <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code>,
+with one <code class="docutils literal notranslate"><span class="pre">BlockMac</span></code> per pass. An operand whose format has a square tile is
+packed once, in the forward pass, and the gradient passes read that packing
+transposed.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tensor_scale_epilogue=True</span></code> applies the operands’ per-tensor scales to
+the result instead of in the decode (<a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a>, “Tensor scales”). It is
+accepted by <code class="docutils literal notranslate"><span class="pre">block_matmul</span></code>, by a <code class="docutils literal notranslate"><span class="pre">BlockMac</span></code> and by the layer factory
+<a class="reference internal" href="../api.html#mptorch.quant.block_gemm_formats" title="mptorch.quant.block_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_gemm_formats()</span></code></a>.</p>
+</section>
+<section id="convolutions">
+<h2>Convolutions<a class="headerlink" href="#convolutions" title="Link to this heading">#</a></h2>
+<p>The convolutions have ten operators of their own, <code class="docutils literal notranslate"><span class="pre">custom_conv_*</span></code>, one
+per matrix-product operator family (two of them for the cross-family
+<code class="docutils literal notranslate"><span class="pre">SplitMac</span></code>). They take the convolution’s geometry in
+place of the transpose flags. There are no Python functions for them. A
+<code class="docutils literal notranslate"><span class="pre">QConv1d</span></code>/<code class="docutils literal notranslate"><span class="pre">2d</span></code>/<code class="docutils literal notranslate"><span class="pre">3d</span></code> reaches them through
+<a class="reference internal" href="../api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a>, which fills the layer’s three math
+hooks from a mac, as <a class="reference internal" href="../api.html#mptorch.quant.matmul_formats" title="mptorch.quant.matmul_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">matmul_formats()</span></code></a> does for a matmul
+(<a class="reference internal" href="../layers.html"><span class="doc">Layers</span></a>, “Convolutions”). <a class="reference internal" href="convolutions.html"><span class="doc">Convolutions</span></a> describes what they
+compute.</p>
+</section>
+<section id="the-schema-tier">
+<h2>The schema tier<a class="headerlink" href="#the-schema-tier" title="Link to this heading">#</a></h2>
+<p>Below the value vocabulary there are ten functions, one per kernel. Each
+spells out every argument of the kernel’s schema and has no autograd:
+<code class="docutils literal notranslate"><span class="pre">binaryK_matmul</span></code>, <code class="docutils literal notranslate"><span class="pre">superfp_matmul</span></code>, their <code class="docutils literal notranslate"><span class="pre">_fma</span></code> variants, the
+<code class="docutils literal notranslate"><span class="pre">_mixed</span></code> (palette) variants of all four, and the two cross-family split
+macs, <code class="docutils literal notranslate"><span class="pre">binaryK_superfp_matmul</span></code> (BinaryK products, SuperFP sums) and
+<code class="docutils literal notranslate"><span class="pre">superfp_binaryK_matmul</span></code>. They are for scripts that need to
+state exactly what the kernel receives. The vocabulary resolves to them: the
+test suite asserts that a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> and the equivalent flat call produce
+the same resolved kernel arguments.</p>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_raw_ops.py</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""The schema tier: one function per op, every argument spelled out."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">FormatRangeWarning</span><span class="p">,</span> <span class="n">RoundMode</span><span class="p">,</span> <span class="n">SaturationMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">binaryK_matmul</span><span class="p">,</span>
+    <span class="n">binaryK_matmul_fma</span><span class="p">,</span>
+    <span class="n">binaryK_matmul_mixed</span><span class="p">,</span>
+    <span class="n">superfp_matmul</span><span class="p">,</span>
+    <span class="n">superfp_matmul_fma</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell</span>
+<span class="c1"># one input from another, so naming one warns (concepts, "What float32 can</span>
+<span class="c1"># carry"). Nothing here goes anywhere near that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>  <span class="c1"># will be read transposed</span>
+
+<span class="c1"># Binary8p4 multiply, Binary16p8 accumulate, no gradient tracking.</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">cos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">cosine_similarity</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"binaryK_matmul      "</span><span class="p">,</span>
+    <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+    <span class="sa">f</span><span class="s2">"cos to float32: </span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">b</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># trans_* flags apply to the last two dimensions, with no copy for a view.</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"== a @ b.T          "</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">8</span><span class="p">)),</span>
+<span class="p">)</span>
+
+<span class="c1"># Fused, saturating, round-to-zero.</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">binaryK_matmul_fma</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">,</span>
+    <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">fma_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+    <span class="n">fma_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RZ</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="o">=</span><span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_FINITE</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"binaryK_matmul_fma  "</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># superfp needs its bias spelled out: the format has no default rule for one.</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">superfp_matmul</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_man_bits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">mul_exp_bits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">mul_normal_binades</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">mul_bias</span><span class="o">=</span><span class="mi">7</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"superfp_matmul      "</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">superfp_matmul_fma</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fma_man_bits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">fma_exp_bits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">fma_normal_binades</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">fma_bias</span><span class="o">=</span><span class="mi">7</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"superfp_matmul_fma  "</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># The palette ops take per-entry sequences and a prec_idx map.</span>
+<span class="n">prec_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">binaryK_matmul_mixed</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="p">[</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span> <span class="n">mul_P</span><span class="o">=</span><span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"binaryK_matmul_mixed"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># None of them carries a gradient; that is qmatmul's job.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">),</span> <span class="n">b</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">RuntimeError:"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)[:</span><span class="mi">120</span><span class="p">],</span> <span class="s2">"..."</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>binaryK_matmul       (4, 3) cos to float32: 0.9998
+== a @ b.T           True
+binaryK_matmul_fma   (4, 3)
+superfp_matmul       (4, 3)
+superfp_matmul_fma   (4, 3)
+binaryK_matmul_mixed (4, 3)
+
+RuntimeError: mptorch::custom_matmul_binaryK is not differentiable: it simulates the arithmetic of its own reduction, so which format  ...
+</pre></div>
+</div>
+</div>
+<p>The ten functions share their conventions:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mul_*</span></code> and <code class="docutils literal notranslate"><span class="pre">acc_*</span></code> give the two formats of a split
+multiply-accumulate. <code class="docutils literal notranslate"><span class="pre">acc_*</span></code> default to the <code class="docutils literal notranslate"><span class="pre">mul_*</span></code> values, and
+<code class="docutils literal notranslate"><span class="pre">accumulate_quant=False</span></code> leaves the sum unrounded. In the two
+cross-family functions the <code class="docutils literal notranslate"><span class="pre">acc_*</span></code> widths are the other family’s, so
+they are required, and there is no <code class="docutils literal notranslate"><span class="pre">accumulate_quant</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fma_*</span></code> gives the one format of a fused step, and <code class="docutils literal notranslate"><span class="pre">fma_quant=False</span></code>
+leaves it unrounded.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">trans_a</span></code> and <code class="docutils literal notranslate"><span class="pre">trans_b</span></code> transpose the last two dimensions of an
+operand without copying it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">*_prng_bits</span></code> set the stochastic bits per format.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">carrier</span></code> chooses the arithmetic, as on a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code>.</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">_mixed</span></code> variants take sequences for the width arguments, a scalar
+for anything the palette shares, and <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code> as the third positional
+argument.</p></li>
+</ul>
+<p>The six single-format functions also take <code class="docutils literal notranslate"><span class="pre">accumulate_algorithm</span></code>, its
+<code class="docutils literal notranslate"><span class="pre">block_size</span></code> and the outer format, spelled <code class="docutils literal notranslate"><span class="pre">outer_*</span></code> in the same way as
+the accumulate format. An algorithm other than <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> routes the
+call to the kernel’s <code class="docutils literal notranslate"><span class="pre">*_accumulated</span></code> twin, which is a separate operator. A
+<code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> call is therefore exactly the call it was before the other three
+algorithms existed.</p>
+<p>Callers that keep one format across many calls should use the factories or
+<code class="docutils literal notranslate"><span class="pre">qmatmul</span></code> instead. These functions re-derive the format’s defaults on
+every call, which the resolved objects avoid. The convolutions’ operators
+have no functions at this tier (<a class="reference internal" href="#convolutions">Convolutions</a>, above), and the block
+product’s function is <a class="reference internal" href="../api.html#mptorch.quant.block_matmul" title="mptorch.quant.block_matmul"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_matmul()</span></code></a> itself.</p>
+</section>
+<section id="torch-compile-and-torch-export">
+<h2>torch.compile and torch.export<a class="headerlink" href="#torch-compile-and-torch-export" title="Link to this heading">#</a></h2>
+<p>Every operator has a fake (Meta) kernel. It runs the CPU operator’s checks
+and allocates a result of the shape, dtype and layout the CPU allocates, but
+computes nothing and draws no random state. The meta device,
+<code class="docutils literal notranslate"><span class="pre">FakeTensorMode</span></code>, <a class="reference external" href="https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/export/api_reference.html#torch.export.export" title="(in PyTorch v2.15)"><code class="xref py py-func docutils literal notranslate"><span class="pre">torch.export.export()</span></code></a> and <a class="reference external" href="https://docs.pytorch.org/docs/stable/generated/torch.compile.html#torch.compile" title="(in PyTorch v2.15)"><code class="xref py py-func docutils literal notranslate"><span class="pre">torch.compile()</span></code></a>
+run it in the operator’s place. Its sizes may be symbolic: a batch, a
+matrix extent or a channel count can stay dynamic in a compiled graph or an
+exported program. An extent passed to an operator as an integer cannot:
+the spatial size of a convolution’s output, and the length of a block
+format’s packed axis. Those specialize.</p>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/compile_export.py</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""The kernels under torch.export and torch.compile."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">binaryK_gemm_formats</span><span class="p">,</span> <span class="n">binaryK_matmul</span><span class="p">,</span> <span class="n">binaryK_quantize</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">11</span><span class="p">))</span>
+
+<span class="c1"># Export with a dynamic batch. The program is the forward alone: the layer's</span>
+<span class="c1"># autograd.Function is inlined and its GEMM operator is in the graph.</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span>
+<span class="n">ep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="n">dynamic_shapes</span><span class="o">=</span><span class="p">({</span><span class="mi">0</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">Dim</span><span class="o">.</span><span class="n">AUTO</span><span class="p">},))</span>
+<span class="nb">print</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">n</span><span class="o">.</span><span class="n">target</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">ep</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">nodes</span> <span class="k">if</span> <span class="n">n</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="s2">"call_function"</span><span class="p">])</span>
+<span class="n">program</span> <span class="o">=</span> <span class="n">ep</span><span class="o">.</span><span class="n">module</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>  <span class="c1"># the forward alone has no gradient to give</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">program</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+
+<span class="c1"># Compile two GEMMs and a quantizer, here under stochastic rounding. The flat</span>
+<span class="c1"># functions trace into one graph; with fallback_random the random operators</span>
+<span class="c1"># run in program order, so the compiled result is eager's, draw for draw.</span>
+<span class="c1"># Dynamo traces through the format checks' lru_cache, which it says once per</span>
+<span class="c1"># function; the checks are pure, so their cache only saves time.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">"Dynamo detected a call to a `functools.lru_cache`"</span><span class="p">)</span>
+<span class="n">SR</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="n">kw</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">mul_prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">11</span><span class="p">,</span> <span class="n">acc_prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+    <span class="n">q</span> <span class="o">=</span> <span class="n">binaryK_quantize</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">rounding_mode</span><span class="o">=</span><span class="n">SR</span><span class="p">)</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">rounding_mode</span><span class="o">=</span><span class="n">SR</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">h</span><span class="p">),</span> <span class="n">b</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">rounding_mode</span><span class="o">=</span><span class="n">SR</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+<span class="n">explanation</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">explain</span><span class="p">(</span><span class="n">step</span><span class="p">)(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">explanation</span><span class="o">.</span><span class="n">graph_count</span><span class="si">}</span><span class="s2"> graph, </span><span class="si">{</span><span class="n">explanation</span><span class="o">.</span><span class="n">graph_break_count</span><span class="si">}</span><span class="s2"> breaks"</span><span class="p">)</span>
+<span class="n">compiled</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">_inductor</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">patch</span><span class="p">(</span><span class="n">fallback_random</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">got</span> <span class="o">=</span> <span class="n">compiled</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"compiled == eager:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="n">step</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>['aten.sym_size.int', 'aten.reshape.default', 'mptorch.custom_matmul_binaryK.default', 'aten.reshape.default', 'aten.add_.Tensor']
+8 True
+5 True
+1 graph, 0 breaks
+compiled == eager: True
+</pre></div>
+</div>
+</div>
+<p>What to expect:</p>
+<ul class="simple">
+<li><p><strong>An exported layer is its forward.</strong> Export inlines the layer’s autograd
+function, so the program holds the GEMM operator and no gradient. Run it
+under <code class="docutils literal notranslate"><span class="pre">torch.no_grad()</span></code>: in grad mode the operator meets a parameter that
+requires a gradient, and refuses it, as it refuses any (an operator’s
+gradient is its layer’s to compute).</p></li>
+<li><p><strong>The flat functions compile into one graph.</strong> The layers’
+autograd functions break the graph on torch 2.14, so each layer runs
+eagerly between the compiled pieces. The results are the same either way.</p></li>
+<li><p><strong>Stochastic rounding.</strong> Every operator that takes a rounding mode is
+tagged <code class="docutils literal notranslate"><span class="pre">nondeterministic_seeded</span></code>, so a compiled graph never merges two
+identical stochastic calls into one draw. Inductor may still reorder
+independent random operators, and it removes one whose result is unused,
+as it does PyTorch’s own random operators. The compiled draws are then
+valid but not eager’s. <code class="docutils literal notranslate"><span class="pre">torch._inductor.config.fallback_random</span> <span class="pre">=</span> <span class="pre">True</span></code>
+keeps them in program order, and the result is eager’s, bit for bit.</p></li>
+<li><p><strong>The checks that need values run when the operator does.</strong> These are a
+palette’s <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code> bounds, CUDA’s alignment check on an in-place
+quantizer’s view, and the operators that MPS refuses. The fake kernel
+cannot read tensor values or addresses.</p></li>
+</ul>
+</section>
+<section id="performance-notes">
+<h2>Performance notes<a class="headerlink" href="#performance-notes" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Resolve once.</strong> <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code>/<code class="docutils literal notranslate"><span class="pre">FusedMac</span></code>/<code class="docutils literal notranslate"><span class="pre">BinaryK</span></code>/<code class="docutils literal notranslate"><span class="pre">SuperFP</span></code> are
+frozen and hashable, and <code class="docutils literal notranslate"><span class="pre">qmatmul</span></code> memoizes the resolution of the
+<code class="docutils literal notranslate"><span class="pre">formats</span></code> it is given. Constructing a new <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> per call still
+hits the cache. Constructing a <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code> per call does not.
+Keeping a <code class="docutils literal notranslate"><span class="pre">QMatmul</span></code> module, or the <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code> that a factory
+returned, costs nothing per call beyond the kernel.</p></li>
+<li><p><strong>One launch per batch.</strong> A batched call is one kernel launch (one
+parallel region on the CPU) over the whole batch. On attention-shaped
+operands it is 2-4x faster than the loop of 2D calls it replaces
+(<code class="docutils literal notranslate"><span class="pre">dev/benchmarks/timing/benchmark_qmatmul.py</span></code>).</p></li>
+<li><p><strong>Stochastic rounding is not free.</strong> Each rounding draws from a
+per-element Philox stream, so a <code class="docutils literal notranslate"><span class="pre">RoundMode.SR</span></code> GEMM is slower than a
+deterministic one.</p></li>
+<li><p><strong>binary64 is slower.</strong> On an RTX 4060 a float64 GEMM took 2.7-3.1x the
+time of the same product computed in binary32 (up to 6x for a stochastic
+split step). On the CPU the two are within a percent, except where binary32
+runs vector code (next item), which binary64 does not. A float64 model
+whose formats binary32 can carry gets the binary32 speed back as a float32
+model. A float32 model with <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> pays the binary64
+time plus the widening and narrowing copies.</p></li>
+<li><p><strong>On the CPU, binaryK under round-to-nearest-even is the fast case.</strong> A
+binaryK split or fused product, or one that quantizes only the products,
+in binary32 under <code class="docutils literal notranslate"><span class="pre">RoundMode.RNE</span></code>, with the <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> accumulator and one
+format per slot, runs its tiles in vector code (AVX-512 or AVX2 on x86-64,
+NEON on arm64), and so do the convolutions on it. Its formats must be
+signed, keep their subnormals, not saturate with <code class="docutils literal notranslate"><span class="pre">SAT_PROPAGATE</span></code>, and
+have a precision from 2 to 23 bits and a range well inside binary32’s (in
+practice at most seven exponent bits). The results are the scalar loop’s,
+word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-9x the scalar loop
+on one thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen; on an M3
+Pro (NEON) about 4x at every thread count (0.69 ns a split step on one). Every other mode,
+format and accumulator runs the scalar loop, and so does any call under
+the environment variable <code class="docutils literal notranslate"><span class="pre">MPTORCH_CPU_SIMD=0</span></code>, read when mptorch loads.</p></li>
+<li><p><strong>Block products and convolutions cost what their matrix products cost.</strong>
+Decoding a block operand adds 5-18% to the flat product on the decoded
+operands (<a class="reference internal" href="block.html"><span class="doc">Block matrix products</span></a>, “How the kernel decodes”). A convolution’s
+gathered loads add a few percent of address arithmetic
+(<a class="reference internal" href="convolutions.html"><span class="doc">Convolutions</span></a>, “What it costs”).</p></li>
+<li><p><strong>The kernels are simulators.</strong> They are written for exactness and
+flexibility, not for speed, and are orders of magnitude slower than
+cuBLAS. The Linear layers fold their batch into one GEMM, which is the
+shape the kernels handle best.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="convolutions.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Convolutions</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../layers.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Layers</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#saying-which-arithmetic">Saying which arithmetic</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#qmatmul-qmm-and-qbmm">qmatmul, qmm and qbmm</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#qmatmulformats-and-qmatmul">QMatmulFormats and QMatmul</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#palettes-a-map-per-pass-held-and-reused">Palettes: a map per pass, held and reused</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#block-products">Block products</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convolutions">Convolutions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-schema-tier">The schema tier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#torch-compile-and-torch-export">torch.compile and torch.export</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#performance-notes">Performance notes</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="../_sources/kernels/calling.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

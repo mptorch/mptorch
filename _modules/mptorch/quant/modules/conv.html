@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.modules.conv &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/modules/conv';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../../_static/searchtools.js"></script>
+    <script src="../../../../_static/language_data.js"></script>
+    <script src="../../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.modules.conv</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.modules.conv</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The quantized convolutions: ``CustomArithConvNd`` and ``QConv1d/2d/3d``.</span>
+
+<span class="sd">The three modules are thin ``nn.Conv1d``/``nn.Conv2d``/``nn.Conv3d`` subclasses</span>
+<span class="sd">whose ``forward`` delegates to one ``torch.autograd.Function`` parameterized</span>
+<span class="sd">on the number of spatial dimensions. The Function is where quantization</span>
+<span class="sd">happens, once per operand and once per gradient path, exactly as</span>
+<span class="sd">``CustomArithLinear`` does for Linear: the ``formats``' quantizers round the</span>
+<span class="sd">input, weight and bias before the forward convolution and the incoming</span>
+<span class="sd">gradient separately for the input-gradient and weight-gradient paths, and the</span>
+<span class="sd">three math hooks may replace each convolution with custom arithmetic. Any</span>
+<span class="sd">slot left ``None`` is plain PyTorch.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.grad</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">grad</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">._saved</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span><span class="p">,</span> <span class="n">quantize_operand</span><span class="p">,</span> <span class="n">restore</span><span class="p">,</span> <span class="n">save</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.format</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CustomArithConvNd</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Autograd Function for a quantized convolution, 1D, 2D or 3D.</span>
+
+<span class="sd">    ``forward(input, weight, bias, formats, stride, padding, dilation, groups,</span>
+<span class="sd">    nd)`` quantizes the three operands through ``formats``' ``*_quant`` slots</span>
+<span class="sd">    and computes the output with ``formats.fwd_math`` (called with the</span>
+<span class="sd">    convolution parameters and ``nd`` as keywords) or ``F.conv{nd}d``.</span>
+<span class="sd">    ``backward`` quantizes the output gradient separately for the</span>
+<span class="sd">    input-gradient path (``igrad_quant``) and the weight-gradient path</span>
+<span class="sd">    (``wgrad_quant``), runs ``bwd_igrad_math`` / ``bwd_wgrad_math`` or</span>
+<span class="sd">    PyTorch's ``conv{nd}d_input`` / ``conv{nd}d_weight``, and sums the</span>
+<span class="sd">    ``bgrad_quant``-quantized gradient over the batch and spatial dimensions</span>
+<span class="sd">    for the bias. Only the first three inputs get a gradient.</span>
+<span class="sd">    """</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_default_bwd_igrad</span><span class="p">(</span>
+        <span class="n">grad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">input_size</span><span class="p">,</span>
+        <span class="n">stride</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">,</span>
+        <span class="n">nd</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The input gradient without a custom hook: PyTorch's transposed</span>
+<span class="sd">        convolution of ``grad_output`` with ``weight``, sized to ``input_size``."""</span>
+        <span class="k">if</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv1d_input</span><span class="p">(</span>
+                <span class="n">input_size</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv2d_input</span><span class="p">(</span>
+                <span class="n">input_size</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv3d_input</span><span class="p">(</span>
+                <span class="n">input_size</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported nd: </span><span class="si">{</span><span class="n">nd</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_default_bwd_wgrad</span><span class="p">(</span>
+        <span class="n">grad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">weight_size</span><span class="p">,</span>
+        <span class="n">stride</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">,</span>
+        <span class="n">nd</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The weight gradient without a custom hook: PyTorch's correlation of</span>
+<span class="sd">        ``input`` with ``grad_output``, sized to ``weight_size``."""</span>
+        <span class="k">if</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv1d_weight</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">weight_size</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv2d_weight</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">weight_size</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="o">.</span><span class="n">conv3d_weight</span><span class="p">(</span>
+                <span class="nb">input</span><span class="p">,</span> <span class="n">weight_size</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span>
+            <span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported nd: </span><span class="si">{</span><span class="n">nd</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+    <span class="c1">#: What a ``None`` recompute flag means here, as (input, weight): both are</span>
+    <span class="c1">#: quantized again in backward rather than kept. The weight is alive</span>
+    <span class="c1">#: anyway as the layer's parameter, and a convolution's input usually is</span>
+    <span class="c1">#: too, as the output a ReLU keeps for its own backward or as the data</span>
+    <span class="c1">#: batch (``_saved``: a raw operand is kept only where it is alive anyway).</span>
+    <span class="n">_RECOMPUTE_DEFAULT</span> <span class="o">=</span> <span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">formats</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span> <span class="n">nd</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">stride</span> <span class="o">=</span> <span class="n">stride</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">padding</span> <span class="o">=</span> <span class="n">padding</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">dilation</span> <span class="o">=</span> <span class="n">dilation</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">groups</span> <span class="o">=</span> <span class="n">groups</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">nd</span> <span class="o">=</span> <span class="n">nd</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">input_size</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">weight_size</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">recompute_input</span><span class="p">,</span> <span class="n">recompute_weight</span> <span class="o">=</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">_RECOMPUTE_DEFAULT</span>
+        <span class="c1"># Save only what backward will read. q_bias is never read there, and</span>
+        <span class="c1"># each of the other two feeds exactly one gradient path: q_input the</span>
+        <span class="c1"># weight gradient, q_weight the input gradient. So a layer whose</span>
+        <span class="c1"># weight is frozen does not pin a quantized copy of its entire</span>
+        <span class="c1"># activation for the length of the backward pass, on top of the</span>
+        <span class="c1"># activation autograd already holds. ctx.needs_input_grad is</span>
+        <span class="c1"># populated before forward runs and is the same tuple backward sees.</span>
+        <span class="c1"># What is saved of an operand that is read is its quantized value or</span>
+        <span class="c1"># the raw operand, quantized again in backward (_saved).</span>
+        <span class="n">q_input</span><span class="p">,</span> <span class="n">saved_input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_input</span> <span class="o">=</span> <span class="n">quantize_operand</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">,</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"recompute_input"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">recompute_input</span><span class="p">,</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">q_weight</span><span class="p">,</span> <span class="n">saved_weight</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_weight</span> <span class="o">=</span> <span class="n">quantize_operand</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">,</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"recompute_weight"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">recompute_weight</span><span class="p">,</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">q_bias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span><span class="p">(</span><span class="n">bias</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span> <span class="ow">and</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_math</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_math</span><span class="p">(</span>
+                <span class="n">q_input</span><span class="p">,</span>
+                <span class="n">q_weight</span><span class="p">,</span>
+                <span class="n">q_bias</span><span class="p">,</span>
+                <span class="n">stride</span><span class="o">=</span><span class="n">stride</span><span class="p">,</span>
+                <span class="n">padding</span><span class="o">=</span><span class="n">padding</span><span class="p">,</span>
+                <span class="n">dilation</span><span class="o">=</span><span class="n">dilation</span><span class="p">,</span>
+                <span class="n">groups</span><span class="o">=</span><span class="n">groups</span><span class="p">,</span>
+                <span class="n">nd</span><span class="o">=</span><span class="n">nd</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">conv1d</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">conv2d</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">nd</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">conv3d</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported nd: </span><span class="si">{</span><span class="n">nd</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+        <span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">saved_input</span><span class="p">,</span> <span class="n">saved_weight</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">needs_bias_grad</span> <span class="o">=</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="n">output</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="o">*</span><span class="n">grad_outputs</span><span class="p">):</span>
+        <span class="n">grad_output</span> <span class="o">=</span> <span class="n">grad_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">formats</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span>
+        <span class="n">stride</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">stride</span>
+        <span class="n">padding</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">padding</span>
+        <span class="n">dilation</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">dilation</span>
+        <span class="n">groups</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">groups</span>
+        <span class="n">nd</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">nd</span>
+        <span class="n">input_size</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input_size</span>
+        <span class="n">weight_size</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">weight_size</span>
+
+        <span class="n">saved_input</span><span class="p">,</span> <span class="n">saved_weight</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+        <span class="n">grad_input</span> <span class="o">=</span> <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">grad_bias</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Quantize grad_output only for the paths that will consume it, so a</span>
+        <span class="c1"># frozen layer, or the first layer of a network, does not pay a full</span>
+        <span class="c1"># grad-output-sized quantize kernel and allocation for a tensor it</span>
+        <span class="c1"># then discards. Both quantizations run ahead of both math calls, in</span>
+        <span class="c1"># this order, so a stochastic quantizer draws from the global RNG in</span>
+        <span class="c1"># the same sequence however many gradients are requested; the *_math</span>
+        <span class="c1"># hooks may consume randomness of their own afterwards.</span>
+        <span class="n">q_igrad_output</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+        <span class="n">q_wgrad_output</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">q_igrad_output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bwd_igrad_math</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bwd_igrad_math</span>
+                <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bwd_igrad_math</span>
+                <span class="k">else</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">_default_bwd_igrad</span>
+            <span class="p">)</span>
+            <span class="c1"># A recomputed operand is quantized again only here, so its copy</span>
+            <span class="c1"># lives for this one convolution.</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">bwd_igrad_math</span><span class="p">(</span>
+                <span class="n">q_igrad_output</span><span class="p">,</span>
+                <span class="n">restore</span><span class="p">(</span><span class="n">saved_weight</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_weight</span><span class="p">),</span>
+                <span class="n">input_size</span><span class="o">=</span><span class="n">input_size</span><span class="p">,</span>
+                <span class="n">stride</span><span class="o">=</span><span class="n">stride</span><span class="p">,</span>
+                <span class="n">padding</span><span class="o">=</span><span class="n">padding</span><span class="p">,</span>
+                <span class="n">dilation</span><span class="o">=</span><span class="n">dilation</span><span class="p">,</span>
+                <span class="n">groups</span><span class="o">=</span><span class="n">groups</span><span class="p">,</span>
+                <span class="n">nd</span><span class="o">=</span><span class="n">nd</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">q_wgrad_output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bwd_wgrad_math</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bwd_wgrad_math</span>
+                <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bwd_wgrad_math</span>
+                <span class="k">else</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">_default_bwd_wgrad</span>
+            <span class="p">)</span>
+            <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">bwd_wgrad_math</span><span class="p">(</span>
+                <span class="n">q_wgrad_output</span><span class="p">,</span>
+                <span class="n">restore</span><span class="p">(</span><span class="n">saved_input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_input</span><span class="p">),</span>
+                <span class="n">weight_size</span><span class="o">=</span><span class="n">weight_size</span><span class="p">,</span>
+                <span class="n">stride</span><span class="o">=</span><span class="n">stride</span><span class="p">,</span>
+                <span class="n">padding</span><span class="o">=</span><span class="n">padding</span><span class="p">,</span>
+                <span class="n">dilation</span><span class="o">=</span><span class="n">dilation</span><span class="p">,</span>
+                <span class="n">groups</span><span class="o">=</span><span class="n">groups</span><span class="p">,</span>
+                <span class="n">nd</span><span class="o">=</span><span class="n">nd</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_bias_grad</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span>
+            <span class="n">q_bgrad_output</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span>
+            <span class="p">)</span>
+
+            <span class="c1"># The bias gradient sums over the batch and the spatial</span>
+            <span class="c1"># dimensions, everything but the channel dimension 1:</span>
+            <span class="c1"># nd=1 -&gt; [0, 2], nd=2 -&gt; [0, 2, 3], nd=3 -&gt; [0, 2, 3, 4]. An</span>
+            <span class="c1"># unbatched input's gradient has no batch dimension, and its</span>
+            <span class="c1"># channels are dimension 0.</span>
+            <span class="k">if</span> <span class="n">q_bgrad_output</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="n">nd</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">dims_to_sum</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">nd</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dims_to_sum</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">nd</span> <span class="o">+</span> <span class="mi">2</span><span class="p">))</span>
+            <span class="n">grad_bias</span> <span class="o">=</span> <span class="n">q_bgrad_output</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="n">dims_to_sum</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">grad_input</span><span class="p">,</span> <span class="n">grad_weight</span><span class="p">,</span> <span class="n">grad_bias</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<span class="c1"># The name the 2D-only version of this Function had, kept so existing imports</span>
+<span class="c1"># still resolve; it is the same class.</span>
+<span class="n">CustomArithConv2d</span> <span class="o">=</span> <span class="n">CustomArithConvNd</span>
+
+
+<div class="viewcode-block" id="QConv1d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv1d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QConv1d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv1d</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""``torch.nn.Conv1d`` with per-tensor quantization and custom arithmetic.</span>
+
+<span class="sd">    It holds the same parameters as ``nn.Conv1d`` and computes the same</span>
+<span class="sd">    convolution, but through :class:`CustomArithConvNd`. The input, the</span>
+<span class="sd">    weight, the bias and each gradient can therefore be rounded by the</span>
+<span class="sd">    quantizers in ``formats``, and each convolution can run in custom</span>
+<span class="sd">    arithmetic. With ``formats`` left ``None``, or with a ``QAffineFormats``</span>
+<span class="sd">    whose slots are all ``None``, the layer is numerically identical to</span>
+<span class="sd">    ``nn.Conv1d``. A ``padding_mode`` other than ``"zeros"`` is applied with</span>
+<span class="sd">    ``F.pad`` before the Function, as ``nn.Conv1d`` does, so the Function</span>
+<span class="sd">    only ever sees zero padding. For backward the layer keeps its raw input</span>
+<span class="sd">    and weight, which it quantizes again there, unless ``formats``'</span>
+<span class="sd">    ``recompute_input`` / ``recompute_weight`` say otherwise.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        in_channels (int): channels of the input.</span>
+<span class="sd">        out_channels (int): channels of the output.</span>
+<span class="sd">        kernel_size (int or tuple): size of the convolving kernel.</span>
+<span class="sd">        stride (int or tuple): stride of the convolution. Default: ``1``</span>
+<span class="sd">        padding (int, tuple or str): padding added to both sides of the</span>
+<span class="sd">            input. Default: ``0``</span>
+<span class="sd">        dilation (int or tuple): spacing between kernel elements.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        groups (int): blocked connections from input to output channels.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        bias (bool): whether the layer learns an additive bias.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or</span>
+<span class="sd">            ``"circular"``. Default: ``"zeros"``</span>
+<span class="sd">        device: as for ``nn.Conv1d``. Default: ``None``</span>
+<span class="sd">        dtype: as for ``nn.Conv1d``. Default: ``None``</span>
+<span class="sd">        formats (QAffineFormats, optional): the quantizers and math hooks;</span>
+<span class="sd">            :func:`mptorch.quant.conv_formats` builds hooks that run the three</span>
+<span class="sd">            convolutions in a custom arithmetic. ``None`` builds an empty</span>
+<span class="sd">            ``QAffineFormats()``. Default: ``None``</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: ``(N, C_in, L_in)`` or ``(C_in, L_in)``.</span>
+<span class="sd">        - Output: ``(N, C_out, L_out)`` or ``(C_out, L_out)``, as for</span>
+<span class="sd">          ``nn.Conv1d``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QAffineFormats, QConv1d, Quant</span>
+<span class="sd">        &gt;&gt;&gt; formats = QAffineFormats(weight_quant=Quant(BinaryK(8, 4)))</span>
+<span class="sd">        &gt;&gt;&gt; conv = QConv1d(3, 8, 3, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; conv(torch.randn(1, 3, 16)).shape</span>
+<span class="sd">        torch.Size([1, 8, 14])</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+        <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">padding_mode</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"zeros"</span><span class="p">,</span> <span class="s2">"reflect"</span><span class="p">,</span> <span class="s2">"replicate"</span><span class="p">,</span> <span class="s2">"circular"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"zeros"</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">in_channels</span><span class="p">,</span>
+            <span class="n">out_channels</span><span class="p">,</span>
+            <span class="n">kernel_size</span><span class="p">,</span>
+            <span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="n">dilation</span><span class="p">,</span>
+            <span class="n">groups</span><span class="p">,</span>
+            <span class="n">bias</span><span class="p">,</span>
+            <span class="n">padding_mode</span><span class="p">,</span>
+            <span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">formats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+
+<div class="viewcode-block" id="QConv1d.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv1d.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span> <span class="o">!=</span> <span class="s2">"zeros"</span><span class="p">:</span>
+            <span class="nb">input</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reversed_padding_repeated_twice</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span><span class="p">)</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span>
+
+        <span class="k">return</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dilation</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">,</span>
+            <span class="mi">1</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="QConv2d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv2d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QConv2d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""``torch.nn.Conv2d`` with per-tensor quantization and custom arithmetic.</span>
+
+<span class="sd">    The 2D twin of :class:`QConv1d`. It has the same parameters as</span>
+<span class="sd">    ``nn.Conv2d`` and computes the same convolution, through</span>
+<span class="sd">    :class:`CustomArithConvNd`, so the quantizers and math hooks in</span>
+<span class="sd">    ``formats`` apply. With empty formats it is numerically identical to</span>
+<span class="sd">    ``nn.Conv2d``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        in_channels (int): channels of the input.</span>
+<span class="sd">        out_channels (int): channels of the output.</span>
+<span class="sd">        kernel_size (int or tuple): size of the convolving kernel.</span>
+<span class="sd">        stride (int or tuple): stride of the convolution. Default: ``1``</span>
+<span class="sd">        padding (int, tuple or str): padding added to all four sides of the</span>
+<span class="sd">            input. Default: ``0``</span>
+<span class="sd">        dilation (int or tuple): spacing between kernel elements.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        groups (int): blocked connections from input to output channels.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        bias (bool): whether the layer learns an additive bias.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or</span>
+<span class="sd">            ``"circular"``. Default: ``"zeros"``</span>
+<span class="sd">        device: as for ``nn.Conv2d``. Default: ``None``</span>
+<span class="sd">        dtype: as for ``nn.Conv2d``. Default: ``None``</span>
+<span class="sd">        formats (QAffineFormats, optional): the quantizers and math hooks.</span>
+<span class="sd">            ``None`` builds an empty ``QAffineFormats()``. Default: ``None``</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: ``(N, C_in, H_in, W_in)`` or ``(C_in, H_in, W_in)``.</span>
+<span class="sd">        - Output: ``(N, C_out, H_out, W_out)`` or ``(C_out, H_out, W_out)``,</span>
+<span class="sd">          as for ``nn.Conv2d``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QAffineFormats, QConv2d, Quant</span>
+<span class="sd">        &gt;&gt;&gt; formats = QAffineFormats(weight_quant=Quant(BinaryK(8, 4)))</span>
+<span class="sd">        &gt;&gt;&gt; conv = QConv2d(3, 8, 3, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; conv(torch.randn(1, 3, 16, 16)).shape</span>
+<span class="sd">        torch.Size([1, 8, 14, 14])</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+        <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">padding_mode</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"zeros"</span><span class="p">,</span> <span class="s2">"reflect"</span><span class="p">,</span> <span class="s2">"replicate"</span><span class="p">,</span> <span class="s2">"circular"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"zeros"</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">in_channels</span><span class="p">,</span>
+            <span class="n">out_channels</span><span class="p">,</span>
+            <span class="n">kernel_size</span><span class="p">,</span>
+            <span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="n">dilation</span><span class="p">,</span>
+            <span class="n">groups</span><span class="p">,</span>
+            <span class="n">bias</span><span class="p">,</span>
+            <span class="n">padding_mode</span><span class="p">,</span>
+            <span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">formats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+
+<div class="viewcode-block" id="QConv2d.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv2d.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span> <span class="o">!=</span> <span class="s2">"zeros"</span><span class="p">:</span>
+            <span class="nb">input</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reversed_padding_repeated_twice</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span><span class="p">)</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span>
+
+        <span class="k">return</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dilation</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">,</span>
+            <span class="mi">2</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="QConv3d">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv3d">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QConv3d</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv3d</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""``torch.nn.Conv3d`` with per-tensor quantization and custom arithmetic.</span>
+
+<span class="sd">    The 3D twin of :class:`QConv1d`. It has the same parameters as</span>
+<span class="sd">    ``nn.Conv3d`` and computes the same convolution, through</span>
+<span class="sd">    :class:`CustomArithConvNd`, so the quantizers and math hooks in</span>
+<span class="sd">    ``formats`` apply. With empty formats it is numerically identical to</span>
+<span class="sd">    ``nn.Conv3d``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        in_channels (int): channels of the input.</span>
+<span class="sd">        out_channels (int): channels of the output.</span>
+<span class="sd">        kernel_size (int or tuple): size of the convolving kernel.</span>
+<span class="sd">        stride (int or tuple): stride of the convolution. Default: ``1``</span>
+<span class="sd">        padding (int, tuple or str): padding added to all six sides of the</span>
+<span class="sd">            input. Default: ``0``</span>
+<span class="sd">        dilation (int or tuple): spacing between kernel elements.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        groups (int): blocked connections from input to output channels.</span>
+<span class="sd">            Default: ``1``</span>
+<span class="sd">        bias (bool): whether the layer learns an additive bias.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or</span>
+<span class="sd">            ``"circular"``. Default: ``"zeros"``</span>
+<span class="sd">        device: as for ``nn.Conv3d``. Default: ``None``</span>
+<span class="sd">        dtype: as for ``nn.Conv3d``. Default: ``None``</span>
+<span class="sd">        formats (QAffineFormats, optional): the quantizers and math hooks.</span>
+<span class="sd">            ``None`` builds an empty ``QAffineFormats()``. Default: ``None``</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: ``(N, C_in, D_in, H_in, W_in)`` or ``(C_in, D_in, H_in, W_in)``.</span>
+<span class="sd">        - Output: ``(N, C_out, D_out, H_out, W_out)`` or</span>
+<span class="sd">          ``(C_out, D_out, H_out, W_out)``, as for ``nn.Conv3d``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QAffineFormats, QConv3d, Quant</span>
+<span class="sd">        &gt;&gt;&gt; formats = QAffineFormats(weight_quant=Quant(BinaryK(8, 4)))</span>
+<span class="sd">        &gt;&gt;&gt; conv = QConv3d(3, 8, 3, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; conv(torch.randn(1, 3, 8, 16, 16)).shape</span>
+<span class="sd">        torch.Size([1, 8, 6, 14, 14])</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_channels</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">kernel_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+        <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">padding_mode</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"zeros"</span><span class="p">,</span> <span class="s2">"reflect"</span><span class="p">,</span> <span class="s2">"replicate"</span><span class="p">,</span> <span class="s2">"circular"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"zeros"</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">in_channels</span><span class="p">,</span>
+            <span class="n">out_channels</span><span class="p">,</span>
+            <span class="n">kernel_size</span><span class="p">,</span>
+            <span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="n">dilation</span><span class="p">,</span>
+            <span class="n">groups</span><span class="p">,</span>
+            <span class="n">bias</span><span class="p">,</span>
+            <span class="n">padding_mode</span><span class="p">,</span>
+            <span class="n">device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">formats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+
+<div class="viewcode-block" id="QConv3d.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QConv3d.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span> <span class="o">!=</span> <span class="s2">"zeros"</span><span class="p">:</span>
+            <span class="nb">input</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reversed_padding_repeated_twice</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">padding_mode</span><span class="p">)</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">padding</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">padding</span>
+
+        <span class="k">return</span> <span class="n">CustomArithConvNd</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">,</span>
+            <span class="n">padding</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dilation</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">groups</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

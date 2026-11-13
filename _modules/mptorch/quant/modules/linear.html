@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.modules.linear &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/modules/linear';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../../_static/searchtools.js"></script>
+    <script src="../../../../_static/language_data.js"></script>
+    <script src="../../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.modules.linear</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.modules.linear</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The quantized Linear layer: ``CustomArithLinear`` and the ``QLinear`` module.</span>
+
+<span class="sd">``QLinear`` is a thin ``nn.Linear`` subclass whose ``forward`` delegates to a</span>
+<span class="sd">``torch.autograd.Function``. The Function is where quantization happens, once</span>
+<span class="sd">per operand and once per gradient path, so that the layer's ``formats`` can</span>
+<span class="sd">round the input, the weight and the bias before the forward GEMM, round the</span>
+<span class="sd">incoming gradient differently for the input-gradient and weight-gradient GEMMs,</span>
+<span class="sd">and replace each of the three GEMMs with custom arithmetic. Any slot left</span>
+<span class="sd">``None`` is plain PyTorch, so a ``QLinear`` with empty formats is exactly an</span>
+<span class="sd">``nn.Linear``.</span>
+
+<span class="sd">``QPackedLinear`` is a ``QLinear`` over block formats whose weight is stored</span>
+<span class="sd">only as its block codes: ``freeze_packed_`` switches a layer's class</span>
+<span class="sd">to it in place, and ``unfreeze_packed_`` back.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">cast</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="n">_block_label</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">..block</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">_block_format_ints</span><span class="p">,</span> <span class="n">block_unpack</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..mac</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockQuant</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..ops</span><span class="w"> </span><span class="kn">import</span> <span class="n">_CARRIER</span><span class="p">,</span> <span class="n">_call_carrier</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">._saved</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span><span class="p">,</span> <span class="n">quantize_operand</span><span class="p">,</span> <span class="n">restore</span><span class="p">,</span> <span class="n">save</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.format</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CustomArithLinear</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Autograd Function for a quantized linear layer.</span>
+
+<span class="sd">    ``forward(input, weight, bias, formats)`` quantizes the three operands</span>
+<span class="sd">    through ``formats``' ``*_quant`` slots and computes the output with</span>
+<span class="sd">    ``formats.fwd_math`` or ``F.linear``. ``backward`` quantizes the output</span>
+<span class="sd">    gradient separately for the input-gradient path (``igrad_quant``) and the</span>
+<span class="sd">    weight-gradient path (``wgrad_quant``), then runs ``bwd_igrad_math`` and</span>
+<span class="sd">    ``bwd_wgrad_math`` or their plain-matmul defaults, and sums the</span>
+<span class="sd">    ``bgrad_quant``-quantized gradient over the leading dimensions for the</span>
+<span class="sd">    bias. ``formats`` gets no gradient.</span>
+<span class="sd">    """</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_default_bwd_igrad</span><span class="p">(</span><span class="n">grad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The input gradient without a custom hook: ``grad_output @ weight``,</span>
+<span class="sd">        with ``grad_output``'s leading dimensions kept."""</span>
+        <span class="k">return</span> <span class="n">grad_output</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_default_bwd_wgrad</span><span class="p">(</span><span class="n">grad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The weight gradient without a custom hook: ``grad_output^T @ input``</span>
+<span class="sd">        over every leading dimension flattened into the row dimension."""</span>
+        <span class="n">gO_flat</span> <span class="o">=</span> <span class="n">grad_output</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">grad_output</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">i_flat</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="nb">input</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">gO_flat</span><span class="o">.</span><span class="n">t</span><span class="p">()</span><span class="o">.</span><span class="n">matmul</span><span class="p">(</span><span class="n">i_flat</span><span class="p">)</span>
+
+    <span class="c1">#: What a ``None`` recompute flag means here, as (input, weight): the</span>
+    <span class="c1">#: weight is quantized again in backward rather than kept, since the raw</span>
+    <span class="c1">#: weight is alive anyway as the layer's parameter; the input is kept,</span>
+    <span class="c1">#: since a Linear's input usually comes from an op that keeps its own</span>
+    <span class="c1">#: input rather than its output (LayerNorm, GELU, SiLU), so the raw input</span>
+    <span class="c1">#: would be alive only for this layer (``_saved``: a raw operand is kept</span>
+    <span class="c1">#: only where it is alive anyway).</span>
+    <span class="n">_RECOMPUTE_DEFAULT</span> <span class="o">=</span> <span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">formats</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+        <span class="n">recompute_input</span><span class="p">,</span> <span class="n">recompute_weight</span> <span class="o">=</span> <span class="n">CustomArithLinear</span><span class="o">.</span><span class="n">_RECOMPUTE_DEFAULT</span>
+
+        <span class="c1"># Save only what backward will read. q_bias is never read there, and</span>
+        <span class="c1"># each of the other two feeds exactly one gradient path: q_input the</span>
+        <span class="c1"># weight gradient, q_weight the input gradient. So a layer whose</span>
+        <span class="c1"># weight is frozen does not pin a quantized copy of its entire</span>
+        <span class="c1"># activation for the length of the backward pass, on top of the</span>
+        <span class="c1"># activation autograd already holds. ctx.needs_input_grad is</span>
+        <span class="c1"># populated before forward runs and is the same tuple backward sees.</span>
+        <span class="c1"># What is saved of an operand that is read is its quantized value or</span>
+        <span class="c1"># the raw operand, quantized again in backward (_saved).</span>
+        <span class="n">q_input</span><span class="p">,</span> <span class="n">saved_input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_input</span> <span class="o">=</span> <span class="n">quantize_operand</span><span class="p">(</span>
+            <span class="nb">input</span><span class="p">,</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">,</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"recompute_input"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">recompute_input</span><span class="p">,</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">q_weight</span><span class="p">,</span> <span class="n">saved_weight</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_weight</span> <span class="o">=</span> <span class="n">quantize_operand</span><span class="p">(</span>
+            <span class="n">weight</span><span class="p">,</span>
+            <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">,</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"recompute_weight"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">recompute_weight</span><span class="p">,</span>
+            <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">q_bias</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span><span class="p">(</span><span class="n">bias</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span> <span class="ow">and</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bias</span>
+
+        <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_math</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">fwd_math</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">)</span>
+
+        <span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">saved_input</span><span class="p">,</span> <span class="n">saved_weight</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">needs_bias_grad</span> <span class="o">=</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="n">output</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="o">*</span><span class="n">grad_outputs</span><span class="p">):</span>
+        <span class="n">grad_output</span> <span class="o">=</span> <span class="n">grad_outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">formats</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">formats</span>
+
+        <span class="n">saved_input</span><span class="p">,</span> <span class="n">saved_weight</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+        <span class="n">grad_input</span> <span class="o">=</span> <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">grad_bias</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Quantize grad_output only for the paths that will consume it, so a</span>
+        <span class="c1"># frozen layer, or the first layer of a network, does not pay a full</span>
+        <span class="c1"># grad-output-sized quantize kernel and allocation for a tensor it</span>
+        <span class="c1"># then discards. Both quantizations run ahead of both math calls, in</span>
+        <span class="c1"># this order, so a stochastic quantizer draws from the global RNG in</span>
+        <span class="c1"># the same sequence however many gradients are requested; the *_math</span>
+        <span class="c1"># hooks may consume randomness of their own afterwards.</span>
+        <span class="n">q_igrad_output</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+        <span class="n">q_wgrad_output</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">q_igrad_output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bwd_igrad_math</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bwd_igrad_math</span>
+                <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bwd_igrad_math</span>
+                <span class="k">else</span> <span class="n">CustomArithLinear</span><span class="o">.</span><span class="n">_default_bwd_igrad</span>
+            <span class="p">)</span>
+            <span class="c1"># A recomputed operand is quantized again only here, so its copy</span>
+            <span class="c1"># lives for this one GEMM.</span>
+            <span class="n">grad_input</span> <span class="o">=</span> <span class="n">bwd_igrad_math</span><span class="p">(</span><span class="n">q_igrad_output</span><span class="p">,</span> <span class="n">restore</span><span class="p">(</span><span class="n">saved_weight</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_weight</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">q_wgrad_output</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bwd_wgrad_math</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bwd_wgrad_math</span>
+                <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bwd_wgrad_math</span>
+                <span class="k">else</span> <span class="n">CustomArithLinear</span><span class="o">.</span><span class="n">_default_bwd_wgrad</span>
+            <span class="p">)</span>
+            <span class="n">grad_weight</span> <span class="o">=</span> <span class="n">bwd_wgrad_math</span><span class="p">(</span><span class="n">q_wgrad_output</span><span class="p">,</span> <span class="n">restore</span><span class="p">(</span><span class="n">saved_input</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">replay_input</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_bias_grad</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span>
+            <span class="n">q_bgrad_output</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span><span class="p">(</span><span class="n">grad_output</span><span class="p">)</span> <span class="k">if</span> <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="k">else</span> <span class="n">grad_output</span>
+            <span class="p">)</span>
+            <span class="c1"># The bias gradient is the output gradient summed over every</span>
+            <span class="c1"># leading (batch) dimension.</span>
+            <span class="n">grad_bias</span> <span class="o">=</span> <span class="n">q_bgrad_output</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">q_bgrad_output</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">grad_input</span><span class="p">,</span> <span class="n">grad_weight</span><span class="p">,</span> <span class="n">grad_bias</span><span class="p">,</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="QLinear">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QLinear">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QLinear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""``torch.nn.Linear`` with per-tensor quantization and custom arithmetic.</span>
+
+<span class="sd">    It holds the same parameters as ``nn.Linear`` and computes the same</span>
+<span class="sd">    ``input @ weight.T + bias``, but through :class:`CustomArithLinear`. The</span>
+<span class="sd">    input, the weight, the bias and each gradient can therefore be rounded by</span>
+<span class="sd">    the quantizers in ``formats``, and each GEMM can run in custom arithmetic</span>
+<span class="sd">    (see :func:`mptorch.quant.binaryK_gemm_formats`). With ``formats`` left</span>
+<span class="sd">    ``None``, or with a ``QAffineFormats`` whose slots are all ``None``, the</span>
+<span class="sd">    layer is numerically identical to ``nn.Linear``. ``formats`` is a</span>
+<span class="sd">    submodule, so a stateful quantizer in it appears in the layer's</span>
+<span class="sd">    ``state_dict``. For backward the layer keeps a quantized copy of its</span>
+<span class="sd">    input and its raw weight, which it quantizes again there, unless</span>
+<span class="sd">    ``formats``' ``recompute_input`` / ``recompute_weight`` say otherwise.</span>
+<span class="sd">    A layer over :func:`mptorch.quant.block_gemm_formats` can drop its float</span>
+<span class="sd">    weight for its block codes with :meth:`freeze_packed_`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        in_features (int): size of each input sample.</span>
+<span class="sd">        out_features (int): size of each output sample.</span>
+<span class="sd">        bias (bool): whether the layer learns an additive bias.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        device: as for ``nn.Linear``. Default: ``None``</span>
+<span class="sd">        dtype: as for ``nn.Linear``. Default: ``None``</span>
+<span class="sd">        formats (QAffineFormats, optional): the quantizers and math hooks.</span>
+<span class="sd">            ``None`` builds an empty ``QAffineFormats()``. Default: ``None``</span>
+
+<span class="sd">    Shape:</span>
+<span class="sd">        - Input: ``(*, in_features)``, any number of leading dimensions.</span>
+<span class="sd">        - Output: ``(*, out_features)``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, Quant, binaryK_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = binaryK_gemm_formats(mul_K=8, mul_P=4, acc_K=16, acc_P=11)</span>
+<span class="sd">        &gt;&gt;&gt; formats.input_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; formats.weight_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">in_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">out_features</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">bias</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">in_features</span><span class="p">,</span> <span class="n">out_features</span><span class="p">,</span> <span class="n">bias</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">formats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span>
+
+<div class="viewcode-block" id="QLinear.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QLinear.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">CustomArithLinear</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="QLinear.freeze_packed_">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QLinear.freeze_packed_">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">freeze_packed_</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pack</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"QPackedLinear"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Replace the float weight by its block codes, in place.</span>
+
+<span class="sd">        The layer becomes a :class:`QPackedLinear`: its ``weight`` is</span>
+<span class="sd">        ``None``, and two ``uint8`` buffers, ``weight_codes`` and</span>
+<span class="sd">        ``weight_scales``, hold the weight packed along its input features.</span>
+<span class="sd">        The codes are what the layer's forward multiplies, so the frozen layer</span>
+<span class="sd">        returns what it returned before:</span>
+
+<span class="sd">        - with ``formats.weight_quant`` unset, the weight packed in the</span>
+<span class="sd">          weight format of :func:`mptorch.quant.block_gemm_formats`;</span>
+<span class="sd">        - with ``weight_quant = BlockQuant(fmt, axis=1).pack``, that</span>
+<span class="sd">          packing: the memoized one, if the weight has not changed since the</span>
+<span class="sd">          last forward (its stochastic draws included), and the memo is then</span>
+<span class="sd">          cleared, since it would keep the codes alive;</span>
+<span class="sd">        - with another quantizer, the weight format's packing of its result.</span>
+
+<span class="sd">        Nothing is kept of the float weight, so its memory is freed once</span>
+<span class="sd">        nothing else refers to it: freeze before building an optimizer or</span>
+<span class="sd">        any copy of the parameters. A square-tiled weight still serves the</span>
+<span class="sd">        input gradient, so layers below a frozen one can train; there is no</span>
+<span class="sd">        weight gradient, and the bias stays a float parameter.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pack (bool): pack the weight. ``False`` allocates zeroed buffers</span>
+<span class="sd">                of the right shapes instead, on the weight's device, for</span>
+<span class="sd">                :meth:`~torch.nn.Module.load_state_dict` of a frozen</span>
+<span class="sd">                checkpoint to fill; on the meta device it allocates</span>
+<span class="sd">                nothing. Default: ``True``</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            QPackedLinear: this layer.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: for formats that do not come from</span>
+<span class="sd">                :func:`mptorch.quant.block_gemm_formats`, for ``pack=True``</span>
+<span class="sd">                on a weight on the meta device, which has no values, and for</span>
+<span class="sd">                a ``weight_quant`` result the block hooks cannot multiply.</span>
+<span class="sd">            TypeError: for a layer that is frozen already (quantizing twice</span>
+<span class="sd">                is not always the identity), or of a subclass of ``QLinear``,</span>
+<span class="sd">                whose class the switch would drop.</span>
+
+<span class="sd">        Example::</span>
+
+<span class="sd">            &gt;&gt;&gt; import torch</span>
+<span class="sd">            &gt;&gt;&gt; from mptorch import BinaryK, MXFP8_E4M3</span>
+<span class="sd">            &gt;&gt;&gt; from mptorch.quant import QLinear, block_gemm_formats</span>
+<span class="sd">            &gt;&gt;&gt; layer = QLinear(64, 32, formats=block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3))</span>
+<span class="sd">            &gt;&gt;&gt; x = torch.randn(4, 64)</span>
+<span class="sd">            &gt;&gt;&gt; with torch.no_grad():</span>
+<span class="sd">            ...     before = layer(x)</span>
+<span class="sd">            ...     _ = layer.freeze_packed_()</span>
+<span class="sd">            ...     torch.equal(layer(x), before), layer.weight</span>
+<span class="sd">            (True, None)</span>
+<span class="sd">            &gt;&gt;&gt; sorted(layer.state_dict())</span>
+<span class="sd">            ['_extra_state', 'bias', 'weight_codes', 'weight_scales']</span>
+<span class="sd">        """</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">QLinear</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">QPackedLinear</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="s2">"this layer is frozen already: freezing it again would quantize its codes "</span>
+                    <span class="s2">"a second time, which is not always the identity"</span>
+                <span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"freeze_packed_ switches a QLinear's class to QPackedLinear, and this layer is "</span>
+                <span class="sa">f</span><span class="s2">"a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">, whose own class the switch would drop"</span>
+            <span class="p">)</span>
+        <span class="n">packed</span> <span class="o">=</span> <span class="n">_frozen_codes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pack</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_parameter</span><span class="p">(</span><span class="s2">"weight"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">"weight_codes"</span><span class="p">,</span> <span class="n">packed</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">"weight_scales"</span><span class="p">,</span> <span class="n">packed</span><span class="o">.</span><span class="n">scales</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">packed</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="n">packed</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">packed</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="n">packed</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">packed</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">_switch_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">QPackedLinear</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">QPackedLinear</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_switch_class</span><span class="p">(</span><span class="n">layer</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="bp">cls</span><span class="p">:</span> <span class="nb">type</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Change ``layer``'s class in place, as ``torch.nn.utils.parametrize``</span>
+<span class="sd">    does to the modules it wraps: the object, its parameters, buffers,</span>
+<span class="sd">    hooks and submodules stay what they are."""</span>
+    <span class="n">layer</span><span class="o">.</span><span class="vm">__class__</span> <span class="o">=</span> <span class="bp">cls</span>
+
+
+<span class="c1">#: The version of a frozen layer's checkpoint layout, in its extra state.</span>
+<span class="c1">#: A layout a checkpoint file exists in is a commitment, which is why the</span>
+<span class="c1">#: extra state has carried this version since the first layout.</span>
+<span class="n">_PACKED_LAYOUT</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="c1">#: The dtypes a packing records, by the names its extra state uses.</span>
+<span class="n">_DTYPES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nb">str</span><span class="p">(</span><span class="n">d</span><span class="p">)</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="s2">"torch."</span><span class="p">):</span> <span class="n">d</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">)</span>
+<span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_frozen_codes</span><span class="p">(</span><span class="n">layer</span><span class="p">:</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">pack</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""What ``freeze_packed_`` stores: the packing the layer's forward</span>
+<span class="sd">    multiplies, along the weight's input features."""</span>
+    <span class="n">formats</span> <span class="o">=</span> <span class="n">layer</span><span class="o">.</span><span class="n">formats</span>
+    <span class="n">qw</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"_block_weight"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">qw</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"freeze_packed_ stores the weight in the block format the layer multiplies it in, "</span>
+            <span class="s2">"and this layer's formats do not come from mptorch.quant.block_gemm_formats, whose "</span>
+            <span class="s2">"hooks are the ones that take a packed weight"</span>
+        <span class="p">)</span>
+    <span class="n">weight_quant</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span>
+    <span class="c1"># a BlockQuant's own (memoized) .pack: the recipe that packs the weight once</span>
+    <span class="n">owner</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">weight_quant</span><span class="p">,</span> <span class="s2">"__self__"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">packer</span> <span class="o">=</span> <span class="n">owner</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">weight_quant</span><span class="p">,</span> <span class="s2">"__func__"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="n">BlockQuant</span><span class="o">.</span><span class="n">pack</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">pack</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">packer</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">):</span>
+            <span class="n">packer</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="n">_zeroed_codes</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">packer</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">packer</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">)</span> <span class="k">else</span> <span class="n">qw</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">is_meta</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"this layer's weight is on the meta device and has no values to pack: freeze it "</span>
+            <span class="s2">"with pack=False, then load a frozen checkpoint (load_state_dict(..., assign=True))"</span>
+        <span class="p">)</span>
+    <span class="c1"># the codes carry no gradient, and the packing ops refuse a weight that</span>
+    <span class="c1"># requires one under grad mode</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">q_weight</span> <span class="o">=</span> <span class="n">weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span> <span class="k">if</span> <span class="n">weight_quant</span> <span class="k">else</span> <span class="n">weight</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">qw</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">packer</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">):</span>
+        <span class="n">packer</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="n">BlockPacked</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">q_weight</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="ow">or</span> <span class="n">q_weight</span><span class="o">.</span><span class="n">axis</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"freeze_packed_ stores the weight packed along its input features (axis 1), and "</span>
+                <span class="sa">f</span><span class="s2">"this layer's weight_quant packed it as </span><span class="si">{</span><span class="n">q_weight</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">q_weight</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"freeze_packed_ stores what the layer's forward multiplies, and its weight_quant "</span>
+        <span class="sa">f</span><span class="s2">"returns a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">q_weight</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">, which the block hooks do not take"</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_zeroed_codes</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q</span><span class="p">:</span> <span class="n">BlockQuant</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A packing of ``weight``'s shape in ``q``'s format, all codes zero, for</span>
+<span class="sd">    a checkpoint to fill. The shapes come from ``block_pack``'s Meta kernel,</span>
+<span class="sd">    so nothing is packed."""</span>
+    <span class="n">fmt</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">fmt</span>
+    <span class="n">wide</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_call_carrier</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">carrier</span> <span class="o">=</span> <span class="n">_CARRIER</span><span class="p">[</span><span class="n">wide</span><span class="p">]</span>
+    <span class="n">meta</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"meta"</span><span class="p">)</span>
+    <span class="n">data</span><span class="p">,</span> <span class="n">scales</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">block_pack</span><span class="o">.</span><span class="n">default</span><span class="p">(</span>
+        <span class="n">meta</span><span class="p">,</span> <span class="n">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">),</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span><span class="p">,</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_max</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">q</span><span class="o">.</span><span class="n">rounding</span><span class="o">.</span><span class="n">value</span>
+    <span class="p">)</span>
+    <span class="n">codes</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">scale_codes</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">scales</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">BlockPacked</span><span class="p">(</span><span class="n">codes</span><span class="p">,</span> <span class="n">scale_codes</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="QPackedLinear">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QPackedLinear</span><span class="p">(</span><span class="n">QLinear</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""A :class:`QLinear` whose weight is stored only as its block codes.</span>
+
+<span class="sd">    :meth:`QLinear.freeze_packed_` and :func:`mptorch.quant.freeze_packed_`</span>
+<span class="sd">    make one, in place, from a ``QLinear`` over</span>
+<span class="sd">    :func:`mptorch.quant.block_gemm_formats`; the class is not constructed</span>
+<span class="sd">    directly. It is still a ``QLinear`` (``isinstance`` holds) and returns</span>
+<span class="sd">    what the layer returned before the freeze, from a fraction of the</span>
+<span class="sd">    memory: the weight's codes and scales are ``uint8`` buffers,</span>
+<span class="sd">    ``weight_codes`` and ``weight_scales``, which follow ``.to()`` and stay</span>
+<span class="sd">    ``uint8`` under ``.half()``, and ``weight`` is ``None``. The packing's</span>
+<span class="sd">    format, shape, tensor scale, dtype and carrier are in the</span>
+<span class="sd">    ``state_dict``'s ``_extra_state``, as plain values.</span>
+
+<span class="sd">    The format itself is code, as every hook of the layer's formats is. To</span>
+<span class="sd">    load a frozen checkpoint, build the model as it was built, freeze it with</span>
+<span class="sd">    ``pack=False``, which allocates zeroed codes and packs nothing, and load</span>
+<span class="sd">    the ``state_dict``. A model built on the meta device and frozen that way</span>
+<span class="sd">    allocates its codes only when the state is loaded with ``assign=True``,</span>
+<span class="sd">    so the float model never exists. A checkpoint frozen in another format</span>
+<span class="sd">    or shape raises, naming both.</span>
+
+<span class="sd">    :attr:`packed_weight` is the codes as a :class:`mptorch.quant.BlockPacked`,</span>
+<span class="sd">    and :meth:`unfreeze_packed_` turns the layer back into a ``QLinear``.</span>
+<span class="sd">    """</span>
+
+    <span class="n">weight_codes</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="n">weight_scales</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="n">_packing</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">float</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+            <span class="s2">"a QPackedLinear is made from a QLinear over block_gemm_formats, by "</span>
+            <span class="s2">"layer.freeze_packed_() or mptorch.quant.freeze_packed_(model)"</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">packed_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The weight as a :class:`mptorch.quant.BlockPacked` over the two</span>
+<span class="sd">        buffers, built per call, so that it follows the buffers through</span>
+<span class="sd">        ``.to()``."""</span>
+        <span class="n">fmt</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span>
+        <span class="k">return</span> <span class="n">BlockPacked</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weight_codes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_scales</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="QPackedLinear.forward">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.forward">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">CustomArithLinear</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="QPackedLinear.reset_parameters">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.reset_parameters">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="s2">"a frozen layer has no float weight to initialize: unfreeze_packed_() it first"</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="QPackedLinear.extra_repr">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.extra_repr">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">extra_repr</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="n">fmt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">nbytes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_codes</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_scales</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">extra_repr</span><span class="p">()</span><span class="si">}</span><span class="s2">, weight=</span><span class="si">{</span><span class="n">_block_label</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="si">}</span><span class="s2">, packed_bytes=</span><span class="si">{</span><span class="n">nbytes</span><span class="si">}</span><span class="s2">"</span></div>
+
+
+<div class="viewcode-block" id="QPackedLinear.get_extra_state">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.get_extra_state">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_extra_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="n">fmt</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">"layout"</span><span class="p">:</span> <span class="n">_PACKED_LAYOUT</span><span class="p">,</span>
+            <span class="s2">"format"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">)),</span>
+            <span class="s2">"elem_max"</span><span class="p">:</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span><span class="p">,</span>
+            <span class="s2">"scale_max"</span><span class="p">:</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_max</span><span class="p">,</span>
+            <span class="s2">"shape"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">shape</span><span class="p">),</span>
+            <span class="s2">"axis"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="s2">"tensor_scale"</span><span class="p">:</span> <span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="s2">"dtype"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="s2">"torch."</span><span class="p">),</span>
+            <span class="s2">"carrier"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">carrier</span><span class="p">)</span><span class="o">.</span><span class="n">removeprefix</span><span class="p">(</span><span class="s2">"torch."</span><span class="p">),</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="QPackedLinear.set_extra_state">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.set_extra_state">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_extra_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fmt</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span>
+        <span class="n">layout</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"layout"</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">layout</span> <span class="o">!=</span> <span class="n">_PACKED_LAYOUT</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"this checkpoint's frozen weight has layout version </span><span class="si">{</span><span class="n">layout</span><span class="si">!r}</span><span class="s2">, and this "</span>
+                <span class="sa">f</span><span class="s2">"mptorch reads version </span><span class="si">{</span><span class="n">_PACKED_LAYOUT</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_extra_state</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"format"</span><span class="p">,</span> <span class="s2">"elem_max"</span><span class="p">,</span> <span class="s2">"scale_max"</span><span class="p">,</span> <span class="s2">"shape"</span><span class="p">,</span> <span class="s2">"axis"</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="o">!=</span> <span class="n">own</span><span class="p">[</span><span class="n">key</span><span class="p">]:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"this checkpoint's frozen weight has </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span><span class="si">!r}</span><span class="s2">, and this "</span>
+                    <span class="sa">f</span><span class="s2">"layer's (</span><span class="si">{</span><span class="n">_block_label</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="si">}</span><span class="s2">, shape </span><span class="si">{</span><span class="n">shape</span><span class="si">}</span><span class="s2">) has </span><span class="si">{</span><span class="n">own</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="si">!r}</span><span class="s2">: build the "</span>
+                    <span class="s2">"layer with the formats the checkpoint was frozen with"</span>
+                <span class="p">)</span>
+        <span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span> <span class="o">=</span> <span class="n">_DTYPES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"dtype"</span><span class="p">)),</span> <span class="n">_DTYPES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"carrier"</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">carrier</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_CARRIER</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"this checkpoint's frozen weight names dtype </span><span class="si">{</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'dtype'</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> and carrier "</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'carrier'</span><span class="p">)</span><span class="si">!r}</span><span class="s2">, which are not a float dtype and a carrier"</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span> <span class="o">=</span> <span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">"tensor_scale"</span><span class="p">]),</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">carrier</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="QPackedLinear.unfreeze_packed_">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QPackedLinear.unfreeze_packed_">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">unfreeze_packed_</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QLinear</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Turn the layer back into a ``QLinear``, in place, whose float</span>
+<span class="sd">        weight is the decoded codes (:func:`mptorch.quant.block_unpack`): the</span>
+<span class="sd">        quantized weight, not the one the layer was frozen from, in the dtype</span>
+<span class="sd">        it was packed from. For fine-tuning from a frozen checkpoint, or</span>
+<span class="sd">        exporting to tools that read a plain ``nn.Linear``."""</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">block_unpack</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_codes</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_scales</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_packing</span>
+        <span class="n">_switch_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="freeze_packed_">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.freeze_packed_">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">freeze_packed_</span><span class="p">(</span><span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pack</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">""":meth:`QLinear.freeze_packed_` on every ``QLinear`` of ``model`` whose</span>
+<span class="sd">    formats come from :func:`mptorch.quant.block_gemm_formats`.</span>
+
+<span class="sd">    The layers are frozen one at a time, so the freeze holds at most one</span>
+<span class="sd">    layer's float weight and its codes at once beyond the model. A model</span>
+<span class="sd">    that does not fit on its device as float can be frozen on the CPU and</span>
+<span class="sd">    then moved. Other modules are left as they are.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        model (nn.Module): the model, or one layer.</span>
+<span class="sd">        pack (bool): as for :meth:`QLinear.freeze_packed_`: ``False``</span>
+<span class="sd">            allocates zeroed codes for a frozen checkpoint to fill.</span>
+<span class="sd">            Default: ``True``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        int: how many layers were frozen.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from torch import nn</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, block_gemm_formats, freeze_packed_</span>
+<span class="sd">        &gt;&gt;&gt; def mlp():</span>
+<span class="sd">        ...     return nn.Sequential(</span>
+<span class="sd">        ...         QLinear(64, 64, formats=block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3)),</span>
+<span class="sd">        ...         nn.ReLU(),</span>
+<span class="sd">        ...         QLinear(64, 8, formats=block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3)),</span>
+<span class="sd">        ...     )</span>
+<span class="sd">        &gt;&gt;&gt; model = mlp()</span>
+<span class="sd">        &gt;&gt;&gt; freeze_packed_(model)</span>
+<span class="sd">        2</span>
+<span class="sd">        &gt;&gt;&gt; skeleton = mlp()  # load: build, freeze without packing, then load</span>
+<span class="sd">        &gt;&gt;&gt; freeze_packed_(skeleton, pack=False)</span>
+<span class="sd">        2</span>
+<span class="sd">        &gt;&gt;&gt; skeleton.load_state_dict(model.state_dict())</span>
+<span class="sd">        &lt;All keys matched successfully&gt;</span>
+<span class="sd">    """</span>
+    <span class="n">layers</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">m</span>
+        <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">modules</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">m</span><span class="p">)</span> <span class="ow">is</span> <span class="n">QLinear</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">formats</span><span class="p">,</span> <span class="s2">"_block_weight"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">BlockQuant</span><span class="p">)</span>
+    <span class="p">]</span>
+    <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">layers</span><span class="p">:</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">freeze_packed_</span><span class="p">(</span><span class="n">pack</span><span class="o">=</span><span class="n">pack</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">layers</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

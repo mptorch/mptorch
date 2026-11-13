@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Layers &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="_static/documentation_options.js?v=6c02275b"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'layers';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Tutorial: training in 8-bit floating point" href="tutorial.html" />
+    <link rel="prev" title="Calling the kernels" href="kernels/calling.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="_static/searchtools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script src="searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#" aria-current="page">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#" aria-current="page">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+  <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
+  </svg>
+  <span class="pst-collapse-sidebar-label">Collapse Sidebar</span>
+  <span class="pst-expand-sidebar-label">Expand Sidebar</span>
+</button></div>
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"></div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Layers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="layers">
+<h1>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h1>
+<p>The layers combine the two kinds of rounding: a quantizer for each signal,
+and an arithmetic for each matrix product. Each layer is a thin subclass of
+its <code class="docutils literal notranslate"><span class="pre">torch.nn</span></code> counterpart, and its <code class="docutils literal notranslate"><span class="pre">forward</span></code> delegates to a custom
+<code class="docutils literal notranslate"><span class="pre">torch.autograd.Function</span></code>. A model built from them trains with the
+ordinary optimizer, scheduler and loss.</p>
+<section id="what-a-quantized-layer-computes">
+<h2>What a quantized layer computes<a class="headerlink" href="#what-a-quantized-layer-computes" title="Link to this heading">#</a></h2>
+<p>Take a linear layer, <span class="math notranslate nohighlight">\(y = xW^{\top} + b\)</span>. With
+<span class="math notranslate nohighlight">\(G = \partial L / \partial y\)</span> arriving from above, the three gradients
+are</p>
+<div class="math notranslate nohighlight">
+\[\frac{\partial L}{\partial x} = G\,W, \qquad
+\frac{\partial L}{\partial W} = G^{\top} x, \qquad
+\frac{\partial L}{\partial b} = \sum_{\text{batch}} G .\]</div>
+<p>A <a class="reference internal" href="api.html#mptorch.quant.QLinear" title="mptorch.quant.QLinear"><code class="xref py py-class docutils literal notranslate"><span class="pre">QLinear</span></code></a> computes the same four quantities, with a
+quantizer in front of each signal and a separate arithmetic for each
+product:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}\begin{aligned}
+y &amp;= \big[\, Q_{\text{in}}(x)\; Q_{\text{w}}(W)^{\top} \,\big]_{\text{fwd}} + Q_{\text{b}}(b) \\[4pt]
+\frac{\partial L}{\partial x} &amp;= \big[\, Q_{\text{igrad}}(G)\; Q_{\text{w}}(W) \,\big]_{\text{igrad}} \\[4pt]
+\frac{\partial L}{\partial W} &amp;= \big[\, Q_{\text{wgrad}}(G)^{\top}\; Q_{\text{in}}(x) \,\big]_{\text{wgrad}} \\[4pt]
+\frac{\partial L}{\partial b} &amp;= \sum_{\text{batch}} Q_{\text{bgrad}}(G)
+\end{aligned}\end{split}\]</div>
+<p>Here <span class="math notranslate nohighlight">\([\cdot]_{\text{fwd}}\)</span>, <span class="math notranslate nohighlight">\([\cdot]_{\text{igrad}}\)</span> and
+<span class="math notranslate nohighlight">\([\cdot]_{\text{wgrad}}\)</span> are the three matrix products, each in the
+arithmetic of its hook. Two points are worth noting:</p>
+<ul class="simple">
+<li><p>The backward pass reuses the quantized weight and input from the forward
+pass. The layer saves <span class="math notranslate nohighlight">\(Q_{\text{w}}(W)\)</span> and <span class="math notranslate nohighlight">\(Q_{\text{in}}(x)\)</span>,
+not <span class="math notranslate nohighlight">\(W\)</span> and <span class="math notranslate nohighlight">\(x\)</span>.</p></li>
+<li><p>The incoming gradient is quantized <em>separately</em> for the two paths it
+feeds, because the input gradient and the weight gradient often need
+different formats.</p></li>
+</ul>
+</section>
+<section id="qaffineformats">
+<h2>QAffineFormats<a class="headerlink" href="#qaffineformats" title="Link to this heading">#</a></h2>
+<p><a class="reference internal" href="api.html#mptorch.quant.QAffineFormats" title="mptorch.quant.QAffineFormats"><code class="xref py py-class docutils literal notranslate"><span class="pre">QAffineFormats</span></code></a> is the configuration object that a
+layer takes. It has nine optional slots, and each defaults to “plain
+PyTorch”.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>slot</p></th>
+<th class="head"><p>role</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">input_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{in}}\)</span>, applied to the layer’s input</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">weight_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{w}}\)</span>, applied to the weight</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bias_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{b}}\)</span>, applied to the bias</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">igrad_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{igrad}}\)</span>, applied to <span class="math notranslate nohighlight">\(G\)</span> on the input-gradient path</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">wgrad_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{wgrad}}\)</span>, applied to <span class="math notranslate nohighlight">\(G\)</span> on the weight-gradient path</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bgrad_quant</span></code></p></td>
+<td><p><span class="math notranslate nohighlight">\(Q_{\text{bgrad}}\)</span>, applied to <span class="math notranslate nohighlight">\(G\)</span> on the bias-gradient path</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fwd_math</span></code></p></td>
+<td><p>the forward product; default <code class="docutils literal notranslate"><span class="pre">F.linear</span></code> / <code class="docutils literal notranslate"><span class="pre">F.conv*d</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bwd_igrad_math</span></code></p></td>
+<td><p>the input-gradient product; default a <code class="docutils literal notranslate"><span class="pre">matmul</span></code> / <code class="docutils literal notranslate"><span class="pre">conv*d_input</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bwd_wgrad_math</span></code></p></td>
+<td><p>the weight-gradient product; default a <code class="docutils literal notranslate"><span class="pre">matmul</span></code> / <code class="docutils literal notranslate"><span class="pre">conv*d_weight</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A quantizer slot takes any callable <code class="docutils literal notranslate"><span class="pre">Tensor</span> <span class="pre">-&gt;</span> <span class="pre">Tensor</span></code>: a
+<a class="reference internal" href="api.html#mptorch.quant.Quant" title="mptorch.quant.Quant"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quant</span></code></a>, a <a class="reference internal" href="api.html#mptorch.quant.Quantizer" title="mptorch.quant.Quantizer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quantizer</span></code></a>, or a
+function of your own (a scaled quantizer, an observer). <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code>
+is itself an <code class="docutils literal notranslate"><span class="pre">nn.Module</span></code>, so a quantizer that is a module is registered in
+the model’s <code class="docutils literal notranslate"><span class="pre">state_dict</span></code>. Two more fields, <code class="docutils literal notranslate"><span class="pre">recompute_input</span></code> and
+<code class="docutils literal notranslate"><span class="pre">recompute_weight</span></code>, choose what the layer keeps for its backward pass
+(below, “What a layer keeps for backward”).</p>
+<p>The run below builds a layer with a quantizer on every signal: Binary8p4 in
+the forward direction and Binary8p3 on the gradients. It then recomputes the
+four equations by hand on the same tensors. The results agree to the bit.</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_qlinear.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QLinear with operand quantizers: what each slot of QAffineFormats does."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">Quant</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">q8p4</span><span class="p">,</span> <span class="n">q8p3</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+
+<span class="c1"># Forward signals in Binary8p4, backward signals in Binary8p3; the matmuls themselves</span>
+<span class="c1"># stay float32 (no *_math hook set).</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(</span>
+    <span class="n">weight_quant</span><span class="o">=</span><span class="n">q8p4</span><span class="p">,</span>
+    <span class="n">input_quant</span><span class="o">=</span><span class="n">q8p4</span><span class="p">,</span>
+    <span class="n">bias_quant</span><span class="o">=</span><span class="n">q8p4</span><span class="p">,</span>
+    <span class="n">igrad_quant</span><span class="o">=</span><span class="n">q8p3</span><span class="p">,</span>
+    <span class="n">wgrad_quant</span><span class="o">=</span><span class="n">q8p3</span><span class="p">,</span>
+    <span class="n">bgrad_quant</span><span class="o">=</span><span class="n">q8p3</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">g</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+<span class="n">out</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+
+<span class="c1"># The same thing written out from the equations, on the same tensors.</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">qx</span><span class="p">,</span> <span class="n">qw</span><span class="p">,</span> <span class="n">qb</span> <span class="o">=</span> <span class="n">q8p4</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">q8p4</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span> <span class="n">q8p4</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">qx</span><span class="p">,</span> <span class="n">qw</span><span class="p">,</span> <span class="n">qb</span><span class="p">)</span>  <span class="c1"># y = Q(x) Q(W)^T + Q(b)</span>
+    <span class="n">grad_x</span> <span class="o">=</span> <span class="n">q8p3</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="o">@</span> <span class="n">qw</span>  <span class="c1"># dL/dx = Q(dL/dy) Q(W)</span>
+    <span class="n">grad_w</span> <span class="o">=</span> <span class="n">q8p3</span><span class="p">(</span><span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">qx</span>  <span class="c1"># dL/dW = Q(dL/dy)^T Q(x)</span>
+    <span class="n">grad_b</span> <span class="o">=</span> <span class="n">q8p3</span><span class="p">(</span><span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># dL/db = sum over the batch of Q(dL/dy)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"forward     "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">y</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"input grad  "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="n">grad_x</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"weight grad "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="n">grad_w</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"bias grad   "</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="n">grad_b</span><span class="p">))</span>
+
+<span class="c1"># A QAffineFormats() with nothing set is a plain nn.Linear.</span>
+<span class="n">plain</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="n">ref</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="n">ref</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">plain</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">no formats == nn.Linear:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">plain</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">ref</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>forward      True
+input grad   True
+weight grad  True
+bias grad    True
+
+no formats == nn.Linear: True
+</pre></div>
+</div>
+</div>
+</section>
+<section id="custom-arithmetic-in-the-matrix-products">
+<h2>Custom arithmetic in the matrix products<a class="headerlink" href="#custom-arithmetic-in-the-matrix-products" title="Link to this heading">#</a></h2>
+<p>With the <code class="docutils literal notranslate"><span class="pre">*_math</span></code> hooks unset, the three products are PyTorch’s own, in the
+layer’s dtype, however narrowly the operands were rounded. To simulate the
+arithmetic <em>inside</em> the products, a factory fills the three hooks with
+products of the core routine (<a class="reference internal" href="kernels/index.html"><span class="doc">Quantized numerical kernels</span></a>):</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="api.html#mptorch.quant.binaryK_gemm_formats" title="mptorch.quant.binaryK_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">binaryK_gemm_formats()</span></code></a>: a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> in BinaryK
+formats. It takes <code class="docutils literal notranslate"><span class="pre">mul_*</span></code> and <code class="docutils literal notranslate"><span class="pre">acc_*</span></code> arguments, and
+<code class="docutils literal notranslate"><span class="pre">accumulate_quant=False</span></code> for an unrounded sum.</p></li>
+<li><p><a class="reference internal" href="api.html#mptorch.quant.binaryK_gemm_formats_fma" title="mptorch.quant.binaryK_gemm_formats_fma"><code class="xref py py-func docutils literal notranslate"><span class="pre">binaryK_gemm_formats_fma()</span></code></a>: a <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code> in a
+BinaryK format. It takes <code class="docutils literal notranslate"><span class="pre">fma_*</span></code> arguments.</p></li>
+<li><p><a class="reference internal" href="api.html#mptorch.quant.superfp_gemm_formats" title="mptorch.quant.superfp_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">superfp_gemm_formats()</span></code></a> and
+<a class="reference internal" href="api.html#mptorch.quant.superfp_gemm_formats_fma" title="mptorch.quant.superfp_gemm_formats_fma"><code class="xref py py-func docutils literal notranslate"><span class="pre">superfp_gemm_formats_fma()</span></code></a>: the same for SuperFP.</p></li>
+<li><p><a class="reference internal" href="api.html#mptorch.quant.binaryK_superfp_gemm_formats" title="mptorch.quant.binaryK_superfp_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">binaryK_superfp_gemm_formats()</span></code></a> and
+<a class="reference internal" href="api.html#mptorch.quant.superfp_binaryK_gemm_formats" title="mptorch.quant.superfp_binaryK_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">superfp_binaryK_gemm_formats()</span></code></a>: a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> whose
+products are of one family and whose sums are of the other.</p></li>
+</ul>
+<p>Each returns a <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code> with <em>only</em> the math hooks set. Operand
+quantizers are assigned afterwards, so the two choices stay independent. The
+hooks follow the layer’s call contract:
+<code class="docutils literal notranslate"><span class="pre">fwd_math(q_input,</span> <span class="pre">q_weight,</span> <span class="pre">q_bias)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bwd_igrad_math(q_grad,</span> <span class="pre">q_weight)</span></code> and <code class="docutils literal notranslate"><span class="pre">bwd_wgrad_math(q_grad,</span> <span class="pre">q_input)</span></code>.
+They handle the transposes, and they fold any leading batch dimensions of
+the input into one GEMM. The format is resolved once, when the factory runs,
+not on every forward pass. Each factory also takes <code class="docutils literal notranslate"><span class="pre">carrier</span></code> (<a class="reference internal" href="#float64-models-and-the-carrier">float64
+models and the carrier</a>).</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_gemm_formats.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QLinear whose matmuls themselves run in custom arithmetic."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">QLinear</span><span class="p">,</span>
+    <span class="n">Quant</span><span class="p">,</span>
+    <span class="n">binaryK_gemm_formats</span><span class="p">,</span>
+    <span class="n">binaryK_gemm_formats_fma</span><span class="p">,</span>
+    <span class="n">binaryK_matmul</span><span class="p">,</span>
+    <span class="n">superfp_gemm_formats</span><span class="p">,</span>
+    <span class="n">superfp_gemm_formats_fma</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># The factory sets the three math hooks -- forward, input-gradient and</span>
+<span class="c1"># weight-gradient GEMMs -- to a binaryK core: Binary8p4 products, float32 sums.</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">accumulate_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"hooks set:"</span><span class="p">,</span>
+    <span class="p">[</span><span class="n">h</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"fwd_math"</span><span class="p">,</span> <span class="s2">"bwd_igrad_math"</span><span class="p">,</span> <span class="s2">"bwd_wgrad_math"</span><span class="p">)</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">h</span><span class="p">)],</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"quantizers set:"</span><span class="p">,</span> <span class="p">[</span><span class="n">q</span> <span class="k">for</span> <span class="n">q</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"weight_quant"</span><span class="p">,</span> <span class="s2">"input_quant"</span><span class="p">)</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">q</span><span class="p">)])</span>
+
+<span class="c1"># Operand quantization is layered on separately -- the two are composable.</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+
+<span class="c1"># The forward is exactly the raw op on the quantized operands ...</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">qx</span><span class="p">,</span> <span class="n">qw</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))(</span><span class="n">x</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))(</span><span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+    <span class="n">ref</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">qx</span><span class="p">,</span> <span class="n">qw</span><span class="p">,</span> <span class="n">trans_b</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">accumulate_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">+</span> <span class="n">layer</span><span class="o">.</span><span class="n">bias</span>
+    <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">forward == binaryK_matmul(Q(x), Q(W)^T) + b:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">ref</span><span class="p">))</span>
+
+<span class="c1"># ... and the gradient GEMMs run in the same arithmetic.</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+    <span class="n">ref_gx</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">qw</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">accumulate_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"input grad == binaryK_matmul(dL/dy, Q(W)):"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="n">ref_gx</span><span class="p">))</span>
+
+<span class="c1"># Leading batch dims are folded into M for the GEMM and restored afterwards.</span>
+<span class="n">out3</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">256</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">[2, 5, 256] -&gt;"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out3</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># The four factories: split / fused, binaryK / superfp.</span>
+
+<span class="n">factories</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"binaryK_gemm_formats_fma"</span><span class="p">:</span> <span class="n">binaryK_gemm_formats_fma</span><span class="p">(</span>
+        <span class="n">fma_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">fma_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">rounding_mode</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">,</span> <span class="n">fma_prng_bits</span><span class="o">=</span><span class="mi">8</span>
+    <span class="p">),</span>
+    <span class="s2">"superfp_gemm_formats"</span><span class="p">:</span> <span class="n">superfp_gemm_formats</span><span class="p">(</span>
+        <span class="n">mul_man_bits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">mul_exp_bits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">mul_normal_binades</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">mul_bias</span><span class="o">=</span><span class="mi">7</span>
+    <span class="p">),</span>
+    <span class="s2">"superfp_gemm_formats_fma"</span><span class="p">:</span> <span class="n">superfp_gemm_formats_fma</span><span class="p">(</span>
+        <span class="n">fma_man_bits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">fma_exp_bits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">fma_normal_binades</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">fma_bias</span><span class="o">=</span><span class="mi">7</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">factories</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">other</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
+    <span class="n">other</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>  <span class="c1"># same weights, different arithmetic</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">other</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;26</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">}</span><span class="s2">, cos to float32 layer: "</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">cosine_similarity</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>hooks set: ['fwd_math', 'bwd_igrad_math', 'bwd_wgrad_math']
+quantizers set: []
+
+forward == binaryK_matmul(Q(x), Q(W)^T) + b: True
+input grad == binaryK_matmul(dL/dy, Q(W)): True
+
+[2, 5, 256] -&gt; (2, 5, 64)
+binaryK_gemm_formats_fma   -&gt; (32, 64), cos to float32 layer: 0.9272
+superfp_gemm_formats       -&gt; (32, 64), cos to float32 layer: 0.5299
+superfp_gemm_formats_fma   -&gt; (32, 64), cos to float32 layer: 0.5124
+</pre></div>
+</div>
+</div>
+<p>The last three lines show the same weights under three other arithmetics,
+measured against the split BinaryK layer: a fused Binary8p4 step with
+stochastic rounding, and the two SuperFP cores. The SuperFP format here has
+two binades of mantissa, which fits these activations poorly, and the error
+shows it.</p>
+</section>
+<section id="convolutions">
+<h2>Convolutions<a class="headerlink" href="#convolutions" title="Link to this heading">#</a></h2>
+<p><a class="reference internal" href="api.html#mptorch.quant.QConv1d" title="mptorch.quant.QConv1d"><code class="xref py py-class docutils literal notranslate"><span class="pre">QConv1d</span></code></a>, <a class="reference internal" href="api.html#mptorch.quant.QConv2d" title="mptorch.quant.QConv2d"><code class="xref py py-class docutils literal notranslate"><span class="pre">QConv2d</span></code></a> and
+<a class="reference internal" href="api.html#mptorch.quant.QConv3d" title="mptorch.quant.QConv3d"><code class="xref py py-class docutils literal notranslate"><span class="pre">QConv3d</span></code></a> take the same <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code> and apply
+its quantizers to the same signals. The equations are the convolution
+versions of the linear ones: <span class="math notranslate nohighlight">\(G^{\top} x\)</span> becomes the weight-gradient
+convolution, and <span class="math notranslate nohighlight">\(GW\)</span> the input-gradient (transposed) convolution.
+Their math hooks receive the convolution’s geometry as keyword arguments
+(<code class="docutils literal notranslate"><span class="pre">stride</span></code>, <code class="docutils literal notranslate"><span class="pre">padding</span></code>, <code class="docutils literal notranslate"><span class="pre">dilation</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>, <code class="docutils literal notranslate"><span class="pre">nd</span></code>). With the hooks
+unset, the convolution is PyTorch’s own on the quantized operands.</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_conv.py</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QConv2d: the same slots, over a convolution."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QConv2d</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">Quantizer</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+<span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(</span>
+    <span class="n">weight_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">),</span>
+    <span class="n">input_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">),</span>
+    <span class="n">igrad_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">binary8p3</span><span class="p">),</span>
+    <span class="n">wgrad_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">binary8p3</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">conv</span> <span class="o">=</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">ref</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">ref</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">conv</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">conv</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"output"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">"weight grad"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">conv</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># With the math hooks unset the convolution is torch's own, so with the</span>
+<span class="c1"># operands rounded by hand it is reproduced exactly.</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">conv2d</span><span class="p">(</span>
+        <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)(</span><span class="n">x</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)(</span><span class="n">conv</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span> <span class="n">conv</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span>
+    <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"forward == conv2d(Q(x), Q(W)) + b:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">y</span><span class="p">))</span>
+
+<span class="c1"># How far a quantized layer is from the float32 one, on the same weights.</span>
+<span class="n">cos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">cosine_similarity</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"cos(out, float32 conv):"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">ref</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Activations between layers are quantized with a Quantizer module, which</span>
+<span class="c1"># also fixes what their gradient is rounded to.</span>
+<span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+    <span class="n">conv</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span> <span class="n">Quantizer</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p3</span><span class="p">),</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="n">net</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>output (2, 8, 16, 16) weight grad (8, 3, 3, 3)
+forward == conv2d(Q(x), Q(W)) + b: True
+cos(out, float32 conv): 0.99921
+
+ Sequential(
+  (0): QConv2d(
+    3, 8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+    (formats): QAffineFormats()
+  )
+  (1): ReLU()
+  (2): Quantizer()
+  (3): QConv2d(
+    8, 4, kernel_size=(3, 3), stride=(1, 1)
+    (formats): QAffineFormats()
+  )
+)
+</pre></div>
+</div>
+</div>
+<section id="custom-arithmetic-in-the-convolutions">
+<h3>Custom arithmetic in the convolutions<a class="headerlink" href="#custom-arithmetic-in-the-convolutions" title="Link to this heading">#</a></h3>
+<p><a class="reference internal" href="api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a> fills the three hooks with the
+convolution’s passes: the forward pass, the input gradient and the weight
+gradient. Each runs as products of the core routine in the arithmetic of a
+mac, as <a class="reference internal" href="api.html#mptorch.quant.matmul_formats" title="mptorch.quant.matmul_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">matmul_formats()</span></code></a> does for a matmul.</p>
+<p>Each pass is bit for bit the product of that mac over the operands that
+<code class="docutils literal notranslate"><span class="pre">F.unfold</span></code> would build, zeros included. But nothing is unfolded. The kernel
+reads each operand element from the convolution’s tensors when it loads its
+tile, so a pass allocates only its result. By comparison, the unfolded input
+of a 3x3 convolution is nine times the size of the input.</p>
+<p>Every format, rounding mode and accumulate algorithm of
+<a class="reference internal" href="kernels/arithmetic.html"><span class="doc">Dot-product arithmetic</span></a> applies, with any stride, padding (<code class="docutils literal notranslate"><span class="pre">&quot;same&quot;</span></code>
+included), dilation and <code class="docutils literal notranslate"><span class="pre">groups</span></code>. A palette mac takes one <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code> map
+per pass, each shaped like that pass’s result with the spatial dimensions
+flattened (<code class="docutils literal notranslate"><span class="pre">[Cout,</span> <span class="pre">1]</span></code> is one format per output channel). As with the
+matmul factories, the operand quantizers are assigned afterwards.</p>
+<p><a class="reference internal" href="kernels/convolutions.html"><span class="doc">Convolutions</span></a> describes what the three passes compute: which
+dot product each one is, in which order its terms are summed, how the input
+gradient of a strided convolution skips the zeros that a transposed
+convolution would insert, and what each pass costs.</p>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_conv_gemm.py</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QConv2d whose three convolutions run in custom arithmetic."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">AccumulateAlgorithm</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">QConv2d</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">conv_formats</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="c1"># Binary8p4 products summed in a 12-bit accumulator, for the forward convolution</span>
+<span class="c1"># and both gradients; operand quantizers are layered on as for QLinear.</span>
+<span class="n">mac</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">7</span><span class="p">))</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">conv_formats</span><span class="p">(</span><span class="n">mac</span><span class="p">)</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)</span>
+
+<span class="n">conv</span> <span class="o">=</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">conv</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"output"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">"input grad"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># The forward is the GEMM of the same mac over the unfolded input, bit for</span>
+<span class="c1"># bit, although no unfolded input (9x the input here) was ever built.</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">qx</span><span class="p">,</span> <span class="n">qw</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)(</span><span class="n">x</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)(</span><span class="n">conv</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+    <span class="n">cols</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">unfold</span><span class="p">(</span><span class="n">qx</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># [4, 27, 64]</span>
+    <span class="n">ref</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">qw</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">+</span> <span class="n">conv</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"forward == qmatmul(Q(W), unfold(Q(x))) + b:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">ref</span><span class="p">))</span>
+
+<span class="c1"># Any accumulate algorithm and rounding mode, any geometry: here a fused</span>
+<span class="c1"># multiply-add with Kahan summation, rounded stochastically, over a grouped,</span>
+<span class="c1"># dilated convolution.</span>
+<span class="n">fused</span> <span class="o">=</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">,</span>
+                 <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">KAHAN</span><span class="p">)</span>  <span class="c1"># fmt: skip</span>
+<span class="n">grouped</span> <span class="o">=</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dilation</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">conv_formats</span><span class="p">(</span><span class="n">fused</span><span class="p">))</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">grouped</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"grouped, dilated, KAHAN under SR:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># A palette picks a format per output element; a [Cout, 1] map is one per</span>
+<span class="c1"># output channel. Each pass has its own map, shaped like its own result.</span>
+<span class="n">pal</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">([</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">5</span><span class="p">)],</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">7</span><span class="p">))</span>
+<span class="n">per_channel</span> <span class="o">=</span> <span class="n">conv_formats</span><span class="p">(</span>
+    <span class="n">pal</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">]]</span> <span class="o">*</span> <span class="mi">4</span><span class="p">),</span>  <span class="c1"># the forward's 8 output channels</span>
+    <span class="n">igrad_prec_idx</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>  <span class="c1"># the 3 input channels</span>
+    <span class="n">wgrad_prec_idx</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">27</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>  <span class="c1"># the weight, [8, 3*3*3]</span>
+<span class="p">)</span>
+<span class="n">mixed</span> <span class="o">=</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">per_channel</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"per-channel palette:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">mixed</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>output (4, 8, 8, 8) input grad (4, 3, 16, 16)
+forward == qmatmul(Q(W), unfold(Q(x))) + b: True
+grouped, dilated, KAHAN under SR: (2, 8, 10, 10)
+per-channel palette: (1, 8, 6, 6)
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+<section id="block-formats">
+<h2>Block formats<a class="headerlink" href="#block-formats" title="Link to this heading">#</a></h2>
+<p><a class="reference internal" href="api.html#mptorch.quant.block_gemm_formats" title="mptorch.quant.block_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_gemm_formats()</span></code></a> builds a <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code> whose
+three matrix products are block products, for
+<a class="reference internal" href="api.html#mptorch.quant.QLinear" title="mptorch.quant.QLinear"><code class="xref py py-class docutils literal notranslate"><span class="pre">QLinear</span></code></a>. Each hook packs what it multiplies along the
+dimension it sums over, because a block’s scales can be factored out of the
+sum only when the blocks run along that dimension (<a class="reference internal" href="kernels/block.html"><span class="doc">Block matrix products</span></a>,
+“Why the blocks run along K”). It uses the format of the tensor’s role: the
+input’s, the weight’s, or the output gradient’s (which defaults to the
+input’s). There are two recipes for the weight:</p>
+<ul class="simple">
+<li><p><strong>1D weight blocks.</strong> Leave <code class="docutils literal notranslate"><span class="pre">weight_quant</span></code> unset. The forward pass packs
+the weight along its input features, and the input gradient packs it along
+its output features. Both start from the float weight, as MX training
+recipes do.</p></li>
+<li><p><strong>Square weight tiles</strong> (<code class="docutils literal notranslate"><span class="pre">dataclasses.replace(NVFP4,</span> <span class="pre">block_rows=16)</span></code>). Set
+<code class="docutils literal notranslate"><span class="pre">weight_quant</span> <span class="pre">=</span> <span class="pre">BlockQuant(w16,</span> <span class="pre">axis=1).pack</span></code>. The weight is packed once,
+and the input gradient reads that packing transposed, so the forward and
+backward passes see the same quantized weight. The packing is memoized on
+the weight, its version counter, its device and its dtype, so it is redone
+once per optimizer step (which writes the weight in place) and after the
+layer is moved or converted (<code class="docutils literal notranslate"><span class="pre">.to()</span></code>, <code class="docutils literal notranslate"><span class="pre">.half()</span></code>). A weight packed in a
+1D or non-square format cannot serve the input gradient. It raises there,
+with a message that names the square-tile spelling. For inference there is
+no backward pass, and a 1D packed weight is fine. The tile may carry any
+scale rule, a Four Over Six one included
+(<code class="docutils literal notranslate"><span class="pre">dataclasses.replace(w16,</span> <span class="pre">scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)</span></code>):
+each tile then makes its choice between two scales once, for both passes.</p></li>
+</ul>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/block_layers.py</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""QLinear on the block GEMM, with a 1D weight format and with 16 x 16 tiles."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">NVFP4</span><span class="p">,</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockQuant</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">block_gemm_formats</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">acc</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># 1D weight blocks: every hook packs what it multiplies along the dimension</span>
+<span class="c1"># it reduces over, the weight along its input features in the forward and</span>
+<span class="c1"># along its output features in the input gradient.</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">block_gemm_formats</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">NVFP4</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="n">acc</span><span class="p">))</span>
+<span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"1D weight: forward and both gradients ran"</span><span class="p">)</span>
+
+<span class="c1"># 16 x 16 weight tiles: packed once per step by weight_quant, and the input</span>
+<span class="c1"># gradient reads that packing transposed, so the forward and backward passes</span>
+<span class="c1"># see the same quantized weight.</span>
+<span class="n">w16</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">block_rows</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">block_gemm_formats</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">w16</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="n">acc</span><span class="p">)</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">BlockQuant</span><span class="p">(</span><span class="n">w16</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">pack</span>
+<span class="n">tiled</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">tiled</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+<span class="n">x2</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="n">tiled</span><span class="p">(</span><span class="n">x2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+
+<span class="c1"># The same input gradient as re-packing the float weight along the other</span>
+<span class="c1"># axis: a square tile quantizes it the same either way.</span>
+<span class="n">repack</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">block_gemm_formats</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">w16</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="n">acc</span><span class="p">))</span>
+<span class="n">repack</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+<span class="n">x3</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">()</span>
+<span class="n">repack</span><span class="p">(</span><span class="n">x3</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"16 x 16: input gradient from the forward's packing == re-packed:"</span><span class="p">,</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">x2</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="n">x3</span><span class="o">.</span><span class="n">grad</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>1D weight: forward and both gradients ran
+16 x 16: input gradient from the forward's packing == re-packed: True
+</pre></div>
+</div>
+</div>
+<p>Packing the weight once does not save memory by itself. The layer’s
+parameter stays the float weight, and the packing is a second copy beside
+it, held by the <code class="docutils literal notranslate"><span class="pre">BlockQuant</span></code>: 0.504 bytes per element for NVFP4’s 16 x 16
+tiles and 1.03 for MXFP8, next to float32’s 4. In training, the float weight
+that a 1D layer saves for its backward pass is the parameter itself, and the
+16 x 16 packing is an extra allocation, kept alive from the forward pass to
+the input gradient. A <code class="docutils literal notranslate"><span class="pre">BlockQuant</span></code> remembers one weight, so give each layer
+its own. What packing once buys is time and consistency: the weight is
+quantized once, and every product reads the same codes. Each GEMM’s result is
+float32, stored in the input’s dtype. To drop the float weight, freeze the
+layer (next section).</p>
+<section id="freezing-a-layer-to-its-codes">
+<h3>Freezing a layer to its codes<a class="headerlink" href="#freezing-a-layer-to-its-codes" title="Link to this heading">#</a></h3>
+<p>For inference, or to train other layers around a fixed one,
+<a class="reference internal" href="api.html#mptorch.quant.QLinear.freeze_packed_" title="mptorch.quant.QLinear.freeze_packed_"><code class="xref py py-meth docutils literal notranslate"><span class="pre">freeze_packed_()</span></code></a> replaces a layer’s float weight
+by its block codes, in place, and <a class="reference internal" href="api.html#mptorch.quant.freeze_packed_" title="mptorch.quant.freeze_packed_"><code class="xref py py-func docutils literal notranslate"><span class="pre">freeze_packed_()</span></code></a> does
+so for every block-format <code class="docutils literal notranslate"><span class="pre">QLinear</span></code> of a model, one layer at a time. The
+layer becomes a <a class="reference internal" href="api.html#mptorch.quant.QPackedLinear" title="mptorch.quant.QPackedLinear"><code class="xref py py-class docutils literal notranslate"><span class="pre">QPackedLinear</span></code></a>. It is still a
+<code class="docutils literal notranslate"><span class="pre">QLinear</span></code>, its <code class="docutils literal notranslate"><span class="pre">weight</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>, and its codes and scales are two
+<code class="docutils literal notranslate"><span class="pre">uint8</span></code> buffers, <code class="docutils literal notranslate"><span class="pre">weight_codes</span></code> and <code class="docutils literal notranslate"><span class="pre">weight_scales</span></code>, which follow
+<code class="docutils literal notranslate"><span class="pre">.to()</span></code> and stay <code class="docutils literal notranslate"><span class="pre">uint8</span></code> under <code class="docutils literal notranslate"><span class="pre">.half()</span></code>. On a 4096 x 4096 weight that is
+8.06 MiB for NVFP4’s 16 x 16 tiles, 9.00 for its 1 x 16 blocks and 16.5 for
+MXFP8, where the layer held 64 MiB of float32 and the codes besides. The
+codes are what the layer’s forward multiplies (its <code class="docutils literal notranslate"><span class="pre">weight_quant</span></code> packing,
+or the weight packed in the format the layer’s formats name), so the frozen
+layer returns what it returned before, word for word.</p>
+<div class="literal-block-wrapper docutils container" id="id11">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/block_freeze.py</span><a class="headerlink" href="#id11" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Freezing block-format QLinear layers to their codes, and loading them back."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">io</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">NVFP4</span><span class="p">,</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">block_gemm_formats</span><span class="p">,</span> <span class="n">freeze_packed_</span>
+
+<span class="n">w16</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">block_rows</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">layer</span><span class="p">(</span><span class="n">n_in</span><span class="p">,</span> <span class="n">n_out</span><span class="p">):</span>
+        <span class="n">formats</span> <span class="o">=</span> <span class="n">block_gemm_formats</span><span class="p">(</span><span class="n">NVFP4</span><span class="p">,</span> <span class="n">w16</span><span class="p">,</span> <span class="n">acc</span><span class="o">=</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">QLinear</span><span class="p">(</span><span class="n">n_in</span><span class="p">,</span> <span class="n">n_out</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">layer</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span> <span class="n">layer</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">256</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">mib</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+    <span class="n">tensors</span> <span class="o">=</span> <span class="p">[</span><span class="o">*</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="o">*</span><span class="n">model</span><span class="o">.</span><span class="n">buffers</span><span class="p">()]</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">nbytes</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tensors</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">build</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">before</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float weights: </span><span class="si">{</span><span class="n">mib</span><span class="p">(</span><span class="n">model</span><span class="p">)</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> MiB"</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"layers frozen:"</span><span class="p">,</span> <span class="n">freeze_packed_</span><span class="p">(</span><span class="n">model</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"frozen:        </span><span class="si">{</span><span class="n">mib</span><span class="p">(</span><span class="n">model</span><span class="p">)</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> MiB"</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"same output:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">before</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"weight:"</span><span class="p">,</span> <span class="n">model</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="s2">"| buffers:"</span><span class="p">,</span> <span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">model</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">named_buffers</span><span class="p">()])</span>
+
+<span class="c1"># Loading: build the model as it was built, here on the meta device so that no</span>
+<span class="c1"># float weight is ever allocated, freeze it without packing, and load the codes.</span>
+<span class="n">file</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="n">file</span><span class="p">)</span>
+<span class="n">file</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">loaded</span> <span class="o">=</span> <span class="n">build</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s2">"meta"</span><span class="p">)</span>
+<span class="n">freeze_packed_</span><span class="p">(</span><span class="n">loaded</span><span class="p">,</span> <span class="n">pack</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">loaded</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="n">assign</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"loaded output:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">loaded</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">before</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id12">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id12" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float weights: 5.005 MiB
+layers frozen: 2
+frozen:        0.635 MiB
+same output: True
+weight: None | buffers: ['weight_codes', 'weight_scales']
+loaded output: True
+</pre></div>
+</div>
+</div>
+<ul class="simple">
+<li><p><strong>Gradients.</strong> A square-tiled weight still serves the input gradient, so
+layers below a frozen one can train. A 1D weight raises there, because its
+packing reads differently along the other axis and there is no float
+weight left to pack again. A frozen layer has no weight gradient, and its
+bias stays a float parameter.</p></li>
+<li><p><strong>Memory.</strong> The float weight is freed once nothing else refers to it, so
+freeze before building an optimizer or any copy of the parameters, which
+would keep it alive. A model that does not fit on its device as float can
+be frozen on the CPU and then moved. On CUDA the freed memory returns to
+torch’s caching allocator; <code class="docutils literal notranslate"><span class="pre">torch.cuda.empty_cache()</span></code> hands it back to the
+driver.</p></li>
+<li><p><strong>Stochastic rounding.</strong> A freeze draws once. With the packed-once recipe it
+keeps the packing the last forward used, draws included. A layer that packs
+in each hook draws again in every forward.</p></li>
+<li><p><strong>Checkpoints.</strong> The format is code, as every hook of the layer’s formats
+is. The <code class="docutils literal notranslate"><span class="pre">state_dict</span></code> holds the codes, the bias and an <code class="docutils literal notranslate"><span class="pre">_extra_state</span></code>
+that records the packing’s format, shape, tensor scale, dtype and carrier.
+To load, build the model as it was built, freeze it with <code class="docutils literal notranslate"><span class="pre">pack=False</span></code>
+(zeroed codes, nothing packed), and load. A model built on the meta device
+allocates nothing until <code class="docutils literal notranslate"><span class="pre">load_state_dict(...,</span> <span class="pre">assign=True)</span></code>, so its float
+weights never exist. A checkpoint frozen in another format or shape
+raises, naming both, and a float checkpoint does not load into a frozen
+model, nor the reverse.</p></li>
+<li><p><strong>Code that reads</strong> <code class="docutils literal notranslate"><span class="pre">layer.weight</span></code> (a model summary, an initializer) meets
+<code class="docutils literal notranslate"><span class="pre">None</span></code>, and <code class="docutils literal notranslate"><span class="pre">reset_parameters</span></code> raises.
+<a class="reference internal" href="api.html#mptorch.quant.QPackedLinear.unfreeze_packed_" title="mptorch.quant.QPackedLinear.unfreeze_packed_"><code class="xref py py-meth docutils literal notranslate"><span class="pre">unfreeze_packed_()</span></code></a> turns the layer back
+into a <code class="docutils literal notranslate"><span class="pre">QLinear</span></code> whose weight is the decoded codes: the quantized weight,
+not the original.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">tensor_scale_epilogue=True</span></code> applies a format’s per-tensor scales to each
+product’s result instead of in the decode, as NVIDIA’s NVFP4 GEMMs do
+(<a class="reference internal" href="kernels/block.html"><span class="doc">Block matrix products</span></a>, “Tensor scales”).</p>
+</section>
+</section>
+<section id="activations-between-layers">
+<h2>Activations between layers<a class="headerlink" href="#activations-between-layers" title="Link to this heading">#</a></h2>
+<p>A layer’s <code class="docutils literal notranslate"><span class="pre">input_quant</span></code> rounds what enters the layer. The gradient of that
+rounding is handled by the layer itself: it flows to the input through the
+layer’s <code class="docutils literal notranslate"><span class="pre">bwd_igrad_math</span></code>. To round a tensor <em>between</em> layers (an
+activation, the logits, the output of a block that is not a layer), use a
+<a class="reference internal" href="api.html#mptorch.quant.Quantizer" title="mptorch.quant.Quantizer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quantizer</span></code></a>. It is a module, and it also specifies
+what its gradient is rounded to (see <a class="reference internal" href="quantizers.html"><span class="doc">Quantizers</span></a>). The last lines of
+the convolution run above show one in a <code class="docutils literal notranslate"><span class="pre">Sequential</span></code>.</p>
+</section>
+<section id="what-a-layer-keeps-for-backward">
+<h2>What a layer keeps for backward<a class="headerlink" href="#what-a-layer-keeps-for-backward" title="Link to this heading">#</a></h2>
+<p>The backward pass needs <span class="math notranslate nohighlight">\(Q_{\text{in}}(X)\)</span> again for the weight
+gradient and <span class="math notranslate nohighlight">\(Q_{\text{w}}(W)\)</span> for the input gradient. A layer can keep
+each as a quantized copy, a tensor the size of the operand, or keep the raw
+operand and quantize it again in the backward pass. The second way costs one
+more quantization per operand per step and saves the copy. The flags
+<code class="docutils literal notranslate"><span class="pre">recompute_input</span></code> and <code class="docutils literal notranslate"><span class="pre">recompute_weight</span></code> of
+<a class="reference internal" href="api.html#mptorch.quant.QAffineFormats" title="mptorch.quant.QAffineFormats"><code class="xref py py-class docutils literal notranslate"><span class="pre">QAffineFormats</span></code></a> choose (<code class="docutils literal notranslate"><span class="pre">recompute_a</span></code> and
+<code class="docutils literal notranslate"><span class="pre">recompute_b</span></code> of <a class="reference internal" href="api.html#mptorch.quant.QMatmulFormats" title="mptorch.quant.QMatmulFormats"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmulFormats</span></code></a> for a
+<a class="reference internal" href="api.html#mptorch.quant.QMatmul" title="mptorch.quant.QMatmul"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmul</span></code></a>). Each defaults to <code class="docutils literal notranslate"><span class="pre">None</span></code>, which means the
+layer’s own default:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>layer</p></th>
+<th class="head"><p>input (<code class="docutils literal notranslate"><span class="pre">a</span></code>)</p></th>
+<th class="head"><p>weight (<code class="docutils literal notranslate"><span class="pre">b</span></code>)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">QConv1d/2d/3d</span></code></p></td>
+<td><p>quantized again</p></td>
+<td><p>quantized again</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">QLinear</span></code></p></td>
+<td><p>copy kept</p></td>
+<td><p>quantized again</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">QMatmul</span></code></p></td>
+<td><p>copy kept</p></td>
+<td><p>copy kept</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The gradients are the same either way, to the bit. Under stochastic rounding
+the second quantization sees the random generators as the first did, and
+leaves them as it found them.</p>
+<p>Quantizing again saves memory only where the raw operand stays alive anyway.
+A weight always does, since it is the layer’s parameter. An input does when
+the op that made it keeps its output for its own backward pass: ReLU,
+sigmoid, tanh and softmax do, and so does the data batch, which the training
+loop holds. GELU, SiLU, ReLU6, LayerNorm, BatchNorm and max pooling keep
+their <em>input</em> instead, and an addition keeps nothing. After those, the raw
+input would be alive only for this layer, so quantizing it again holds the
+same memory and adds the work. That is why the defaults differ. A
+convolution’s input is usually a ReLU output or the data. A Linear layer’s
+input is usually the output of a LayerNorm or of a GELU or SiLU. A matmul’s
+operands are activations of any origin. Set <code class="docutils literal notranslate"><span class="pre">recompute_input=True</span></code> for a
+ReLU MLP, <code class="docutils literal notranslate"><span class="pre">recompute_input=False</span></code> for a convolution after a GELU, and
+<code class="docutils literal notranslate"><span class="pre">recompute_a=True</span></code> for the product of attention’s softmax probabilities
+with <span class="math notranslate nohighlight">\(V\)</span>.</p>
+<p>The cost is one elementwise pass per recomputed operand. Measured on an RTX
+4060, it was within 0.6% of the step when the products run on mptorch’s
+kernels. With PyTorch’s own products it was a few percent, and 12% for the
+weights of 4096-wide Linear layers at 256 tokens, the case where recomputing
+also saved the most memory (from 148 to 20 MiB for three layers).</p>
+<p>Three cases keep the copy whatever the default:</p>
+<ul class="simple">
+<li><p><strong>A quantizer of your own.</strong> Only a <a class="reference internal" href="api.html#mptorch.quant.Quant" title="mptorch.quant.Quant"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quant</span></code></a> (not in
+place), a <a class="reference internal" href="api.html#mptorch.quant.BlockQuant" title="mptorch.quant.BlockQuant"><code class="xref py py-class docutils literal notranslate"><span class="pre">BlockQuant</span></code></a> used as a fake quantizer, and
+a <a class="reference internal" href="api.html#mptorch.quant.Quantizer" title="mptorch.quant.Quantizer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quantizer</span></code></a> over one are run twice by default. A
+callable with state, such as a QAT observer, would update that state a
+second time in the backward pass, and could round differently there.
+Setting the flag to <code class="docutils literal notranslate"><span class="pre">True</span></code> runs any callable again. That is your promise
+that it depends only on its input and the random generators.</p></li>
+<li><p><strong>A result that is not a tensor.</strong> A packed weight (<code class="docutils literal notranslate"><span class="pre">BlockQuant.pack</span></code>)
+is compact already, and its memo holds it anyway.</p></li>
+<li><p><strong>A flag set to</strong> <code class="docutils literal notranslate"><span class="pre">False</span></code>.</p></li>
+</ul>
+<p>An operand that is kept raw is checked by autograd as <code class="docutils literal notranslate"><span class="pre">nn.Conv2d</span></code> checks
+its own saved input. Writing to it in place between the forward and backward
+passes raises “modified by an inplace operation”. With the flag set to
+<code class="docutils literal notranslate"><span class="pre">False</span></code> the layer keeps its own copy and the write does no harm.</p>
+<p>The run below counts what four convolution layers keep for the backward
+pass, in activations, beyond what the parameters and the input already hold:
+four for <code class="docutils literal notranslate"><span class="pre">nn.Conv2d</span></code>, eight with the copies kept, and four with the
+defaults. Then it shows what a Linear layer keeps, by default and with a
+quantizer of its own.</p>
+<div class="literal-block-wrapper docutils container" id="id13">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_recompute.py</span><a class="headerlink" href="#id13" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""What a quantized layer keeps for backward: a quantized copy, or the raw operand."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QConv2d</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">Quant</span>
+
+<span class="n">q</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">held_for_backward</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""The bytes the graph keeps for backward that nothing else keeps alive:</span>
+<span class="sd">    every tensor any node saves, once per storage, less the parameters and</span>
+<span class="sd">    the input, which the caller holds anyway."""</span>
+    <span class="n">saved</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+        <span class="n">saved</span><span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()]</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">nbytes</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">t</span>
+
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">saved_tensors_hooks</span><span class="p">(</span><span class="n">pack</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">alive</span> <span class="o">=</span> <span class="p">{</span><span class="n">p</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()}</span>
+    <span class="n">alive</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">())</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="n">n</span> <span class="k">for</span> <span class="n">ptr</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">saved</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">ptr</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">alive</span><span class="p">),</span> <span class="n">out</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">stack</span><span class="p">(</span><span class="n">recompute</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Four conv -&gt; ReLU layers: nn.Conv2d, or QConv2d with SR on every signal."""</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">layers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">recompute</span> <span class="o">==</span> <span class="s2">"nn"</span><span class="p">:</span>
+            <span class="n">layers</span> <span class="o">+=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()]</span>
+            <span class="k">continue</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(</span><span class="n">input_quant</span><span class="o">=</span><span class="n">q</span><span class="p">,</span> <span class="n">weight_quant</span><span class="o">=</span><span class="n">q</span><span class="p">,</span> <span class="n">igrad_quant</span><span class="o">=</span><span class="n">q</span><span class="p">,</span> <span class="n">wgrad_quant</span><span class="o">=</span><span class="n">q</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recompute</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">recompute_input</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">recompute_weight</span> <span class="o">=</span> <span class="n">recompute</span>
+        <span class="n">layers</span> <span class="o">+=</span> <span class="p">[</span><span class="n">QConv2d</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">f</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()]</span>
+    <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="o">*</span><span class="n">layers</span><span class="p">)</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span>
+<span class="n">activation</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">x</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
+<span class="n">grads</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">recompute</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"nn.Conv2d"</span><span class="p">,</span> <span class="s2">"nn"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"QConv2d, copies kept"</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span> <span class="p">(</span><span class="s2">"QConv2d"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)):</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">stack</span><span class="p">(</span><span class="n">recompute</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">held</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">held_for_backward</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">grads</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">21s</span><span class="si">}</span><span class="s2"> holds </span><span class="si">{</span><span class="n">held</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">activation</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> activations for backward"</span><span class="p">)</span>
+<span class="n">same</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">,</span> <span class="n">grads</span><span class="p">[</span><span class="s2">"QConv2d"</span><span class="p">],</span> <span class="n">grads</span><span class="p">[</span><span class="s2">"QConv2d, copies kept"</span><span class="p">]))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"the two QConv2d stacks' gradients, under SR, are identical:"</span><span class="p">,</span> <span class="n">same</span><span class="p">)</span>
+
+
+<span class="c1"># A Linear keeps its input as a quantized copy and its weight raw.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">shares</span><span class="p">(</span><span class="n">saved</span><span class="p">,</span> <span class="n">raw</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">saved</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="o">==</span> <span class="n">raw</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+
+
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">QAffineFormats</span><span class="p">(</span><span class="n">input_quant</span><span class="o">=</span><span class="n">q</span><span class="p">,</span> <span class="n">weight_quant</span><span class="o">=</span><span class="n">q</span><span class="p">))</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">saved_input</span><span class="p">,</span> <span class="n">saved_weight</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">grad_fn</span><span class="o">.</span><span class="n">saved_tensors</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">QLinear keeps its input raw:"</span><span class="p">,</span> <span class="n">shares</span><span class="p">(</span><span class="n">saved_input</span><span class="p">,</span> <span class="n">x</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"QLinear keeps its weight raw:"</span><span class="p">,</span> <span class="n">shares</span><span class="p">(</span><span class="n">saved_weight</span><span class="p">,</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+
+<span class="c1"># A quantizer mptorch does not know to be stateless keeps its result, unless</span>
+<span class="c1"># the flag says it may run twice.</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(</span><span class="n">weight_quant</span><span class="o">=</span><span class="k">lambda</span> <span class="n">w</span><span class="p">:</span> <span class="n">q</span><span class="p">(</span><span class="n">w</span><span class="p">))</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"</span><span class="se">\n</span><span class="s2">with a callable of its own, the weight raw:"</span><span class="p">,</span>
+    <span class="n">shares</span><span class="p">(</span><span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">grad_fn</span><span class="o">.</span><span class="n">saved_tensors</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">formats</span><span class="o">.</span><span class="n">recompute_weight</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"and with recompute_weight=True:"</span><span class="p">,</span> <span class="n">shares</span><span class="p">(</span><span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">grad_fn</span><span class="o">.</span><span class="n">saved_tensors</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id14">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id14" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>nn.Conv2d             holds 4.00 activations for backward
+QConv2d, copies kept  holds 8.05 activations for backward
+QConv2d               holds 4.00 activations for backward
+the two QConv2d stacks' gradients, under SR, are identical: True
+
+QLinear keeps its input raw: False
+QLinear keeps its weight raw: True
+
+with a callable of its own, the weight raw: False
+and with recompute_weight=True: True
+</pre></div>
+</div>
+</div>
+</section>
+<section id="float64-models-and-the-carrier">
+<h2>float64 models and the carrier<a class="headerlink" href="#float64-models-and-the-carrier" title="Link to this heading">#</a></h2>
+<p>A layer computes in its tensors’ <em>carrier</em> (<a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a>). By default a
+float32, float16 or bfloat16 layer rounds and multiplies in binary32, and a
+float64 layer in binary64. This applies to every quantizer and every
+product. The formats do not determine the carrier unless they name one; the
+dtype does. <code class="docutils literal notranslate"><span class="pre">model.double()</span></code> therefore moves a whole model into binary64,
+and <code class="docutils literal notranslate"><span class="pre">model.float()</span></code> moves it back. Each hook checks its formats against
+the carrier it meets on every call.</p>
+<p>A float64 model can use formats that a float32 one cannot: up to 53 bits of
+precision and ten exponent bits. That is needed to study arithmetic <em>wider</em>
+than binary32, or to have an exact reference.</p>
+<p>A float32 model can get binary64’s arithmetic without changing dtype. Give
+<code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> to the factory and to each
+<a class="reference internal" href="api.html#mptorch.quant.Quant" title="mptorch.quant.Quant"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quant</span></code></a>. Each hook then widens its operands, computes
+in binary64 and narrows its result back. The model’s signals stay float32
+and are held to what float32 can store.</p>
+<p>The other direction is not a carrier choice. A float64 model computes the
+float32 way by becoming a float32 model. On a GPU that is also the faster
+arithmetic for the matrix products (<a class="reference internal" href="kernels/calling.html"><span class="doc">Calling the kernels</span></a>, “Performance
+notes”).</p>
+<p>The convolutions of <a class="reference internal" href="api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a> and the block
+products follow the same rule. A float64 model computes them in binary64:
+its block operands are packed, decoded and multiplied there. A float32 model
+does so too when its mac (or <a class="reference internal" href="api.html#mptorch.quant.block_gemm_formats" title="mptorch.quant.block_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_gemm_formats()</span></code></a>) names
+<code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code>.</p>
+<p>The run compares one float64 reference with a float64 layer in a 30-bit
+arithmetic that only binary64 can hold, and a float64 convolution in the same
+arithmetic with <code class="docutils literal notranslate"><span class="pre">nn.Conv2d</span></code>’s float64 one. It then compares the reference
+with a float32 layer in each carrier, in three arithmetics:</p>
+<ul class="simple">
+<li><p>a 30-bit multiply format under a 24-bit accumulator, which only binary64
+can give a float32 layer;</p></li>
+<li><p>an FP8 recipe. Its operands are rounded to 8 bits before any product, so
+both carriers compute every intermediate exactly and agree to the bit;</p></li>
+<li><p>a 22-bit arithmetic on unquantized operands. Binary32 keeps 24 bits of
+each product and sum before the formats’ rounding, and binary64 keeps 53.</p></li>
+</ul>
+<div class="literal-block-wrapper docutils container" id="id15">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/layers_float64.py</span><a class="headerlink" href="#id15" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""A layer's carrier: binary64 for a float64 layer, and for a float32 one that names it."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QConv2d</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">binaryK_gemm_formats</span><span class="p">,</span> <span class="n">conv_formats</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">F32</span><span class="p">,</span> <span class="n">F64</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+
+<span class="c1"># A float64 reference whose weights and inputs are float32 values, so a float32</span>
+<span class="c1"># layer holds them exactly and what separates it from the reference is its</span>
+<span class="c1"># arithmetic alone.</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">reference</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">float</span><span class="p">())</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+<span class="n">g</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>  <span class="c1"># the gradient of the output</span>
+
+<span class="n">ref_out</span> <span class="o">=</span> <span class="n">reference</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">ref_out</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">reference</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<span class="n">ref_grad</span> <span class="o">=</span> <span class="n">reference</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""A QLinear of ``dtype`` with the reference's weights: its output and weight gradient."""</span>
+    <span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">formats</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">layer</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">reference</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">))</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">g</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">))</span>
+    <span class="k">assert</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">double</span><span class="p">(),</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">rel</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">b</span><span class="p">))</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.1e</span><span class="si">}</span><span class="s2">"</span>
+
+
+<span class="c1"># Arithmetic only binary64 carries: 30-bit products into a 40-bit accumulator,</span>
+<span class="c1"># in the forward product and both gradient products, on a float64 layer.</span>
+<span class="n">wide</span> <span class="o">=</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">48</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">40</span><span class="p">)</span>
+<span class="n">out</span><span class="p">,</span> <span class="n">grad</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">wide</span><span class="p">,</span> <span class="n">F64</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float64 layer, 30/40-bit: output </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">ref_out</span><span class="p">)</span><span class="si">}</span><span class="s2">, weight grad </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span><span class="w"> </span><span class="n">ref_grad</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The same arithmetic in a float64 convolution, against nn.Conv2d's float64 one.</span>
+<span class="n">conv</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="n">wide_conv</span> <span class="o">=</span> <span class="n">conv_formats</span><span class="p">(</span><span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">)))</span>
+<span class="n">qconv</span> <span class="o">=</span> <span class="n">QConv2d</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">wide_conv</span><span class="p">)</span>
+<span class="n">qconv</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">conv</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+<span class="n">img</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float64 conv,  30/40-bit: output </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">qconv</span><span class="p">(</span><span class="n">img</span><span class="p">)</span><span class="o">.</span><span class="n">detach</span><span class="p">(),</span><span class="w"> </span><span class="n">conv</span><span class="p">(</span><span class="n">img</span><span class="p">)</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># A float32 layer cannot have it in binary32, nor store a 40-bit result in</span>
+<span class="c1"># binary64 -- each says so at the first call.</span>
+<span class="k">for</span> <span class="n">carrier</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">F64</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">run</span><span class="p">(</span><span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">48</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">),</span> <span class="n">F32</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float32 layer, carrier=</span><span class="si">{</span><span class="n">carrier</span><span class="si">}</span><span class="s2">:"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">": "</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+
+<span class="c1"># What binary64 gives a float32 layer is everything before the stored result: a</span>
+<span class="c1"># 30-bit multiply format under a 24-bit accumulator, which binary32 refuses.</span>
+<span class="n">out</span><span class="p">,</span> <span class="n">grad</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">31</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F64</span><span class="p">),</span> <span class="n">F32</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float32 layer, 30/24-bit, binary64: output </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">ref_out</span><span class="p">)</span><span class="si">}</span><span class="s2">, grad </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span><span class="w"> </span><span class="n">ref_grad</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+
+<span class="c1"># And it changes the answer where the arithmetic sees bits it does not keep. An</span>
+<span class="c1"># FP8 recipe -- Binary8p4 signals and arithmetic, gradients in E5M2's layout -- rounds every</span>
+<span class="c1"># signal to 8 bits first, so each product and sum is exact in binary32 as in</span>
+<span class="c1"># binary64 and the two carriers agree to the bit. A 22-bit arithmetic on</span>
+<span class="c1"># unquantized operands does not: binary32 rounds each product and sum to 24</span>
+<span class="c1"># bits before the formats round them to 22 and 23, where binary64 keeps 53.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">fp8</span><span class="p">(</span><span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="n">formats</span> <span class="o">=</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">)</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">)</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">15</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">formats</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">bits22</span><span class="p">(</span><span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">27</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">23</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">)</span>
+
+
+<span class="nb">print</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">build</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"FP8 recipe"</span><span class="p">,</span> <span class="n">fp8</span><span class="p">),</span> <span class="p">(</span><span class="s2">"22/23-bit arithmetic"</span><span class="p">,</span> <span class="n">bits22</span><span class="p">)):</span>
+    <span class="n">out32</span><span class="p">,</span> <span class="n">grad32</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">build</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span> <span class="n">F32</span><span class="p">)</span>
+    <span class="n">out64</span><span class="p">,</span> <span class="n">grad64</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">build</span><span class="p">(</span><span class="n">F64</span><span class="p">),</span> <span class="n">F32</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"float32 layer, </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">: error </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">out32</span><span class="p">,</span><span class="w"> </span><span class="n">ref_out</span><span class="p">)</span><span class="si">}</span><span class="s2"> in binary32, "</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">out64</span><span class="p">,</span><span class="w"> </span><span class="n">ref_out</span><span class="p">)</span><span class="si">}</span><span class="s2"> in binary64"</span>
+    <span class="p">)</span>
+    <span class="n">diff</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"output </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">out64</span><span class="p">,</span><span class="w"> </span><span class="n">out32</span><span class="p">)</span><span class="si">}</span><span class="s2">, weight grad </span><span class="si">{</span><span class="n">rel</span><span class="p">(</span><span class="n">grad64</span><span class="p">,</span><span class="w"> </span><span class="n">grad32</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  binary64 against binary32: </span><span class="si">{</span><span class="n">diff</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id16">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id16" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float64 layer, 30/40-bit: output 4.0e-10, weight grad 3.9e-10
+float64 conv,  30/40-bit: output 3.9e-10
+float32 layer, carrier=None: BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
+float32 layer, carrier=torch.float64: BinaryK(K=48, P=40, bias=128) has 40 bits of precision, and a float32 result holds 24
+float32 layer, 30/24-bit, binary64: output 2.9e-07, grad 1.5e-07
+
+float32 layer, FP8 recipe: error 2.7e-01 in binary32, 2.7e-01 in binary64
+  binary64 against binary32: output 0.0e+00, weight grad 0.0e+00
+float32 layer, 22/23-bit arithmetic: error 7.3e-07 in binary32, 6.0e-07 in binary64
+  binary64 against binary32: output 9.1e-07, weight grad 4.5e-07
+</pre></div>
+</div>
+</div>
+</section>
+<section id="putting-a-model-together">
+<h2>Putting a model together<a class="headerlink" href="#putting-a-model-together" title="Link to this heading">#</a></h2>
+<p>A mixed-precision model is a set of decisions per layer:</p>
+<ol class="arabic simple" start="0">
+<li><p>Choose the <strong>carrier</strong>. By default it is the model’s dtype: float32 for
+the formats binary32 carries, and float64 for wider formats or an exact
+reference. Use <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> where a float32 (or
+half-precision) model should compute in binary64 and keep its dtype.</p></li>
+<li><p>Choose the format of each <strong>signal</strong>: a <code class="docutils literal notranslate"><span class="pre">Quant</span></code> (or a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>, or
+a scaled quantizer of your own) for <code class="docutils literal notranslate"><span class="pre">input_quant</span></code>, <code class="docutils literal notranslate"><span class="pre">weight_quant</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bias_quant</span></code> and the three gradient paths.</p></li>
+<li><p>Choose the <strong>arithmetic</strong> of each matrix product and convolution: a
+<code class="docutils literal notranslate"><span class="pre">*_gemm_formats</span></code> factory, <a class="reference internal" href="api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a> or
+<a class="reference internal" href="api.html#mptorch.quant.block_gemm_formats" title="mptorch.quant.block_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_gemm_formats()</span></code></a> for the <code class="docutils literal notranslate"><span class="pre">*_math</span></code> hooks
+(<a class="reference internal" href="kernels/index.html"><span class="doc">Quantized numerical kernels</span></a>). Or leave them as PyTorch’s own.</p></li>
+<li><p>Share one <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code> across layers that should behave the same,
+or give each layer its own.</p></li>
+<li><p>Round anything else with a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code>.</p></li>
+</ol>
+<p>The <a class="reference internal" href="tutorial.html"><span class="doc">Tutorial: training in 8-bit floating point</span></a> goes through these steps for the 8-bit formats, training
+a network with each combination and comparing them.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="kernels/calling.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Calling the kernels</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="tutorial.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Tutorial: training in 8-bit floating point</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-quantized-layer-computes">What a quantized layer computes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#qaffineformats">QAffineFormats</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-arithmetic-in-the-matrix-products">Custom arithmetic in the matrix products</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convolutions">Convolutions</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#custom-arithmetic-in-the-convolutions">Custom arithmetic in the convolutions</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#block-formats">Block formats</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#freezing-a-layer-to-its-codes">Freezing a layer to its codes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#activations-between-layers">Activations between layers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-layer-keeps-for-backward">What a layer keeps for backward</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#float64-models-and-the-carrier">float64 models and the carrier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#putting-a-model-together">Putting a model together</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="_sources/layers.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

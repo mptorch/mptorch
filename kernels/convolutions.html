@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Convolutions &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'kernels/convolutions';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Calling the kernels" href="calling.html" />
+    <link rel="prev" title="Block matrix products" href="block.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+  <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
+  </svg>
+  <span class="pst-collapse-sidebar-label">Collapse Sidebar</span>
+  <span class="pst-expand-sidebar-label">Expand Sidebar</span>
+</button></div>
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="arithmetic.html">Dot-product arithmetic</a></li>
+<li class="toctree-l1"><a class="reference internal" href="block.html">Block matrix products</a></li>
+<li class="toctree-l1 current active"><a aria-current="page" class="current reference internal" href="#">Convolutions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="calling.html">Calling the kernels</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Quantized numerical kernels</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Convolutions</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="convolutions">
+<h1>Convolutions<a class="headerlink" href="#convolutions" title="Link to this heading">#</a></h1>
+<p>A convolution layer runs three computations per training step: the forward
+convolution, the input gradient and the weight gradient. Each is a set of dot
+products in which every product and every addition is rounded
+(<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>). This page says which dot products those are and in
+which order their terms are summed. It also explains how
+<a class="reference internal" href="../api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a> runs them on the core routine of
+<a class="reference internal" href="index.html"><span class="doc">Quantized numerical kernels</span></a> without forming the matrices that a textbook lowering to a
+matrix product would build. The layer guide (<a class="reference internal" href="../layers.html"><span class="doc">Layers</span></a>,
+“Convolutions”) has the worked example.</p>
+<section id="the-three-sums">
+<h2>The three sums<a class="headerlink" href="#the-three-sums" title="Link to this heading">#</a></h2>
+<p>Take a convolution in <span class="math notranslate nohighlight">\(n_d \in \{1, 2, 3\}\)</span> spatial dimensions. Its
+input <span class="math notranslate nohighlight">\(x\)</span> has <span class="math notranslate nohighlight">\(C\)</span> channels, and its weight <span class="math notranslate nohighlight">\(W\)</span> has
+<span class="math notranslate nohighlight">\(C_{\text{out}}\)</span> filters over a kernel of extent <span class="math notranslate nohighlight">\(k\)</span>. It has
+stride <span class="math notranslate nohighlight">\(s\)</span>, padding <span class="math notranslate nohighlight">\(p\)</span> and dilation <span class="math notranslate nohighlight">\(d\)</span>. Each of these is
+a vector over the spatial dimensions, and products and comparisons of such
+vectors are per dimension. The batch has <span class="math notranslate nohighlight">\(B\)</span> samples. The output’s
+spatial extent is the vector <span class="math notranslate nohighlight">\(\text{out}\)</span>, and
+<span class="math notranslate nohighlight">\(\text{OUT} = \prod \text{out}\)</span> and <span class="math notranslate nohighlight">\(\text{IN}\)</span> are the numbers
+of output and input positions. Without groups, output position <span class="math notranslate nohighlight">\(o\)</span> of
+filter <span class="math notranslate nohighlight">\(c'\)</span> is</p>
+<div class="math notranslate nohighlight">
+\[y[b, c', o] \;=\; \sum_{c=0}^{C-1} \sum_{i \in [0, k)} W[c', c, i]\;
+x[b, c, \, o s - p + i d]
+\;+\; \text{bias}[c'],\]</div>
+<p>where <span class="math notranslate nohighlight">\(x\)</span> reads zero outside its extent (the padding). With
+<span class="math notranslate nohighlight">\(G = \partial L / \partial y\)</span>, the two gradients are</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}\frac{\partial L}{\partial W}[c', c, i] &amp;= \sum_{b} \sum_{o} G[b, c', o]\;
+x[b, c, \, o s - p + i d], \\[4pt]
+\frac{\partial L}{\partial x}[b, c, h] &amp;= \sum_{c'} \sum_{\substack{j \in [0, k)\\
+o = (h + p - j d) / s \,\in\, \mathbb{Z}^{n_d} \cap [0,\, \text{out})}}
+W[c', c, j]\; G[b, c', o].\end{split}\]</div>
+<p>The last one sums over every (filter, tap) pair whose output position
+<span class="math notranslate nohighlight">\(o\)</span> was computed from input position <span class="math notranslate nohighlight">\(h\)</span>. With <code class="docutils literal notranslate"><span class="pre">groups</span></code> =
+<span class="math notranslate nohighlight">\(g\)</span> the channels split into <span class="math notranslate nohighlight">\(g\)</span> independent convolutions, each
+with <span class="math notranslate nohighlight">\(C/g\)</span> input and <span class="math notranslate nohighlight">\(C_{\text{out}}/g\)</span> output channels.</p>
+<p>Each element of each result is one dot product, and the simulation rounds it
+as <a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a> rounds a matrix product’s. For a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> whose
+terms are <span class="math notranslate nohighlight">\(a_1 b_1, \dots, a_K b_K\)</span>,</p>
+<div class="math notranslate nohighlight">
+\[s_0 = 0, \qquad s_t = Q_{\text{acc}}\big(s_{t-1} + Q_{\text{mul}}(a_t b_t)\big),
+\qquad \text{result} = s_K,\]</div>
+<p>and for a <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code> <span class="math notranslate nohighlight">\(s_t = Q_{\text{fma}}(a_t b_t + s_{t-1})\)</span>.
+<code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>, <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> and <code class="docutils literal notranslate"><span class="pre">TREE</span></code> replace the recurrence with their own
+(<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>, “Summing differently”). A rounded sum depends on its
+order, so the order is part of the definition. It is fixed per pass:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 52.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>pass</p></th>
+<th class="head"><p>terms <span class="math notranslate nohighlight">\(t = 1 \dots K\)</span>, in order</p></th>
+<th class="head"><p><span class="math notranslate nohighlight">\(K\)</span></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>forward</p></td>
+<td><p><span class="math notranslate nohighlight">\((c, i)\)</span>, <span class="math notranslate nohighlight">\(c\)</span> outer, the kernel positions row-major
+(<code class="docutils literal notranslate"><span class="pre">F.unfold</span></code>’s order)</p></td>
+<td><p><span class="math notranslate nohighlight">\(\tfrac{C}{g} \prod k\)</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>weight gradient</p></td>
+<td><p><span class="math notranslate nohighlight">\((b, o)\)</span>, <span class="math notranslate nohighlight">\(b\)</span> outer, the output positions row-major</p></td>
+<td><p><span class="math notranslate nohighlight">\(B \cdot \text{OUT}\)</span></p></td>
+</tr>
+<tr class="row-even"><td><p>input gradient</p></td>
+<td><p><span class="math notranslate nohighlight">\((c', j)\)</span>, <span class="math notranslate nohighlight">\(c'\)</span> outer, the taps of the position’s class
+<em>descending</em> (below)</p></td>
+<td><p><span class="math notranslate nohighlight">\(\tfrac{C_{\text{out}}}{g}\,\lvert T_r \rvert\)</span></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Terms that read the padding are zeros, and they are part of the sum. In the
+forward pass a position at the border sums the same <span class="math notranslate nohighlight">\(K\)</span> terms as one in
+the middle, with some of them equal to <span class="math notranslate nohighlight">\(W \cdot 0\)</span>.</p>
+</section>
+<section id="lowering-to-a-matrix-product-without-the-matrices">
+<h2>Lowering to a matrix product, without the matrices<a class="headerlink" href="#lowering-to-a-matrix-product-without-the-matrices" title="Link to this heading">#</a></h2>
+<p>The forward pass is a matrix product. Unfold the input into the matrix
+<span class="math notranslate nohighlight">\(\tilde{X}_b\)</span>, with one row per <span class="math notranslate nohighlight">\((c, i)\)</span> and one column per
+output position:</p>
+<div class="math notranslate nohighlight">
+\[\tilde{X}_b[(c, i),\, o] = x[b, c,\, o s - p + i d],
+\qquad
+y_b = W_{\text{flat}}\; \tilde{X}_b, \qquad
+W_{\text{flat}}[c', (c, i)] = W[c', c, i],\]</div>
+<p>The forward pass is then the GEMM
+<span class="math notranslate nohighlight">\([C_{\text{out}}, K] \times [K, \text{OUT}]\)</span> per sample, in the rounded
+arithmetic of the mac and in exactly the order of the table above. The
+weight gradient is likewise <span class="math notranslate nohighlight">\(G_{\text{flat}}\,\tilde{X}^{\top}\)</span>, with
+the samples stacked along <span class="math notranslate nohighlight">\(K\)</span>.</p>
+<p>The problem is size. <span class="math notranslate nohighlight">\(\tilde{X}\)</span> has <span class="math notranslate nohighlight">\(\prod k\)</span> entries for every
+entry of <span class="math notranslate nohighlight">\(x\)</span> (nine for a 3x3 kernel). <code class="docutils literal notranslate"><span class="pre">F.unfold</span></code> allocates that on
+every call, forward and backward.</p>
+<p><code class="docutils literal notranslate"><span class="pre">conv_formats</span></code> runs these GEMMs on the core routine of <a class="reference internal" href="index.html"><span class="doc">Quantized numerical kernels</span></a> and
+leaves <span class="math notranslate nohighlight">\(\tilde{X}\)</span> implicit. For each step of its K-loop the kernel
+stages a <span class="math notranslate nohighlight">\(16 \times 16\)</span> tile of each operand. For a convolution, it
+computes the address in <span class="math notranslate nohighlight">\(x\)</span> (or <span class="math notranslate nohighlight">\(G\)</span>, or <span class="math notranslate nohighlight">\(W\)</span>) of each tile
+element from the geometry and reads the element in place, or uses zero where
+the element is padding.</p>
+<p>Splitting an index into coordinates (<span class="math notranslate nohighlight">\(t \mapsto (c, i)\)</span>, or a column
+into the output position <span class="math notranslate nohighlight">\(o\)</span>) divides by the geometry’s extents. These
+are fixed for the call, so each division is a multiply-high and a shift by
+constants computed once on the host. Nothing is divided per element.</p>
+<p>The arithmetic between the loads is the matrix product’s, unchanged. Every
+format, rounding mode and accumulate algorithm therefore applies, and each
+pass is <strong>bit for bit the GEMM over the explicit matrices</strong>.
+<code class="docutils literal notranslate"><span class="pre">tests/test_qconv_gemm.py</span></code> builds those matrices and checks this with
+<code class="docutils literal notranslate"><span class="pre">torch.equal</span></code>, stochastic rounding included. The difference is in memory:
+a pass allocates its result and nothing else.</p>
+<p>Groups do not add launches. Group <span class="math notranslate nohighlight">\(\gamma\)</span> of sample <span class="math notranslate nohighlight">\(b\)</span> is
+element <span class="math notranslate nohighlight">\(b g + \gamma\)</span> of the kernel’s batch dimension, so every group
+of every sample is one batch element of a single launch. Each result lands
+in its own layout: for the forward pass,
+<span class="math notranslate nohighlight">\([B, g, C_{\text{out}}/g, \text{OUT}]\)</span> <em>is</em>
+<span class="math notranslate nohighlight">\([B, C_{\text{out}}, \text{OUT}]\)</span>.</p>
+</section>
+<section id="the-input-gradient-class-by-class">
+<h2>The input gradient, class by class<a class="headerlink" href="#the-input-gradient-class-by-class" title="Link to this heading">#</a></h2>
+<p>With a strided convolution, the input gradient is the one pass that is not a
+plain GEMM. The textbook approach writes it as another convolution: insert
+<span class="math notranslate nohighlight">\(s - 1\)</span> zeros between the entries of <span class="math notranslate nohighlight">\(G\)</span>, pad by
+<span class="math notranslate nohighlight">\(d(k - 1) - p\)</span>, and correlate with the flipped kernel. That is again a
+GEMM, but a fraction <span class="math notranslate nohighlight">\(1 - 1/\prod s\)</span> of its terms are the inserted
+zeros (three quarters at stride 2 in two dimensions), and they cost as much
+as real terms.</p>
+<p>The sum above tells which terms are real. Tap <span class="math notranslate nohighlight">\(j\)</span> reaches input
+position <span class="math notranslate nohighlight">\(h\)</span> when <span class="math notranslate nohighlight">\(h + p - j d\)</span> is a multiple of <span class="math notranslate nohighlight">\(s\)</span>. That
+depends only on the residue <span class="math notranslate nohighlight">\(r = (h + p) \bmod s\)</span>. The input positions
+therefore split into <span class="math notranslate nohighlight">\(\prod s\)</span> <em>classes</em></p>
+<div class="math notranslate nohighlight">
+\[H_r = \{\, h : (h + p) \bmod s = r \,\} = \{\, h_{0,r} + m s \,\}, \qquad
+T_r = \{\, j \in [0, k) : j d \equiv r \pmod{s} \,\},\]</div>
+<p>and every position of a class takes the same taps. Per dimension,
+<span class="math notranslate nohighlight">\(T_r\)</span> is empty unless <span class="math notranslate nohighlight">\(\gcd(d, s)\)</span> divides <span class="math notranslate nohighlight">\(r\)</span>; otherwise
+it holds every <span class="math notranslate nohighlight">\(s / \gcd(d, s)\)</span>-th tap. For <span class="math notranslate nohighlight">\(h = h_{0,r} + m s\)</span>
+and <span class="math notranslate nohighlight">\(j \in T_r\)</span> the output position is</p>
+<div class="math notranslate nohighlight">
+\[o = m + \frac{h_{0,r} + p - j d}{s},\]</div>
+<p>which is an exact division, done once per tap on the host. The input
+gradient is then one GEMM per class,
+<span class="math notranslate nohighlight">\([C/g,\; (C_{\text{out}}/g)\,\lvert T_r \rvert] \times
+[(C_{\text{out}}/g)\,\lvert T_r \rvert,\; \lvert H_r \rvert]\)</span>, whose columns
+are scattered to their positions in <span class="math notranslate nohighlight">\(\partial L / \partial x\)</span>.</p>
+<p>Together the classes do <span class="math notranslate nohighlight">\(1/\prod s\)</span> of the zero-inserted work. At
+stride 2 in two dimensions, the four classes of a 3x3 kernel take 4, 2, 2
+and 1 taps, nine in all, where the zero-inserted sum takes nine for every
+position. Some special cases:</p>
+<ul class="simple">
+<li><p>At stride 1 there is one class, with every position and every tap. It is
+the transposed convolution itself.</p></li>
+<li><p>A class with no taps (a 1x1 kernel at stride 2) is an empty sum, and its
+positions are zero.</p></li>
+</ul>
+<p>Within a class the taps run in descending <span class="math notranslate nohighlight">\(j\)</span>, the flipped kernel’s
+order. The remaining terms are therefore in the same order as in the
+zero-inserted sum.</p>
+<p>Leaving the zeros out changes nothing where a zero term had no effect. Under
+a deterministic rounding, a plain running sum is not moved by a zero term:
+the product of a weight and an inserted zero rounds to zero, and
+<span class="math notranslate nohighlight">\(Q(s_{t-1} + 0) = s_{t-1}\)</span> because the running sum is already a value
+of the format. So for <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> and every rounding mode except <code class="docutils literal notranslate"><span class="pre">SR</span></code>, the
+result is bit for bit the zero-inserted one. (One exception: a weight of
+<span class="math notranslate nohighlight">\(\pm\infty\)</span> or NaN no longer turns the positions it does not reach
+into NaN, as <span class="math notranslate nohighlight">\(\infty \cdot 0\)</span> did.)</p>
+<p>In the other cases a zero term was not free. Leaving it out changes the
+rounding, not the value being rounded:</p>
+<ul class="simple">
+<li><p>Under <code class="docutils literal notranslate"><span class="pre">SR</span></code> each term uses a random draw, so the draws now fall on
+different terms.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">KAHAN</span></code> applies its pending compensation on every step, zero or not.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> and <code class="docutils literal notranslate"><span class="pre">TREE</span></code> count a block in terms. In the zero-inserted sum
+only one step in <span class="math notranslate nohighlight">\(\prod s\)</span> was a real term, so a block of
+<code class="docutils literal notranslate"><span class="pre">block_size</span></code> steps held about <code class="docutils literal notranslate"><span class="pre">block_size</span></code> <span class="math notranslate nohighlight">\(/ \prod s\)</span> terms, and
+more of the sum ran in the outer format. Now a block holds <code class="docutils literal notranslate"><span class="pre">block_size</span></code>
+terms, as in the other two passes and in a matrix product.</p></li>
+</ul>
+<p>Compared with the float64 gradient, the class sum is as accurate as the
+zero-inserted one. It is within 0.5% under <code class="docutils literal notranslate"><span class="pre">SR</span></code> and <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>. For
+<code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> and <code class="docutils literal notranslate"><span class="pre">TREE</span></code> it is 1-3.5% <em>more</em> accurate than a zero-inserted sum
+with the same number of terms per block (<code class="docutils literal notranslate"><span class="pre">block_size</span></code> times
+<span class="math notranslate nohighlight">\(\prod s\)</span>), which is the like-for-like comparison.
+<code class="docutils literal notranslate"><span class="pre">tests/test_qconv_gemm.py</span></code> checks both.</p>
+</section>
+<section id="stochastic-rounding">
+<h2>Stochastic rounding<a class="headerlink" href="#stochastic-rounding" title="Link to this heading">#</a></h2>
+<p>Under <code class="docutils literal notranslate"><span class="pre">SR</span></code> each element of a GEMM draws from its own stream, keyed on its
+index into the GEMM’s <span class="math notranslate nohighlight">\([\text{batch}, M, N]\)</span> result, and a GEMM takes
+one seed from the generator per call. A convolution pass follows the same
+rule, so its draws do not depend on the tiling, the thread count or the
+device’s launch geometry:</p>
+<ul class="simple">
+<li><p>The forward pass and the weight gradient are one GEMM call each, keyed on
+the result’s own index.</p></li>
+<li><p>The input gradient is one call per class, in row-major order of <span class="math notranslate nohighlight">\(r\)</span>,
+keyed on the element’s index within its class.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">torch.manual_seed</span></code> therefore reproduces every pass.</p>
+</section>
+<section id="formats-per-element">
+<h2>Formats per element<a class="headerlink" href="#formats-per-element" title="Link to this heading">#</a></h2>
+<p>A palette mac (<a class="reference internal" href="arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>, “Palettes”) picks a format per element of
+each pass’s result. It does so through an integer map indexed like that
+result, with the spatial dimensions flattened:</p>
+<ul class="simple">
+<li><p><span class="math notranslate nohighlight">\([C_{\text{out}}, \text{OUT}]\)</span> for the forward pass;</p></li>
+<li><p><span class="math notranslate nohighlight">\([C, \text{IN}]\)</span> for the input gradient;</p></li>
+<li><p><span class="math notranslate nohighlight">\([C_{\text{out}}, (C/g) \prod k]\)</span> for the weight gradient.</p></li>
+</ul>
+<p>Each can also be given as <span class="math notranslate nohighlight">\([\cdot, 1]\)</span> (one format per channel), as
+<span class="math notranslate nohighlight">\([1, \cdot]\)</span> (one per position), or with a leading batch dimension.
+The classes of the input gradient read the map at their own positions, so a
+map means the same thing whatever the stride.</p>
+</section>
+<section id="what-it-costs">
+<h2>What it costs<a class="headerlink" href="#what-it-costs" title="Link to this heading">#</a></h2>
+<p>The work of a pass is that of its GEMMs:
+<span class="math notranslate nohighlight">\(B\,C_{\text{out}}\,\text{OUT}\,K\)</span> multiply-adds for the forward pass,
+the same for the weight gradient, and <span class="math notranslate nohighlight">\(1/\prod s\)</span> of the zero-inserted
+count for the input gradient. Each runs at the rate of a matrix product in
+the same arithmetic; the address arithmetic in the tile loads adds a few
+percent. Memory use is the result.</p>
+<p>Two shapes run below the kernel’s best speed:</p>
+<ul class="simple">
+<li><p>A depthwise convolution (one channel per group) has <span class="math notranslate nohighlight">\(M = 1\)</span> and
+fills only one row of the <span class="math notranslate nohighlight">\(16 \times 16\)</span> tile.</p></li>
+<li><p>A class of the input gradient with few positions or few taps is a small
+GEMM.</p></li>
+</ul>
+<p>The kernels compute in the GEMM’s carrier: binary64 for a float64 model or a
+mac that names <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code>, binary32 otherwise. An Apple GPU
+has no float64, so binary32 is its only carrier.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="block.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Block matrix products</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="calling.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Calling the kernels</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-sums">The three sums</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lowering-to-a-matrix-product-without-the-matrices">Lowering to a matrix product, without the matrices</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-input-gradient-class-by-class">The input gradient, class by class</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stochastic-rounding">Stochastic rounding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#formats-per-element">Formats per element</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-costs">What it costs</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="../_sources/kernels/convolutions.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

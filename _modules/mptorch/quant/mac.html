@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.mac &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/mac';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.mac</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.mac</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The value types a quantized computation is spelled with: :class:`Quant` for</span>
+<span class="sd">an elementwise step, :class:`SplitMac` and :class:`FusedMac` for a reduction,</span>
+<span class="sd">and :class:`Palette` for a set of formats selected per output element.</span>
+
+<span class="sd">Every step of a quantized layer is one of exactly two things, and only one of</span>
+<span class="sd">them needs an arithmetic policy:</span>
+
+<span class="sd">* an **elementwise** step (a weight, activation or gradient quantizer) computes</span>
+<span class="sd">  in the carrier and rounds the result to a format. That is a format plus a</span>
+<span class="sd">  rounding mode, and it yields a callable: :class:`Quant`.</span>
+<span class="sd">* a **reduction** step is the only place the *internal* arithmetic is</span>
+<span class="sd">  simulated, so it is the only place a multiply/accumulate policy means</span>
+<span class="sd">  anything. That is the GEMM: :class:`SplitMac` and :class:`FusedMac`, named</span>
+<span class="sd">  after the two policies the kernels implement (``common/gemm_policy.h``).</span>
+
+<span class="sd">The vocabulary is therefore two value types that do not grow with the number</span>
+<span class="sd">of ops, rather than one formats class per layer kind, each with its own slots</span>
+<span class="sd">and its own bookkeeping of which slots are in use.</span>
+
+<span class="sd">Two things follow from spelling a reduction as a value:</span>
+
+<span class="sd">* ``accumulate_quant`` and ``fma_quant`` stop being booleans.</span>
+<span class="sd">  ``SplitMac(mul=f, acc=None)`` *is* the full-precision-sum case, so the state</span>
+<span class="sd">  where an accumulate format is present but ignored cannot be expressed.</span>
+<span class="sd">* the palette stops being a separate op family. Any format slot takes a</span>
+<span class="sd">  ``Number`` or a sequence of them, and a sequence anywhere selects the</span>
+<span class="sd">  ``_mixed`` op and requires a ``prec_idx``; op choice is a table keyed on</span>
+<span class="sd">  ``(family, mac kind, is palette)`` rather than eight function names. A</span>
+<span class="sd">  :class:`SplitMac` whose two formats are of different families selects one</span>
+<span class="sd">  of the cross-family ops, which take one format per slot.</span>
+
+<span class="sd">Resolution to a ``_GemmSpec`` happens once and is memoized on the value: the</span>
+<span class="sd">classes are frozen dataclasses, so they hash by value, and :func:`spec_for_mac`</span>
+<span class="sd">caches on them. Re-deriving a format's defaults and carrier checks costs 2.3 to</span>
+<span class="sd">6.4 microseconds per call, more than the rest of the Python call path, so an</span>
+<span class="sd">object API that resolved per call would be slower than the flat wrappers it</span>
+<span class="sd">sits over.</span>
+<span class="sd">"""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">weakref</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">KW_ONLY</span><span class="p">,</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">replace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">lru_cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">cast</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AccumulateAlgorithm</span><span class="p">,</span>
+    <span class="n">BinaryK</span><span class="p">,</span>
+    <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">FixedPoint</span><span class="p">,</span>
+    <span class="n">Number</span><span class="p">,</span>
+    <span class="n">RoundMode</span><span class="p">,</span>
+    <span class="n">SuperFP</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.block</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">BlockPacked</span><span class="p">,</span>
+    <span class="n">_block_gemm_spec</span><span class="p">,</span>
+    <span class="n">_BlockGemmSpec</span><span class="p">,</span>
+    <span class="n">block_pack</span><span class="p">,</span>
+    <span class="n">block_quantize</span><span class="p">,</span>
+    <span class="n">block_quantize_</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_binaryK_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_mixed_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_odd_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_mixed_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_odd_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_superfp_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_superfp_spec</span><span class="p">,</span>
+    <span class="n">_checked_block_size</span><span class="p">,</span>
+    <span class="n">_checked_carrier</span><span class="p">,</span>
+    <span class="n">_GemmSpec</span><span class="p">,</span>
+    <span class="n">_superfp_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_binaryK_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_binaryK_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_mixed_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_odd_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_spec</span><span class="p">,</span>
+    <span class="n">_superfp_mixed_spec</span><span class="p">,</span>
+    <span class="n">_superfp_odd_spec</span><span class="p">,</span>
+    <span class="n">_superfp_spec</span><span class="p">,</span>
+    <span class="n">binaryK_quantize</span><span class="p">,</span>
+    <span class="n">binaryK_quantize_</span><span class="p">,</span>
+    <span class="n">fixedpoint_quantize</span><span class="p">,</span>
+    <span class="n">fixedpoint_quantize_</span><span class="p">,</span>
+    <span class="n">superfp_quantize</span><span class="p">,</span>
+    <span class="n">superfp_quantize_</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"Quant"</span><span class="p">,</span> <span class="s2">"Palette"</span><span class="p">,</span> <span class="s2">"SplitMac"</span><span class="p">,</span> <span class="s2">"FusedMac"</span><span class="p">,</span> <span class="s2">"BlockQuant"</span><span class="p">,</span> <span class="s2">"BlockMac"</span><span class="p">]</span>
+
+
+<span class="c1"># The formats a GEMM kernel exists for. `Number` is the wider vocabulary, the</span>
+<span class="c1"># base class a fixed-point or block format would join; this is the part of it</span>
+<span class="c1"># the eight ops implement today, and a Palette validates membership against it.</span>
+<span class="n">GemmFormat</span> <span class="o">=</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="n">SuperFP</span>
+
+<span class="c1"># The fields the mixed schemas take once for a whole palette rather than per</span>
+<span class="c1"># entry: the kernels tabulate only the format *widths* (`BinaryKCommon` and</span>
+<span class="c1"># `SuperfpCommon` in common/gemm_args.h), so every entry must agree on these.</span>
+<span class="n">_SHARED_FIELDS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">type</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">BinaryK</span><span class="p">:</span> <span class="p">(</span><span class="s2">"is_signed"</span><span class="p">,</span> <span class="s2">"prng_bits"</span><span class="p">,</span> <span class="s2">"saturation"</span><span class="p">,</span> <span class="s2">"subnormals"</span><span class="p">),</span>
+    <span class="n">SuperFP</span><span class="p">:</span> <span class="p">(</span><span class="s2">"is_signed"</span><span class="p">,</span> <span class="s2">"prng_bits"</span><span class="p">,</span> <span class="s2">"saturation"</span><span class="p">),</span>
+<span class="p">}</span>
+
+<span class="n">MAX_PALETTE</span> <span class="o">=</span> <span class="mi">8</span>  <span class="c1"># must equal MAX_GEMM_FORMATS in common/gemm_policy.h</span>
+
+
+<div class="viewcode-block" id="Palette">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.Palette">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Palette</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Up to eight formats of one family, selected per output element.</span>
+
+<span class="sd">    A GEMM slot holds a palette when the format varies across the output. The</span>
+<span class="sd">    ``_mixed`` ops take the palette's widths as a table, and a ``prec_idx``</span>
+<span class="sd">    map picks one entry per output element. A plain sequence of formats works</span>
+<span class="sd">    anywhere a ``Palette`` does and is converted to one; the class exists for</span>
+<span class="sd">    the validation. Every entry must be of the same family. Some fields are</span>
+<span class="sd">    shared across the palette by the schema: sign, stochastic bits,</span>
+<span class="sd">    saturation and subnormals. Entries that disagree on one of them are</span>
+<span class="sd">    rejected here, with an error naming the first such entry. The palette</span>
+<span class="sd">    does not silently take entry 0's value.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        formats (Number or Sequence[Number] or Palette): one format, a</span>
+<span class="sd">            sequence of up to ``MAX_PALETTE`` formats, or another palette</span>
+<span class="sd">            (copied).</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for an empty sequence, more than eight formats, or entries</span>
+<span class="sd">            that disagree on a shared field.</span>
+<span class="sd">        TypeError: for a format family no GEMM kernel takes, or a mix of</span>
+<span class="sd">            families.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import Palette, SplitMac, qmm</span>
+<span class="sd">        &gt;&gt;&gt; palette = Palette([BinaryK(8, 4), BinaryK(8, 5), BinaryK(16, 11)])</span>
+<span class="sd">        &gt;&gt;&gt; len(palette)</span>
+<span class="sd">        3</span>
+<span class="sd">        &gt;&gt;&gt; prec_idx = torch.randint(3, (4, 3))</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 8), torch.randn(8, 3), SplitMac(palette, palette),</span>
+<span class="sd">        ...     prec_idx=prec_idx).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">    """</span>
+
+    <span class="n">formats</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">GemmFormat</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">formats</span><span class="p">:</span> <span class="s2">"Number | Sequence[Number] | Palette"</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">Palette</span><span class="p">):</span>
+            <span class="n">formats</span> <span class="o">=</span> <span class="n">formats</span><span class="o">.</span><span class="n">formats</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">formats</span><span class="p">,</span> <span class="n">Number</span><span class="p">):</span>
+            <span class="n">formats</span> <span class="o">=</span> <span class="p">(</span><span class="n">formats</span><span class="p">,)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"formats"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">formats</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"a Palette needs at least one format"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">MAX_PALETTE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"a Palette holds at most </span><span class="si">{</span><span class="n">MAX_PALETTE</span><span class="si">}</span><span class="s2"> formats, got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">first</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_SHARED_FIELDS</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"no GEMM kernel takes </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">first</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> formats"</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">fmt</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">start</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">first</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"every format in a Palette must be the same type: entry </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> is "</span>
+                    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">, entry 0 is </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">first</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+                <span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_SHARED_FIELDS</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">first</span><span class="p">)]:</span>
+                <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">first</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">"a Palette shares </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> across its entries (the kernel tabulates "</span>
+                        <span class="sa">f</span><span class="s2">"only the format widths): entry </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> has </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">)</span><span class="si">!r}</span><span class="s2">, "</span>
+                        <span class="sa">f</span><span class="s2">"entry 0 has </span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">first</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">)</span><span class="si">!r}</span><span class="s2">"</span>
+                    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GemmFormat</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="p">[</span><span class="n">i</span><span class="p">]</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_palette</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="s2">"Number | Sequence[Number] | Palette | None"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Palette</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Normalize a format slot to a ``Palette``; ``None`` means the step is not</span>
+<span class="sd">    quantized and stays ``None``."""</span>
+    <span class="k">return</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">slot</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Palette</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_varies</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="n">Palette</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Whether this slot asks for a ``_mixed`` op, that is, holds more than one</span>
+<span class="sd">    format."""</span>
+    <span class="k">return</span> <span class="n">slot</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span>
+
+
+<span class="c1"># --- an elementwise quantizer ------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="Quant">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.Quant">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Quant</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A format plus a rounding mode, as a callable ``Tensor -&gt; Tensor``.</span>
+
+<span class="sd">    Calling it rounds every element of a tensor to the format, in the carrier,</span>
+<span class="sd">    and returns a tensor of the same dtype and shape. Every ``*_quant`` slot</span>
+<span class="sd">    of a ``QAffineFormats`` or ``QMatmulFormats`` takes one, and a</span>
+<span class="sd">    straight-through :class:`mptorch.quant.Quantizer` or a QAT observer wraps</span>
+<span class="sd">    one. The call is bound at construction, so each call costs only the op.</span>
+<span class="sd">    The class is frozen, so a ``Quant`` can be a dictionary key and a</span>
+<span class="sd">    memoization key, like the mac objects.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fmt (Number): the format to round to: a :class:`mptorch.BinaryK`, a</span>
+<span class="sd">            :class:`mptorch.SuperFP`, a :class:`mptorch.FixedPoint`, or a</span>
+<span class="sd">            :class:`mptorch.BlockFormat`. A block format's blocks run along</span>
+<span class="sd">            the last axis; use :class:`BlockQuant` for another axis or a</span>
+<span class="sd">            tensor scale.</span>
+<span class="sd">        rounding (RoundMode): the rounding mode. Default: ``RoundMode.RNE``</span>
+<span class="sd">        carrier (torch.dtype, optional): the float arithmetic the cast rounds</span>
+<span class="sd">            in, as the argument of the same name of</span>
+<span class="sd">            :func:`mptorch.quant.binaryK_quantize`. ``None`` rounds in the</span>
+<span class="sd">            tensor's own default carrier: binary32 for float16, bfloat16 and</span>
+<span class="sd">            float32 tensors, and binary64 for float64 ones.</span>
+<span class="sd">            ``torch.float64`` rounds in binary64 whatever the tensor.</span>
+<span class="sd">            ``torch.float32`` rounds in binary32 and refuses a float64 tensor.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        inplace (bool): round the tensor in place and return it, instead of</span>
+<span class="sd">            allocating a result. This goes through</span>
+<span class="sd">            :func:`mptorch.quant.binaryK_quantize_`,</span>
+<span class="sd">            :func:`mptorch.quant.superfp_quantize_` or</span>
+<span class="sd">            :func:`mptorch.quant.fixedpoint_quantize_`. Use it for a tensor the</span>
+<span class="sd">            caller owns, such as a weight quantized once at load. Never use</span>
+<span class="sd">            it in a ``*_quant`` slot of a layer's formats, because a layer's</span>
+<span class="sd">            input belongs to the graph of whatever produced it. The call</span>
+<span class="sd">            refuses what the in-place ops refuse: a tensor that is not</span>
+<span class="sd">            contiguous, a CUDA view off a 16-byte boundary, and a ``carrier``</span>
+<span class="sd">            wider than the tensor. Default: ``False``</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        TypeError: for a format with no elementwise quantizer, or a</span>
+<span class="sd">            ``carrier`` that is not a ``torch.dtype``.</span>
+<span class="sd">        ValueError: for a ``carrier`` dtype that names no carrier.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, RoundMode, SuperFP</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QAffineFormats, Quant</span>
+<span class="sd">        &gt;&gt;&gt; q = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; q(torch.tensor([1.0, 0.3, 0.7]))</span>
+<span class="sd">        tensor([1.0000, 0.3125, 0.6875])</span>
+<span class="sd">        &gt;&gt;&gt; formats = QAffineFormats()</span>
+<span class="sd">        &gt;&gt;&gt; formats.input_quant = Quant(SuperFP(3, 4, 8, 7), RoundMode.SR)</span>
+<span class="sd">    """</span>
+
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">Number</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+    <span class="n">_</span><span class="p">:</span> <span class="n">KW_ONLY</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">_call</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">compare</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fmt</span><span class="p">,</span> <span class="n">rm</span><span class="p">,</span> <span class="n">carrier</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span> <span class="n">_checked_carrier</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+            <span class="n">binaryK</span> <span class="o">=</span> <span class="n">binaryK_quantize_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span> <span class="k">else</span> <span class="n">binaryK_quantize</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">binaryK</span><span class="p">(</span>
+                    <span class="n">x</span><span class="p">,</span>
+                    <span class="n">K</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">K</span><span class="p">,</span>
+                    <span class="n">P</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">P</span><span class="p">,</span>
+                    <span class="n">bias</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+                    <span class="n">prng_bits</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+                    <span class="n">is_signed</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span>
+                    <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rm</span><span class="p">,</span>
+                    <span class="n">saturation_mode</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">saturation</span><span class="p">,</span>
+                    <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+                    <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+                <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">SuperFP</span><span class="p">):</span>
+            <span class="n">superfp</span> <span class="o">=</span> <span class="n">superfp_quantize_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span> <span class="k">else</span> <span class="n">superfp_quantize</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">superfp</span><span class="p">(</span>
+                    <span class="n">x</span><span class="p">,</span>
+                    <span class="n">man_bits</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span>
+                    <span class="n">exp_bits</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">exp_bits</span><span class="p">,</span>
+                    <span class="n">normal_binades</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">normal_binades</span><span class="p">,</span>
+                    <span class="n">bias</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+                    <span class="n">prng_bits</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+                    <span class="n">is_signed</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span>
+                    <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rm</span><span class="p">,</span>
+                    <span class="n">saturation_mode</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">saturation</span><span class="p">,</span>
+                    <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+                <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">FixedPoint</span><span class="p">):</span>
+            <span class="n">fixedpoint</span> <span class="o">=</span> <span class="n">fixedpoint_quantize_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span> <span class="k">else</span> <span class="n">fixedpoint_quantize</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">fixedpoint</span><span class="p">(</span>
+                    <span class="n">x</span><span class="p">,</span>
+                    <span class="n">wl</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">wl</span><span class="p">,</span>
+                    <span class="n">fl</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">fl</span><span class="p">,</span>
+                    <span class="n">prng_bits</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+                    <span class="n">is_signed</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span>
+                    <span class="n">symmetric</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">symmetric</span><span class="p">,</span>
+                    <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rm</span><span class="p">,</span>
+                    <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+                <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">BlockFormat</span><span class="p">):</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="n">block_quantize_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span> <span class="k">else</span> <span class="n">block_quantize</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">call</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">block</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">rounding</span><span class="o">=</span><span class="n">rm</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"no elementwise quantizer for </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"_call"</span><span class="p">,</span> <span class="n">call</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_call</span><span class="p">(</span><span class="n">x</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># --- a block format ------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="BlockQuant">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockQuant">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BlockQuant</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A block format plus a rounding mode: a fake quantizer, and a packer.</span>
+
+<span class="sd">    Calling it is :func:`mptorch.quant.block_quantize` along ``axis``. It</span>
+<span class="sd">    returns the decoded values, with the tensor's shape and dtype. That is</span>
+<span class="sd">    what a ``*_quant`` slot of a layer's formats or a</span>
+<span class="sd">    :class:`mptorch.quant.Quantizer` takes.</span>
+
+<span class="sd">    :meth:`pack` is :func:`mptorch.quant.block_pack` instead. It returns the</span>
+<span class="sd">    codes themselves, which :func:`mptorch.quant.block_gemm_formats` and</span>
+<span class="sd">    :func:`mptorch.quant.block_matmul_formats` multiply without decoding them</span>
+<span class="sd">    first. Use ``BlockQuant(fmt, axis=1).pack`` as a ``QLinear``'s</span>
+<span class="sd">    ``weight_quant`` to pack its weight once instead of in every hook. The</span>
+<span class="sd">    packing is memoized on the tensor, its version counter, its device and</span>
+<span class="sd">    its dtype. It is therefore redone after each optimizer step (which writes</span>
+<span class="sd">    the weight in place) and after the module is moved or converted</span>
+<span class="sd">    (``.to()``, ``.cuda()``, ``.half()``, which keep the parameter and its</span>
+<span class="sd">    version), and not otherwise. The memo does not see a write that the</span>
+<span class="sd">    version counter does not see (one made through ``.data``).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fmt (BlockFormat): the format.</span>
+<span class="sd">        rounding (RoundMode): the elements' rounding mode. Default:</span>
+<span class="sd">            ``RoundMode.RNE``</span>
+<span class="sd">        axis (int): the axis the blocks run along. Default: ``-1``</span>
+<span class="sd">        tensor_scale (float, optional): a static per-tensor scale, for a</span>
+<span class="sd">            format that has one (NVFP4). ``None`` derives it per call.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier (torch.dtype, optional): as for</span>
+<span class="sd">            :func:`mptorch.quant.block_quantize`. Default: ``None``</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import BlockQuant</span>
+<span class="sd">        &gt;&gt;&gt; q = BlockQuant(MXFP8_E4M3)</span>
+<span class="sd">        &gt;&gt;&gt; q(torch.tensor([[1.0, 0.1, -3.3, 100.0]]))</span>
+<span class="sd">        tensor([[ 1.0000,  0.1016, -3.2500, 96.0000]])</span>
+<span class="sd">        &gt;&gt;&gt; w = torch.randn(16, 64)</span>
+<span class="sd">        &gt;&gt;&gt; q.pack(w, axis=1) is q.pack(w, axis=1)</span>
+<span class="sd">        True</span>
+<span class="sd">    """</span>
+
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+    <span class="n">_</span><span class="p">:</span> <span class="n">KW_ONLY</span>
+    <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># The last packing, as (tensor, its version, axis, device, dtype, result):</span>
+    <span class="c1"># one entry, since a BlockQuant packs one weight. The device and the dtype</span>
+    <span class="c1"># are there because nn.Module's conversions swap a parameter's data and</span>
+    <span class="c1"># leave the object and its version as they were.</span>
+    <span class="n">_memo</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">compare</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="n">BlockFormat</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"BlockQuant takes a BlockFormat, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="n">_checked_carrier</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">block_quantize</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">axis</span><span class="p">,</span>
+            <span class="n">rounding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span>
+            <span class="n">tensor_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="BlockQuant.pack">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockQuant.pack">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">""":func:`mptorch.quant.block_pack` of ``x`` along ``axis``, memoized on</span>
+<span class="sd">        ``x``, its version, its device and its dtype. ``axis`` defaults to this</span>
+<span class="sd">        quantizer's."""</span>
+        <span class="n">axis</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="k">if</span> <span class="n">axis</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">axis</span>
+        <span class="n">memo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">memo</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">ref</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">memo_axis</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">packed</span> <span class="o">=</span> <span class="n">memo</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="n">ref</span><span class="p">()</span> <span class="ow">is</span> <span class="n">x</span>
+                <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">_version</span> <span class="o">==</span> <span class="n">version</span>
+                <span class="ow">and</span> <span class="n">memo_axis</span> <span class="o">==</span> <span class="n">axis</span>
+                <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">device</span> <span class="o">==</span> <span class="n">device</span>
+                <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">dtype</span>
+            <span class="p">):</span>
+                <span class="k">return</span> <span class="n">packed</span>
+        <span class="n">packed</span> <span class="o">=</span> <span class="n">block_pack</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="n">axis</span><span class="p">,</span>
+            <span class="n">rounding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span>
+            <span class="n">tensor_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_memo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">x</span><span class="o">.</span><span class="n">_version</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">packed</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">packed</span></div>
+
+
+<div class="viewcode-block" id="BlockQuant.pack_fresh">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockQuant.pack_fresh">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack_fresh</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">""":func:`mptorch.quant.block_pack` of ``x`` along ``axis``, not memoized.</span>
+<span class="sd">        Use it for an activation or a gradient, which is a new tensor on</span>
+<span class="sd">        every call."""</span>
+        <span class="k">return</span> <span class="n">block_pack</span><span class="p">(</span>
+            <span class="n">x</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="n">axis</span><span class="p">,</span>
+            <span class="n">rounding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span>
+            <span class="n">tensor_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_block_quant</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockQuant</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A block operand slot as a ``BlockQuant``: a bare format packs to nearest even."""</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">slot</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="n">BlockFormat</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">BlockQuant</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is a BlockFormat or a BlockQuant, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="BlockMac">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockMac">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BlockMac</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The block GEMM: two block-format operands and the arithmetic of their product.</span>
+
+<span class="sd">    ``a`` and ``b`` are the formats that the left and right operands are</span>
+<span class="sd">    packed in. Each is a :class:`mptorch.BlockFormat` (packed to nearest</span>
+<span class="sd">    even) or a :class:`BlockQuant` (which specifies the rounding and a tensor</span>
+<span class="sd">    scale). ``b`` defaults to ``a``.</span>
+
+<span class="sd">    The product decodes both operands in the carrier and sums their products</span>
+<span class="sd">    as :func:`mptorch.quant.block_matmul` describes. In a split mac, each</span>
+<span class="sd">    product is rounded to the carrier and the sum to ``acc``. With</span>
+<span class="sd">    ``fused=True``, each fused multiply-add is rounded to ``acc``.</span>
+<span class="sd">    ``acc=None`` leaves the sum in the carrier. The accumulate algorithms are</span>
+<span class="sd">    those of :class:`SplitMac`.</span>
+
+<span class="sd">    :func:`mptorch.quant.qmatmul` and :class:`mptorch.quant.QMatmul` accept a</span>
+<span class="sd">    ``BlockMac`` (:func:`mptorch.quant.block_matmul_formats` builds their</span>
+<span class="sd">    formats). They also accept a bare ``BlockFormat``, which means</span>
+<span class="sd">    ``BlockMac(fmt)``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a (BlockFormat or BlockQuant): the left operand's format.</span>
+<span class="sd">        b (BlockFormat or BlockQuant, optional): the right operand's. Default:</span>
+<span class="sd">            ``None``, ``a``'s.</span>
+<span class="sd">        acc (BinaryK, optional): the accumulate format. Default: ``None``</span>
+<span class="sd">        fused (bool): a fused multiply-add per step. Default: ``False``</span>
+<span class="sd">        rounding (RoundMode): the sum's rounding mode. Default:</span>
+<span class="sd">            ``RoundMode.RNE``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`</span>
+<span class="sd">            (``TREE`` needs ``fused=False``). Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        carrier (torch.dtype, optional): ``torch.float64`` packs the operands</span>
+<span class="sd">            and multiplies them in binary64, whatever their dtype (an operand</span>
+<span class="sd">            ``BlockQuant`` that names a carrier of its own keeps it).</span>
+<span class="sd">            Default: ``None``, the operands': binary64 for float64 tensors,</span>
+<span class="sd">            binary32 otherwise.</span>
+<span class="sd">        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``</span>
+<span class="sd">        outer (BinaryK, optional): as for :class:`SplitMac`. Default: ``None``</span>
+<span class="sd">        tensor_scale_epilogue (bool): apply the operands' per-tensor scales</span>
+<span class="sd">            once, to the result, as NVIDIA's NVFP4 GEMMs do, instead of in</span>
+<span class="sd">            each decoded element (:func:`mptorch.quant.block_matmul`).</span>
+<span class="sd">            Default: ``False``</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, MXFP8_E4M3, MXFP4_E2M1</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import BlockMac, qmm</span>
+<span class="sd">        &gt;&gt;&gt; mac = BlockMac(MXFP8_E4M3, MXFP4_E2M1, BinaryK(16, 11))</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 64), torch.randn(64, 8), mac).shape</span>
+<span class="sd">        torch.Size([4, 8])</span>
+<span class="sd">    """</span>
+
+    <span class="n">a</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span>
+    <span class="n">b</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant | None"</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">_</span><span class="p">:</span> <span class="n">KW_ONLY</span>
+    <span class="n">fused</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">tensor_scale_epilogue</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">operand</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockQuant</span><span class="p">:</span>
+            <span class="n">q</span> <span class="o">=</span> <span class="n">_as_block_quant</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="c1"># the mac's carrier packs too, unless the operand names its own</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="ow">and</span> <span class="n">q</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">q</span> <span class="o">=</span> <span class="n">replace</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">q</span>
+
+        <span class="n">a</span> <span class="o">=</span> <span class="n">operand</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">a</span><span class="p">,</span> <span class="s2">"BlockMac's a"</span><span class="p">)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">a</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">b</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">operand</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">b</span><span class="p">,</span> <span class="s2">"BlockMac's b"</span><span class="p">)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"a"</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"b"</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+        <span class="n">spec_for_block_mac</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>  <span class="c1"># every error the arithmetic can raise, raised now</span></div>
+
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">spec_for_block_mac</span><span class="p">(</span><span class="n">mac</span><span class="p">:</span> <span class="n">BlockMac</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_BlockGemmSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The resolved block GEMM a ``BlockMac`` names, memoized on the value."""</span>
+    <span class="k">return</span> <span class="n">_block_gemm_spec</span><span class="p">(</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">acc</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">fused</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">outer</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="n">mac</span><span class="o">.</span><span class="n">tensor_scale_epilogue</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># --- the two reduction policies ----------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_checked_accumulation</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">:</span> <span class="s2">"SplitMac | FusedMac"</span><span class="p">,</span> <span class="n">slots</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Palette</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">has_product</span><span class="p">:</span> <span class="nb">bool</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Validate a mac's ``accumulate_algorithm``, ``block_size`` and ``outer``.</span>
+
+<span class="sd">    ``slots`` is the mac's normalized format slots, the last of them the one</span>
+<span class="sd">    whose family ``outer`` must share (the accumulate format, else the</span>
+<span class="sd">    multiply's; a fused mac's one format): the outer format rounds a total of</span>
+<span class="sd">    that format's values, and no kernel folds them into another family. The</span>
+<span class="sd">    block-size rule is the flat wrappers'</span>
+<span class="sd">    (:func:`mptorch.quant.ops._checked_block_size`), so the two tiers raise</span>
+<span class="sd">    the same errors.</span>
+<span class="sd">    """</span>
+    <span class="n">outer</span> <span class="o">=</span> <span class="n">mac</span><span class="o">.</span><span class="n">outer</span>
+    <span class="k">if</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outer</span><span class="p">,</span> <span class="n">GemmFormat</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"outer must be one BinaryK or SuperFP format or None, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">outer</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: "</span>
+            <span class="s2">"a palette of outer formats is not implemented"</span>
+        <span class="p">)</span>
+    <span class="n">_checked_block_size</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span><span class="p">,</span> <span class="n">mac</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="n">has_product</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">_varies</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="n">slots</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"AccumulateAlgorithm.</span><span class="si">{</span><span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> is implemented for a single "</span>
+            <span class="s2">"format per slot: the palette ops accumulate with NAIVE only, since no kernel runs "</span>
+            <span class="s2">"a palette of accumulators or of outer formats; give each slot one format, or use "</span>
+            <span class="s2">"NAIVE with the palette"</span>
+        <span class="p">)</span>
+    <span class="n">family</span> <span class="o">=</span> <span class="nb">next</span><span class="p">((</span><span class="n">slot</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">slots</span><span class="p">)</span> <span class="k">if</span> <span class="n">slot</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">),</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">family</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">outer</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">family</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"outer must be of the accumulate format's family (the multiply format's when the "</span>
+            <span class="sa">f</span><span class="s2">"sum is left unrounded): got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">outer</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> over "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">family</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">; no kernel folds a total into another family"</span>
+        <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_checked_carrier_rounding</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">:</span> <span class="s2">"SplitMac | FusedMac"</span><span class="p">,</span> <span class="n">slots</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Palette</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.</span>
+
+<span class="sd">    ``RO`` selects the ``custom_matmul_*_odd`` ops, whose carrier steps round</span>
+<span class="sd">    to odd so that the format's cast rounds the exact value. They exist for</span>
+<span class="sd">    the NAIVE single-format, single-family GEMMs only, and their step must be</span>
+<span class="sd">    rounded by a format afterwards. Each refusal says so here rather than at</span>
+<span class="sd">    the call.</span>
+<span class="sd">    """</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">mac</span><span class="o">.</span><span class="n">carrier_rounding</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mode</span><span class="p">,</span> <span class="n">RoundMode</span><span class="p">)</span> <span class="ow">or</span> <span class="n">mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"carrier_rounding is RoundMode.RNE (the carrier's nearest step) or RoundMode.RO "</span>
+            <span class="sa">f</span><span class="s2">"(rounded to odd), got </span><span class="si">{</span><span class="n">mode</span><span class="si">!r}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="ow">is</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">where</span> <span class="o">=</span> <span class="s2">"keep carrier_rounding=RoundMode.RNE"</span>
+    <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only, "</span>
+            <span class="sa">f</span><span class="s2">"as KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest: use "</span>
+            <span class="sa">f</span><span class="s2">"NAIVE, or </span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2"> (the default)"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">_varies</span><span class="p">(</span><span class="n">slot</span><span class="p">)</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="n">slots</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier_rounding=RoundMode.RO has no palette ops, as the odd step is implemented "</span>
+            <span class="sa">f</span><span class="s2">"for one format per slot only: give each slot one format, or </span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">slots</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "</span>
+            <span class="s2">"step rounded to odd is only correct when a format rounds it again, and "</span>
+            <span class="s2">"FusedMac(None) is the carrier's own nearest FMA"</span>
+        <span class="p">)</span>
+    <span class="n">present</span> <span class="o">=</span> <span class="p">[</span><span class="n">slot</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="n">slots</span> <span class="k">if</span> <span class="n">slot</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">({</span><span class="nb">type</span><span class="p">(</span><span class="n">slot</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="k">for</span> <span class="n">slot</span> <span class="ow">in</span> <span class="n">present</span><span class="p">})</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier_rounding=RoundMode.RO has no cross-family ops, as the odd step is "</span>
+            <span class="sa">f</span><span class="s2">"implemented for one family per mac only: use one family in both slots, or </span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+
+
+<div class="viewcode-block" id="SplitMac">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.SplitMac">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SplitMac</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Quantize the product and the running sum separately: two roundings.</span>
+
+<span class="sd">    Each step of a dot product computes ``s = round_acc(s + round_mul(a * b))``</span>
+<span class="sd">    in the carrier. The product is rounded to the ``mul`` format and the new</span>
+<span class="sd">    partial sum to the ``acc`` format. ``mul`` and ``acc`` are each a format</span>
+<span class="sd">    or a sequence of formats. A sequence is a palette; it selects the</span>
+<span class="sd">    ``_mixed`` op and requires a ``prec_idx`` at the call. ``acc`` alone may</span>
+<span class="sd">    also be ``None``, which leaves the running sum in the carrier's full</span>
+<span class="sd">    precision. The two may be of different families, a</span>
+<span class="sd">    :class:`~mptorch.BinaryK` multiply with a :class:`~mptorch.SuperFP`</span>
+<span class="sd">    accumulate or the reverse, as long as each slot holds one format: the</span>
+<span class="sd">    cross-family ops (:func:`mptorch.quant.binaryK_superfp_matmul`,</span>
+<span class="sd">    :func:`mptorch.quant.superfp_binaryK_matmul`) have no palette variant.</span>
+
+<span class="sd">    ``rounding`` is one mode for both halves. The kernels take the rounding</span>
+<span class="sd">    mode as a template parameter, because a runtime switch inside the</span>
+<span class="sd">    accumulate step cost 1.2 to 2.3 times the kernel time, and a mode per</span>
+<span class="sd">    format would square the number of kernel instantiations. Saturation,</span>
+<span class="sd">    subnormals and the stochastic-rounding width *are* per format, and are</span>
+<span class="sd">    set on the format objects.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mul (Number or Sequence[Number] or Palette): the multiply format, or a</span>
+<span class="sd">            palette of them.</span>
+<span class="sd">        acc (Number or Sequence[Number] or Palette, optional): the accumulate</span>
+<span class="sd">            format, or a palette of them; ``None`` leaves the running sum</span>
+<span class="sd">            unrounded. Default: ``None``</span>
+<span class="sd">        rounding (RoundMode): rounding mode of both halves.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): how the products are</span>
+<span class="sd">            summed. ``NAIVE`` is the step above, in order. ``KAHAN`` carries a</span>
+<span class="sd">            compensation term next to the sum, in the ``acc`` format.</span>
+<span class="sd">            ``BLOCK`` runs the step above over blocks of ``block_size``</span>
+<span class="sd">            products and adds each block's sum to a total with a third</span>
+<span class="sd">            rounding, ``outer``. ``TREE`` sums each block's products</span>
+<span class="sd">            pairwise, rounding every pair's sum to ``acc``, and adds the</span>
+<span class="sd">            block's root to the total in the same way.</span>
+<span class="sd">            :class:`mptorch.AccumulateAlgorithm` states each precisely.</span>
+<span class="sd">            ``KAHAN``, ``BLOCK`` and ``TREE`` run in both carriers; a</span>
+<span class="sd">            palette in any slot raises. Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        carrier (torch.dtype, optional): the float arithmetic that both halves</span>
+<span class="sd">            and everything between them are computed in, as the argument of</span>
+<span class="sd">            the same name of :func:`mptorch.quant.binaryK_matmul`. ``None``</span>
+<span class="sd">            takes the operands' carrier (binary64 for float64, binary32 for</span>
+<span class="sd">            the rest). ``torch.float64`` widens narrower operands to binary64</span>
+<span class="sd">            and narrows the result back to their dtype. ``torch.float32``</span>
+<span class="sd">            refuses float64 operands. Every call checks the formats against</span>
+<span class="sd">            that carrier. Default: ``None``</span>
+<span class="sd">        block_size (int, optional): products per block. ``BLOCK`` requires</span>
+<span class="sd">            one, which must divide 16 or be a multiple of 16. ``TREE`` takes a</span>
+<span class="sd">            power of two in [2, 256] and defaults to 16. ``NAIVE`` and</span>
+<span class="sd">            ``KAHAN`` take none. Default: ``None``</span>
+<span class="sd">        outer (Number, optional): the format, of the accumulate format's</span>
+<span class="sd">            family (the multiply's when ``acc`` is ``None``), that ``BLOCK``</span>
+<span class="sd">            and ``TREE`` round the total to after each block is added.</span>
+<span class="sd">            ``None`` leaves the total in the carrier's precision, as</span>
+<span class="sd">            ``acc=None`` does for the sum. When given, the result holds this</span>
+<span class="sd">            format's values. Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): how the carrier rounds the product and</span>
+<span class="sd">            the sum before the formats do. ``RoundMode.RNE`` is the carrier's</span>
+<span class="sd">            nearest multiply and add. ``RoundMode.RO`` rounds both to odd</span>
+<span class="sd">            instead, so each format rounds the exact product and the exact</span>
+<span class="sd">            sum (see :doc:`/kernels/arithmetic`, "What the carrier rounds"),</span>
+<span class="sd">            for formats narrow enough: ``P`` at most 22 under ``RNE`` and</span>
+<span class="sd">            ``RNA``, 23 under the directed modes and ``RO``, and</span>
+<span class="sd">            ``P + prng_bits`` at most 23 under ``SR``, in binary32 (51, 52</span>
+<span class="sd">            and 52 in binary64); a call outside those raises. ``RO`` is</span>
+<span class="sd">            implemented for ``NAIVE``, one format per slot and one family,</span>
+<span class="sd">            on CPU and CUDA tensors. With ``acc=None`` only the product is</span>
+<span class="sd">            rounded to odd, since no format rounds the sum after it.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if ``mul`` is ``None``, if both slots are palettes of</span>
+<span class="sd">            different lengths, if ``mul`` and ``acc`` are of different</span>
+<span class="sd">            families and either is a palette, if ``carrier`` names no carrier,</span>
+<span class="sd">            if ``block_size`` or ``outer`` does not fit the algorithm, or if</span>
+<span class="sd">            ``carrier_rounding`` is neither ``RNE`` nor ``RO`` or is ``RO``</span>
+<span class="sd">            with something it does not implement.</span>
+<span class="sd">        TypeError: if ``outer`` is of another family than the accumulate</span>
+<span class="sd">            format or not a single format, or ``carrier`` is not a</span>
+<span class="sd">            ``torch.dtype``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import SplitMac, qmm</span>
+<span class="sd">        &gt;&gt;&gt; binary8p4 = BinaryK(8, 4)</span>
+<span class="sd">        &gt;&gt;&gt; mac = SplitMac(binary8p4, BinaryK(16, 11))   # Binary8p4 products, 11-bit sums</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 8), torch.randn(8, 3), mac).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">        &gt;&gt;&gt; exact_sum = SplitMac(binary8p4, None)   # products rounded, sum exact</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import AccumulateAlgorithm</span>
+<span class="sd">        &gt;&gt;&gt; blocked = SplitMac(binary8p4, binary8p4, block_size=8, outer=BinaryK(16, 11),</span>
+<span class="sd">        ...                    accumulate_algorithm=AccumulateAlgorithm.BLOCK)</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 64), torch.randn(64, 3), blocked).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import SuperFP</span>
+<span class="sd">        &gt;&gt;&gt; cross = SplitMac(binary8p4, SuperFP(3, 4, 8, 7))   # binaryK products, superfp sums</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 8), torch.randn(8, 3), cross).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">    """</span>
+
+    <span class="n">mul</span><span class="p">:</span> <span class="s2">"Number | Sequence[Number] | Palette"</span>
+    <span class="n">acc</span><span class="p">:</span> <span class="s2">"Number | Sequence[Number] | Palette | None"</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">_</span><span class="p">:</span> <span class="n">KW_ONLY</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_checked_carrier</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">)</span>
+        <span class="n">mul</span><span class="p">,</span> <span class="n">acc</span> <span class="o">=</span> <span class="n">_as_palette</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mul</span><span class="p">),</span> <span class="n">_as_palette</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">acc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mul</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"a SplitMac needs a multiply format"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">acc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">mul</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="ow">and</span> <span class="p">(</span><span class="n">_varies</span><span class="p">(</span><span class="n">mul</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_varies</span><span class="p">(</span><span class="n">acc</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"a SplitMac whose multiply and accumulate formats are of different families "</span>
+                    <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">mul</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">acc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">) takes one format per "</span>
+                    <span class="s2">"slot: the cross-family ops have no palette variant"</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">_varies</span><span class="p">(</span><span class="n">mul</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_varies</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">mul</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">acc</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">"a SplitMac's multiply and accumulate palettes must have the same length, "</span>
+                    <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">mul</span><span class="p">)</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
+                <span class="p">)</span>
+        <span class="n">_checked_accumulation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="n">acc</span><span class="p">),</span> <span class="n">has_product</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">_checked_carrier_rounding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="n">acc</span><span class="p">))</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"mul"</span><span class="p">,</span> <span class="n">mul</span><span class="p">)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"acc"</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="FusedMac">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.FusedMac">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FusedMac</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One hardware-style fused multiply-add per K-step, rounded once.</span>
+
+<span class="sd">    Each step computes ``s = round_fma(s + a * b)`` with the product exact,</span>
+<span class="sd">    so there is one rounding per step where :class:`SplitMac` has two. The</span>
+<span class="sd">    carrier's FMA rounds ``s + a * b`` to nearest before the format does,</span>
+<span class="sd">    unless ``carrier_rounding=RoundMode.RO``.</span>
+<span class="sd">    ``fma`` is a format, a palette, or ``None``. ``None`` gives an unrounded</span>
+<span class="sd">    fused step: the carrier's own FMA, in order. It has no format for</span>
+<span class="sd">    ``prec_idx`` to select, so it never selects a ``_mixed`` op.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fma (Number or Sequence[Number] or Palette, optional): the format each</span>
+<span class="sd">            fused step is rounded to, a palette of them, or ``None``.</span>
+<span class="sd">        rounding (RoundMode): rounding mode of the fused step.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): as for :class:`SplitMac`,</span>
+<span class="sd">            with the fused step in place of the split one. ``TREE`` raises,</span>
+<span class="sd">            because a fused multiply-add has no product term to sum pairwise.</span>
+<span class="sd">            Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        carrier (torch.dtype, optional): as for :class:`SplitMac`.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        block_size (int, optional): as for :class:`SplitMac`. Default: ``None``</span>
+<span class="sd">        outer (Number, optional): as for :class:`SplitMac`. With ``fma=None``</span>
+<span class="sd">            it may be of either family. Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): as for :class:`SplitMac`, for the fused</span>
+<span class="sd">            step's one carrier rounding. ``RoundMode.RO`` needs a format</span>
+<span class="sd">            (``fma=None`` raises). Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if ``carrier`` names no carrier, a palette is invalid,</span>
+<span class="sd">            ``block_size`` or ``outer`` does not fit the algorithm, or</span>
+<span class="sd">            ``carrier_rounding`` does not fit the mac.</span>
+<span class="sd">        TypeError: if ``carrier`` is not a ``torch.dtype``, or ``outer`` is of</span>
+<span class="sd">            another family or not a single format.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import FusedMac, qmm</span>
+<span class="sd">        &gt;&gt;&gt; qmm(torch.randn(4, 8), torch.randn(8, 3), FusedMac(BinaryK(8, 4))).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">        &gt;&gt;&gt; unrounded = FusedMac(None)   # unrounded FMAs in the carrier</span>
+<span class="sd">    """</span>
+
+    <span class="n">fma</span><span class="p">:</span> <span class="s2">"Number | Sequence[Number] | Palette | None"</span>
+    <span class="n">_</span><span class="p">:</span> <span class="n">KW_ONLY</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_checked_carrier</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">)</span>
+        <span class="n">fma</span> <span class="o">=</span> <span class="n">_as_palette</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fma</span><span class="p">)</span>
+        <span class="n">_checked_accumulation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">(</span><span class="n">fma</span><span class="p">,),</span> <span class="n">has_product</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">_checked_carrier_rounding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">(</span><span class="n">fma</span><span class="p">,))</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"fma"</span><span class="p">,</span> <span class="n">fma</span><span class="p">)</span></div>
+
+
+
+<span class="n">Mac</span> <span class="o">=</span> <span class="n">SplitMac</span> <span class="o">|</span> <span class="n">FusedMac</span>
+
+
+<span class="c1"># --- resolution to the op ----------------------------------------------------</span>
+<span class="c1">#</span>
+<span class="c1"># One table keyed on (family, mac kind, does a slot vary) instead of eight</span>
+<span class="c1"># function names. A slot of one format is spelled as scalars, which is both</span>
+<span class="c1"># what a single-format op takes and what a `_mixed` op broadcasts across the</span>
+<span class="c1"># other slot's palette, so a palette on one side of a SplitMac and a single</span>
+<span class="c1"># format on the other needs no special case.</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolved</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Palette</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The ``Palette`` a mac's ``__post_init__`` put in one of its slots.</span>
+
+<span class="sd">    The declared field types are what a *caller* may pass (a format, a</span>
+<span class="sd">    sequence, a Palette); what is stored is always the normalized form, and</span>
+<span class="sd">    this is where that invariant is stated for the reader and the type</span>
+<span class="sd">    checker.</span>
+<span class="sd">    """</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="n">Palette</span><span class="p">),</span> <span class="sa">f</span><span class="s2">"mac slot was not normalized: </span><span class="si">{</span><span class="n">slot</span><span class="si">!r}</span><span class="s2">"</span>
+    <span class="k">return</span> <span class="n">slot</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_slot_fields</span><span class="p">(</span><span class="n">pal</span><span class="p">:</span> <span class="n">Palette</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""One format slot as the schema arguments that name it.</span>
+
+<span class="sd">    ``n`` is the call's palette size, the longer of the two slots, since a</span>
+<span class="sd">    ``SplitMac`` may vary one and not the other. A slot of one format opposite</span>
+<span class="sd">    a palette is repeated to that length rather than left a scalar: the mixed</span>
+<span class="sd">    schemas take the palette size from the *first* pair of lists, so a scalar</span>
+<span class="sd">    there would leave the op with no length to read.</span>
+<span class="sd">    """</span>
+    <span class="n">first</span> <span class="o">=</span> <span class="n">pal</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># Every entry is `first`'s type; Palette._validate is what guarantees it.</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pal</span><span class="o">.</span><span class="n">formats</span><span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">pal</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="p">[</span><span class="n">first</span><span class="p">]</span> <span class="o">*</span> <span class="n">n</span>
+    <span class="n">widths</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">]</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">first</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+        <span class="n">bk</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="nb">list</span><span class="p">[</span><span class="n">BinaryK</span><span class="p">],</span> <span class="n">entries</span><span class="p">)</span>
+        <span class="n">widths</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_K"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">K</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">bk</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_P"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">P</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">bk</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_bias"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">bias</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">bk</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">sfp</span> <span class="o">=</span> <span class="n">cast</span><span class="p">(</span><span class="nb">list</span><span class="p">[</span><span class="n">SuperFP</span><span class="p">],</span> <span class="n">entries</span><span class="p">)</span>
+        <span class="n">widths</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_man_bits"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">man_bits</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">sfp</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_exp_bits"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">exp_bits</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">sfp</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_normal_binades"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">normal_binades</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">sfp</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_bias"</span><span class="p">:</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">bias</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">sfp</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">widths</span> <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">widths</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="n">fields</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_is_signed"</span><span class="p">]</span> <span class="o">=</span> <span class="n">first</span><span class="o">.</span><span class="n">is_signed</span>
+    <span class="n">fields</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_prng_bits"</span><span class="p">]</span> <span class="o">=</span> <span class="n">first</span><span class="o">.</span><span class="n">prng_bits</span>
+    <span class="k">return</span> <span class="n">fields</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_outer_fields</span><span class="p">(</span><span class="n">outer</span><span class="p">:</span> <span class="n">Number</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""A mac's outer format as the schema arguments that name it; none for ``None``."""</span>
+    <span class="k">if</span> <span class="n">outer</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="c1"># `_checked_accumulation` has held it to the two families the ops take.</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outer</span><span class="p">,</span> <span class="n">GemmFormat</span><span class="p">),</span> <span class="sa">f</span><span class="s2">"mac.outer was not validated: </span><span class="si">{</span><span class="n">outer</span><span class="si">!r}</span><span class="s2">"</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"outer_bias"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+        <span class="s2">"outer_is_signed"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span>
+        <span class="s2">"outer_prng_bits"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+        <span class="s2">"outer_saturation_mode"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">saturation</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outer</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">fields</span> <span class="o">|</span> <span class="p">{</span>
+            <span class="s2">"outer_K"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">K</span><span class="p">,</span>
+            <span class="s2">"outer_P"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">P</span><span class="p">,</span>
+            <span class="s2">"outer_subnormals_mode"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">subnormals</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="k">return</span> <span class="n">fields</span> <span class="o">|</span> <span class="p">{</span>
+        <span class="s2">"outer_man_bits"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span>
+        <span class="s2">"outer_exp_bits"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">exp_bits</span><span class="p">,</span>
+        <span class="s2">"outer_normal_binades"</span><span class="p">:</span> <span class="n">outer</span><span class="o">.</span><span class="n">normal_binades</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">spec_for_mac</span><span class="p">(</span><span class="n">mac</span><span class="p">:</span> <span class="n">Mac</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_GemmSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The resolved GEMM this mac names, as a ``_GemmSpec``.</span>
+
+<span class="sd">    It is the same ``_GemmSpec`` the flat ``ops.py`` wrapper for that op</span>
+<span class="sd">    builds from the same numbers; ``tests/test_number_formats.py`` asserts</span>
+<span class="sd">    the equality, which is what keeps the two API tiers from drifting apart.</span>
+
+<span class="sd">    Memoized on the mac value, which is the reason the mac classes are frozen</span>
+<span class="sd">    (and so hashable by value): an ad-hoc ``qmatmul(a, b, SplitMac(...))`` in</span>
+<span class="sd">    a loop would otherwise re-derive every default on every call, at 2.3 to</span>
+<span class="sd">    6.4 microseconds, more than an object API saves. A cache miss costs</span>
+<span class="sd">    exactly what the flat wrapper costs.</span>
+<span class="sd">    """</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"accumulate_algorithm"</span><span class="p">:</span> <span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="s2">"rounding_mode"</span><span class="p">:</span> <span class="n">mac</span><span class="o">.</span><span class="n">rounding</span><span class="p">,</span>
+        <span class="s2">"carrier"</span><span class="p">:</span> <span class="n">mac</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="c1"># A NAIVE mac resolves through the builders it always resolved through.</span>
+    <span class="c1"># Any other algorithm is single-format (`_checked_accumulation`) and goes</span>
+    <span class="c1"># through the builder of its family's `*_accumulated` op, which also takes</span>
+    <span class="c1"># the block size and the outer format.</span>
+    <span class="n">naive</span> <span class="o">=</span> <span class="n">mac</span><span class="o">.</span><span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">naive</span><span class="p">:</span>
+        <span class="n">fields</span> <span class="o">|=</span> <span class="p">{</span><span class="s2">"block_size"</span><span class="p">:</span> <span class="n">mac</span><span class="o">.</span><span class="n">block_size</span><span class="p">}</span> <span class="o">|</span> <span class="n">_outer_fields</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">outer</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mac</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">fma</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Nothing is rounded per step, so no cast reads the widths and the</span>
+            <span class="c1"># family is the outer format's, if there is one; without one it</span>
+            <span class="c1"># does not matter, and binaryK's op is as good as superfp's.</span>
+            <span class="k">if</span> <span class="n">naive</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">_binaryK_fma_spec</span><span class="p">(</span><span class="n">fma_K</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">fma_P</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">fma_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">outer</span><span class="p">,</span> <span class="n">SuperFP</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">_superfp_fma_accumulated_spec</span><span class="p">(</span>
+                    <span class="n">fma_man_bits</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                    <span class="n">fma_exp_bits</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                    <span class="n">fma_normal_binades</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                    <span class="n">fma_bias</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                    <span class="n">fma_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="o">**</span><span class="n">fields</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="n">_binaryK_fma_accumulated_spec</span><span class="p">(</span><span class="n">fma_K</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">fma_P</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">fma_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+        <span class="n">fma</span> <span class="o">=</span> <span class="n">_resolved</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">fma</span><span class="p">)</span>
+        <span class="n">fma_0</span> <span class="o">=</span> <span class="n">fma</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">binaryK</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fma_0</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">)</span>
+        <span class="n">fields</span> <span class="o">|=</span> <span class="n">_slot_fields</span><span class="p">(</span><span class="n">fma</span><span class="p">,</span> <span class="s2">"fma"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">fma</span><span class="p">))</span>
+        <span class="n">fields</span><span class="p">[</span><span class="s2">"saturation_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">fma_0</span><span class="o">.</span><span class="n">saturation</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fma_0</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+            <span class="n">fields</span><span class="p">[</span><span class="s2">"subnormals_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">fma_0</span><span class="o">.</span><span class="n">subnormals</span>
+        <span class="k">if</span> <span class="n">_varies</span><span class="p">(</span><span class="n">fma</span><span class="p">):</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_fma_mixed_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_fma_mixed_spec</span>
+            <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">:</span>
+            <span class="c1"># NAIVE, one format (`_checked_carrier_rounding`)</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_fma_odd_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_fma_odd_spec</span>
+            <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">naive</span><span class="p">:</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_fma_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_fma_spec</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_fma_accumulated_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_fma_accumulated_spec</span>
+        <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="n">fma_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+
+    <span class="n">mul</span> <span class="o">=</span> <span class="n">_resolved</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">mul</span><span class="p">)</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">acc</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_resolved</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">acc</span><span class="p">)</span>
+    <span class="n">mul_0</span> <span class="o">=</span> <span class="n">mul</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># One palette size for the call: a SplitMac may vary its multiply, its</span>
+    <span class="c1"># accumulate, or both, and the op takes a single tabulated length.</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">mul</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span> <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">fields</span> <span class="o">|=</span> <span class="n">_slot_fields</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="s2">"mul"</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+    <span class="n">fields</span><span class="p">[</span><span class="s2">"saturation_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">mul_0</span><span class="o">.</span><span class="n">saturation</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mul_0</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+        <span class="n">fields</span><span class="p">[</span><span class="s2">"subnormals_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">mul_0</span><span class="o">.</span><span class="n">subnormals</span>
+    <span class="n">fields</span><span class="p">[</span><span class="s2">"accumulate_quant"</span><span class="p">]</span> <span class="o">=</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">acc_0</span> <span class="o">=</span> <span class="n">acc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">fields</span> <span class="o">|=</span> <span class="n">_slot_fields</span><span class="p">(</span><span class="n">acc</span><span class="p">,</span> <span class="s2">"acc"</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+        <span class="n">fields</span><span class="p">[</span><span class="s2">"acc_saturation_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">acc_0</span><span class="o">.</span><span class="n">saturation</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">acc_0</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+            <span class="n">fields</span><span class="p">[</span><span class="s2">"acc_subnormals_mode"</span><span class="p">]</span> <span class="o">=</span> <span class="n">acc_0</span><span class="o">.</span><span class="n">subnormals</span>
+    <span class="n">binaryK</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mul_0</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">acc</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="ow">is</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">mul_0</span><span class="p">):</span>
+        <span class="c1"># Cross-family: one format per slot (`SplitMac.__post_init__`), and</span>
+        <span class="c1"># the accumulate format is always rounded, so the ops take no flag.</span>
+        <span class="k">del</span> <span class="n">fields</span><span class="p">[</span><span class="s2">"accumulate_quant"</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">naive</span><span class="p">:</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_superfp_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_binaryK_spec</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">build</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">_binaryK_superfp_accumulated_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_binaryK_accumulated_spec</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_mixed_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_mixed_spec</span>
+        <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">:</span>
+        <span class="c1"># NAIVE, one format per slot, one family (`_checked_carrier_rounding`)</span>
+        <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_odd_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_odd_spec</span>
+        <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">naive</span><span class="p">:</span>
+        <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_spec</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">build</span> <span class="o">=</span> <span class="n">_binaryK_accumulated_spec</span> <span class="k">if</span> <span class="n">binaryK</span> <span class="k">else</span> <span class="n">_superfp_accumulated_spec</span>
+    <span class="k">return</span> <span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">fields</span><span class="p">)</span>
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

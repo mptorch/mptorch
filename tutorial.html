@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Tutorial: training in 8-bit floating point &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="_static/documentation_options.js?v=6c02275b"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorial';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API reference" href="api.html" />
+    <link rel="prev" title="Layers" href="layers.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="_static/searchtools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script src="searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" current active">
+  <a class="nav-link dropdown-item nav-internal" href="#" aria-current="page">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#" aria-current="page">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+  <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
+  </svg>
+  <span class="pst-collapse-sidebar-label">Collapse Sidebar</span>
+  <span class="pst-expand-sidebar-label">Expand Sidebar</span>
+</button></div>
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"></div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Tutorial: training in 8-bit floating point</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="tutorial-training-in-8-bit-floating-point">
+<h1>Tutorial: training in 8-bit floating point<a class="headerlink" href="#tutorial-training-in-8-bit-floating-point" title="Link to this heading">#</a></h1>
+<p>Since the Hopper and Ada generations, NVIDIA GPUs multiply matrices in two
+8-bit floating-point formats: <strong>E4M3</strong> (four exponent bits, three mantissa
+bits) and <strong>E5M2</strong> (five and two). These are also the formats of the Open
+Compute Project’s FP8 specification, and AMD and Intel accelerators implement
+the same pair. The standard recipe for training in them is E4M3 for the
+forward pass, E5M2 for the gradients, 32-bit accumulation, and a scale per
+tensor. It was worked out on hardware that already had the tensor cores.
+MPTorch lets you take that recipe apart on a GPU without them (or on a CPU),
+change any one ingredient, and see what it does to a training run.</p>
+<p>This tutorial builds up from the formats to a trained network. Every code
+block is a file under <code class="docutils literal notranslate"><span class="pre">docs/snippets/tutorial/</span></code>, and every output is
+recorded from a run. The training script of the last section took about
+three minutes on a laptop GPU.</p>
+<section id="the-formats">
+<h2>1. The formats<a class="headerlink" href="#the-formats" title="Link to this heading">#</a></h2>
+<p>An FP8 number is a sign, an exponent and a mantissa, like any binary float
+(<a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a> has the general form). With the OCP biases:</p>
+<div class="math notranslate nohighlight">
+\[\text{E4M3:}\quad x = (-1)^s \Big(1 + \frac{m}{8}\Big) 2^{\,e-7}, \qquad
+\text{E5M2:}\quad x = (-1)^s \Big(1 + \frac{m}{4}\Big) 2^{\,e-15}.\]</div>
+<p>E4M3 spends its bits on precision: eight values per binade, a largest finite
+value of 448 and a smallest subnormal of <span class="math notranslate nohighlight">\(2^{-9}\)</span>. E5M2 spends them on
+range: four values per binade, up to 57344 and down to <span class="math notranslate nohighlight">\(2^{-16}\)</span>, the
+same exponent range as float16.</p>
+<p>In MPTorch the nearest spellings are <code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">4,</span> <span class="pre">bias=7)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">3,</span> <span class="pre">bias=15)</span></code>. The bias has to be given, because a <code class="docutils literal notranslate"><span class="pre">BinaryK</span></code>
+otherwise takes IEEE P3109’s, which is one larger: <code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">4)</span></code> is
+P3109’s <code class="docutils literal notranslate"><span class="pre">Binary8p4</span></code>, not OCP’s E4M3. Only the first spelling is exact:</p>
+<ul class="simple">
+<li><p>E4M3 already spends its top exponent field on numbers, as P3109 does, so
+<code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">4,</span> <span class="pre">bias=7)</span></code> has exactly its finite values.</p></li>
+<li><p>E5M2 is laid out the IEEE 754 way, with that field kept for infinities
+and NaNs. No P3109 format keeps it, so no BinaryK format <em>is</em> E5M2, for
+the same reason that none is float16, bfloat16 or float32
+(<a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a>).</p></li>
+</ul>
+<p>PyTorch’s own <code class="docutils literal notranslate"><span class="pre">torch.float8_e4m3fn</span></code> and <code class="docutils literal notranslate"><span class="pre">torch.float8_e5m2</span></code> dtypes serve
+as the reference. The run tabulates the ranges from both sides. It then
+rounds <em>every one of the</em> <span class="math notranslate nohighlight">\(2^{32}\)</span> <em>float32 values</em> with both and
+counts where they disagree:</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/tutorial/fp8_01_formats.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""E4M3 and E5M2 spelled as BinaryK formats, checked against torch's native FP8 dtypes."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quant</span>
+
+<span class="c1"># The OCP / NVIDIA FP8 formats. torch's own dtypes are the reference. E4M3's</span>
+<span class="c1"># finite values are exactly its spelling's; E5M2 keeps its top exponent field</span>
+<span class="c1"># for infinities and NaNs, which no BinaryK format does, so its spelling is only</span>
+<span class="c1"># the nearest one and has three more values at the top.</span>
+<span class="n">e4m3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>  <span class="c1"># torch.float8_e4m3fn</span>
+<span class="n">e5m2</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>  <span class="c1"># nearest to torch.float8_e5m2</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">''</span><span class="si">:</span><span class="s2">&lt;22</span><span class="si">}{</span><span class="s1">'E4M3'</span><span class="si">:</span><span class="s2">&gt;14</span><span class="si">}{</span><span class="s1">'torch e4m3fn'</span><span class="si">:</span><span class="s2">&gt;14</span><span class="si">}{</span><span class="s1">'E5M2'</span><span class="si">:</span><span class="s2">&gt;14</span><span class="si">}{</span><span class="s1">'torch e5m2'</span><span class="si">:</span><span class="s2">&gt;14</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">rows</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"largest finite"</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">,</span> <span class="n">fi</span><span class="p">:</span> <span class="p">(</span>
+        <span class="p">(</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="mi">2</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">P</span><span class="p">))</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">**</span> <span class="p">(</span><span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">K</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">P</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">bias</span><span class="p">),</span>
+        <span class="n">fi</span><span class="o">.</span><span class="n">max</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="s2">"smallest normal"</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">,</span> <span class="n">fi</span><span class="p">:</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">**</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">bias</span><span class="p">),</span> <span class="n">fi</span><span class="o">.</span><span class="n">tiny</span><span class="p">),</span>
+    <span class="s2">"smallest subnormal"</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">,</span> <span class="n">fi</span><span class="p">:</span> <span class="p">(</span>
+        <span class="mf">2.0</span> <span class="o">**</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">bias</span> <span class="o">-</span> <span class="n">f</span><span class="o">.</span><span class="n">man_bits</span><span class="p">),</span>
+        <span class="n">fi</span><span class="o">.</span><span class="n">smallest_normal</span> <span class="o">*</span> <span class="mf">2.0</span><span class="o">**-</span><span class="n">f</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="s2">"spacing at 1"</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">,</span> <span class="n">fi</span><span class="p">:</span> <span class="p">(</span><span class="mf">2.0</span><span class="o">**-</span><span class="n">f</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span> <span class="n">fi</span><span class="o">.</span><span class="n">eps</span><span class="p">),</span>
+<span class="p">}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fn</span> <span class="ow">in</span> <span class="n">rows</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">a</span><span class="p">,</span> <span class="n">ta</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="n">e4m3</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">))</span>
+    <span class="n">b</span><span class="p">,</span> <span class="n">tb</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="n">e5m2</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;22</span><span class="si">}{</span><span class="n">a</span><span class="si">:</span><span class="s2">&gt;14g</span><span class="si">}{</span><span class="n">ta</span><span class="si">:</span><span class="s2">&gt;14g</span><span class="si">}{</span><span class="n">b</span><span class="si">:</span><span class="s2">&gt;14g</span><span class="si">}{</span><span class="n">tb</span><span class="si">:</span><span class="s2">&gt;14g</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Exhaustive check: every one of the 2**32 float32 bit patterns, rounded to</span>
+<span class="c1"># nearest-even by both. Chunked so it fits a laptop GPU (or runs on a CPU).</span>
+<span class="c1"># The two overflow conventions differ, so the count is split at the largest</span>
+<span class="c1"># finite value the torch dtype has: below it the two must agree exactly.</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span>
+<span class="n">chunk</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="mi">24</span>
+<span class="n">inside</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"E4M3"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"E5M2"</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+<span class="n">beyond</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"E4M3"</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"E5M2"</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+<span class="n">first</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">32</span><span class="p">,</span> <span class="n">chunk</span><span class="p">):</span>
+    <span class="n">bits</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">start</span> <span class="o">+</span> <span class="n">chunk</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">bits</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">dt</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"E4M3"</span><span class="p">,</span> <span class="n">e4m3</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">),</span> <span class="p">(</span><span class="s2">"E5M2"</span><span class="p">,</span> <span class="n">e5m2</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">)):</span>
+        <span class="n">ours</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">fmt</span><span class="p">)(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">theirs</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dt</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="c1"># NaN != NaN, so compare NaN-ness separately from values.</span>
+        <span class="n">differ</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">ours</span> <span class="o">!=</span> <span class="n">theirs</span><span class="p">)</span> <span class="o">&amp;</span> <span class="o">~</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">ours</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">torch</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">theirs</span><span class="p">))</span>
+        <span class="n">in_range</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">dt</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
+        <span class="n">inside</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">((</span><span class="n">differ</span> <span class="o">&amp;</span> <span class="n">in_range</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+        <span class="n">beyond</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">((</span><span class="n">differ</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">in_range</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">differ</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">in_range</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="ow">and</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">first</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">differ</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">in_range</span><span class="p">)</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">first</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">ours</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">theirs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">finite float32 inputs on which BinaryK and torch disagree (</span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">):"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">dt</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"E4M3"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">),</span> <span class="p">(</span><span class="s2">"E5M2"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">)):</span>
+    <span class="n">x0</span><span class="p">,</span> <span class="n">ours</span><span class="p">,</span> <span class="n">theirs</span> <span class="o">=</span> <span class="n">first</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: |x| &lt;= </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">dt</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">inside</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">   beyond it: </span><span class="si">{</span><span class="n">beyond</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span>
+        <span class="sa">f</span><span class="s2">"  (first at |x| = </span><span class="si">{</span><span class="nb">abs</span><span class="p">(</span><span class="n">x0</span><span class="p">)</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">: BinaryK </span><span class="si">{</span><span class="n">ours</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">, torch </span><span class="si">{</span><span class="n">theirs</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">)"</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>                                E4M3  torch e4m3fn          E5M2    torch e5m2
+largest finite                   448           448         98304         57344
+smallest normal             0.015625      0.015625   6.10352e-05   6.10352e-05
+smallest subnormal        0.00195312    0.00195312   1.52588e-05   1.52588e-05
+spacing at 1                   0.125         0.125          0.25          0.25
+
+finite float32 inputs on which BinaryK and torch disagree (cuda):
+  E4M3: |x| &lt;= 448: 0   beyond it: 1,999,634,430  (first at |x| = 464: BinaryK inf, torch 448)
+  E5M2: |x| &lt;= 57344: 0   beyond it: 12,582,914  (first at |x| = 61440: BinaryK 65536, torch inf)
+</pre></div>
+</div>
+</div>
+<p>Up to each dtype’s largest finite value, the two agree in value on every
+input. The count compares with <code class="docutils literal notranslate"><span class="pre">!=</span></code>, which cannot see the sign of a zero.
+PyTorch keeps that sign. A BinaryK format has one unsigned zero, so it
+returns <span class="math notranslate nohighlight">\(+0.0\)</span> for <span class="math notranslate nohighlight">\(-0.0\)</span> and for a negative input that rounds
+to zero. Beyond the largest finite value the two differ, in a different way
+for each format:</p>
+<ul class="simple">
+<li><p>For E4M3 only the overflow convention differs. PyTorch saturates to
+<span class="math notranslate nohighlight">\(\pm 448\)</span>, infinite inputs included. A BinaryK format under its
+default <code class="docutils literal notranslate"><span class="pre">SAT_NONE</span></code> policy produces <span class="math notranslate nohighlight">\(\pm\infty\)</span>. Under
+<code class="docutils literal notranslate"><span class="pre">SAT_FINITE</span></code> it clamps to 480, because the finite domain spends the top
+code on a number. <code class="docutils literal notranslate"><span class="pre">SAT_FINITE_EXTENDED</span></code>, which is P3109’s <code class="docutils literal notranslate"><span class="pre">SatFinite</span></code>
+in the extended domain, is PyTorch’s convention: it clamps to 448,
+infinities included.</p></li>
+<li><p>For E5M2 the value set differs. The first table’s largest finite values,
+98304 against 57344, show it. <code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">3,</span> <span class="pre">bias=15)</span></code> spends the top
+exponent field, which E5M2 reserves, on three more numbers: 65536, 81920
+and 98304. So 61440 rounds to 65536 where PyTorch overflows. It is the
+nearest BinaryK to E5M2, not E5M2.</p></li>
+</ul>
+<p>A model that keeps its values in range sees neither difference, and the sign
+of a zero changes the value of no sum or product.</p>
+</section>
+<section id="what-rounding-to-fp8-costs">
+<h2>2. What rounding to FP8 costs<a class="headerlink" href="#what-rounding-to-fp8-costs" title="Link to this heading">#</a></h2>
+<p>Rounding a tensor to a format with a few mantissa bits replaces each value
+by one within half a spacing of it. The spacing in <span class="math notranslate nohighlight">\([2^q, 2^{q+1})\)</span> is
+<span class="math notranslate nohighlight">\(2^{q-3}\)</span> for E4M3 and <span class="math notranslate nohighlight">\(2^{q-2}\)</span> for E5M2. The relative error
+per element is therefore bounded by <span class="math notranslate nohighlight">\(2^{-4}\)</span> and <span class="math notranslate nohighlight">\(2^{-3}\)</span>, and
+its root mean square over a Gaussian tensor is near 2.7 % and 5.3 %. The
+rounding <em>mode</em> decides the sign of the error: round-to-nearest is unbiased,
+truncation is biased toward zero, rounding up is biased upward, and
+stochastic rounding is unbiased with more variance.</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/tutorial/fp8_02_rounding.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""What rounding a Gaussian tensor to FP8 costs, mode by mode."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quant</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1_000_000</span><span class="p">)</span>
+<span class="n">e4m3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">e5m2</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'format, rounding'</span><span class="si">:</span><span class="s2">&lt;20</span><span class="si">}{</span><span class="s1">'mean error'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}{</span><span class="s1">'RMS error'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}{</span><span class="s1">'rel. RMS'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="p">((</span><span class="n">e4m3</span><span class="p">,</span> <span class="s2">"E4M3"</span><span class="p">),</span> <span class="p">(</span><span class="n">e5m2</span><span class="p">,</span> <span class="s2">"E5M2"</span><span class="p">)):</span>
+    <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RZ</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RU</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">):</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">mode</span><span class="p">)(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="n">x</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">label</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s1">', '</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">mode</span><span class="o">.</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;20</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.2e</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.4f</span><span class="si">}</span><span class="s2">"</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">x</span><span class="o">.</span><span class="n">norm</span><span class="p">())</span><span class="si">:</span><span class="s2">&gt;10.4f</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+
+<span class="c1"># Where each format stops working: relative error across nine decades.</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="s1">'|x|'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}{</span><span class="s1">'E4M3 rel. err'</span><span class="si">:</span><span class="s2">&gt;16</span><span class="si">}{</span><span class="s1">'E5M2 rel. err'</span><span class="si">:</span><span class="s2">&gt;16</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="mi">6</span><span class="p">):</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">10000</span><span class="p">,),</span> <span class="mf">10.0</span><span class="o">**</span><span class="n">e</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">10000</span><span class="p">))</span>
+    <span class="n">for_row</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">fmt</span> <span class="ow">in</span> <span class="p">(</span><span class="n">e4m3</span><span class="p">,</span> <span class="n">e5m2</span><span class="p">):</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">fmt</span><span class="p">)(</span><span class="n">v</span><span class="p">)</span>
+        <span class="n">rel</span> <span class="o">=</span> <span class="p">((</span><span class="n">q</span> <span class="o">-</span> <span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">/</span> <span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+        <span class="n">for_row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"overflow"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">isinf</span><span class="p">(</span><span class="n">q</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">rel</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="mf">10.0</span><span class="o">**</span><span class="n">e</span><span class="si">:</span><span class="s2">&gt;10.0e</span><span class="si">}{</span><span class="n">for_row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">&gt;16</span><span class="si">}{</span><span class="n">for_row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">&gt;16</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>format, rounding      mean error   RMS error  rel. RMS
+E4M3, RNE               6.19e-06      0.0266    0.0266
+E4M3, RZ                6.46e-05      0.0511    0.0511
+E4M3, RU                3.60e-02      0.0531    0.0531
+E4M3, SR                1.30e-05      0.0375    0.0375
+E5M2, RNE               1.37e-06      0.0528    0.0528
+E5M2, RZ                1.28e-04      0.0983    0.0983
+E5M2, RU                7.19e-02      0.1064    0.1064
+E5M2, SR                2.72e-05      0.0751    0.0751
+
+       |x|   E4M3 rel. err   E5M2 rel. err
+     1e-07          1.0000          1.0000
+     1e-06          1.0000          1.0000
+     1e-05          1.0000          0.2375
+     1e-04          1.0000          0.0483
+     1e-03          0.5844          0.0501
+     1e-02          0.0429          0.0429
+     1e-01          0.0231          0.0509
+     1e+00          0.0255          0.0506
+     1e+01          0.0202          0.0404
+     1e+02          0.0215          0.0504
+     1e+03        overflow          0.0521
+     1e+04        overflow          0.0377
+     1e+05        overflow        overflow
+</pre></div>
+</div>
+</div>
+<p>The second table shows why there are two formats. It covers nine decades of
+magnitude:</p>
+<ul class="simple">
+<li><p>E4M3 keeps its 2.5 % accuracy only between about <span class="math notranslate nohighlight">\(10^{-2}\)</span> and
+<span class="math notranslate nohighlight">\(10^{2}\)</span>. Below that its subnormals run out of digits and then flush
+to zero (a relative error of 1.0 means the value <em>became</em> zero). Above 448
+it overflows.</p></li>
+<li><p>E5M2 is twice as coarse everywhere but keeps its 5 % accuracy from
+<span class="math notranslate nohighlight">\(10^{-4}\)</span> to <span class="math notranslate nohighlight">\(10^{4}\)</span>.</p></li>
+</ul>
+<p>Weights and activations stay within a couple of decades of one. Gradients
+shrink layer by layer and step by step, and do not. That is the argument for
+E4M3 forward and E5M2 backward.</p>
+</section>
+<section id="one-matrix-product-several-arithmetics">
+<h2>3. One matrix product, several arithmetics<a class="headerlink" href="#one-matrix-product-several-arithmetics" title="Link to this heading">#</a></h2>
+<p>An FP8 tensor core takes two 8-bit operands and multiplies them <em>exactly</em>:
+the product of two 4-bit significands has 8 bits, which any format wider
+than E4M3 holds. It adds the product to a running sum kept in a wider
+format. On Hopper that accumulator is nominally float32, though it has been
+measured to keep only about 14 mantissa bits for FP8 inputs. On other
+hardware it may be float16 or bfloat16.</p>
+<p>In MPTorch’s vocabulary (<a class="reference internal" href="kernels/arithmetic.html"><span class="doc">Dot-product arithmetic</span></a>) this is a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code>.
+Its <code class="docutils literal notranslate"><span class="pre">mul</span></code> is any format wide enough to hold the product exactly, and its
+<code class="docutils literal notranslate"><span class="pre">acc</span></code> is the accumulator being studied:</p>
+<div class="math notranslate nohighlight">
+\[s_k = Q_{\text{acc}}\big(s_{k-1} + a_{ik} b_{kj}\big), \qquad
+a_{ik}, b_{kj} \in \text{E4M3}.\]</div>
+<p>The run quantizes the operands of a <span class="math notranslate nohighlight">\(512 \times 1024 \times 512\)</span>
+product to E4M3 once, then computes the product in eight arithmetics and
+measures each against a float64 reference:</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/tutorial/fp8_03_matmul.py</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""One matmul, several arithmetics: what an FP8 tensor core does and does not round."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span>
+<span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">512</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+<span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span> <span class="o">/</span> <span class="n">K</span><span class="o">**</span><span class="mf">0.5</span>
+<span class="n">exact</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">@</span> <span class="n">w</span><span class="o">.</span><span class="n">double</span><span class="p">())</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+
+<span class="n">e4m3</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">))</span>
+<span class="n">xq</span><span class="p">,</span> <span class="n">wq</span> <span class="o">=</span> <span class="n">e4m3</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">e4m3</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>  <span class="c1"># what an FP8 tensor core is fed</span>
+
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell</span>
+<span class="c1"># one input from another, so building one warns (concepts, "What float32 can</span>
+<span class="c1"># carry"). Nothing here goes anywhere near that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">bf16</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>  <span class="c1"># 8 exponent + 7 mantissa bits: holds an E4M3 x E4M3 product exactly</span>
+<span class="n">fp22</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">23</span><span class="p">,</span> <span class="mi">15</span><span class="p">)</span>  <span class="c1"># 8 exponent + 14 mantissa bits: a reduced-precision accumulator</span>
+<span class="n">fp16</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">)</span>
+<span class="n">e4m3_fmt</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">rel</span><span class="p">(</span><span class="n">out</span><span class="p">):</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="p">((</span><span class="n">out</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">exact</span><span class="p">)</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">exact</span><span class="o">.</span><span class="n">norm</span><span class="p">())</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2">"</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'operands'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="s1">'arithmetic'</span><span class="si">:</span><span class="s2">&lt;52</span><span class="si">}{</span><span class="s1">'rel. error'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'float32'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="s1">'torch.matmul'</span><span class="si">:</span><span class="s2">&lt;52</span><span class="si">}{</span><span class="n">rel</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">w</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'E4M3'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="s1">'torch.matmul (float32 products and sums)'</span><span class="si">:</span><span class="s2">&lt;52</span><span class="si">}{</span><span class="n">rel</span><span class="p">(</span><span class="n">xq</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">wq</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">fused32</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">xq</span><span class="p">,</span> <span class="n">wq</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'E4M3'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="s1">'FusedMac(None): sequential fp32 FMAs'</span><span class="si">:</span><span class="s2">&lt;52</span><span class="si">}{</span><span class="n">rel</span><span class="p">(</span><span class="n">fused32</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">configs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"SplitMac(bf16, fp22): exact products, 14-bit sums"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">bf16</span><span class="p">,</span> <span class="n">fp22</span><span class="p">),</span>
+    <span class="s2">"SplitMac(bf16, fp16): exact products, fp16 sums"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">bf16</span><span class="p">,</span> <span class="n">fp16</span><span class="p">),</span>
+    <span class="s2">"SplitMac(bf16, bf16): exact products, bf16 sums"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">bf16</span><span class="p">,</span> <span class="n">bf16</span><span class="p">),</span>
+    <span class="s2">"SplitMac(bf16, bf16) with stochastic sums"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+        <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">),</span> <span class="n">rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span>
+    <span class="p">),</span>
+    <span class="s2">"SplitMac(E4M3, fp22): products rounded to E4M3 too"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">e4m3_fmt</span><span class="p">,</span> <span class="n">fp22</span><span class="p">),</span>
+    <span class="s2">"FusedMac(E4M3): everything in E4M3"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">e4m3_fmt</span><span class="p">),</span>
+<span class="p">}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mac</span> <span class="ow">in</span> <span class="n">configs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'E4M3'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;52</span><span class="si">}{</span><span class="n">rel</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">xq</span><span class="p">,</span><span class="w"> </span><span class="n">wq</span><span class="p">,</span><span class="w"> </span><span class="n">mac</span><span class="p">))</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>operands  arithmetic                                            rel. error
+float32   torch.matmul                                            2.25e-07
+E4M3      torch.matmul (float32 products and sums)                3.89e-02
+E4M3      FusedMac(None): sequential fp32 FMAs                    3.89e-02
+E4M3      SplitMac(bf16, fp22): exact products, 14-bit sums       3.89e-02
+E4M3      SplitMac(bf16, fp16): exact products, fp16 sums         3.92e-02
+E4M3      SplitMac(bf16, bf16): exact products, bf16 sums         5.37e-02
+E4M3      SplitMac(bf16, bf16) with stochastic sums               6.45e-02
+E4M3      SplitMac(E4M3, fp22): products rounded to E4M3 too      4.76e-02
+E4M3      FusedMac(E4M3): everything in E4M3                      4.22e-01
+</pre></div>
+</div>
+</div>
+<p>The 16-bit formats are named after the dtypes whose field widths they have:
+<code class="docutils literal notranslate"><span class="pre">fp16</span></code> is P3109’s <code class="docutils literal notranslate"><span class="pre">Binary16p11</span></code> and <code class="docutils literal notranslate"><span class="pre">bf16</span></code> its <code class="docutils literal notranslate"><span class="pre">Binary16p8</span></code>. They
+are not those dtypes. With P3109’s bias, each stops one code short of the
+dtype’s largest value, which is its <span class="math notranslate nohighlight">\(+\infty\)</span>, and reaches a binade
+below the dtype’s smallest value (<a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a>, “The IEEE 754 dtypes are
+not P3109 formats”). Neither end matters in this product. The E4M3 operands
+are multiples of <span class="math notranslate nohighlight">\(2^{-9}\)</span>, so every product and sum is a multiple of
+<span class="math notranslate nohighlight">\(2^{-18}\)</span>, and the sums stay many binades below 65472. The rows
+therefore measure the widths and nothing else.</p>
+<p>Reading down the table:</p>
+<ul class="simple">
+<li><p>Rounding the operands to E4M3 costs 3.9 % relative error, and <em>nothing the
+accumulator does above float16’s width changes that</em>. The float32 and
+14-bit sums give the same number, and the float16-width one is very
+slightly worse.</p></li>
+<li><p>A bfloat16-width accumulator (7 mantissa bits, for a sum of 1024 terms)
+adds visibly to the error.</p></li>
+<li><p>Stochastic rounding of that sum adds variance and removes no bias,
+because the terms have random signs.</p></li>
+<li><p>Rounding the <em>products</em> to E4M3 as well costs a further point.</p></li>
+<li><p>Accumulating in E4M3 no longer gives a usable matrix product.</p></li>
+</ul>
+<p>This is the experiment to run when a new accelerator’s accumulator width is
+in question: change <code class="docutils literal notranslate"><span class="pre">acc</span></code> and read the row.</p>
+</section>
+<section id="one-layer-the-fp8-recipe">
+<h2>4. One layer, the FP8 recipe<a class="headerlink" href="#one-layer-the-fp8-recipe" title="Link to this heading">#</a></h2>
+<p>A linear layer has four signals and three matrix products
+(<a class="reference internal" href="layers.html"><span class="doc">Layers</span></a>), and the standard FP8 training recipe assigns them so:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}\begin{aligned}
+y &amp;= \big[\, Q_{\text{E4M3}}(x)\; Q_{\text{E4M3}}(W)^{\top} \,\big]_{\text{fp32 acc}} + Q_{\text{E4M3}}(b) \\[4pt]
+\frac{\partial L}{\partial x} &amp;= \big[\, Q_{\text{E5M2}}(G)\; Q_{\text{E4M3}}(W) \,\big]_{\text{fp32 acc}} \\[4pt]
+\frac{\partial L}{\partial W} &amp;= \big[\, Q_{\text{E5M2}}(G)^{\top}\; Q_{\text{E4M3}}(x) \,\big]_{\text{fp32 acc}}
+\end{aligned}\end{split}\]</div>
+<p>Everything the forward pass reads is in E4M3, every gradient is in E5M2, and
+the products are exact with a wide sum. As a <code class="docutils literal notranslate"><span class="pre">QAffineFormats</span></code> this is one
+factory call for the arithmetic and six quantizer assignments:</p>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/tutorial/fp8_04_linear.py</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""An FP8 training recipe for one layer: E4M3 forward, E5M2 backward, and scaling."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">,</span> <span class="n">SaturationMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">binaryK_gemm_formats</span>
+
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell</span>
+<span class="c1"># one input from another, so naming one warns (concepts, "What float32 can</span>
+<span class="c1"># carry"). Nothing here goes anywhere near that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">device</span> <span class="o">=</span> <span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span>
+
+<span class="n">E4M3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">E5M2</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fp8_formats</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">gemm_acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">loss_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Forward signals in E4M3, backward signals in E5M2, matmuls with the given accumulator.</span>
+
+<span class="sd">    Products of two FP8 numbers are exact in a bfloat16-wide multiplier, so</span>
+<span class="sd">    ``mul_K=16, mul_P=8`` rounds nothing a tensor core would keep; ``gemm_acc`` is what</span>
+<span class="sd">    the running sum is rounded to (``None``: float32).</span>
+<span class="sd">    """</span>
+    <span class="n">formats</span> <span class="o">=</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span>
+        <span class="n">mul_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+        <span class="n">mul_P</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+        <span class="n">acc_K</span><span class="o">=</span><span class="n">gemm_acc</span><span class="o">.</span><span class="n">K</span> <span class="k">if</span> <span class="n">gemm_acc</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">acc_P</span><span class="o">=</span><span class="n">gemm_acc</span><span class="o">.</span><span class="n">P</span> <span class="k">if</span> <span class="n">gemm_acc</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">gemm_acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">fwd</span><span class="p">,</span> <span class="n">bwd</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">E4M3</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">E5M2</span><span class="p">)</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">fwd</span><span class="p">,</span> <span class="n">fwd</span><span class="p">,</span> <span class="n">fwd</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="o">=</span> <span class="n">bwd</span><span class="p">,</span> <span class="n">bwd</span><span class="p">,</span> <span class="n">bwd</span>
+    <span class="k">return</span> <span class="n">formats</span>
+
+
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QLinear</span><span class="p">(</span><span class="mi">784</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">fp8_formats</span><span class="p">(</span><span class="n">gemm_acc</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+<span class="n">ref</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">784</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+<span class="n">ref</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">784</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">x_ref</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">g</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e-3</span>  <span class="c1"># a gradient of realistic size</span>
+
+<span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+<span class="n">ref</span><span class="p">(</span><span class="n">x_ref</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+<span class="n">cos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">cosine_similarity</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"cosine similarity to the float32 layer"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  output       </span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">layer</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">ref</span><span class="p">(</span><span class="n">x_ref</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  input grad   </span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">x_ref</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  weight grad  </span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">ref</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Why gradients get E5M2 and not E4M3: their range. Rounded to E4M3 (smallest</span>
+<span class="c1"># subnormal 2**-9 ~ 0.002) most of this gradient is simply zero.</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fmt</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"E4M3"</span><span class="p">,</span> <span class="n">E4M3</span><span class="p">),</span> <span class="p">(</span><span class="s2">"E5M2"</span><span class="p">,</span> <span class="n">E5M2</span><span class="p">)):</span>
+    <span class="n">zeroed</span> <span class="o">=</span> <span class="p">(</span><span class="n">Quant</span><span class="p">(</span><span class="n">fmt</span><span class="p">)(</span><span class="n">g</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">zeroed</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2"> of a gradient of size ~1e-3 rounds to zero"</span><span class="p">)</span>
+
+
+<span class="c1"># The usual remedy is a scale: multiply into range, round, divide back out.</span>
+<span class="c1"># A quantizer slot takes any callable, so this is a few lines.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ScaledQuant</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Per-tensor scaling to the format's largest finite value (like an FP8 'amax' scale)."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">max_finite</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="n">fmt</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="n">fmt</span><span class="o">.</span><span class="n">P</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="n">fmt</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">saturation</span><span class="o">=</span><span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_FINITE</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_finite</span> <span class="o">=</span> <span class="n">max_finite</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_finite</span> <span class="o">/</span> <span class="n">t</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">amax</span><span class="p">()</span><span class="o">.</span><span class="n">clamp_min</span><span class="p">(</span><span class="mf">1e-30</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">t</span> <span class="o">*</span> <span class="n">scale</span><span class="p">)</span> <span class="o">/</span> <span class="n">scale</span>
+
+
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">mx</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"E4M3"</span><span class="p">,</span> <span class="n">E4M3</span><span class="p">,</span> <span class="mf">448.0</span><span class="p">),</span> <span class="p">(</span><span class="s2">"E5M2"</span><span class="p">,</span> <span class="n">E5M2</span><span class="p">,</span> <span class="mf">57344.0</span><span class="p">)):</span>
+    <span class="n">sq</span> <span class="o">=</span> <span class="n">ScaledQuant</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">mx</span><span class="p">)</span>
+    <span class="n">zeroed</span> <span class="o">=</span> <span class="p">(</span><span class="n">sq</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"scaled </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">zeroed</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2"> of the same gradient rounds to zero, "</span>
+        <span class="sa">f</span><span class="s2">"cos to unrounded </span><span class="si">{</span><span class="n">cos</span><span class="p">(</span><span class="n">sq</span><span class="p">(</span><span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">g</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">"</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>cosine similarity to the float32 layer
+  output       0.99917
+  input grad   0.99814
+  weight grad  0.99830
+
+E4M3: 67.1% of a gradient of size ~1e-3 rounds to zero
+
+E5M2: 0.6% of a gradient of size ~1e-3 rounds to zero
+scaled E4M3: 0.0% of the same gradient rounds to zero, cos to unrounded 0.99965
+scaled E5M2: 0.0% of the same gradient rounds to zero, cos to unrounded 0.99861
+</pre></div>
+</div>
+</div>
+<p>The output has three blocks:</p>
+<ul class="simple">
+<li><p>The first confirms that the layer is close to its float32 twin in all
+three directions.</p></li>
+<li><p>The second makes the range argument of section 2 concrete on a gradient of
+realistic size: two thirds of it vanishes in E4M3, and almost none in
+E5M2.</p></li>
+<li><p>The third shows the last ingredient of the recipe, <strong>scaling</strong>. A tensor
+is multiplied into the format’s range before rounding and divided back
+afterwards. Its largest element then uses the top of the range, and its
+smallest elements are not lost at the bottom. Hardware FP8 keeps one such
+scale per tensor (Transformer Engine’s “amax” scaling). Here it is eight
+lines of Python, because a quantizer slot takes any callable. With it,
+even E4M3 holds the gradient.</p></li>
+</ul>
+</section>
+<section id="training-the-network">
+<h2>5. Training the network<a class="headerlink" href="#training-the-network" title="Link to this heading">#</a></h2>
+<p>The last script trains a 784-128-96-10 multilayer perceptron on MNIST. This
+is the example of the original MPTorch tutorial, on the current interface.
+It trains nine configurations from the same initial weights and the same
+shuffles, with plain SGD, for five epochs each. Three things vary:</p>
+<ul class="simple">
+<li><p>The <strong>signals</strong>: float32, or E4M3 on everything the forward pass reads and
+E5M2 on every gradient. The logits are rounded by a <code class="docutils literal notranslate"><span class="pre">Quantizer</span></code> (E4M3
+forward, E5M2 backward), because there is no <code class="docutils literal notranslate"><span class="pre">output_quant</span></code> slot.</p></li>
+<li><p>The <strong>matmuls</strong>: float32 (no math hooks), or a <code class="docutils literal notranslate"><span class="pre">binaryK_gemm_formats</span></code>
+core with exact products (<code class="docutils literal notranslate"><span class="pre">mul_K=16,</span> <span class="pre">mul_P=8</span></code>, wide enough to hold any
+FP8 product) and a running sum in one of four accumulators: 14 bits;
+bfloat16’s widths (<code class="docutils literal notranslate"><span class="pre">Binary16p8</span></code>, which is not bfloat16 itself, as
+section 3 says); the same with stochastic rounding; or E4M3.</p></li>
+<li><p>The <strong>master weights</strong>: float32, or rounded to E4M3 after every optimizer
+step, with round-to-nearest or stochastic rounding. The update
+<span class="math notranslate nohighlight">\(w \leftarrow Q(w - \eta\, g)\)</span>, with learning rate <span class="math notranslate nohighlight">\(\eta\)</span> and
+gradient <span class="math notranslate nohighlight">\(g\)</span>, is applied by hand after <code class="docutils literal notranslate"><span class="pre">opt.step()</span></code>. A
+low-precision master copy is nothing more than that.</p></li>
+</ul>
+<p>One configuration also scales the loss by 1024 (and the gradients back
+down), the classic remedy for gradient underflow.</p>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/tutorial/fp8_05_mlp_mnist.py</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Training an MLP on MNIST in FP8: the signals, the matmuls, and the weights.</span>
+
+<span class="sd">Every configuration below trains the same 784-128-96-10 network from the same</span>
+<span class="sd">initialisation, and differs only in what is rounded, to what, and where:</span>
+
+<span class="sd">    signals   what the layer's inputs, weights, biases and gradients are</span>
+<span class="sd">              rounded to before each matmul (the *_quant slots)</span>
+<span class="sd">    matmuls   the arithmetic *inside* the three GEMMs of each layer</span>
+<span class="sd">              (the *_math hooks, via binaryK_gemm_formats)</span>
+<span class="sd">    weights   the format the master copy of the weights is rounded to after</span>
+<span class="sd">              every optimizer step, and how</span>
+
+<span class="sd">Run:  python3 fp8_05_mlp_mnist.py [--epochs N] [--only name,name]</span>
+<span class="sd">"""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torchvision</span><span class="w"> </span><span class="kn">import</span> <span class="n">datasets</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QLinear</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">Quantizer</span><span class="p">,</span> <span class="n">binaryK_gemm_formats</span>
+
+<span class="n">E4M3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">E5M2</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell</span>
+<span class="c1"># one input from another, so building one warns (concepts, "What float32 can</span>
+<span class="c1"># carry"). Nothing here goes anywhere near that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">BF16</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>  <span class="c1"># 8 exponent, 7 mantissa bits</span>
+<span class="n">FP22</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">23</span><span class="p">,</span> <span class="mi">15</span><span class="p">)</span>  <span class="c1"># 8 exponent, 14 mantissa bits: a reduced-precision accumulator</span>
+<span class="n">BF16_SR</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">E4M3_SR</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fp8_signals</span><span class="p">(</span><span class="n">formats</span><span class="p">:</span> <span class="n">QAffineFormats</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""E4M3 on everything the forward pass reads, E5M2 on every gradient."""</span>
+    <span class="n">fwd</span><span class="p">,</span> <span class="n">bwd</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">E4M3</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">E5M2</span><span class="p">)</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">input_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">fwd</span><span class="p">,</span> <span class="n">fwd</span><span class="p">,</span> <span class="n">fwd</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">igrad_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">wgrad_quant</span><span class="p">,</span> <span class="n">formats</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="o">=</span> <span class="n">bwd</span><span class="p">,</span> <span class="n">bwd</span><span class="p">,</span> <span class="n">bwd</span>
+    <span class="k">return</span> <span class="n">formats</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">gemm</span><span class="p">(</span><span class="n">acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Products exact (bf16 holds an FP8 x FP8 product), running sums in `acc`."""</span>
+    <span class="k">return</span> <span class="n">binaryK_gemm_formats</span><span class="p">(</span>
+        <span class="n">mul_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+        <span class="n">mul_P</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+        <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">acc_K</span><span class="o">=</span><span class="n">acc</span><span class="o">.</span><span class="n">K</span> <span class="k">if</span> <span class="n">acc</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">acc_P</span><span class="o">=</span><span class="n">acc</span><span class="o">.</span><span class="n">P</span> <span class="k">if</span> <span class="n">acc</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc</span><span class="o">.</span><span class="n">prng_bits</span> <span class="k">if</span> <span class="n">acc</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Config</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">formats</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">QAffineFormats</span><span class="p">]</span>
+    <span class="n">weight_quant</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># master weights</span>
+    <span class="n">loss_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+
+
+<span class="n">CONFIGS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">Config</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">QAffineFormats</span><span class="p">),</span>
+    <span class="n">Config</span><span class="p">(</span><span class="s2">"fp8 signals, fp32 matmuls"</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">QAffineFormats</span><span class="p">())),</span>
+    <span class="n">Config</span><span class="p">(</span>
+        <span class="s2">"fp8 signals, fp32 matmuls, loss scale 1024"</span><span class="p">,</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">QAffineFormats</span><span class="p">()),</span>
+        <span class="n">loss_scale</span><span class="o">=</span><span class="mf">1024.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">Config</span><span class="p">(</span><span class="s2">"fp8 signals, fp22-accumulated matmuls"</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">gemm</span><span class="p">(</span><span class="n">FP22</span><span class="p">))),</span>
+    <span class="n">Config</span><span class="p">(</span><span class="s2">"fp8 signals, bf16-accumulated matmuls"</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">gemm</span><span class="p">(</span><span class="n">BF16</span><span class="p">))),</span>
+    <span class="n">Config</span><span class="p">(</span>
+        <span class="s2">"fp8 signals, bf16-accumulated matmuls, SR"</span><span class="p">,</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">gemm</span><span class="p">(</span><span class="n">BF16_SR</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">)),</span>
+    <span class="p">),</span>
+    <span class="n">Config</span><span class="p">(</span><span class="s2">"fp8 signals, E4M3-accumulated matmuls"</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">gemm</span><span class="p">(</span><span class="n">E4M3</span><span class="p">))),</span>
+    <span class="n">Config</span><span class="p">(</span>
+        <span class="s2">"fp8 signals, E4M3 master weights (RNE)"</span><span class="p">,</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">QAffineFormats</span><span class="p">()),</span>
+        <span class="n">weight_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">E4M3</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">Config</span><span class="p">(</span>
+        <span class="s2">"fp8 signals, E4M3 master weights (SR)"</span><span class="p">,</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">fp8_signals</span><span class="p">(</span><span class="n">QAffineFormats</span><span class="p">()),</span>
+        <span class="n">weight_quant</span><span class="o">=</span><span class="n">Quant</span><span class="p">(</span><span class="n">E4M3_SR</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">),</span>
+    <span class="p">),</span>
+<span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_mnist</span><span class="p">(</span><span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""The whole dataset as normalised [N, 784] tensors on the device."""</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">train</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+        <span class="n">ds</span> <span class="o">=</span> <span class="n">datasets</span><span class="o">.</span><span class="n">MNIST</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">train</span><span class="o">=</span><span class="n">train</span><span class="p">,</span> <span class="n">download</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="p">(</span><span class="n">ds</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">/</span> <span class="mi">255</span> <span class="o">-</span> <span class="mf">0.1307</span><span class="p">)</span> <span class="o">/</span> <span class="mf">0.3081</span>
+        <span class="n">out</span> <span class="o">+=</span> <span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ds</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span> <span class="n">ds</span><span class="o">.</span><span class="n">targets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">make_model</span><span class="p">(</span><span class="n">cfg</span><span class="p">:</span> <span class="n">Config</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># same initial weights for every configuration</span>
+    <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+        <span class="n">QLinear</span><span class="p">(</span><span class="mi">784</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">formats</span><span class="p">()),</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span>
+        <span class="n">QLinear</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">96</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">formats</span><span class="p">()),</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span>
+        <span class="n">QLinear</span><span class="p">(</span><span class="mi">96</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="n">formats</span><span class="o">=</span><span class="n">cfg</span><span class="o">.</span><span class="n">formats</span><span class="p">()),</span>
+        <span class="c1"># There is no output_quant slot: rounding the logits is a Quantizer,</span>
+        <span class="c1"># here E4M3 forward with the gradient passed through in E5M2.</span>
+        <span class="n">Quantizer</span><span class="p">(</span><span class="n">E4M3</span><span class="p">,</span> <span class="n">E5M2</span><span class="p">)</span> <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s2">"float32"</span> <span class="k">else</span> <span class="n">nn</span><span class="o">.</span><span class="n">Identity</span><span class="p">(),</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">accuracy</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">batch</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">correct</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">batch</span><span class="p">])</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="n">y</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">batch</span><span class="p">])</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">batch</span><span class="p">)</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">correct</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">train</span><span class="p">(</span><span class="n">cfg</span><span class="p">:</span> <span class="n">Config</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">epochs</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">):</span>
+    <span class="n">x_tr</span><span class="p">,</span> <span class="n">y_tr</span><span class="p">,</span> <span class="n">x_te</span><span class="p">,</span> <span class="n">y_te</span> <span class="o">=</span> <span class="n">data</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">make_model</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">device</span><span class="p">)</span>
+    <span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">:</span>  <span class="c1"># start from weights the master format can hold</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">p</span><span class="p">))</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Generator</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">accs</span><span class="p">,</span> <span class="n">t0</span> <span class="o">=</span> <span class="p">[],</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">epochs</span><span class="p">):</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+        <span class="n">perm</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randperm</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_tr</span><span class="p">),</span> <span class="n">generator</span><span class="o">=</span><span class="n">g</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x_tr</span><span class="p">),</span> <span class="n">batch</span><span class="p">):</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="n">perm</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">batch</span><span class="p">]</span>
+            <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+            <span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">cross_entropy</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">x_tr</span><span class="p">[</span><span class="n">idx</span><span class="p">]),</span> <span class="n">y_tr</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span> <span class="o">*</span> <span class="n">cfg</span><span class="o">.</span><span class="n">loss_scale</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">loss_scale</span> <span class="o">!=</span> <span class="mf">1.0</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+                    <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="o">/=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">loss_scale</span>
+            <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">cfg</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">:</span>  <span class="c1"># w &lt;- Q(w - lr * g): the master copy lives in this format</span>
+                <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+                        <span class="n">p</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">cfg</span><span class="o">.</span><span class="n">weight_quant</span><span class="p">(</span><span class="n">p</span><span class="p">))</span>
+        <span class="n">accs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">accuracy</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">x_te</span><span class="p">,</span> <span class="n">y_te</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">accs</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">ap</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--epochs"</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--only"</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s2">""</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">ap</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">load_mnist</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">configs</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">CONFIGS</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="o">.</span><span class="n">only</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span><span class="n">o</span> <span class="ow">in</span> <span class="n">c</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">args</span><span class="o">.</span><span class="n">only</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">","</span><span class="p">))</span>
+    <span class="p">]</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"MNIST, 784-128-96-10 MLP, SGD lr 0.1, batch 64, </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">epochs</span><span class="si">}</span><span class="s2"> epochs, on </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'configuration'</span><span class="si">:</span><span class="s2">&lt;48</span><span class="si">}</span><span class="s2">"</span>
+        <span class="o">+</span> <span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'ep '</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">epochs</span><span class="p">))</span>
+        <span class="o">+</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'time'</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">"</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">cfg</span> <span class="ow">in</span> <span class="n">configs</span><span class="p">:</span>
+        <span class="n">accs</span><span class="p">,</span> <span class="n">dt</span> <span class="o">=</span> <span class="n">train</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">epochs</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cfg</span><span class="o">.</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;48</span><span class="si">}</span><span class="s2">"</span> <span class="o">+</span> <span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">a</span><span class="si">:</span><span class="s2">&gt;8.4f</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">accs</span><span class="p">)</span> <span class="o">+</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dt</span><span class="si">:</span><span class="s2">&gt;7.0f</span><span class="si">}</span><span class="s2">s"</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>MNIST, 784-128-96-10 MLP, SGD lr 0.1, batch 64, 5 epochs, on cuda
+configuration                                       ep 1    ep 2    ep 3    ep 4    ep 5    time
+float32                                           0.9593  0.9606  0.9749  0.9724  0.9705     11s
+fp8 signals, fp32 matmuls                         0.9588  0.9614  0.9735  0.9708  0.9669     16s
+fp8 signals, fp32 matmuls, loss scale 1024        0.9595  0.9595  0.9715  0.9729  0.9742     21s
+fp8 signals, fp22-accumulated matmuls             0.9597  0.9637  0.9686  0.9717  0.9723     18s
+fp8 signals, bf16-accumulated matmuls             0.9598  0.9606  0.9733  0.9669  0.9744     16s
+fp8 signals, bf16-accumulated matmuls, SR         0.9594  0.9627  0.9709  0.9565  0.9714     16s
+fp8 signals, E4M3-accumulated matmuls             0.9173  0.9258  0.8982  0.9481  0.0980     16s
+fp8 signals, E4M3 master weights (RNE)            0.9111  0.9053  0.9415  0.9355  0.9363     18s
+fp8 signals, E4M3 master weights (SR)             0.9547  0.9476  0.9531  0.9599  0.9636     18s
+</pre></div>
+</div>
+</div>
+<p>From epoch to epoch, the test accuracy of any one run moves by a few tenths
+of a percent, so differences of that size between rows are noise. The table
+shows three things:</p>
+<ul class="simple">
+<li><p><strong>FP8 signals cost almost nothing here.</strong> Rounding every activation,
+weight and gradient of this network to eight bits, with float32 products
+and sums, trains to the same accuracy as float32. Loss scaling changes
+nothing on this problem. An MLP three layers deep has no gradient small
+enough to underflow E5M2, as section 4 already suggested.</p></li>
+<li><p><strong>The accumulator has a threshold, and it is low.</strong> A 14-bit accumulator
+is indistinguishable from float32. So is a bfloat16-width one, for this
+network, whose longest dot product has 784 terms, even though section 3
+measured a visibly larger error for it on a single product. Stochastic
+rounding of the sums neither helps nor hurts. An E4M3 accumulator is
+different: it trains to about 92-95 % for four epochs and then collapses
+to chance. The run looks as if it is working until it stops working.</p></li>
+<li><p><strong>Master weights are where stochastic rounding matters.</strong> The update
+<span class="math notranslate nohighlight">\(\eta g\)</span> is small compared with the weight it is added to. With the
+weights held in E4M3 and rounded to nearest after every step, any update
+below half a spacing (<span class="math notranslate nohighlight">\(2^{-4}\)</span> of the weight’s magnitude) is lost
+entirely, and the network trains three to four points worse. The same
+master copy rounded <em>stochastically</em> keeps those updates in expectation
+and recovers most of the gap. This is the accumulator effect of
+<a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a>, in a network. It is why every FP8 training recipe keeps
+its master weights in a wider format or rounds them stochastically.</p></li>
+</ul>
+</section>
+<section id="where-to-go-from-here">
+<h2>Where to go from here<a class="headerlink" href="#where-to-go-from-here" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Attention.</strong> The two matrix products of an attention head are
+<a class="reference internal" href="api.html#mptorch.quant.QMatmul" title="mptorch.quant.QMatmul"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmul</span></code></a> modules over a <code class="docutils literal notranslate"><span class="pre">QMatmulFormats</span></code>
+(<a class="reference internal" href="kernels/calling.html"><span class="doc">Calling the kernels</span></a> shows one). This puts the same recipe inside a
+transformer block, including the <code class="docutils literal notranslate"><span class="pre">q</span> <span class="pre">&#64;</span> <span class="pre">k.mT</span></code> shape with no copy.</p></li>
+<li><p><strong>Convolutions.</strong> <code class="docutils literal notranslate"><span class="pre">QConv2d</span></code> takes the same formats, and
+<a class="reference internal" href="api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a> runs its three passes in the recipe’s
+arithmetic (<a class="reference internal" href="layers.html"><span class="doc">Layers</span></a>, “Convolutions”).</p></li>
+<li><p><strong>Block formats.</strong> The next generation of the recipe shares a scale per
+block of 32 or 16 elements: OCP’s MXFP8 and MXFP4, and NVIDIA’s NVFP4.
+<a class="reference internal" href="api.html#mptorch.quant.block_gemm_formats" title="mptorch.quant.block_gemm_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">block_gemm_formats()</span></code></a> trains the same network in them
+(<a class="reference internal" href="concepts.html#block-formats"><span class="std std-ref">Block formats</span></a>, <a class="reference internal" href="kernels/block.html"><span class="doc">Block matrix products</span></a>).</p></li>
+<li><p><strong>Per-element formats.</strong> A <code class="docutils literal notranslate"><span class="pre">Palette</span></code> lets the first rows of a product
+run in E5M2 and the rest in E4M3, or any assignment that a <code class="docutils literal notranslate"><span class="pre">prec_idx</span></code>
+map describes.</p></li>
+<li><p><strong>Other formats.</strong> Everything above uses <code class="docutils literal notranslate"><span class="pre">BinaryK</span></code>. <code class="docutils literal notranslate"><span class="pre">SuperFP</span></code> is a
+second family with a different trade-off. Any other width is one
+constructor call away: <code class="docutils literal notranslate"><span class="pre">BinaryK(6,</span> <span class="pre">3)</span></code>, <code class="docutils literal notranslate"><span class="pre">BinaryK(4,</span> <span class="pre">2)</span></code>, or a format
+nobody has built.</p></li>
+<li><p><strong>Wider arithmetic.</strong> Everything above runs in float32, whose binary32
+arithmetic carries every format used here. <code class="docutils literal notranslate"><span class="pre">model.double()</span></code> moves the
+same model into binary64, where formats of up to 53 bits of precision are
+simulated exactly. That gives a reference for measuring what an 8-bit
+accumulator really costs. <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> gives the float32
+model binary64’s products and sums while it keeps its dtype
+(<a class="reference internal" href="layers.html"><span class="doc">Layers</span></a>).</p></li>
+<li><p><strong>Other roundings.</strong> Each format in a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> has its own saturation
+and subnormal policy, and each <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> its own rounding mode. The
+scripts in this tutorial take those as arguments and are meant to be
+edited.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="layers.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Layers</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="api.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">API reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-formats">1. The formats</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-rounding-to-fp8-costs">2. What rounding to FP8 costs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-matrix-product-several-arithmetics">3. One matrix product, several arithmetics</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-layer-the-fp8-recipe">4. One layer, the FP8 recipe</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-the-network">5. Training the network</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-to-go-from-here">Where to go from here</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="_sources/tutorial.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

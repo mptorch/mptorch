@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>MPTorch &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="_static/documentation_options.js?v=6c02275b"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting started" href="getting_started.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="_static/searchtools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <script src="searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="#">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="mptorch">
+<h1>MPTorch<a class="headerlink" href="#mptorch" title="Link to this heading">#</a></h1>
+<p><strong>MPTorch</strong> is a PyTorch extension for <em>simulating</em> custom and mixed-precision arithmetic in deep-learning workloads, in particular for training. Modern accelerators increasingly use small wordlength formats (e.g. 8-bit floating-point, or 4-bit block-based formats) that were not available just a few years ago. MPTorch allows the user to simulate the use of such formats on hardware that doesn’t necessarily support them.</p>
+<p>Every elementary operation can be simulated in a custom arithmetic. The operands are stored in a <em>high</em> precision payload (which can be either bfloat16, or the IEEE 754 binary16, binary32, or binary64 formats), and the operation is carried out in a <em>carrier</em> format, either IEEE binary32 or binary64. The result is rounded to the desired target format. In most cases, this simulated behavior is identical with what would be obtained by actually performing the operation in the target arithmetic.</p>
+<section id="features">
+<h2>Features<a class="headerlink" href="#features" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Custom floating-point format types.</strong> <code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryK</span></code> includes the family of binary floating-point formats specified by IEEE P3109, the upcoming standard for machine-learning arithmetic: any <em>K</em>-bit float with <em>P</em> bits of precision, signed or unsigned, with or without infinities. It goes beyond the standard by allowing custom bias terms and different subnormal policies. <code class="xref py py-class docutils literal notranslate"><span class="pre">SuperFP</span></code> is a second family that trades mantissa precision in certain portions of the representation domain for dynamic range.</p></li>
+<li><p><strong>Fixed-point formats.</strong> <code class="xref py py-class docutils literal notranslate"><span class="pre">FixedPoint</span></code> is any word length with any number of fractional bits, in two’s complement, symmetric or unsigned, with an elementwise quantizer in every rounding mode (see <a class="reference internal" href="concepts.html#fixed-point"><span class="std std-ref">FixedPoint: one step across the range</span></a>).</p></li>
+<li><p><strong>Block formats.</strong> <code class="xref py py-class docutils literal notranslate"><span class="pre">BlockFormat</span></code> covers block scaling formats such as the OCP Microscaling (MX) formats and NVFP4, with 1D blocks and 2D tiles, BinaryK or SuperFP elements and scales, and a choice of how each block’s scale is rounded (see <a class="reference internal" href="concepts.html#block-formats"><span class="std std-ref">Block formats</span></a>).</p></li>
+<li><p><strong>Tensor rounding functions</strong>, with seven rounding modes, including stochastic rounding with a configurable number of random bits, and block quantizers that store a tensor packed in a block format’s own bytes (see <a class="reference internal" href="quantizers.html"><span class="doc">Quantizers</span></a>).</p></li>
+<li><p><strong>Custom arithmetic kernels.</strong> The arithmetic <em>inside</em> a dot product is rounded to a format you choose and summed in the order you choose: each product, each addition to the running sum, or each fused multiply-add. This runs on CPU, CUDA and Apple GPUs. One matrix-product routine runs every such computation: matrix products with the full <code class="docutils literal notranslate"><span class="pre">torch.matmul</span></code> operand contract and gradients, convolutions that do not unfold their inputs, and products of block-format tensors that are decoded as they are read. A palette of up to eight formats can also be used, for mixed precision across the dot products of one matrix product (see <a class="reference internal" href="kernels/index.html"><span class="doc">Quantized numerical kernels</span></a>).</p></li>
+<li><p><strong>Custom and mixed precision training support.</strong> <a class="reference internal" href="api.html#mptorch.quant.QLinear" title="mptorch.quant.QLinear"><code class="xref py py-class docutils literal notranslate"><span class="pre">QLinear</span></code></a>, <a class="reference internal" href="api.html#mptorch.quant.QConv1d" title="mptorch.quant.QConv1d"><code class="xref py py-class docutils literal notranslate"><span class="pre">QConv1d</span></code></a>/<code class="docutils literal notranslate"><span class="pre">2d</span></code>/<code class="docutils literal notranslate"><span class="pre">3d</span></code> and <a class="reference internal" href="api.html#mptorch.quant.QMatmul" title="mptorch.quant.QMatmul"><code class="xref py py-class docutils literal notranslate"><span class="pre">QMatmul</span></code></a> are drop-in layers. Each of their signals (input, weight, bias and each gradient) and each of their matrix products (forward, input gradient, weight gradient) can be given its own format (see <a class="reference internal" href="layers.html"><span class="doc">Layers</span></a>). <a class="reference internal" href="api.html#mptorch.quant.Quantizer" title="mptorch.quant.Quantizer"><code class="xref py py-class docutils literal notranslate"><span class="pre">Quantizer</span></code></a> is a straight-through estimator with one format forward and another backward.</p></li>
+<li><p><strong>Configurable formats for simulating custom floating-point arithmetic.</strong> An underlying binary64 arithmetic simulates formats of up to 53 bits of precision and ten exponent bits. <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> gives float32, float16 and bfloat16 models the same arithmetic while their values stay in their own dtype (see <a class="reference internal" href="concepts.html"><span class="doc">Formats and rounding</span></a>).</p></li>
+<li><p><strong>Reproducibility.</strong> <code class="docutils literal notranslate"><span class="pre">torch.manual_seed</span></code> controls the stochastic rounding streams, and the deterministic modes are bit-identical between CPU and CUDA. On an Apple GPU every result is the CPU’s, stochastic rounding included, except where the GPU flushes a binary32 subnormal (see <a class="reference internal" href="concepts.html#apple-gpu"><span class="std std-ref">On an Apple GPU</span></a>).</p></li>
+</ul>
+<div class="toctree-wrapper compound">
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#a-first-example">A first example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html#vocabulary">Vocabulary</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="concepts.html">Formats and rounding</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#the-simulation-model">The simulation model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#binaryk-the-ieee-p3109-formats">BinaryK: the IEEE P3109 formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#superfp-precision-at-the-top-range-below">SuperFP: precision at the top, range below</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#fixedpoint-one-step-across-the-range">FixedPoint: one step across the range</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#block-formats">Block formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#rounding-modes">Rounding modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#carriers">Carriers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="concepts.html#where-rounding-is-applied">Where rounding is applied</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quantizers.html">Quantizers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#the-functions">The functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#float64-and-the-carrier">float64 and the carrier</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#quant-a-format-and-a-rounding-mode-as-a-function">Quant: a format and a rounding mode, as a function</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#in-place">In place</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#block-quantization-and-packed-storage">Block quantization and packed storage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quantizers.html#quantizer-a-straight-through-estimator">Quantizer: a straight-through estimator</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="kernels/index.html">Quantized numerical kernels</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="kernels/arithmetic.html">Dot-product arithmetic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="kernels/block.html">Block matrix products</a></li>
+<li class="toctree-l2"><a class="reference internal" href="kernels/convolutions.html">Convolutions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="kernels/calling.html">Calling the kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="kernels/index.html#matrix-multiplication-as-the-core-routine">Matrix multiplication as the core routine</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="layers.html">Layers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#what-a-quantized-layer-computes">What a quantized layer computes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#qaffineformats">QAffineFormats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#custom-arithmetic-in-the-matrix-products">Custom arithmetic in the matrix products</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#convolutions">Convolutions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#block-formats">Block formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#activations-between-layers">Activations between layers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#what-a-layer-keeps-for-backward">What a layer keeps for backward</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#float64-models-and-the-carrier">float64 models and the carrier</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layers.html#putting-a-model-together">Putting a model together</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial.html">Tutorial: training in 8-bit floating point</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#the-formats">1. The formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#what-rounding-to-fp8-costs">2. What rounding to FP8 costs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#one-matrix-product-several-arithmetics">3. One matrix product, several arithmetics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#one-layer-the-fp8-recipe">4. One layer, the FP8 recipe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#training-the-network">5. Training the network</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tutorial.html#where-to-go-from-here">Where to go from here</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api.html#number-formats-and-modes">Number formats and modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#quantizers">Quantizers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#kernels">Kernels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api.html#layers">Layers</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="about-the-examples">
+<h2>About the examples<a class="headerlink" href="#about-the-examples" title="Link to this heading">#</a></h2>
+<p>Every code block in these pages is a file under <code class="docutils literal notranslate"><span class="pre">docs/snippets/</span></code>, and the output shown after it is what that file printed when <code class="docutils literal notranslate"><span class="pre">docs/run_snippets.py</span></code> ran it. To regenerate them on your own machine:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>python<span class="w"> </span>docs/run_snippets.py<span class="w">            </span><span class="c1"># every snippet</span>
+<span class="gp">$ </span>python<span class="w"> </span>docs/run_snippets.py<span class="w"> </span>rounding<span class="w">   </span><span class="c1"># those whose name contains "rounding"</span>
+</pre></div>
+</div>
+</section>
+<section id="indices">
+<h2>Indices<a class="headerlink" href="#indices" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">Module Index</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">Search Page</span></a></p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="right-next"
+       href="getting_started.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Getting started</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#features">Features</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-the-examples">About the examples</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#indices">Indices</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="_sources/index.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

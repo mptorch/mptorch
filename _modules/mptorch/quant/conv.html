@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.conv &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/conv';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.conv</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.conv</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The convolutions in custom arithmetic: :func:`conv_formats`.</span>
+
+<span class="sd">A convolution's three passes, the forward and the two gradients, are GEMMs</span>
+<span class="sd">whose operands are gathers of the convolution's tensors. The eight</span>
+<span class="sd">``custom_conv_*`` ops run each pass in the arithmetic of the GEMM op it is</span>
+<span class="sd">named after, with the gather in the kernel's tile load</span>
+<span class="sd">(``mptorch/csrc/common/gemm_gather.h``), so no ``unfold`` buffer is ever</span>
+<span class="sd">built: the forward of a 3x3 convolution would otherwise materialize nine times</span>
+<span class="sd">its input. Every format, accumulate algorithm and rounding mode of the GEMM</span>
+<span class="sd">applies. The forward and the weight gradient are bit for bit the GEMM over the</span>
+<span class="sd">operands ``unfold`` would have built, zeros included, in the same order; the</span>
+<span class="sd">input gradient is one GEMM per residue class of the stride, over only the</span>
+<span class="sd">kernel taps that reach the class's positions, which leaves out the zeros a</span>
+<span class="sd">transposed convolution inserts. ``tests/test_qconv_gemm.py`` holds all three</span>
+<span class="sd">to references built that way, and ``docs/source/kernels/convolutions.rst`` states the</span>
+<span class="sd">sums.</span>
+
+<span class="sd">``conv_formats(mac)`` resolves a mac once, as ``matmul_formats`` does, and</span>
+<span class="sd">returns a ``QAffineFormats`` whose three math hooks are the three passes, in</span>
+<span class="sd">the keyword-signature contract ``CustomArithConvNd`` calls them with, so</span>
+<span class="sd">``QConv1d``/``QConv2d``/``QConv3d`` run them unchanged.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">lru_cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="n">Number</span><span class="p">,</span> <span class="n">RoundMode</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.mac</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">Mac</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">spec_for_mac</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.modules.format</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_NARROW_STORAGE</span><span class="p">,</span>
+    <span class="n">_check_stored</span><span class="p">,</span>
+    <span class="n">_GemmSpec</span><span class="p">,</span>
+    <span class="n">_named_carrier_operands</span><span class="p">,</span>
+    <span class="n">_narrowed</span><span class="p">,</span>
+    <span class="n">_report_findings</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"conv_formats"</span><span class="p">]</span>
+
+<span class="c1"># The three passes, as the op's `conv_pass` argument.</span>
+<span class="n">_FWD</span><span class="p">,</span> <span class="n">_IGRAD</span><span class="p">,</span> <span class="n">_WGRAD</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span>
+
+<span class="c1"># What a NAIVE single-format spec's arguments need after them to be a conv</span>
+<span class="c1"># op's: the conv ops take the *_accumulated schema, whose tail is a block size</span>
+<span class="c1"># and an outer format, none of which NAIVE has. The two families' tails differ</span>
+<span class="c1"># in their outer format's fields, not in their length.</span>
+<span class="n">_NAIVE_TAIL</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"binaryK"</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+    <span class="s2">"superfp"</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+<span class="p">}</span>
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_conv_ops</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">"""Each GEMM op's conv op, and the arguments a spec of it lacks.</span>
+
+<span class="sd">    Keyed by the GEMM op a spec names, so a spec from ``spec_for_mac`` maps to</span>
+<span class="sd">    its conv op without being built twice: a NAIVE single-format spec runs on</span>
+<span class="sd">    the conv op of its ``*_accumulated`` twin with a NAIVE tail, the other two</span>
+<span class="sd">    kinds on theirs as they are.</span>
+<span class="sd">    """</span>
+    <span class="n">ops</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span>
+    <span class="n">table</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">family</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"binaryK"</span><span class="p">,</span> <span class="s2">"superfp"</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">mac</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">""</span><span class="p">,</span> <span class="s2">"_fma"</span><span class="p">):</span>
+            <span class="n">conv</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_conv_</span><span class="si">{</span><span class="n">family</span><span class="si">}{</span><span class="n">mac</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span>
+            <span class="n">table</span><span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_matmul_</span><span class="si">{</span><span class="n">family</span><span class="si">}{</span><span class="n">mac</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">conv</span><span class="p">,</span>
+                <span class="n">_NAIVE_TAIL</span><span class="p">[</span><span class="n">family</span><span class="p">],</span>
+            <span class="p">)</span>
+            <span class="n">table</span><span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_matmul_</span><span class="si">{</span><span class="n">family</span><span class="si">}{</span><span class="n">mac</span><span class="si">}</span><span class="s2">_accumulated"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="p">())</span>
+            <span class="n">table</span><span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_matmul_</span><span class="si">{</span><span class="n">family</span><span class="si">}{</span><span class="n">mac</span><span class="si">}</span><span class="s2">_mixed"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_conv_</span><span class="si">{</span><span class="n">family</span><span class="si">}{</span><span class="n">mac</span><span class="si">}</span><span class="s2">_mixed"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+                <span class="p">(),</span>
+            <span class="p">)</span>
+    <span class="c1"># The cross-family ops, named multiply family first, whose outer format</span>
+    <span class="c1"># (and so NAIVE's tail) is the accumulate family's.</span>
+    <span class="k">for</span> <span class="n">mul</span><span class="p">,</span> <span class="n">acc</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"binaryK"</span><span class="p">,</span> <span class="s2">"superfp"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"superfp"</span><span class="p">,</span> <span class="s2">"binaryK"</span><span class="p">)):</span>
+        <span class="n">conv</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_conv_</span><span class="si">{</span><span class="n">mul</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">acc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span>
+        <span class="n">table</span><span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_matmul_</span><span class="si">{</span><span class="n">mul</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">acc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="n">_NAIVE_TAIL</span><span class="p">[</span><span class="n">acc</span><span class="p">])</span>
+        <span class="n">table</span><span class="p">[</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ops</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"custom_matmul_</span><span class="si">{</span><span class="n">mul</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">acc</span><span class="si">}</span><span class="s2">_accumulated"</span><span class="p">)</span><span class="o">.</span><span class="n">default</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="p">())</span>
+    <span class="k">return</span> <span class="n">table</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_ntuple</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">nd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""``value`` as ``nd`` integers: an int is repeated, a sequence checked."""</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">value</span><span class="p">,)</span> <span class="o">*</span> <span class="n">nd</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">out</span><span class="p">)</span> <span class="o">!=</span> <span class="n">nd</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must have </span><span class="si">{</span><span class="n">nd</span><span class="si">}</span><span class="s2"> entries for a </span><span class="si">{</span><span class="n">nd</span><span class="si">}</span><span class="s2">d convolution, got </span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_leading_padding</span><span class="p">(</span>
+    <span class="n">padding</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">kernel</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">stride</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">dilation</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The padding before each spatial dimension, the only side the op is told.</span>
+
+<span class="sd">    ``"same"`` pads ``d*(k - 1)`` in all, and where that is odd puts the extra</span>
+<span class="sd">    position after, as ``F.conv*d`` does; the op reads zero past the input's</span>
+<span class="sd">    end without being told how far, so the asymmetry costs no copy.</span>
+<span class="sd">    """</span>
+    <span class="n">nd</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">kernel</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">padding</span> <span class="o">==</span> <span class="s2">"valid"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="mi">0</span><span class="p">,)</span> <span class="o">*</span> <span class="n">nd</span>
+    <span class="k">if</span> <span class="n">padding</span> <span class="o">==</span> <span class="s2">"same"</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">s</span> <span class="o">!=</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">stride</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"padding='same' is not supported for strided convolutions"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">d</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">kernel</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"padding"</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_output_extent</span><span class="p">(</span>
+    <span class="n">padding</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">lead</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">size</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">kernel</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">stride</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">dilation</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The forward's spatial output extent, as ``F.conv*d`` computes it."""</span>
+    <span class="k">if</span> <span class="n">padding</span> <span class="o">==</span> <span class="s2">"same"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">size</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">n</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">p</span> <span class="o">-</span> <span class="n">d</span> <span class="o">*</span> <span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">s</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">lead</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">o</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">out</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"the kernel </span><span class="si">{</span><span class="n">kernel</span><span class="si">}</span><span class="s2"> (dilation </span><span class="si">{</span><span class="n">dilation</span><span class="si">}</span><span class="s2">) does not fit the padded input </span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_ConvOp</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One resolved conv op: what a pass calls, bound once per layer.</span>
+
+<span class="sd">    ``args`` are the spec's arguments with whatever the conv op takes after</span>
+<span class="sd">    them, ``prec_idx`` the pass's map for a palette op. The per-call part is</span>
+<span class="sd">    the GEMM's (``ops._run_gemm``): the carrier's findings and the storage</span>
+<span class="sd">    check for the operand dtype, and for a spec that names</span>
+<span class="sd">    ``carrier=torch.float64`` the widening of narrower operands and the</span>
+<span class="sd">    narrowing of the result back to their dtype.</span>
+<span class="sd">    """</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"op"</span><span class="p">,</span> <span class="s2">"args"</span><span class="p">,</span> <span class="s2">"spec"</span><span class="p">,</span> <span class="s2">"prec_idx"</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">_GemmSpec</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">tail</span> <span class="o">=</span> <span class="n">_conv_ops</span><span class="p">()[</span><span class="n">spec</span><span class="o">.</span><span class="n">op</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="o">*</span><span class="n">spec</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="o">*</span><span class="n">tail</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">spec</span> <span class="o">=</span> <span class="n">spec</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prec_idx</span> <span class="o">=</span> <span class="n">prec_idx</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">conv_pass</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">out_size</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">stride</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">padding</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">dilation</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">spec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">spec</span>
+        <span class="n">narrow</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">narrow</span> <span class="o">=</span> <span class="n">_named_carrier_operands</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">dtype</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">dtype</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">findings</span><span class="p">[</span><span class="n">dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">found</span><span class="p">:</span>
+                <span class="n">_report_findings</span><span class="p">(</span><span class="n">found</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">stored</span> <span class="ow">and</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="n">_NARROW_STORAGE</span><span class="p">:</span>
+                <span class="n">_check_stored</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">stored</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+        <span class="n">geometry</span> <span class="o">=</span> <span class="p">(</span><span class="n">conv_pass</span><span class="p">,</span> <span class="n">out_size</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">padding</span><span class="p">,</span> <span class="n">dilation</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prec_idx</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">op</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="o">*</span><span class="n">geometry</span><span class="p">,</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">op</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">prec_idx</span><span class="p">,</span> <span class="o">*</span><span class="n">geometry</span><span class="p">,</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span> <span class="k">if</span> <span class="n">narrow</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_narrowed</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">narrow</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_missing_map</span><span class="p">(</span><span class="n">pass_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">argument</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""A pass of a palette format whose map was not given: raises when reached."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">missing</span><span class="p">(</span><span class="o">*</span><span class="n">_args</span><span class="p">,</span> <span class="o">**</span><span class="n">_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"this format is a palette, so its </span><span class="si">{</span><span class="n">pass_name</span><span class="si">}</span><span class="s2"> needs its own prec_idx map "</span>
+            <span class="sa">f</span><span class="s2">"(shaped like that pass's result): pass </span><span class="si">{</span><span class="n">argument</span><span class="si">}</span><span class="s2">= to conv_formats"</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">missing</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_batched</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nd</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""``x`` with a batch dimension, and whether one was added."""</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="n">nd</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_fwd_hook</span><span class="p">(</span><span class="n">run</span><span class="p">:</span> <span class="n">_ConvOp</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fwd</span><span class="p">(</span>
+        <span class="n">q_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">q_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">q_bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">stride</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">nd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">unbatched</span> <span class="o">=</span> <span class="n">_batched</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">nd</span><span class="p">)</span>
+        <span class="n">kernel</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">stride</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"stride"</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">dilation</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"dilation"</span><span class="p">)</span>
+        <span class="n">lead</span> <span class="o">=</span> <span class="n">_leading_padding</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">out_size</span> <span class="o">=</span> <span class="n">_output_extent</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">lead</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">:]),</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">_FWD</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">out_size</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">lead</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">q_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># In place, as the Linear hooks add theirs: `out` is the op's own</span>
+            <span class="c1"># fresh tensor, so this is `out + bias` bit for bit without a</span>
+            <span class="c1"># second output-sized allocation; a wider bias promotes instead.</span>
+            <span class="n">view</span> <span class="o">=</span> <span class="n">q_bias</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="p">([</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">nd</span><span class="p">))</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="n">view</span><span class="p">)</span> <span class="k">if</span> <span class="n">q_bias</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span> <span class="k">else</span> <span class="n">out</span> <span class="o">+</span> <span class="n">view</span>
+        <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="k">if</span> <span class="n">unbatched</span> <span class="k">else</span> <span class="n">out</span>
+
+    <span class="k">return</span> <span class="n">fwd</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_igrad_hook</span><span class="p">(</span><span class="n">run</span><span class="p">:</span> <span class="n">_ConvOp</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_igrad</span><span class="p">(</span>
+        <span class="n">q_grad</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">q_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">input_size</span><span class="p">,</span>
+        <span class="n">stride</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">nd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">g</span><span class="p">,</span> <span class="n">unbatched</span> <span class="o">=</span> <span class="n">_batched</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="n">nd</span><span class="p">)</span>
+        <span class="n">kernel</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">q_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">stride</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"stride"</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">dilation</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"dilation"</span><span class="p">)</span>
+        <span class="n">lead</span> <span class="o">=</span> <span class="n">_leading_padding</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">_IGRAD</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">input_size</span><span class="p">[</span><span class="o">-</span><span class="n">nd</span><span class="p">:]),</span> <span class="n">s</span><span class="p">,</span> <span class="n">lead</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="k">if</span> <span class="n">unbatched</span> <span class="k">else</span> <span class="n">out</span>
+
+    <span class="k">return</span> <span class="n">bwd_igrad</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_wgrad_hook</span><span class="p">(</span><span class="n">run</span><span class="p">:</span> <span class="n">_ConvOp</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_wgrad</span><span class="p">(</span>
+        <span class="n">q_grad</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">q_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">weight_size</span><span class="p">,</span>
+        <span class="n">stride</span><span class="p">,</span>
+        <span class="n">padding</span><span class="p">,</span>
+        <span class="n">dilation</span><span class="p">,</span>
+        <span class="n">groups</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">nd</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">g</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_batched</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="n">nd</span><span class="p">)</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_batched</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">nd</span><span class="p">)</span>
+        <span class="n">kernel</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">weight_size</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">stride</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"stride"</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">_ntuple</span><span class="p">(</span><span class="n">dilation</span><span class="p">,</span> <span class="n">nd</span><span class="p">,</span> <span class="s2">"dilation"</span><span class="p">)</span>
+        <span class="n">lead</span> <span class="o">=</span> <span class="n">_leading_padding</span><span class="p">(</span><span class="n">padding</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">run</span><span class="p">(</span><span class="n">_WGRAD</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">lead</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">groups</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">bwd_wgrad</span>
+
+
+<div class="viewcode-block" id="conv_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.conv_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">conv_formats</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">:</span> <span class="n">Mac</span> <span class="o">|</span> <span class="n">Number</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">igrad_prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">wgrad_prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build a ``QAffineFormats`` whose three convolution passes run in ``mac``'s arithmetic.</span>
+
+<span class="sd">    The forward convolution, the input gradient and the weight gradient of a</span>
+<span class="sd">    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in ``mac``'s arithmetic.</span>
+<span class="sd">    Every product and every addition of every dot product is rounded as a</span>
+<span class="sd">    GEMM of that mac rounds it. The operands are gathered from the</span>
+<span class="sd">    convolution's tensors inside the kernel instead of being unfolded, so no</span>
+<span class="sd">    pass allocates more than its result.</span>
+
+<span class="sd">    The forward pass and the weight gradient are each one GEMM, bit-identical</span>
+<span class="sd">    to the GEMM of the same mac over ``F.unfold``'s operands.</span>
+
+<span class="sd">    The input gradient is one GEMM per residue class of the stride, each over</span>
+<span class="sd">    the kernel taps that reach its positions. A strided convolution's</span>
+<span class="sd">    gradient therefore costs what its forward pass does. A transposed</span>
+<span class="sd">    convolution would cost ``stride**nd`` times more, because it sums the</span>
+<span class="sd">    zeros it inserts. Under a ``NAIVE`` sum and a deterministic rounding the</span>
+<span class="sd">    two are bit-identical, because adding a zero changes nothing there.</span>
+<span class="sd">    :doc:`/kernels/convolutions` has the equations and says what differs in</span>
+<span class="sd">    the other cases.</span>
+
+<span class="sd">    Any stride, padding (``"same"`` and ``"valid"`` included), dilation and</span>
+<span class="sd">    ``groups`` works. Groups share one launch. A depthwise convolution (one</span>
+<span class="sd">    channel per group) uses a sixteenth of the kernel's tile width, which is</span>
+<span class="sd">    correct but not fast.</span>
+
+<span class="sd">    Like :func:`matmul_formats`, this sets only the math hooks. The caller</span>
+<span class="sd">    adds operand quantization (``weight_quant``, ``input_quant`` and the</span>
+<span class="sd">    other ``*_quant`` slots) separately.</span>
+
+<span class="sd">    The carrier is the GEMM's: a float64 model rounds in binary64, and float32,</span>
+<span class="sd">    float16 and bfloat16 ones in binary32, unless the mac names</span>
+<span class="sd">    ``carrier=torch.float64``. Then narrower operands are widened, each pass</span>
+<span class="sd">    runs the binary64 kernels, and its result is narrowed back to their</span>
+<span class="sd">    dtype, bit-identical to the pass on the widened operands. On MPS, which</span>
+<span class="sd">    has no float64, binary32 is the only carrier.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mac (SplitMac or FusedMac or Number): the dot-product arithmetic,</span>
+<span class="sd">            resolved once through :func:`mptorch.quant.mac.spec_for_mac`. A</span>
+<span class="sd">            bare ``Number`` means ``SplitMac(fmt, fmt)``. Every</span>
+<span class="sd">            ``accumulate_algorithm`` applies, and a ``SplitMac`` may round</span>
+<span class="sd">            its products and its sums in formats of two families, as for a</span>
+<span class="sd">            GEMM. A palette selects the per-output-element ops, which need</span>
+<span class="sd">            one map per pass.</span>
+<span class="sd">        prec_idx (Tensor, optional): the forward's palette map, indexed like</span>
+<span class="sd">            the output with its spatial dimensions flattened: ``[Cout, OUT]``</span>
+<span class="sd">            with ``OUT`` the number of output positions, ``[Cout, 1]`` (one</span>
+<span class="sd">            format per output channel) or ``[1, OUT]``, optionally with a</span>
+<span class="sd">            leading batch dimension. Required by, and only by, a palette</span>
+<span class="sd">            ``mac``. Default: ``None``</span>
+<span class="sd">        igrad_prec_idx (Tensor, optional): the input gradient's map, shaped</span>
+<span class="sd">            the same way over ``[Cin, IN]``, with ``IN`` the number of input</span>
+<span class="sd">            positions. The classes of a strided gradient read it at their own</span>
+<span class="sd">            positions. Default: ``None``</span>
+<span class="sd">        wgrad_prec_idx (Tensor, optional): the weight gradient's map, over the</span>
+<span class="sd">            weight as ``[Cout, Cin/groups * prod(kernel)]``, or ``[Cout, 1]``.</span>
+<span class="sd">            Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with ``fwd_math``, ``bwd_igrad_math`` and</span>
+<span class="sd">        ``bwd_wgrad_math`` set and every ``*_quant`` slot left ``None``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a palette ``mac`` without ``prec_idx``, or a map given</span>
+<span class="sd">            to a ``mac`` without a palette.</span>
+
+<span class="sd">    Example:</span>
+
+<span class="sd">        Binary8p4 products summed in a 12-bit accumulator, with the operands</span>
+<span class="sd">        also rounded to Binary8p4, for a strided layer. The backward pass runs</span>
+<span class="sd">        both gradients in the same arithmetic::</span>
+
+<span class="sd">            &gt;&gt;&gt; import torch</span>
+<span class="sd">            &gt;&gt;&gt; from mptorch import AccumulateAlgorithm, BinaryK, RoundMode</span>
+<span class="sd">            &gt;&gt;&gt; from mptorch.quant import FusedMac, QConv1d, QConv2d, Quant, SplitMac</span>
+<span class="sd">            &gt;&gt;&gt; from mptorch.quant import conv_formats</span>
+<span class="sd">            &gt;&gt;&gt; binary8p4 = BinaryK(8, 4)</span>
+<span class="sd">            &gt;&gt;&gt; formats = conv_formats(SplitMac(binary8p4, BinaryK(12, 7)))</span>
+<span class="sd">            &gt;&gt;&gt; formats.input_quant = formats.weight_quant = Quant(binary8p4)</span>
+<span class="sd">            &gt;&gt;&gt; conv = QConv2d(3, 8, 3, stride=2, padding=1, formats=formats)</span>
+<span class="sd">            &gt;&gt;&gt; x = torch.randn(2, 3, 16, 16, requires_grad=True)</span>
+<span class="sd">            &gt;&gt;&gt; conv(x).sum().backward()</span>
+<span class="sd">            &gt;&gt;&gt; x.grad.shape, conv.weight.grad.shape</span>
+<span class="sd">            (torch.Size([2, 3, 16, 16]), torch.Size([8, 3, 3, 3]))</span>
+
+<span class="sd">        Any mac: a fused multiply-add with Kahan summation under stochastic</span>
+<span class="sd">        rounding, on a grouped, dilated 1D convolution::</span>
+
+<span class="sd">            &gt;&gt;&gt; fma = FusedMac(BinaryK(12, 7, prng_bits=8), rounding=RoundMode.SR,</span>
+<span class="sd">            ...                accumulate_algorithm=AccumulateAlgorithm.KAHAN)</span>
+<span class="sd">            &gt;&gt;&gt; conv1d = QConv1d(4, 8, 3, dilation=2, groups=2, formats=conv_formats(fma))</span>
+<span class="sd">            &gt;&gt;&gt; conv1d(torch.randn(1, 4, 20)).shape</span>
+<span class="sd">            torch.Size([1, 8, 16])</span>
+
+<span class="sd">        A palette, here one format per output channel of the forward (a</span>
+<span class="sd">        ``[Cout, 1]`` map), and one per pass for the two gradients::</span>
+
+<span class="sd">            &gt;&gt;&gt; pal = SplitMac([binary8p4, BinaryK(8, 5)], BinaryK(12, 7))</span>
+<span class="sd">            &gt;&gt;&gt; per_channel = conv_formats(</span>
+<span class="sd">            ...     pal,</span>
+<span class="sd">            ...     prec_idx=torch.tensor([[0], [1]] * 4),</span>
+<span class="sd">            ...     igrad_prec_idx=torch.zeros(3, 1, dtype=torch.int64),</span>
+<span class="sd">            ...     wgrad_prec_idx=torch.zeros(8, 1, dtype=torch.int64),</span>
+<span class="sd">            ... )</span>
+<span class="sd">            &gt;&gt;&gt; QConv2d(3, 8, 3, padding=1, formats=per_channel)(torch.randn(1, 3, 6, 6)).shape</span>
+<span class="sd">            torch.Size([1, 8, 6, 6])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mac</span><span class="p">,</span> <span class="n">Number</span><span class="p">):</span>
+        <span class="n">mac</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">mac</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mac</span><span class="p">,</span> <span class="n">SplitMac</span> <span class="o">|</span> <span class="n">FusedMac</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"mac must be a SplitMac, a FusedMac or a Number, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">mac</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">mac</span><span class="o">.</span><span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier_rounding=RoundMode.RO has no conv kernels: the odd step is in the NAIVE "</span>
+            <span class="s2">"GEMMs only, which QLinear and QMatmul run; a QConv*d keeps "</span>
+            <span class="s2">"carrier_rounding=RoundMode.RNE"</span>
+        <span class="p">)</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">spec_for_mac</span><span class="p">(</span><span class="n">mac</span><span class="p">)</span>
+    <span class="n">maps</span> <span class="o">=</span> <span class="p">(</span><span class="n">prec_idx</span><span class="p">,</span> <span class="n">igrad_prec_idx</span><span class="p">,</span> <span class="n">wgrad_prec_idx</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span> <span class="ow">and</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"a palette format selects its entry per output element, so it needs a "</span>
+            <span class="s2">"prec_idx map; pass one, or give a single format per slot"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">m</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">maps</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"prec_idx has no meaning without a palette format to select from"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span><span class="p">:</span>
+        <span class="n">run</span> <span class="o">=</span> <span class="n">_ConvOp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">QAffineFormats</span><span class="p">(</span>
+            <span class="n">fwd_math</span><span class="o">=</span><span class="n">_fwd_hook</span><span class="p">(</span><span class="n">run</span><span class="p">),</span>
+            <span class="n">bwd_igrad_math</span><span class="o">=</span><span class="n">_igrad_hook</span><span class="p">(</span><span class="n">run</span><span class="p">),</span>
+            <span class="n">bwd_wgrad_math</span><span class="o">=</span><span class="n">_wgrad_hook</span><span class="p">(</span><span class="n">run</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">QAffineFormats</span><span class="p">(</span>
+        <span class="n">fwd_math</span><span class="o">=</span><span class="n">_fwd_hook</span><span class="p">(</span><span class="n">_ConvOp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">)),</span>
+        <span class="n">bwd_igrad_math</span><span class="o">=</span><span class="p">(</span>
+            <span class="n">_igrad_hook</span><span class="p">(</span><span class="n">_ConvOp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">igrad_prec_idx</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">igrad_prec_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="n">_missing_map</span><span class="p">(</span><span class="s2">"input gradient"</span><span class="p">,</span> <span class="s2">"igrad_prec_idx"</span><span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">bwd_wgrad_math</span><span class="o">=</span><span class="p">(</span>
+            <span class="n">_wgrad_hook</span><span class="p">(</span><span class="n">_ConvOp</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">wgrad_prec_idx</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">wgrad_prec_idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="n">_missing_map</span><span class="p">(</span><span class="s2">"weight gradient"</span><span class="p">,</span> <span class="s2">"wgrad_prec_idx"</span><span class="p">)</span>
+        <span class="p">),</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,1850 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.gemm &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/gemm';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.gemm</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.gemm</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""</span>
+<span class="sd">Factories that wire the custom-arithmetic GEMM ops</span>
+<span class="sd">(:func:`mptorch.quant.ops.binaryK_matmul` and its siblings) into the</span>
+<span class="sd">``fwd_math`` / ``bwd_igrad_math`` / ``bwd_wgrad_math`` hooks of a</span>
+<span class="sd">:class:`~mptorch.quant.modules.format.QAffineFormats`, under the call contract</span>
+<span class="sd">``CustomArithLinear`` (``mptorch/quant/modules/linear.py``) uses::</span>
+
+<span class="sd">    fwd_math(q_input, q_weight, q_bias)        # q_input @ q_weight.T + q_bias</span>
+<span class="sd">    bwd_igrad_math(q_igrad_output, q_weight)   # q_igrad_output @ q_weight</span>
+<span class="sd">    bwd_wgrad_math(q_wgrad_output, q_input)    # q_wgrad_output.T @ q_input</span>
+
+<span class="sd">``q_input``, ``q_igrad_output`` and ``q_wgrad_output`` may carry any number of</span>
+<span class="sd">leading (batch) dimensions, as ``nn.Linear`` allows. Each hook flattens them</span>
+<span class="sd">into one row dimension before the 2D GEMM and reshapes the result back, the</span>
+<span class="sd">same reshape ``CustomArithLinear._default_bwd_wgrad`` makes.</span>
+
+<span class="sd">The six ``*_gemm_formats`` factories differ only in which op the three hooks</span>
+<span class="sd">call, so they share :func:`_gemm_formats` and differ only in the argument list</span>
+<span class="sd">they resolve. Each resolves its format once, at construction, into a</span>
+<span class="sd">``_GemmSpec``: a layer's format is fixed for its lifetime, and re-deriving the</span>
+<span class="sd">``acc_*`` fallbacks, the default exponent biases and the carrier checks on</span>
+<span class="sd">every forward and backward pass would cost 2.3 to 6.4 microseconds per call</span>
+<span class="sd">(measured by ``dev/benchmarks/timing/python_call_overhead.py``), more than the rest</span>
+<span class="sd">of the Python call path.</span>
+
+<span class="sd">These factories set only the ``*_math`` hooks. Elementwise operand</span>
+<span class="sd">quantization (``weight_quant``, ``input_quant`` and the other ``*_quant``</span>
+<span class="sd">slots) is layered onto the returned ``QAffineFormats`` by the caller, so that</span>
+<span class="sd">operand rounding and dot-product arithmetic stay independently composable.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">replace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AccumulateAlgorithm</span><span class="p">,</span>
+    <span class="n">BinaryK</span><span class="p">,</span>
+    <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">RoundMode</span><span class="p">,</span>
+    <span class="n">SaturationMode</span><span class="p">,</span>
+    <span class="n">SubnormalsMode</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.block</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">_block_gemm_spec</span><span class="p">,</span> <span class="n">_run_block_gemm</span><span class="p">,</span> <span class="n">_stored_as</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.mac</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockMac</span><span class="p">,</span> <span class="n">BlockQuant</span><span class="p">,</span> <span class="n">Mac</span><span class="p">,</span> <span class="n">_as_block_quant</span><span class="p">,</span> <span class="n">spec_for_block_mac</span><span class="p">,</span> <span class="n">spec_for_mac</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.modules.format</span><span class="w"> </span><span class="kn">import</span> <span class="n">QAffineFormats</span><span class="p">,</span> <span class="n">QMatmulFormats</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_binaryK_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_fma_odd_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_odd_spec</span><span class="p">,</span>
+    <span class="n">_binaryK_superfp_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_checked_carrier_rounding_call</span><span class="p">,</span>
+    <span class="n">_gemm_mixed_nd</span><span class="p">,</span>
+    <span class="n">_gemm_nd</span><span class="p">,</span>
+    <span class="n">_run_gemm</span><span class="p">,</span>
+    <span class="n">_superfp_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_binaryK_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_accumulated_spec</span><span class="p">,</span>
+    <span class="n">_superfp_fma_odd_spec</span><span class="p">,</span>
+    <span class="n">_superfp_odd_spec</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"binaryK_gemm_formats"</span><span class="p">,</span>
+    <span class="s2">"superfp_gemm_formats"</span><span class="p">,</span>
+    <span class="s2">"binaryK_gemm_formats_fma"</span><span class="p">,</span>
+    <span class="s2">"superfp_gemm_formats_fma"</span><span class="p">,</span>
+    <span class="s2">"binaryK_superfp_gemm_formats"</span><span class="p">,</span>
+    <span class="s2">"superfp_binaryK_gemm_formats"</span><span class="p">,</span>
+    <span class="s2">"matmul_formats"</span><span class="p">,</span>
+    <span class="s2">"block_matmul_formats"</span><span class="p">,</span>
+    <span class="s2">"block_gemm_formats"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c1"># What a resolved GEMM still takes per call: ``op(a) @ op(b)`` for 2D operands</span>
+<span class="c1"># ``a`` and ``b``, where each boolean says whether ``op`` transposes that</span>
+<span class="c1"># operand (a flag the kernel reads, so no transposed copy is made).</span>
+<span class="n">_Matmul2D</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">bool</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flatten_leading</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Flatten all but the last dimension of ``x`` into one leading dimension.</span>
+
+<span class="sd">    Returns the 2D view and the original shape, so the caller can reshape a</span>
+<span class="sd">    result back to the leading dimensions ``x`` came with.</span>
+<span class="sd">    """</span>
+    <span class="n">shape</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+    <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="n">shape</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_gemm_formats</span><span class="p">(</span><span class="n">matmul</span><span class="p">:</span> <span class="n">_Matmul2D</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build the three Linear math hooks over one 2D ``matmul``.</span>
+
+<span class="sd">    Which operand each hook transposes, how the leading dimensions are folded</span>
+<span class="sd">    into one row dimension and put back, and how the bias is added are the</span>
+<span class="sd">    Linear call contract rather than the format's, so they are written here</span>
+<span class="sd">    once and each factory below passes only its resolved ``matmul``.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fwd</span><span class="p">(</span>
+        <span class="n">q_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">x_flat</span><span class="p">,</span> <span class="n">x_shape</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_input</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">matmul</span><span class="p">(</span><span class="n">x_flat</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">x_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">q_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="c1"># add_ rather than +: `out` is a view of a tensor the op allocated</span>
+        <span class="c1"># inside this call and nothing else references it, so folding the</span>
+        <span class="c1"># bias in place is bit-identical to `out + q_bias` and saves one</span>
+        <span class="c1"># output-sized allocation per forward. The dtype guard keeps a bias</span>
+        <span class="c1"># in a wider dtype promoting the way `out + q_bias` does, where</span>
+        <span class="c1"># `add_` would raise.</span>
+        <span class="k">if</span> <span class="n">q_bias</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">out</span>
+        <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="n">q_bias</span><span class="p">)</span> <span class="k">if</span> <span class="n">q_bias</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span> <span class="k">else</span> <span class="n">out</span> <span class="o">+</span> <span class="n">q_bias</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_igrad</span><span class="p">(</span><span class="n">q_igrad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">g_flat</span><span class="p">,</span> <span class="n">g_shape</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_igrad_output</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">matmul</span><span class="p">(</span><span class="n">g_flat</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">g_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">q_weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_wgrad</span><span class="p">(</span><span class="n">q_wgrad_output</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">g_flat</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_wgrad_output</span><span class="p">)</span>
+        <span class="n">i_flat</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_input</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">matmul</span><span class="p">(</span><span class="n">g_flat</span><span class="p">,</span> <span class="n">i_flat</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">QAffineFormats</span><span class="p">(</span><span class="n">fwd_math</span><span class="o">=</span><span class="n">fwd</span><span class="p">,</span> <span class="n">bwd_igrad_math</span><span class="o">=</span><span class="n">bwd_igrad</span><span class="p">,</span> <span class="n">bwd_wgrad_math</span><span class="o">=</span><span class="n">bwd_wgrad</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="binaryK_gemm_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.binaryK_gemm_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">binaryK_gemm_formats</span><span class="p">(</span>
+    <span class="n">mul_K</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_P</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mul_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">mul_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">mul_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_quant</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">acc_K</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_P</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">=</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="p">,</span>
+    <span class="n">acc_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_K</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_P</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build a ``QAffineFormats`` whose dot products run in a binaryK GEMM.</span>
+
+<span class="sd">    The returned formats set ``fwd_math``, ``bwd_igrad_math`` and</span>
+<span class="sd">    ``bwd_wgrad_math``. A Linear layer's forward GEMM and both of its</span>
+<span class="sd">    gradient GEMMs then run through</span>
+<span class="sd">    :func:`mptorch.quant.ops.binaryK_matmul`, which takes these same</span>
+<span class="sd">    arguments. Every product is rounded to the ``mul_*`` format. When</span>
+<span class="sd">    ``accumulate_quant`` is set, every partial sum is rounded to the</span>
+<span class="sd">    ``acc_*`` format.</span>
+
+<span class="sd">    The format is resolved once, here, so each pass costs only the op. Every</span>
+<span class="sd">    pass checks the formats against the carrier of the tensors it runs on:</span>
+<span class="sd">    binary64 for a float64 layer and binary32 otherwise, unless ``carrier``</span>
+<span class="sd">    names one. It warns with :class:`mptorch.FormatRangeWarning` about a</span>
+<span class="sd">    range that the carrier cannot hold.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mul_K (int): total width in bits of the multiply format.</span>
+<span class="sd">        mul_P (int): precision (significand bits, the implicit one included)</span>
+<span class="sd">            of the multiply format.</span>
+<span class="sd">        mul_bias (int, optional): exponent bias of the multiply format.</span>
+<span class="sd">            ``None`` takes IEEE P3109's, ``2**(K-P-1)`` signed and</span>
+<span class="sd">            ``2**(K-P)`` unsigned. Default: ``None``</span>
+<span class="sd">        mul_is_signed (bool): whether the multiply format has a sign bit.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        mul_prng_bits (int): random bits drawn per stochastic rounding of a</span>
+<span class="sd">            product; only read when ``rounding_mode`` is ``RoundMode.SR``.</span>
+<span class="sd">            Default: ``0``</span>
+<span class="sd">        accumulate_quant (bool): whether the running sum is rounded to the</span>
+<span class="sd">            ``acc_*`` format after every step. ``False`` keeps it in the</span>
+<span class="sd">            carrier's precision and ignores the ``acc_*`` widths.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        acc_K (int, optional): width of the accumulate format. ``None`` takes</span>
+<span class="sd">            ``mul_K``. Default: ``None``</span>
+<span class="sd">        acc_P (int, optional): precision of the accumulate format. ``None``</span>
+<span class="sd">            takes ``mul_P``. Default: ``None``</span>
+<span class="sd">        acc_bias (int, optional): exponent bias of the accumulate format.</span>
+<span class="sd">            ``None`` takes P3109's for ``acc_K``/``acc_P``. Default: ``None``</span>
+<span class="sd">        acc_is_signed (bool, optional): sign bit of the accumulate format.</span>
+<span class="sd">            ``None`` takes ``mul_is_signed``. Default: ``None``</span>
+<span class="sd">        acc_prng_bits (int): random bits per stochastic rounding of a partial</span>
+<span class="sd">            sum. Default: ``0``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): how the products are</span>
+<span class="sd">            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,</span>
+<span class="sd">            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).</span>
+<span class="sd">            Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        rounding_mode (RoundMode): rounding for both formats; one mode for</span>
+<span class="sd">            both because the kernels take it as a template parameter.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        saturation_mode (SaturationMode): overflow behaviour of the multiply</span>
+<span class="sd">            format. Default: ``SaturationMode.SAT_NONE``</span>
+<span class="sd">        subnormals_mode (SubnormalsMode): what the multiply format keeps</span>
+<span class="sd">            below its smallest normal. Default: ``SubnormalsMode.SUBNORMALS``</span>
+<span class="sd">        acc_saturation_mode (SaturationMode, optional): overflow behaviour of</span>
+<span class="sd">            the accumulate format. ``None`` takes ``saturation_mode``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        acc_subnormals_mode (SubnormalsMode, optional): subnormal handling of</span>
+<span class="sd">            the accumulate format. ``None`` takes ``subnormals_mode``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as</span>
+<span class="sd">            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``</span>
+<span class="sd">        outer_K (int, optional): width of the outer format ``BLOCK`` and</span>
+<span class="sd">            ``TREE`` round their total to, as for</span>
+<span class="sd">            :func:`mptorch.quant.binaryK_matmul`, which documents it and the</span>
+<span class="sd">            rest of its spelling: ``outer_P``, ``outer_bias``,</span>
+<span class="sd">            ``outer_is_signed``, ``outer_prng_bits``,</span>
+<span class="sd">            ``outer_saturation_mode`` and ``outer_subnormals_mode``.</span>
+<span class="sd">            Default: ``None``, an unrounded total.</span>
+<span class="sd">        carrier (torch.dtype, optional): the float arithmetic the GEMM rounds</span>
+<span class="sd">            in. ``None`` takes the layer's (binary64 for float64, binary32 for</span>
+<span class="sd">            the rest); ``torch.float64`` runs a float32 or half-precision</span>
+<span class="sd">            layer in binary64 too and narrows each result back to the layer's</span>
+<span class="sd">            dtype; ``torch.float32`` on a float64 layer raises at the call.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's</span>
+<span class="sd">            steps to odd, as for :func:`mptorch.quant.binaryK_matmul`,</span>
+<span class="sd">            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set and every</span>
+<span class="sd">        ``*_quant`` slot left ``None``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a format no carrier can hold (precision above 53</span>
+<span class="sd">            bits, an exponent field past 30 bits, stochastic bits with no</span>
+<span class="sd">            significand left) or a ``carrier`` that names no carrier.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, Quant, binaryK_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = binaryK_gemm_formats(mul_K=8, mul_P=4, acc_K=16, acc_P=11)</span>
+<span class="sd">        &gt;&gt;&gt; formats.input_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="n">_checked_carrier_rounding_call</span><span class="p">(</span>
+            <span class="n">carrier_rounding</span><span class="p">,</span>
+            <span class="p">(</span>
+                <span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+                <span class="ow">or</span> <span class="n">block_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_K</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_P</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">odd_spec</span> <span class="o">=</span> <span class="n">_binaryK_odd_spec</span><span class="p">(</span>
+            <span class="n">mul_K</span><span class="o">=</span><span class="n">mul_K</span><span class="p">,</span>
+            <span class="n">mul_P</span><span class="o">=</span><span class="n">mul_P</span><span class="p">,</span>
+            <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+            <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+            <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">accumulate_quant</span><span class="p">,</span>
+            <span class="n">acc_K</span><span class="o">=</span><span class="n">acc_K</span><span class="p">,</span>
+            <span class="n">acc_P</span><span class="o">=</span><span class="n">acc_P</span><span class="p">,</span>
+            <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+            <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+            <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+            <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+            <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+            <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">subnormals_mode</span><span class="p">,</span>
+            <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+            <span class="n">acc_subnormals_mode</span><span class="o">=</span><span class="n">acc_subnormals_mode</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">odd_spec</span><span class="p">))</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_binaryK_accumulated_spec</span><span class="p">(</span>
+        <span class="n">mul_K</span><span class="o">=</span><span class="n">mul_K</span><span class="p">,</span>
+        <span class="n">mul_P</span><span class="o">=</span><span class="n">mul_P</span><span class="p">,</span>
+        <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+        <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+        <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">accumulate_quant</span><span class="p">,</span>
+        <span class="n">acc_K</span><span class="o">=</span><span class="n">acc_K</span><span class="p">,</span>
+        <span class="n">acc_P</span><span class="o">=</span><span class="n">acc_P</span><span class="p">,</span>
+        <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+        <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+        <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">subnormals_mode</span><span class="p">,</span>
+        <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+        <span class="n">acc_subnormals_mode</span><span class="o">=</span><span class="n">acc_subnormals_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_K</span><span class="o">=</span><span class="n">outer_K</span><span class="p">,</span>
+        <span class="n">outer_P</span><span class="o">=</span><span class="n">outer_P</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">outer_subnormals_mode</span><span class="o">=</span><span class="n">outer_subnormals_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="binaryK_gemm_formats_fma">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.binaryK_gemm_formats_fma">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">binaryK_gemm_formats_fma</span><span class="p">(</span>
+    <span class="n">fma_K</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">fma_P</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fma_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fma_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">fma_quant</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">fma_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">=</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_K</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_P</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Fused-multiply-add analog of :func:`binaryK_gemm_formats`.</span>
+
+<span class="sd">    Each dot-product step is one fused multiply-add,</span>
+<span class="sd">    ``round_fma(s + a * b)``, rounded once to the ``fma_*`` format</span>
+<span class="sd">    (:func:`mptorch.quant.ops.binaryK_matmul_fma`). It replaces a rounded</span>
+<span class="sd">    multiply followed by a separately rounded add. The general contract is</span>
+<span class="sd">    that of :func:`binaryK_gemm_formats`: resolution at construction, the</span>
+<span class="sd">    carrier and the warnings.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fma_K (int): total width in bits of the fused format.</span>
+<span class="sd">        fma_P (int): precision of the fused format, the implicit bit included.</span>
+<span class="sd">        fma_bias (int, optional): exponent bias; ``None`` takes IEEE P3109's.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        fma_is_signed (bool): whether the format has a sign bit.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        fma_quant (bool): whether each fused step is rounded at all.</span>
+<span class="sd">            ``False`` runs unrounded fused steps in the carrier.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        fma_prng_bits (int): random bits per stochastic rounding; only read</span>
+<span class="sd">            when ``rounding_mode`` is ``RoundMode.SR``. Default: ``0``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): how the products are</span>
+<span class="sd">            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,</span>
+<span class="sd">            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).</span>
+<span class="sd">            Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        rounding_mode (RoundMode): rounding of each fused step.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        saturation_mode (SaturationMode): overflow behaviour.</span>
+<span class="sd">            Default: ``SaturationMode.SAT_NONE``</span>
+<span class="sd">        subnormals_mode (SubnormalsMode): subnormal handling.</span>
+<span class="sd">            Default: ``SubnormalsMode.SUBNORMALS``</span>
+<span class="sd">        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as</span>
+<span class="sd">            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``</span>
+<span class="sd">        outer_K (int, optional): width of the outer format ``BLOCK`` and</span>
+<span class="sd">            ``TREE`` round their total to, as for</span>
+<span class="sd">            :func:`mptorch.quant.binaryK_matmul`, which documents it and the</span>
+<span class="sd">            rest of its spelling: ``outer_P``, ``outer_bias``,</span>
+<span class="sd">            ``outer_is_signed``, ``outer_prng_bits``,</span>
+<span class="sd">            ``outer_saturation_mode`` and ``outer_subnormals_mode``.</span>
+<span class="sd">            Default: ``None``, an unrounded total.</span>
+<span class="sd">        carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's</span>
+<span class="sd">            steps to odd, as for :func:`mptorch.quant.binaryK_matmul_fma`,</span>
+<span class="sd">            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: as for :func:`binaryK_gemm_formats`.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, binaryK_gemm_formats_fma</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=binaryK_gemm_formats_fma(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="n">_checked_carrier_rounding_call</span><span class="p">(</span>
+            <span class="n">carrier_rounding</span><span class="p">,</span>
+            <span class="p">(</span>
+                <span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+                <span class="ow">or</span> <span class="n">block_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_K</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_P</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">odd_spec</span> <span class="o">=</span> <span class="n">_binaryK_fma_odd_spec</span><span class="p">(</span>
+            <span class="n">fma_K</span><span class="o">=</span><span class="n">fma_K</span><span class="p">,</span>
+            <span class="n">fma_P</span><span class="o">=</span><span class="n">fma_P</span><span class="p">,</span>
+            <span class="n">fma_bias</span><span class="o">=</span><span class="n">fma_bias</span><span class="p">,</span>
+            <span class="n">fma_is_signed</span><span class="o">=</span><span class="n">fma_is_signed</span><span class="p">,</span>
+            <span class="n">fma_quant</span><span class="o">=</span><span class="n">fma_quant</span><span class="p">,</span>
+            <span class="n">fma_prng_bits</span><span class="o">=</span><span class="n">fma_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+            <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+            <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+            <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">subnormals_mode</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">odd_spec</span><span class="p">))</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_binaryK_fma_accumulated_spec</span><span class="p">(</span>
+        <span class="n">fma_K</span><span class="o">=</span><span class="n">fma_K</span><span class="p">,</span>
+        <span class="n">fma_P</span><span class="o">=</span><span class="n">fma_P</span><span class="p">,</span>
+        <span class="n">fma_bias</span><span class="o">=</span><span class="n">fma_bias</span><span class="p">,</span>
+        <span class="n">fma_is_signed</span><span class="o">=</span><span class="n">fma_is_signed</span><span class="p">,</span>
+        <span class="n">fma_quant</span><span class="o">=</span><span class="n">fma_quant</span><span class="p">,</span>
+        <span class="n">fma_prng_bits</span><span class="o">=</span><span class="n">fma_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">subnormals_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_K</span><span class="o">=</span><span class="n">outer_K</span><span class="p">,</span>
+        <span class="n">outer_P</span><span class="o">=</span><span class="n">outer_P</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">outer_subnormals_mode</span><span class="o">=</span><span class="n">outer_subnormals_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="superfp_gemm_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.superfp_gemm_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">superfp_gemm_formats</span><span class="p">(</span>
+    <span class="n">mul_man_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_exp_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_normal_binades</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_bias</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mul_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">mul_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_quant</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">acc_man_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_exp_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_normal_binades</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">acc_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_man_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_exp_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_normal_binades</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""superfp analog of :func:`binaryK_gemm_formats`.</span>
+
+<span class="sd">    The dot products run through :func:`mptorch.quant.ops.superfp_matmul`.</span>
+<span class="sd">    Products are rounded to the ``mul_*`` superfp format. When</span>
+<span class="sd">    ``accumulate_quant`` is set, partial sums are rounded to the ``acc_*``</span>
+<span class="sd">    one. A superfp format keeps a mantissa in the top ``normal_binades``</span>
+<span class="sd">    binades of its range and spends the rest of its codes on supernormal</span>
+<span class="sd">    values, which are powers of two with no mantissa. It has no subnormals,</span>
+<span class="sd">    so there is no ``subnormals_mode``.</span>
+<span class="sd">    :func:`superfp_gemm_formats_fma` is the fused-multiply-add analog.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mul_man_bits (int): mantissa bits of the multiply format.</span>
+<span class="sd">        mul_exp_bits (int): exponent bits of the multiply format.</span>
+<span class="sd">        mul_normal_binades (int): binades with a full mantissa in the multiply</span>
+<span class="sd">            format.</span>
+<span class="sd">        mul_bias (int): exponent bias of the multiply format (required; superfp</span>
+<span class="sd">            has no conventional default).</span>
+<span class="sd">        mul_is_signed (bool): whether the multiply format has a sign bit.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        mul_prng_bits (int): random bits per stochastic rounding of a product.</span>
+<span class="sd">            Default: ``0``</span>
+<span class="sd">        accumulate_quant (bool): whether partial sums are rounded to the</span>
+<span class="sd">            ``acc_*`` format. Default: ``True``</span>
+<span class="sd">        acc_man_bits (int, optional): ``None`` takes ``mul_man_bits``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        acc_exp_bits (int, optional): ``None`` takes ``mul_exp_bits``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        acc_normal_binades (int, optional): ``None`` takes</span>
+<span class="sd">            ``mul_normal_binades``. Default: ``None``</span>
+<span class="sd">        acc_bias (int, optional): ``None`` takes ``mul_bias``. Default: ``None``</span>
+<span class="sd">        acc_is_signed (bool, optional): ``None`` takes ``mul_is_signed``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        acc_prng_bits (int): random bits per stochastic rounding of a partial</span>
+<span class="sd">            sum. Default: ``0``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): how the products are</span>
+<span class="sd">            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,</span>
+<span class="sd">            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).</span>
+<span class="sd">            Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        rounding_mode (RoundMode): rounding for both formats.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        saturation_mode (SaturationMode): overflow behaviour of the multiply</span>
+<span class="sd">            format. Default: ``SaturationMode.SAT_NONE``</span>
+<span class="sd">        acc_saturation_mode (SaturationMode, optional): ``None`` takes</span>
+<span class="sd">            ``saturation_mode``. Default: ``None``</span>
+<span class="sd">        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as</span>
+<span class="sd">            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``</span>
+<span class="sd">        outer_man_bits (int, optional): mantissa bits of the outer format</span>
+<span class="sd">            ``BLOCK`` and ``TREE`` round their total to, as for</span>
+<span class="sd">            :func:`mptorch.quant.superfp_matmul`, which documents it and the</span>
+<span class="sd">            rest of its spelling: ``outer_exp_bits``,</span>
+<span class="sd">            ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,</span>
+<span class="sd">            ``outer_prng_bits`` and ``outer_saturation_mode``.</span>
+<span class="sd">            Default: ``None``, an unrounded total.</span>
+<span class="sd">        carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's</span>
+<span class="sd">            steps to odd, as for :func:`mptorch.quant.superfp_matmul`,</span>
+<span class="sd">            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a format no carrier can hold, a ``normal_binades``</span>
+<span class="sd">            that leaves no supernormal codes, or a ``carrier`` that names no</span>
+<span class="sd">            carrier.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, superfp_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = superfp_gemm_formats(3, 4, 8, 7, accumulate_quant=False)</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="n">_checked_carrier_rounding_call</span><span class="p">(</span>
+            <span class="n">carrier_rounding</span><span class="p">,</span>
+            <span class="p">(</span>
+                <span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+                <span class="ow">or</span> <span class="n">block_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_man_bits</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_exp_bits</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_normal_binades</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">odd_spec</span> <span class="o">=</span> <span class="n">_superfp_odd_spec</span><span class="p">(</span>
+            <span class="n">mul_man_bits</span><span class="o">=</span><span class="n">mul_man_bits</span><span class="p">,</span>
+            <span class="n">mul_exp_bits</span><span class="o">=</span><span class="n">mul_exp_bits</span><span class="p">,</span>
+            <span class="n">mul_normal_binades</span><span class="o">=</span><span class="n">mul_normal_binades</span><span class="p">,</span>
+            <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+            <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+            <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">accumulate_quant</span><span class="p">,</span>
+            <span class="n">acc_man_bits</span><span class="o">=</span><span class="n">acc_man_bits</span><span class="p">,</span>
+            <span class="n">acc_exp_bits</span><span class="o">=</span><span class="n">acc_exp_bits</span><span class="p">,</span>
+            <span class="n">acc_normal_binades</span><span class="o">=</span><span class="n">acc_normal_binades</span><span class="p">,</span>
+            <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+            <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+            <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+            <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+            <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+            <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">odd_spec</span><span class="p">))</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_superfp_accumulated_spec</span><span class="p">(</span>
+        <span class="n">mul_man_bits</span><span class="o">=</span><span class="n">mul_man_bits</span><span class="p">,</span>
+        <span class="n">mul_exp_bits</span><span class="o">=</span><span class="n">mul_exp_bits</span><span class="p">,</span>
+        <span class="n">mul_normal_binades</span><span class="o">=</span><span class="n">mul_normal_binades</span><span class="p">,</span>
+        <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+        <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+        <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_quant</span><span class="o">=</span><span class="n">accumulate_quant</span><span class="p">,</span>
+        <span class="n">acc_man_bits</span><span class="o">=</span><span class="n">acc_man_bits</span><span class="p">,</span>
+        <span class="n">acc_exp_bits</span><span class="o">=</span><span class="n">acc_exp_bits</span><span class="p">,</span>
+        <span class="n">acc_normal_binades</span><span class="o">=</span><span class="n">acc_normal_binades</span><span class="p">,</span>
+        <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+        <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+        <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_man_bits</span><span class="o">=</span><span class="n">outer_man_bits</span><span class="p">,</span>
+        <span class="n">outer_exp_bits</span><span class="o">=</span><span class="n">outer_exp_bits</span><span class="p">,</span>
+        <span class="n">outer_normal_binades</span><span class="o">=</span><span class="n">outer_normal_binades</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="superfp_gemm_formats_fma">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.superfp_gemm_formats_fma">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">superfp_gemm_formats_fma</span><span class="p">(</span>
+    <span class="n">fma_man_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">fma_exp_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">fma_normal_binades</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">fma_bias</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fma_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">fma_quant</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">fma_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_man_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_exp_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_normal_binades</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier_rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""superfp analog of :func:`binaryK_gemm_formats_fma`.</span>
+
+<span class="sd">    Each dot-product step is one fused multiply-add, rounded once to the</span>
+<span class="sd">    ``fma_*`` superfp format (:func:`mptorch.quant.ops.superfp_matmul_fma`).</span>
+<span class="sd">    The arguments are the multiply-format arguments of</span>
+<span class="sd">    :func:`superfp_gemm_formats` under the ``fma_`` prefix, plus</span>
+<span class="sd">    ``fma_quant``, as in :func:`binaryK_gemm_formats_fma`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fma_man_bits (int): mantissa bits of the fused format.</span>
+<span class="sd">        fma_exp_bits (int): exponent bits of the fused format.</span>
+<span class="sd">        fma_normal_binades (int): binades with a full mantissa.</span>
+<span class="sd">        fma_bias (int): exponent bias (required).</span>
+<span class="sd">        fma_is_signed (bool): whether the format has a sign bit.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        fma_quant (bool): whether each fused step is rounded at all.</span>
+<span class="sd">            Default: ``True``</span>
+<span class="sd">        fma_prng_bits (int): random bits per stochastic rounding.</span>
+<span class="sd">            Default: ``0``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): how the products are</span>
+<span class="sd">            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,</span>
+<span class="sd">            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).</span>
+<span class="sd">            Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        rounding_mode (RoundMode): rounding of each fused step.</span>
+<span class="sd">            Default: ``RoundMode.RNE``</span>
+<span class="sd">        saturation_mode (SaturationMode): overflow behaviour.</span>
+<span class="sd">            Default: ``SaturationMode.SAT_NONE``</span>
+<span class="sd">        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as</span>
+<span class="sd">            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``</span>
+<span class="sd">        outer_man_bits (int, optional): mantissa bits of the outer format</span>
+<span class="sd">            ``BLOCK`` and ``TREE`` round their total to, as for</span>
+<span class="sd">            :func:`mptorch.quant.superfp_matmul`, which documents it and the</span>
+<span class="sd">            rest of its spelling: ``outer_exp_bits``,</span>
+<span class="sd">            ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,</span>
+<span class="sd">            ``outer_prng_bits`` and ``outer_saturation_mode``.</span>
+<span class="sd">            Default: ``None``, an unrounded total.</span>
+<span class="sd">        carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's</span>
+<span class="sd">            steps to odd, as for :func:`mptorch.quant.superfp_matmul_fma`,</span>
+<span class="sd">            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: as for :func:`superfp_gemm_formats`.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, superfp_gemm_formats_fma</span>
+<span class="sd">        &gt;&gt;&gt; formats = superfp_gemm_formats_fma(3, 4, 8, 7)</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">carrier_rounding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">:</span>
+        <span class="n">_checked_carrier_rounding_call</span><span class="p">(</span>
+            <span class="n">carrier_rounding</span><span class="p">,</span>
+            <span class="p">(</span>
+                <span class="n">accumulate_algorithm</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span>
+                <span class="ow">or</span> <span class="n">block_size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_man_bits</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_exp_bits</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_normal_binades</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="ow">or</span> <span class="n">outer_bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">odd_spec</span> <span class="o">=</span> <span class="n">_superfp_fma_odd_spec</span><span class="p">(</span>
+            <span class="n">fma_man_bits</span><span class="o">=</span><span class="n">fma_man_bits</span><span class="p">,</span>
+            <span class="n">fma_exp_bits</span><span class="o">=</span><span class="n">fma_exp_bits</span><span class="p">,</span>
+            <span class="n">fma_normal_binades</span><span class="o">=</span><span class="n">fma_normal_binades</span><span class="p">,</span>
+            <span class="n">fma_bias</span><span class="o">=</span><span class="n">fma_bias</span><span class="p">,</span>
+            <span class="n">fma_is_signed</span><span class="o">=</span><span class="n">fma_is_signed</span><span class="p">,</span>
+            <span class="n">fma_quant</span><span class="o">=</span><span class="n">fma_quant</span><span class="p">,</span>
+            <span class="n">fma_prng_bits</span><span class="o">=</span><span class="n">fma_prng_bits</span><span class="p">,</span>
+            <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+            <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+            <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+            <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">odd_spec</span><span class="p">))</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_superfp_fma_accumulated_spec</span><span class="p">(</span>
+        <span class="n">fma_man_bits</span><span class="o">=</span><span class="n">fma_man_bits</span><span class="p">,</span>
+        <span class="n">fma_exp_bits</span><span class="o">=</span><span class="n">fma_exp_bits</span><span class="p">,</span>
+        <span class="n">fma_normal_binades</span><span class="o">=</span><span class="n">fma_normal_binades</span><span class="p">,</span>
+        <span class="n">fma_bias</span><span class="o">=</span><span class="n">fma_bias</span><span class="p">,</span>
+        <span class="n">fma_is_signed</span><span class="o">=</span><span class="n">fma_is_signed</span><span class="p">,</span>
+        <span class="n">fma_quant</span><span class="o">=</span><span class="n">fma_quant</span><span class="p">,</span>
+        <span class="n">fma_prng_bits</span><span class="o">=</span><span class="n">fma_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_man_bits</span><span class="o">=</span><span class="n">outer_man_bits</span><span class="p">,</span>
+        <span class="n">outer_exp_bits</span><span class="o">=</span><span class="n">outer_exp_bits</span><span class="p">,</span>
+        <span class="n">outer_normal_binades</span><span class="o">=</span><span class="n">outer_normal_binades</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<span class="c1"># What a matmul's three hooks call: ``op(a) @ op(b)`` under torch.matmul's</span>
+<span class="c1"># operand rules (batch broadcasting and 1D promotion), where the Linear hooks</span>
+<span class="c1"># above flatten to 2D themselves. The flags transpose ``a`` and ``b``.</span>
+<span class="n">_MatmulNd</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">bool</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="binaryK_superfp_gemm_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.binaryK_superfp_gemm_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">binaryK_superfp_gemm_formats</span><span class="p">(</span>
+    <span class="n">mul_K</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_P</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_man_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_exp_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_normal_binades</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_bias</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mul_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">mul_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">mul_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">acc_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">=</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="p">,</span>
+    <span class="n">acc_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_man_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_exp_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_normal_binades</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Cross-family analog of :func:`binaryK_gemm_formats`: binaryK products, superfp sums.</span>
+
+<span class="sd">    The dot products run through</span>
+<span class="sd">    :func:`mptorch.quant.ops.binaryK_superfp_matmul`, which documents every</span>
+<span class="sd">    argument: products are rounded to the binaryK ``mul_*`` format and partial</span>
+<span class="sd">    sums to the superfp ``acc_*`` format, which is required (an unrounded sum</span>
+<span class="sd">    is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With</span>
+<span class="sd">    ``BLOCK`` or ``TREE`` the outer format is a superfp one.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a format no carrier can hold, or a ``carrier`` that is</span>
+<span class="sd">            ``torch.float64`` or names no carrier.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, binaryK_superfp_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = binaryK_superfp_gemm_formats(8, 4, 3, 4, 8, 7)</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_binaryK_superfp_accumulated_spec</span><span class="p">(</span>
+        <span class="n">mul_K</span><span class="o">=</span><span class="n">mul_K</span><span class="p">,</span>
+        <span class="n">mul_P</span><span class="o">=</span><span class="n">mul_P</span><span class="p">,</span>
+        <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+        <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+        <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+        <span class="n">acc_man_bits</span><span class="o">=</span><span class="n">acc_man_bits</span><span class="p">,</span>
+        <span class="n">acc_exp_bits</span><span class="o">=</span><span class="n">acc_exp_bits</span><span class="p">,</span>
+        <span class="n">acc_normal_binades</span><span class="o">=</span><span class="n">acc_normal_binades</span><span class="p">,</span>
+        <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+        <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+        <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">subnormals_mode</span><span class="o">=</span><span class="n">subnormals_mode</span><span class="p">,</span>
+        <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_man_bits</span><span class="o">=</span><span class="n">outer_man_bits</span><span class="p">,</span>
+        <span class="n">outer_exp_bits</span><span class="o">=</span><span class="n">outer_exp_bits</span><span class="p">,</span>
+        <span class="n">outer_normal_binades</span><span class="o">=</span><span class="n">outer_normal_binades</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="superfp_binaryK_gemm_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.superfp_binaryK_gemm_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">superfp_binaryK_gemm_formats</span><span class="p">(</span>
+    <span class="n">mul_man_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_exp_bits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_normal_binades</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">mul_bias</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_K</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">acc_P</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mul_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">mul_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">acc_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">rounding_mode</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">=</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="p">,</span>
+    <span class="n">acc_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">acc_subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">=</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_K</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_P</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_bias</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_is_signed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_prng_bits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">outer_saturation_mode</span><span class="p">:</span> <span class="n">SaturationMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer_subnormals_mode</span><span class="p">:</span> <span class="n">SubnormalsMode</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Cross-family analog of :func:`superfp_gemm_formats`: superfp products, binaryK sums.</span>
+
+<span class="sd">    The dot products run through</span>
+<span class="sd">    :func:`mptorch.quant.ops.superfp_binaryK_matmul`, which documents every</span>
+<span class="sd">    argument: products are rounded to the superfp ``mul_*`` format and partial</span>
+<span class="sd">    sums to the binaryK ``acc_*`` format, which is required (an unrounded sum</span>
+<span class="sd">    is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With</span>
+<span class="sd">    ``BLOCK`` or ``TREE`` the outer format is a binaryK one.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three ``*_math`` hooks set.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a format no carrier can hold, a ``normal_binades``</span>
+<span class="sd">            that leaves no supernormal codes, or a ``carrier`` that is</span>
+<span class="sd">            ``torch.float64`` or names no carrier.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QLinear, superfp_binaryK_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = superfp_binaryK_gemm_formats(3, 4, 8, 7, 16, 11)</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(32, 256)).shape</span>
+<span class="sd">        torch.Size([32, 64])</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_superfp_binaryK_accumulated_spec</span><span class="p">(</span>
+        <span class="n">mul_man_bits</span><span class="o">=</span><span class="n">mul_man_bits</span><span class="p">,</span>
+        <span class="n">mul_exp_bits</span><span class="o">=</span><span class="n">mul_exp_bits</span><span class="p">,</span>
+        <span class="n">mul_normal_binades</span><span class="o">=</span><span class="n">mul_normal_binades</span><span class="p">,</span>
+        <span class="n">mul_bias</span><span class="o">=</span><span class="n">mul_bias</span><span class="p">,</span>
+        <span class="n">mul_is_signed</span><span class="o">=</span><span class="n">mul_is_signed</span><span class="p">,</span>
+        <span class="n">mul_prng_bits</span><span class="o">=</span><span class="n">mul_prng_bits</span><span class="p">,</span>
+        <span class="n">acc_K</span><span class="o">=</span><span class="n">acc_K</span><span class="p">,</span>
+        <span class="n">acc_P</span><span class="o">=</span><span class="n">acc_P</span><span class="p">,</span>
+        <span class="n">acc_bias</span><span class="o">=</span><span class="n">acc_bias</span><span class="p">,</span>
+        <span class="n">acc_is_signed</span><span class="o">=</span><span class="n">acc_is_signed</span><span class="p">,</span>
+        <span class="n">acc_prng_bits</span><span class="o">=</span><span class="n">acc_prng_bits</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">rounding_mode</span><span class="o">=</span><span class="n">rounding_mode</span><span class="p">,</span>
+        <span class="n">saturation_mode</span><span class="o">=</span><span class="n">saturation_mode</span><span class="p">,</span>
+        <span class="n">acc_saturation_mode</span><span class="o">=</span><span class="n">acc_saturation_mode</span><span class="p">,</span>
+        <span class="n">acc_subnormals_mode</span><span class="o">=</span><span class="n">acc_subnormals_mode</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer_K</span><span class="o">=</span><span class="n">outer_K</span><span class="p">,</span>
+        <span class="n">outer_P</span><span class="o">=</span><span class="n">outer_P</span><span class="p">,</span>
+        <span class="n">outer_bias</span><span class="o">=</span><span class="n">outer_bias</span><span class="p">,</span>
+        <span class="n">outer_is_signed</span><span class="o">=</span><span class="n">outer_is_signed</span><span class="p">,</span>
+        <span class="n">outer_prng_bits</span><span class="o">=</span><span class="n">outer_prng_bits</span><span class="p">,</span>
+        <span class="n">outer_saturation_mode</span><span class="o">=</span><span class="n">outer_saturation_mode</span><span class="p">,</span>
+        <span class="n">outer_subnormals_mode</span><span class="o">=</span><span class="n">outer_subnormals_mode</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="o">=</span><span class="n">carrier</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_gemm_formats</span><span class="p">(</span><span class="n">partial</span><span class="p">(</span><span class="n">_run_gemm</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_matmul_formats</span><span class="p">(</span>
+    <span class="n">fwd_matmul</span><span class="p">:</span> <span class="n">_MatmulNd</span><span class="p">,</span> <span class="n">agrad_matmul</span><span class="p">:</span> <span class="n">_MatmulNd</span><span class="p">,</span> <span class="n">bgrad_matmul</span><span class="p">:</span> <span class="n">_MatmulNd</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QMatmulFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build the three matmul math hooks, one resolved GEMM per pass.</span>
+
+<span class="sd">    The transpose table is the whole difference from :func:`_gemm_formats`:</span>
+<span class="sd">    the forward is ``a @ b``, ``a``'s gradient is ``grad @ b^T`` and ``b``'s</span>
+<span class="sd">    is ``a^T @ grad``. Nothing is flattened and no bias is added, since a</span>
+<span class="sd">    matmul has no leading dimension it may fold (broadcasting over the batch</span>
+<span class="sd">    is part of its contract) and no bias. It takes three matmuls rather than</span>
+<span class="sd">    one because a palette's ``prec_idx`` map is per pass; every other format</span>
+<span class="sd">    passes the same matmul three times.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fwd</span><span class="p">(</span><span class="n">q_a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">fwd_matmul</span><span class="p">(</span><span class="n">q_a</span><span class="p">,</span> <span class="n">q_b</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_agrad</span><span class="p">(</span><span class="n">q_grad</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">agrad_matmul</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="n">q_b</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_bgrad</span><span class="p">(</span><span class="n">q_grad</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">q_a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">bgrad_matmul</span><span class="p">(</span><span class="n">q_a</span><span class="p">,</span> <span class="n">q_grad</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">QMatmulFormats</span><span class="p">(</span><span class="n">fwd_math</span><span class="o">=</span><span class="n">fwd</span><span class="p">,</span> <span class="n">bwd_agrad_math</span><span class="o">=</span><span class="n">bwd_agrad</span><span class="p">,</span> <span class="n">bwd_bgrad_math</span><span class="o">=</span><span class="n">bwd_bgrad</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_mixed_matmul</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pass_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">argument</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""One pass's matmul over a palette op, or a hook that names the missing map.</span>
+
+<span class="sd">    A ``prec_idx`` is indexed by *output* element, and the three passes of a</span>
+<span class="sd">    matmul have three different output shapes: ``[M, N]``, ``[M, K]`` and</span>
+<span class="sd">    ``[K, N]``. One map cannot serve all three, so a pass whose map was not</span>
+<span class="sd">    given gets a hook that raises naming the ``matmul_formats`` argument to</span>
+<span class="sd">    pass, rather than a shape error from the op or a silent fallback to</span>
+<span class="sd">    unquantized arithmetic.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">missing</span><span class="p">(</span><span class="o">*</span><span class="n">_args</span><span class="p">,</span> <span class="o">**</span><span class="n">_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"this format is a palette, so its </span><span class="si">{</span><span class="n">pass_name</span><span class="si">}</span><span class="s2"> needs its own prec_idx map "</span>
+                <span class="sa">f</span><span class="s2">"(shaped like that pass's output): pass </span><span class="si">{</span><span class="n">argument</span><span class="si">}</span><span class="s2">= to matmul_formats"</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">missing</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">matmul</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">ta</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">tb</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_gemm_mixed_nd</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">,</span> <span class="n">ta</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">matmul</span>
+
+
+<div class="viewcode-block" id="matmul_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.matmul_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">matmul_formats</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">:</span> <span class="n">Mac</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">agrad_prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">bgrad_prec_idx</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QMatmulFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build a ``QMatmulFormats`` whose three passes run in ``mac``'s arithmetic.</span>
+
+<span class="sd">    The forward product ``a @ b``, ``a``'s gradient ``grad @ b^T`` and ``b``'s</span>
+<span class="sd">    gradient ``a^T @ grad`` each run through the GEMM op that ``mac`` resolves</span>
+<span class="sd">    to.</span>
+
+<span class="sd">    A palette in any of ``mac``'s slots selects the per-output-element op,</span>
+<span class="sd">    which needs one ``prec_idx`` map per pass. The maps are bound into the</span>
+<span class="sd">    hooks here instead of being passed through every call. A gradient pass</span>
+<span class="sd">    whose map is missing raises when it is reached; it does not fall back to</span>
+<span class="sd">    unquantized arithmetic.</span>
+
+<span class="sd">    Like the four ``*_gemm_formats`` factories, this sets only the math</span>
+<span class="sd">    hooks. The caller adds elementwise operand quantization (``a_quant``,</span>
+<span class="sd">    ``b_quant``, ``agrad_quant``, ``bgrad_quant``) separately.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mac (SplitMac or FusedMac): the dot-product arithmetic, resolved once</span>
+<span class="sd">            through :func:`mptorch.quant.mac.spec_for_mac`.</span>
+<span class="sd">        prec_idx (Tensor, optional): integer map selecting a palette entry per</span>
+<span class="sd">            element of the forward's output, shaped like ``a @ b`` (``[M, N]``,</span>
+<span class="sd">            ``[M, 1]`` or ``[1, N]``, optionally batched). Required by, and</span>
+<span class="sd">            only by, a palette ``mac``. Default: ``None``</span>
+<span class="sd">        agrad_prec_idx (Tensor, optional): the map for ``a``'s gradient,</span>
+<span class="sd">            shaped like ``grad @ b^T``. Default: ``None``</span>
+<span class="sd">        bgrad_prec_idx (Tensor, optional): the map for ``b``'s gradient,</span>
+<span class="sd">            shaped like ``a^T @ grad``. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QMatmulFormats: with ``fwd_math``, ``bwd_agrad_math`` and</span>
+<span class="sd">        ``bwd_bgrad_math`` set and every ``*_quant`` slot left ``None``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if ``mac`` holds a palette and ``prec_idx`` is ``None``, or</span>
+<span class="sd">            if a map is given for a ``mac`` with no palette to select from.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import Palette, QMatmul, SplitMac, matmul_formats</span>
+<span class="sd">        &gt;&gt;&gt; palette = Palette([BinaryK(8, 4), BinaryK(8, 5)])</span>
+<span class="sd">        &gt;&gt;&gt; prec_idx = torch.zeros(4, 3, dtype=torch.int64)</span>
+<span class="sd">        &gt;&gt;&gt; formats = matmul_formats(SplitMac(palette, palette), prec_idx=prec_idx)</span>
+<span class="sd">        &gt;&gt;&gt; QMatmul(formats)(torch.randn(4, 8), torch.randn(8, 3)).shape</span>
+<span class="sd">        torch.Size([4, 3])</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">spec_for_mac</span><span class="p">(</span><span class="n">mac</span><span class="p">)</span>
+    <span class="n">maps</span> <span class="o">=</span> <span class="p">(</span><span class="n">prec_idx</span><span class="p">,</span> <span class="n">agrad_prec_idx</span><span class="p">,</span> <span class="n">bgrad_prec_idx</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span> <span class="ow">and</span> <span class="n">prec_idx</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"a palette format selects its entry per output element, so it needs a "</span>
+            <span class="s2">"prec_idx map; pass one, or give a single format per slot"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">m</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">maps</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"prec_idx has no meaning without a palette format to select from"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">mixed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_matmul_formats</span><span class="p">(</span>
+            <span class="n">_mixed_matmul</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">prec_idx</span><span class="p">,</span> <span class="s2">"forward"</span><span class="p">,</span> <span class="s2">"prec_idx"</span><span class="p">),</span>
+            <span class="n">_mixed_matmul</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">agrad_prec_idx</span><span class="p">,</span> <span class="s2">"gradient of a"</span><span class="p">,</span> <span class="s2">"agrad_prec_idx"</span><span class="p">),</span>
+            <span class="n">_mixed_matmul</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">bgrad_prec_idx</span><span class="p">,</span> <span class="s2">"gradient of b"</span><span class="p">,</span> <span class="s2">"bgrad_prec_idx"</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="n">matmul</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">_gemm_nd</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_matmul_formats</span><span class="p">(</span><span class="n">matmul</span><span class="p">,</span> <span class="n">matmul</span><span class="p">,</span> <span class="n">matmul</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># --- block formats --------------------------------------------------------------</span>
+<span class="c1">#</span>
+<span class="c1"># The block GEMM (`mptorch.quant.block_matmul`) multiplies packed operands,</span>
+<span class="c1"># each read along its K: packed along K, or along its other dimension and read</span>
+<span class="c1"># transposed. So each hook packs its operands along the dimension the pass</span>
+<span class="c1"># reduces over, as MX training recipes do, except an operand that arrives</span>
+<span class="c1"># packed: a weight packed once by `BlockQuant.pack` (a `weight_quant` slot), or</span>
+<span class="c1"># an operand of a square-tiled format, which quantizes to the same values</span>
+<span class="c1"># along either axis and so serves the backward pass read transposed. A 1D or</span>
+<span class="c1"># non-square format quantizes differently along each axis, so its backward</span>
+<span class="c1"># re-packs the float operand, and a weight that arrives packed in one cannot</span>
+<span class="c1"># be used for the input gradient.</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_square_tile_hint</span><span class="p">(</span><span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""How to spell the square-tiled variant of a format, for messages."""</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"dataclasses.replace(fmt, block_rows=</span><span class="si">{</span><span class="n">fmt</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">)"</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_packed_operand</span><span class="p">(</span><span class="n">q</span><span class="p">:</span> <span class="n">BlockQuant</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="s2">"torch.Tensor | BlockPacked"</span><span class="p">,</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``x`` packed along ``axis`` by ``q``, unless it already is a packing."""</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">BlockPacked</span><span class="p">)</span> <span class="k">else</span> <span class="n">q</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">axis</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_reused</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="s2">"torch.Tensor | BlockPacked"</span><span class="p">,</span> <span class="n">q</span><span class="p">:</span> <span class="n">BlockQuant</span><span class="p">,</span> <span class="n">where</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A packing the forward pass made, for a backward pass to read along its</span>
+<span class="sd">    other axis, or ``None`` when the float operand was saved (and is packed</span>
+<span class="sd">    anew). Only a square tile quantizes the same along both axes, so a packing</span>
+<span class="sd">    in a 1D or non-square format, or in a format other than the one this pass</span>
+<span class="sd">    rounds to, raises."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">BlockPacked</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">fmt</span> <span class="o">!=</span> <span class="n">q</span><span class="o">.</span><span class="n">fmt</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2"> rounds this operand to </span><span class="si">{</span><span class="n">q</span><span class="o">.</span><span class="n">fmt</span><span class="si">}</span><span class="s2">, and the forward pass packed it in "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">fmt</span><span class="si">}</span><span class="s2">: leave the *_quant slot unset so it is packed per pass"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">x</span><span class="o">.</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_square</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">where</span><span class="si">}</span><span class="s2"> reads the operand the forward pass packed along its other axis, and "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">fmt</span><span class="si">}</span><span class="s2">'s tiles are not square, so its values along that axis are not the ones "</span>
+            <span class="sa">f</span><span class="s2">"this pass rounds to: leave the *_quant slot unset so it is packed per pass, or use "</span>
+            <span class="sa">f</span><span class="s2">"a square tile, </span><span class="si">{</span><span class="n">_square_tile_hint</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">fmt</span><span class="p">)</span><span class="si">}</span><span class="s2">, which quantizes the same along either "</span>
+            <span class="s2">"axis (a layer frozen by freeze_packed_ has no float weight to pack again: freeze it "</span>
+            <span class="s2">"in a square-tile format to train below it)"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span>
+
+
+<div class="viewcode-block" id="block_matmul_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_matmul_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_matmul_formats</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">:</span> <span class="n">BlockMac</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">agrad_mac</span><span class="p">:</span> <span class="n">BlockMac</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">bgrad_mac</span><span class="p">:</span> <span class="n">BlockMac</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QMatmulFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build a ``QMatmulFormats`` whose three passes are block GEMMs.</span>
+
+<span class="sd">    Each pass packs its operands along the dimension it sums over:</span>
+
+<span class="sd">    - The forward product ``a @ b`` packs ``a`` along its last dimension and</span>
+<span class="sd">      ``b`` along its second-to-last (their K), in ``mac``'s two formats.</span>
+<span class="sd">    - ``a``'s gradient ``grad @ b^T`` packs ``grad`` along its last dimension</span>
+<span class="sd">      and ``b`` along its last.</span>
+<span class="sd">    - ``b``'s gradient ``a^T @ grad`` packs ``a`` along its second-to-last</span>
+<span class="sd">      dimension and ``grad`` along its second-to-last.</span>
+
+<span class="sd">    A gradient pass takes the formats of the slots it fills from</span>
+<span class="sd">    ``agrad_mac`` / ``bgrad_mac``, which default to ``mac``. An operand whose</span>
+<span class="sd">    format has square tiles is packed once, by the ``a_quant`` / ``b_quant``</span>
+<span class="sd">    slot that this function sets for it. The gradient passes read that</span>
+<span class="sd">    packing through :attr:`mptorch.quant.BlockPacked.mT`. Each pass's result</span>
+<span class="sd">    is in the carrier (float32, or float64 in binary64), stored in the</span>
+<span class="sd">    operands' dtype.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        mac (BlockMac): the forward's operand formats and arithmetic.</span>
+<span class="sd">        agrad_mac (BlockMac, optional): ``a``'s gradient's. Default: ``None``</span>
+<span class="sd">        bgrad_mac (BlockMac, optional): ``b``'s gradient's. Default: ``None``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QMatmulFormats: the three math hooks, and ``a_quant`` / ``b_quant``</span>
+<span class="sd">        for square-tiled operands.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import BlockMac, QMatmul, block_matmul_formats</span>
+<span class="sd">        &gt;&gt;&gt; layer = QMatmul(block_matmul_formats(BlockMac(MXFP8_E4M3, acc=BinaryK(16, 11))))</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(4, 64), torch.randn(64, 8)).shape</span>
+<span class="sd">        torch.Size([4, 8])</span>
+<span class="sd">    """</span>
+    <span class="n">agrad_mac</span> <span class="o">=</span> <span class="n">mac</span> <span class="k">if</span> <span class="n">agrad_mac</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">agrad_mac</span>
+    <span class="n">bgrad_mac</span> <span class="o">=</span> <span class="n">mac</span> <span class="k">if</span> <span class="n">bgrad_mac</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bgrad_mac</span>
+    <span class="n">fwd_spec</span><span class="p">,</span> <span class="n">agrad_spec</span><span class="p">,</span> <span class="n">bgrad_spec</span> <span class="o">=</span> <span class="p">(</span><span class="n">spec_for_block_mac</span><span class="p">(</span><span class="n">m</span><span class="p">)</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="p">(</span><span class="n">mac</span><span class="p">,</span> <span class="n">agrad_mac</span><span class="p">,</span> <span class="n">bgrad_mac</span><span class="p">))</span>
+    <span class="n">qa</span><span class="p">,</span> <span class="n">qb</span> <span class="o">=</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">a</span><span class="p">),</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">mac</span><span class="o">.</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">ag_a</span><span class="p">,</span> <span class="n">ag_b</span> <span class="o">=</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">agrad_mac</span><span class="o">.</span><span class="n">a</span><span class="p">),</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">agrad_mac</span><span class="o">.</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">bg_a</span><span class="p">,</span> <span class="n">bg_b</span> <span class="o">=</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">bgrad_mac</span><span class="o">.</span><span class="n">a</span><span class="p">),</span> <span class="n">cast_quant</span><span class="p">(</span><span class="n">bgrad_mac</span><span class="o">.</span><span class="n">b</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fwd</span><span class="p">(</span><span class="n">q_a</span><span class="p">,</span> <span class="n">q_b</span><span class="p">):</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="n">q_a</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">fwd_spec</span><span class="p">,</span> <span class="n">_packed_operand</span><span class="p">(</span><span class="n">qa</span><span class="p">,</span> <span class="n">q_a</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">_packed_operand</span><span class="p">(</span><span class="n">qb</span><span class="p">,</span> <span class="n">q_b</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">_stored_as</span><span class="p">(</span><span class="n">fwd_spec</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_agrad</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="n">q_b</span><span class="p">):</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">_reused</span><span class="p">(</span><span class="n">q_b</span><span class="p">,</span> <span class="n">ag_b</span><span class="p">,</span> <span class="s2">"a's gradient"</span><span class="p">)</span>
+        <span class="n">b_t</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">mT</span> <span class="k">if</span> <span class="n">b</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">ag_b</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_b</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">mT</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">agrad_spec</span><span class="p">,</span> <span class="n">ag_a</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">b_t</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_stored_as</span><span class="p">(</span><span class="n">agrad_spec</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">q_grad</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_bgrad</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="n">q_a</span><span class="p">):</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">_reused</span><span class="p">(</span><span class="n">q_a</span><span class="p">,</span> <span class="n">bg_a</span><span class="p">,</span> <span class="s2">"b's gradient"</span><span class="p">)</span>
+        <span class="n">a_t</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">mT</span> <span class="k">if</span> <span class="n">a</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bg_a</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_a</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mT</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">bgrad_spec</span><span class="p">,</span> <span class="n">a_t</span><span class="p">,</span> <span class="n">bg_b</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_grad</span><span class="p">,</span> <span class="o">-</span><span class="mi">2</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">_stored_as</span><span class="p">(</span><span class="n">bgrad_spec</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">q_grad</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="n">formats</span> <span class="o">=</span> <span class="n">QMatmulFormats</span><span class="p">(</span><span class="n">fwd_math</span><span class="o">=</span><span class="n">fwd</span><span class="p">,</span> <span class="n">bwd_agrad_math</span><span class="o">=</span><span class="n">bwd_agrad</span><span class="p">,</span> <span class="n">bwd_bgrad_math</span><span class="o">=</span><span class="n">bwd_bgrad</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">qa</span><span class="o">.</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_square</span><span class="p">:</span>
+        <span class="n">formats</span><span class="o">.</span><span class="n">a_quant</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">qa</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">qb</span><span class="o">.</span><span class="n">fmt</span><span class="o">.</span><span class="n">is_square</span><span class="p">:</span>
+        <span class="n">formats</span><span class="o">.</span><span class="n">b_quant</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">qb</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">formats</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">cast_quant</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant | None"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockQuant</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A ``BlockMac`` slot as the ``BlockQuant`` it was normalized to."""</span>
+    <span class="k">assert</span> <span class="n">slot</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># BlockMac.__post_init__ fills b in from a</span>
+    <span class="k">return</span> <span class="n">_as_block_quant</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="s2">"a BlockMac slot"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="block_gemm_formats">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_gemm_formats">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_gemm_formats</span><span class="p">(</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span><span class="p">,</span>
+    <span class="n">weight</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span><span class="p">,</span>
+    <span class="n">grad</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant | None"</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fused</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tensor_scale_epilogue</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QAffineFormats</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build a ``QAffineFormats`` whose three Linear GEMMs are block GEMMs.</span>
+
+<span class="sd">    Each hook packs what it multiplies along the dimension it sums over, in</span>
+<span class="sd">    the format of the tensor's role:</span>
+
+<span class="sd">    - The forward product ``x @ w^T`` packs the input along its features in</span>
+<span class="sd">      ``input``'s format, and the weight along its input features in</span>
+<span class="sd">      ``weight``'s.</span>
+<span class="sd">    - The input gradient ``g @ w`` packs the output gradient along its</span>
+<span class="sd">      features in ``grad``'s format (``input``'s by default), and the weight</span>
+<span class="sd">      along its output features.</span>
+<span class="sd">    - The weight gradient ``g^T @ x`` packs both along the batch.</span>
+
+<span class="sd">    The arithmetic (``acc``, ``fused``, ``rounding``, the accumulate</span>
+<span class="sd">    algorithm) is that of :func:`mptorch.quant.block_matmul` and is shared by</span>
+<span class="sd">    the three passes. Results are in the carrier (float32, or float64 in</span>
+<span class="sd">    binary64), stored in the input's dtype.</span>
+
+<span class="sd">    A weight that arrives already packed, from</span>
+<span class="sd">    ``weight_quant = BlockQuant(fmt, axis=1).pack``, is used as it is. It is</span>
+<span class="sd">    then packed once per optimizer step instead of in each hook (the memo</span>
+<span class="sd">    sees the step's in-place write), and in inference only once.</span>
+
+<span class="sd">    With square tiles</span>
+<span class="sd">    (``dataclasses.replace(fmt, block_rows=fmt.block_size)``, NVFP4's 16 x 16</span>
+<span class="sd">    weights) the input gradient reads that packing transposed, so the forward</span>
+<span class="sd">    and backward passes see the same quantized weight. A 1D or non-square</span>
+<span class="sd">    weight format quantizes differently along the other axis. A weight packed</span>
+<span class="sd">    in such a format therefore raises in the input gradient. To train with</span>
+<span class="sd">    one, leave ``weight_quant`` unset.</span>
+
+<span class="sd">    For inference, :meth:`mptorch.quant.QLinear.freeze_packed_` replaces the</span>
+<span class="sd">    layer's float weight by its codes in ``weight``'s format, and the layer</span>
+<span class="sd">    then holds only those (:class:`mptorch.quant.QPackedLinear`).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input (BlockFormat or BlockQuant): the input's format (a</span>
+<span class="sd">            ``BlockQuant`` names its rounding and tensor scale).</span>
+<span class="sd">        weight (BlockFormat or BlockQuant): the weight's.</span>
+<span class="sd">        grad (BlockFormat or BlockQuant, optional): the output gradient's.</span>
+<span class="sd">            Default: ``None``, ``input``'s.</span>
+<span class="sd">        acc (BinaryK, optional): the accumulate format. Default: ``None``</span>
+<span class="sd">        fused (bool): a fused multiply-add per step. Default: ``False``</span>
+<span class="sd">        rounding (RoundMode): the sum's rounding mode. Default:</span>
+<span class="sd">            ``RoundMode.RNE``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): as for</span>
+<span class="sd">            :class:`mptorch.quant.SplitMac`. Default: ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        block_size (int, optional): BLOCK's and TREE's. Default: ``None``</span>
+<span class="sd">        outer (BinaryK, optional): BLOCK's and TREE's outer format.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        carrier (torch.dtype, optional): ``torch.float64`` packs and</span>
+<span class="sd">            multiplies in binary64 whatever the layer's dtype, as for</span>
+<span class="sd">            :class:`mptorch.quant.BlockMac` (a ``BlockQuant`` that names its</span>
+<span class="sd">            own carrier keeps it). Default: ``None``, the layer's: binary64</span>
+<span class="sd">            for a float64 layer, binary32 otherwise.</span>
+<span class="sd">        tensor_scale_epilogue (bool): apply the operands' per-tensor scales</span>
+<span class="sd">            to each GEMM's result rather than in the decode, as NVIDIA's NVFP4</span>
+<span class="sd">            GEMMs do (:func:`mptorch.quant.block_matmul`). Default: ``False``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        QAffineFormats: with the three math hooks set and every ``*_quant``</span>
+<span class="sd">        slot left ``None``.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import dataclasses, torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, NVFP4</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import BlockQuant, QLinear, block_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; w16 = dataclasses.replace(NVFP4, block_rows=16)</span>
+<span class="sd">        &gt;&gt;&gt; formats = block_gemm_formats(NVFP4, w16, acc=BinaryK(16, 11))</span>
+<span class="sd">        &gt;&gt;&gt; formats.weight_quant = BlockQuant(w16, axis=1).pack</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(64, 32, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; layer(torch.randn(8, 64)).sum().backward()</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">operand</span><span class="p">(</span><span class="n">slot</span><span class="p">:</span> <span class="s2">"BlockFormat | BlockQuant"</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockQuant</span><span class="p">:</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">_as_block_quant</span><span class="p">(</span><span class="n">slot</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="c1"># the factory's carrier packs too, unless the operand names its own</span>
+        <span class="k">if</span> <span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="ow">and</span> <span class="n">q</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">q</span> <span class="o">=</span> <span class="n">replace</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">q</span>
+
+    <span class="n">qi</span> <span class="o">=</span> <span class="n">operand</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="s2">"input"</span><span class="p">)</span>
+    <span class="n">qw</span> <span class="o">=</span> <span class="n">operand</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">)</span>
+    <span class="n">qg</span> <span class="o">=</span> <span class="n">qi</span> <span class="k">if</span> <span class="n">grad</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">operand</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span> <span class="s2">"grad"</span><span class="p">)</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_block_gemm_spec</span><span class="p">(</span>
+        <span class="n">acc</span><span class="p">,</span>
+        <span class="n">fused</span><span class="p">,</span>
+        <span class="n">rounding</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="p">,</span>
+        <span class="n">tensor_scale_epilogue</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">fwd</span><span class="p">(</span><span class="n">q_input</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">,</span> <span class="n">q_bias</span><span class="p">):</span>
+        <span class="n">x_flat</span><span class="p">,</span> <span class="n">x_shape</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_input</span><span class="p">)</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">q_weight</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="n">BlockPacked</span><span class="p">)</span> <span class="k">else</span> <span class="n">qw</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_stored_as</span><span class="p">(</span>
+            <span class="n">spec</span><span class="p">,</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">qi</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">x_flat</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">w</span><span class="o">.</span><span class="n">mT</span><span class="p">),</span> <span class="n">q_input</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">x_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">w</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">q_bias</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">out</span>
+        <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="n">q_bias</span><span class="p">)</span> <span class="k">if</span> <span class="n">q_bias</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span> <span class="k">else</span> <span class="n">out</span> <span class="o">+</span> <span class="n">q_bias</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_igrad</span><span class="p">(</span><span class="n">q_igrad_output</span><span class="p">,</span> <span class="n">q_weight</span><span class="p">):</span>
+        <span class="n">g_flat</span><span class="p">,</span> <span class="n">g_shape</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_igrad_output</span><span class="p">)</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">_reused</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="n">qw</span><span class="p">,</span> <span class="s2">"the input gradient"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">w</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">qw</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">q_weight</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">qg</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">g_flat</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">w</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_stored_as</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">q_igrad_output</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">g_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">w</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">bwd_wgrad</span><span class="p">(</span><span class="n">q_wgrad_output</span><span class="p">,</span> <span class="n">q_input</span><span class="p">):</span>
+        <span class="n">g_flat</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_wgrad_output</span><span class="p">)</span>
+        <span class="n">i_flat</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_flatten_leading</span><span class="p">(</span><span class="n">q_input</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">qg</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">g_flat</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">mT</span><span class="p">,</span> <span class="n">qi</span><span class="o">.</span><span class="n">pack_fresh</span><span class="p">(</span><span class="n">i_flat</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">_stored_as</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">q_wgrad_output</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+    <span class="n">formats</span> <span class="o">=</span> <span class="n">QAffineFormats</span><span class="p">(</span><span class="n">fwd_math</span><span class="o">=</span><span class="n">fwd</span><span class="p">,</span> <span class="n">bwd_igrad_math</span><span class="o">=</span><span class="n">bwd_igrad</span><span class="p">,</span> <span class="n">bwd_wgrad_math</span><span class="o">=</span><span class="n">bwd_wgrad</span><span class="p">)</span>
+    <span class="c1"># the weight's format, which QLinear.freeze_packed_ packs a frozen weight in</span>
+    <span class="n">formats</span><span class="o">.</span><span class="n">_block_weight</span> <span class="o">=</span> <span class="n">qw</span>
+    <span class="k">return</span> <span class="n">formats</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

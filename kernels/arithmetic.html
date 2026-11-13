@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Dot-product arithmetic &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'kernels/arithmetic';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Block matrix products" href="block.html" />
+    <link rel="prev" title="Quantized numerical kernels" href="index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button type="button" class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page" aria-expanded="false" aria-controls="pst-secondary-sidebar-modal">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item pst-sidebar-collapse"><button type="button" id="pst-collapse-sidebar-button" aria-expanded="true" aria-controls="pst-primary-sidebar">
+  <svg class="pst-icon" role="img" aria-hidden="true" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M3 15.5C2.36232 15.5 1.74874 15.2564 1.28478 14.8189C0.820828 14.3815 0.541576 13.7832 0.504167 13.1467L0.5 13L0.5 3C0.499965 2.36232 0.743605 1.74874 1.18107 1.28478C1.61854 0.820828 2.21676 0.541576 2.85333 0.504167L3 0.5L13 0.5C13.6377 0.499965 14.2513 0.743605 14.7152 1.18107C15.1792 1.61854 15.4584 2.21676 15.4958 2.85333L15.5 3L15.5 13C15.5 13.6377 15.2564 14.2513 14.8189 14.7152C14.3815 15.1792 13.7832 15.4584 13.1467 15.4958L13 15.5L3 15.5ZM3 13.8333L10.5 13.8333L10.5 2.16667L3 2.16667C2.79589 2.16669 2.59889 2.24163 2.44636 2.37726C2.29383 2.5129 2.19638 2.69979 2.1725 2.9025L2.16667 3L2.16667 13C2.16669 13.2041 2.24163 13.4011 2.37726 13.5536C2.5129 13.7062 2.69979 13.8036 2.9025 13.8275L3 13.8333ZM6.65583 10.325L6.5775 10.2558L4.91083 8.58917C4.76735 8.44567 4.68116 8.25476 4.66843 8.05223C4.65569 7.84971 4.71729 7.6495 4.84167 7.48917L4.91083 7.41083L6.5775 5.74417C6.72747 5.59471 6.9287 5.50794 7.14032 5.50148C7.35194 5.49502 7.55809 5.56935 7.7169 5.70937C7.8757 5.8494 7.97525 6.04463 7.99533 6.25539C8.01541 6.46616 7.95451 6.67667 7.825 6.84417L7.75583 6.9225L6.67917 8L7.75583 9.0775C7.89931 9.22099 7.98551 9.41191 7.99824 9.61443C8.01097 9.81695 7.94938 10.0172 7.825 10.1775L7.75583 10.2558C7.61234 10.3993 7.42142 10.4855 7.2189 10.4982C7.01638 10.511 6.81617 10.4494 6.65583 10.325Z"/>
+  </svg>
+  <span class="pst-collapse-sidebar-label">Collapse Sidebar</span>
+  <span class="pst-expand-sidebar-label">Expand Sidebar</span>
+</button></div>
+        <div class="sidebar-primary-item">
+
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a aria-current="page" class="current reference internal" href="#">Dot-product arithmetic</a></li>
+<li class="toctree-l1"><a class="reference internal" href="block.html">Block matrix products</a></li>
+<li class="toctree-l1"><a class="reference internal" href="convolutions.html">Convolutions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="calling.html">Calling the kernels</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Quantized numerical kernels</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Dot-product arithmetic</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="dot-product-arithmetic">
+<h1>Dot-product arithmetic<a class="headerlink" href="#dot-product-arithmetic" title="Link to this heading">#</a></h1>
+<p>This page states what one step of the core routine rounds (the <em>mac</em>) and in
+what order the terms of a dot product are summed. It gives the equations the
+kernels follow and a run for each. The same arithmetic runs in every entry
+point of <a class="reference internal" href="index.html"><span class="doc">Quantized numerical kernels</span></a>, and <a class="reference internal" href="calling.html"><span class="doc">Calling the kernels</span></a> lists the objects that specify it.</p>
+<section id="what-is-simulated">
+<h2>What is simulated<a class="headerlink" href="#what-is-simulated" title="Link to this heading">#</a></h2>
+<p>For <span class="math notranslate nohighlight">\(C = AB\)</span> with <span class="math notranslate nohighlight">\(A \in \mathbb{R}^{M \times K}\)</span> and
+<span class="math notranslate nohighlight">\(B \in \mathbb{R}^{K \times N}\)</span>, each output element is a dot product
+of length <span class="math notranslate nohighlight">\(K\)</span>, computed as a running sum in the order
+<span class="math notranslate nohighlight">\(k = 1, \dots, K\)</span>. Two arithmetics are implemented, named after the
+kernel’s own policies.</p>
+<p><strong>SplitMac.</strong> The product and the sum are rounded separately, to formats that
+may differ:</p>
+<div class="math notranslate nohighlight">
+\[s_0 = 0, \qquad
+s_k = Q_{\text{acc}}\Big(s_{k-1} + Q_{\text{mul}}(a_{ik}\, b_{kj})\Big), \qquad
+c_{ij} = s_K .\]</div>
+<p>With <code class="docutils literal notranslate"><span class="pre">acc=None</span></code> the sum is left unrounded and only the products are
+rounded: <span class="math notranslate nohighlight">\(s_k = s_{k-1} + Q_{\text{mul}}(a_{ik} b_{kj})\)</span>.</p>
+<p><strong>FusedMac.</strong> Each step is one fused multiply-add, rounded once, as in a
+hardware FMA unit:</p>
+<div class="math notranslate nohighlight">
+\[s_k = Q_{\text{fma}}\big(a_{ik}\, b_{kj} + s_{k-1}\big).\]</div>
+<p>The product is exact inside the FMA; the carrier still rounds the FMA’s
+result once before the format does (<a class="reference internal" href="#what-the-carrier-rounds">What the carrier rounds</a>, below). With
+<code class="docutils literal notranslate"><span class="pre">fma=None</span></code> nothing is rounded at all, and the dot product is a sequence of
+FMAs.</p>
+<p>In both arithmetics the operands <span class="math notranslate nohighlight">\(a_{ik}\)</span> and <span class="math notranslate nohighlight">\(b_{kj}\)</span> are read
+as they are. Rounding <em>them</em> is a quantizer’s job, and the layers apply one
+before the GEMM (see <a class="reference internal" href="../layers.html"><span class="doc">Layers</span></a>).</p>
+<p>One rounding mode serves both roundings of a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code>. The mode is a
+compile-time parameter of the kernel, and rounding the product one way and
+the sum another would multiply the number of kernels. Saturation, subnormal
+handling and the number of stochastic bits are properties of each format and
+can differ between the two.</p>
+<p>Everything the formats do not round is computed in the operands’ <em>carrier</em>:
+the product before its rounding, the sum before its rounding, and an
+unrounded accumulator. The carrier is binary32 for float32, float16 and
+bfloat16 operands, and binary64 for float64 ones (<a class="reference internal" href="#float64-and-the-carrier">float64 and the
+carrier</a>, below).</p>
+<p>The following run reproduces a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> dot product by hand, step by
+step, and gets the same bits.</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_splitmac.py</span><a class="headerlink" href="#id1" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""A SplitMac dot product, reproduced step by step in Python."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">binaryK_matmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">fmt</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">q</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span>  <span class="c1"># round to Binary8p4</span>
+
+<span class="c1"># The op: every product rounded to Binary8p4, and the running sum rounded to</span>
+<span class="c1"># Binary8p4 after every addition. The *operands* are read as they are.</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">acc_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">acc_P</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+
+<span class="c1"># The same thing by hand, in the same order.</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">K</span><span class="p">):</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">q</span><span class="p">(</span><span class="n">s</span> <span class="o">+</span> <span class="n">q</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">*</span> <span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="mi">0</span><span class="p">]))</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float32 torch.matmul : </span><span class="si">{</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"binaryK_matmul       : </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"by hand              : </span><span class="si">{</span><span class="n">s</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   equal: </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Leaving the accumulator unquantized (acc=None / accumulate_quant=False)</span>
+<span class="c1"># keeps the running sum in float32; only the products are rounded.</span>
+<span class="n">out32</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">accumulate_quant</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">s32</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">K</span><span class="p">):</span>
+    <span class="n">s32</span> <span class="o">=</span> <span class="n">s32</span> <span class="o">+</span> <span class="n">q</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">*</span> <span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span>
+<span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out32</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">s32</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Binary8p4 products, fp32 sum : </span><span class="si">{</span><span class="n">out32</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   by hand equal: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id2" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float32 torch.matmul : -0.526053
+binaryK_matmul       : -0.562500
+by hand              : -0.562500   equal: True
+
+Binary8p4 products, fp32 sum : -0.554688   by hand equal: True
+</pre></div>
+</div>
+</div>
+<p>The next run does the same for <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code>, using float64 to hold the exact
+product-and-add before the single rounding:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_fusedmac.py</span><a class="headerlink" href="#id3" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""SplitMac vs FusedMac: two roundings per step, or one."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">q</span> <span class="o">=</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">)</span>
+
+<span class="n">split</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">))</span>  <span class="c1"># round(round(a*b) + s), twice per step</span>
+<span class="n">fused</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">))</span>  <span class="c1"># round(a*b + s), once per step</span>
+
+<span class="c1"># FusedMac by hand: the product-and-add is exact (float64 holds it), then</span>
+<span class="c1"># rounded once to Binary8p4.</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">K</span><span class="p">):</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">q</span><span class="p">((</span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">*</span> <span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">+</span> <span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">())</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float32 torch.matmul           : </span><span class="si">{</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"SplitMac(Binary8p4, Binary8p4) : </span><span class="si">{</span><span class="n">split</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">fused</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">s</span><span class="o">.</span><span class="n">float</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FusedMac(Binary8p4)            : </span><span class="si">{</span><span class="n">fused</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   by hand equal: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># FusedMac(None) is the unrounded fused step: float32 FMAs, in order.</span>
+<span class="n">unrounded</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FusedMac(None)                 : </span><span class="si">{</span><span class="n">unrounded</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id4">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id4" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float32 torch.matmul           : -0.526053
+SplitMac(Binary8p4, Binary8p4) : -0.562500
+FusedMac(Binary8p4)            : -0.500000   by hand equal: True
+FusedMac(None)                 : -0.526053
+</pre></div>
+</div>
+</div>
+<p>The accumulation format usually matters most. Over a long dot product the
+rounding errors of the partial sums build up, and a format with three
+mantissa bits cannot usefully hold a sum of thousands of terms:</p>
+<div class="literal-block-wrapper docutils container" id="id5">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_accumulation.py</span><a class="headerlink" href="#id5" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""How the accumulation format decides the error of a long dot product."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">64</span>
+<span class="c1"># Entries of size ~1/4, so the dot products (std ~4) stay inside Binary8p4's</span>
+<span class="c1"># range of 224 and the question is precision rather than overflow.</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span> <span class="o">/</span> <span class="mi">4</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span> <span class="o">/</span> <span class="mi">4</span>
+<span class="n">exact</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">@</span> <span class="n">b</span><span class="o">.</span><span class="n">double</span><span class="p">())</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">binary8p4_sr</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">binary8p3</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where the casts cannot tell</span>
+<span class="c1"># one input from another, so a float32 call with one warns (concepts, "What</span>
+<span class="c1"># the carrier can hold"). Nothing here goes anywhere near that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">binary16p8</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>  <span class="c1"># bfloat16's field widths: 8 exponent, 7 mantissa bits</span>
+<span class="c1"># float32's own precision, over a narrower exponent range: no 8-exponent-bit</span>
+<span class="c1"># binaryK fits inside binary32 at any bias, so this is as wide as it goes.</span>
+<span class="n">wide</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">31</span><span class="p">,</span> <span class="mi">24</span><span class="p">)</span>  <span class="c1"># 7 exponent, 23 mantissa bits</span>
+
+<span class="n">configs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"torch.matmul (float32)"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">"SplitMac(Binary8p4, acc=None)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+    <span class="s2">"SplitMac(Binary8p4, 24-bit acc)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">wide</span><span class="p">),</span>
+    <span class="s2">"SplitMac(Binary8p4, Binary16p8)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">),</span>
+    <span class="s2">"SplitMac(Binary8p4, Binary8p3)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p3</span><span class="p">),</span>
+    <span class="s2">"SplitMac(Binary8p4, Binary8p4)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">),</span>
+    <span class="s2">"SplitMac(Binary8p4, Binary8p4), SR"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+        <span class="n">binary8p4_sr</span><span class="p">,</span> <span class="n">binary8p4_sr</span><span class="p">,</span> <span class="n">rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span>
+    <span class="p">),</span>
+    <span class="s2">"FusedMac(Binary8p4)"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">),</span>
+    <span class="s2">"FusedMac(Binary16p8)"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">binary16p8</span><span class="p">),</span>
+<span class="p">}</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'arithmetic'</span><span class="si">:</span><span class="s2">&lt;36</span><span class="si">}{</span><span class="s1">'rel. error'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}{</span><span class="s1">'max |err|'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mac</span> <span class="ow">in</span> <span class="n">configs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">out</span> <span class="o">-</span> <span class="n">exact</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;36</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">exact</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.2e</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.2f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id6">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>arithmetic                            rel. error   max |err|
+torch.matmul (float32)                  2.67e-07        0.00
+SplitMac(Binary8p4, acc=None)           2.65e-02        0.39
+SplitMac(Binary8p4, 24-bit acc)         2.65e-02        0.39
+SplitMac(Binary8p4, Binary16p8)         7.64e-02        1.83
+SplitMac(Binary8p4, Binary8p3)          8.28e-01       13.02
+SplitMac(Binary8p4, Binary8p4)          6.56e-01       10.03
+SplitMac(Binary8p4, Binary8p4), SR      1.12e+00       42.79
+FusedMac(Binary8p4)                     6.38e-01        9.71
+FusedMac(Binary16p8)                    7.04e-02        1.67
+</pre></div>
+</div>
+</div>
+<p>The table shows three things:</p>
+<ul class="simple">
+<li><p>Rounding the products to Binary8p4 costs a relative error of a few percent
+whatever the accumulator, because each product carries the format’s
+<span class="math notranslate nohighlight">\(2^{-4}\)</span> relative error. A float32 accumulator (<code class="docutils literal notranslate"><span class="pre">acc=None</span></code>, or the
+same thing spelled as a 24-bit format) adds nothing to it.</p></li>
+<li><p>A Binary16p8 accumulator, which has bfloat16’s eight bits of precision, is
+noticeably worse, and a Binary8p4 one is useless.</p></li>
+<li><p>Stochastic rounding does <em>not</em> help here; it is worse than
+round-to-nearest. The terms have random signs, so there is no systematic
+bias to remove, only variance to add. Stochastic rounding helps when the
+increments are systematically below half a spacing. That is the
+accumulator case shown in <a class="reference internal" href="../concepts.html"><span class="doc">Formats and rounding</span></a> and the weight-update case in
+the <a class="reference internal" href="../tutorial.html"><span class="doc">Tutorial: training in 8-bit floating point</span></a>.</p></li>
+</ul>
+<p>The two formats of a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> may come from different families:
+<span class="math notranslate nohighlight">\(Q_{\text{mul}}\)</span> a <code class="xref py py-class docutils literal notranslate"><span class="pre">BinaryK</span></code> and <span class="math notranslate nohighlight">\(Q_{\text{acc}}\)</span>
+a <code class="xref py py-class docutils literal notranslate"><span class="pre">SuperFP</span></code>, or the reverse. The equation is the one above,
+each rounding in its own format, and the result holds the accumulate format’s
+values. Such a mac holds one format per slot (the palette kernels are
+single-family), and its sum is always rounded (with <code class="docutils literal notranslate"><span class="pre">acc=None</span></code> the mac has
+one family again). Every algorithm of the next section applies, with an
+<code class="docutils literal notranslate"><span class="pre">outer</span></code> format of the accumulate’s family, in either carrier.</p>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_cross_family.py</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""A SplitMac whose products and sums are rounded in two format families."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">SuperFP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">Quant</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">binaryK_superfp_matmul</span><span class="p">,</span> <span class="n">qmm</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">K</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="c1"># 12 bits: a 6-bit mantissa in the top 31 binades, from 2**-14 up, and 63</span>
+<span class="c1"># powers of two below them, down to 2**-77.</span>
+<span class="n">superfp12</span> <span class="o">=</span> <span class="n">SuperFP</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">31</span><span class="p">,</span> <span class="mi">15</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">by_hand</span><span class="p">(</span><span class="n">q_mul</span><span class="p">,</span> <span class="n">q_acc</span><span class="p">):</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">K</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">q_acc</span><span class="p">(</span><span class="n">s</span> <span class="o">+</span> <span class="n">q_mul</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">*</span> <span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="mi">0</span><span class="p">]))</span>
+    <span class="k">return</span> <span class="n">s</span>
+
+
+<span class="c1"># Binary8p4 products, each partial sum rounded to the SuperFP format.</span>
+<span class="n">mac</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">superfp12</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">qmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">by_hand</span><span class="p">(</span><span class="n">Quant</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">superfp12</span><span class="p">))</span>
+<span class="n">flat</span> <span class="o">=</span> <span class="n">binaryK_superfp_matmul</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">,</span>
+    <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+    <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">acc_man_bits</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+    <span class="n">acc_exp_bits</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">acc_normal_binades</span><span class="o">=</span><span class="mi">31</span><span class="p">,</span>
+    <span class="n">acc_bias</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"float32 torch.matmul           : </span><span class="si">{</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">s</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Binary8p4 products, SuperFP sum: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   by hand equal: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"binaryK_superfp_matmul         : </span><span class="si">{</span><span class="n">flat</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   equal: </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">flat</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The reverse: SuperFP products summed in Binary16p11.</span>
+<span class="n">binary16p11</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">)</span>
+<span class="n">rev</span> <span class="o">=</span> <span class="n">qmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">superfp12</span><span class="p">,</span> <span class="n">binary16p11</span><span class="p">))</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">by_hand</span><span class="p">(</span><span class="n">Quant</span><span class="p">(</span><span class="n">superfp12</span><span class="p">),</span> <span class="n">Quant</span><span class="p">(</span><span class="n">binary16p11</span><span class="p">))</span>
+<span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">rev</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">s</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"SuperFP products, Binary16p11  : </span><span class="si">{</span><span class="n">rev</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">   by hand equal: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># A palette in either slot has no cross-family operator to select.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">SplitMac</span><span class="p">([</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">)],</span> <span class="n">superfp12</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">ValueError: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float32 torch.matmul           : -0.526053
+Binary8p4 products, SuperFP sum: -0.554688   by hand equal: True
+binaryK_superfp_matmul         : -0.554688   equal: True
+SuperFP products, Binary16p11  : -0.539062   by hand equal: True
+
+ValueError: a SplitMac whose multiply and accumulate formats are of different families (BinaryK and SuperFP) takes one format per slot: the cross-family ops have no palette variant
+</pre></div>
+</div>
+</div>
+</section>
+<section id="what-the-carrier-rounds">
+<h2>What the carrier rounds<a class="headerlink" href="#what-the-carrier-rounds" title="Link to this heading">#</a></h2>
+<p>The equations above name the formats’ roundings. Each step also has one they
+do not name: the carrier computes the product, the sum and the FMA to its own
+precision first, 24 bits in binary32 and 53 in binary64, rounding to nearest,
+and the format’s cast then rounds that. Usually the second rounding absorbs
+the first. It does not when the exact value lies within the carrier’s last
+place of a format value: the carrier rounds it onto that value, and a
+directed mode then keeps it instead of going to the neighbour it should have
+gone to. <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">+</span> <span class="pre">2^-30</span></code> rounded up to eight bits is <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">+</span> <span class="pre">2^-7</span></code>, but its
+binary32 sum is exactly 1, which every mode keeps. binary64 holds that gap,
+but not <code class="docutils literal notranslate"><span class="pre">2^-61</span></code>:</p>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_carrier_rounding.py</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""What the carrier rounds: the nearest carrier step and the odd one."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmm</span>
+
+<span class="c1"># Eight bits of precision (the neighbours of 1 are 1 - 2^-8 and 1 + 2^-7), and</span>
+<span class="c1"># a range that holds the products 2^-30 and 2^-61 exactly.</span>
+<span class="n">binary15p8</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">witness</span><span class="p">(</span><span class="n">sign</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">gap</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Two products, 1 and sign * 2^-gap, each a Binary15p8 value: only the</span>
+<span class="sd">    sum, 1 + sign * 2^-gap, is inexact."""</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">gap</span> <span class="o">//</span> <span class="mi">2</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">sign</span> <span class="o">*</span> <span class="mf">2.0</span><span class="o">**-</span><span class="n">h</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">2.0</span> <span class="o">**</span> <span class="o">-</span><span class="p">(</span><span class="n">gap</span> <span class="o">-</span> <span class="n">h</span><span class="p">)]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">carrier_rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">):</span>
+    <span class="n">mac</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary15p8</span><span class="p">,</span> <span class="n">binary15p8</span><span class="p">,</span> <span class="n">rounding</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span> <span class="n">carrier_rounding</span><span class="o">=</span><span class="n">carrier_rounding</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">qmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+
+
+<span class="c1"># (mode, the sign of the gap, the correct rounding of the exact sum)</span>
+<span class="n">cases</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RU</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">7</span><span class="p">),</span>
+    <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RD</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">8</span><span class="p">),</span>
+    <span class="p">(</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">,</span> <span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">7</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'exact'</span><span class="si">:</span><span class="s2">10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'mode'</span><span class="si">:</span><span class="s2">4</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'correct'</span><span class="si">:</span><span class="s2">&gt;9</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="s1">'carrier'</span><span class="si">:</span><span class="s2">8</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'nearest'</span><span class="si">:</span><span class="s2">&gt;9</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'odd'</span><span class="si">:</span><span class="s2">&gt;9</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">mode</span><span class="p">,</span> <span class="n">sign</span><span class="p">,</span> <span class="n">correct</span> <span class="ow">in</span> <span class="n">cases</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">gap</span><span class="p">,</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="p">((</span><span class="mi">30</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span> <span class="p">(</span><span class="mi">61</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)):</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">witness</span><span class="p">(</span><span class="n">sign</span><span class="p">,</span> <span class="n">gap</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+        <span class="n">carrier</span> <span class="o">=</span> <span class="s2">"binary32"</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">else</span> <span class="s2">"binary64"</span>
+        <span class="n">nearest</span><span class="p">,</span> <span class="n">odd</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mode</span><span class="p">),</span> <span class="n">run</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">)</span>
+        <span class="n">exact</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"1 </span><span class="si">{</span><span class="s1">'+'</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">sign</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">'-'</span><span class="si">}</span><span class="s2"> 2^-</span><span class="si">{</span><span class="n">gap</span><span class="si">}</span><span class="s2">"</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">exact</span><span class="si">:</span><span class="s2">10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">mode</span><span class="o">.</span><span class="n">name</span><span class="si">:</span><span class="s2">4</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">correct</span><span class="si">:</span><span class="s2">9.7f</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">carrier</span><span class="si">:</span><span class="s2">8</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">nearest</span><span class="si">:</span><span class="s2">9.7f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">odd</span><span class="si">:</span><span class="s2">9.7f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The guarantee needs a format narrower than the carrier: under RNE at most</span>
+<span class="c1"># 22 bits of precision in binary32. A wider format raises, per call.</span>
+<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">witness</span><span class="p">(</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qmm</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="mi">23</span><span class="p">),</span> <span class="n">carrier_rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">RO</span><span class="p">))</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">ValueError: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>exact      mode   correct | carrier    nearest       odd
+1 + 2^-30  RNE  1.0000000 | binary32 1.0000000 1.0000000
+1 + 2^-30  RNE  1.0000000 | binary64 1.0000000 1.0000000
+1 + 2^-61  RNE  1.0000000 | binary64 1.0000000 1.0000000
+1 + 2^-30  RU   1.0078125 | binary32 1.0000000 1.0078125
+1 + 2^-30  RU   1.0078125 | binary64 1.0078125 1.0078125
+1 + 2^-61  RU   1.0078125 | binary64 1.0000000 1.0078125
+1 - 2^-30  RD   0.9960938 | binary32 1.0000000 0.9960938
+1 - 2^-30  RD   0.9960938 | binary64 0.9960938 0.9960938
+1 - 2^-61  RD   0.9960938 | binary64 1.0000000 0.9960938
+1 + 2^-30  RO   1.0078125 | binary32 1.0000000 1.0078125
+1 + 2^-30  RO   1.0078125 | binary64 1.0078125 1.0078125
+1 + 2^-61  RO   1.0078125 | binary64 1.0000000 1.0078125
+
+ValueError: carrier_rounding=RoundMode.RO: the multiply format's P is 23, and a binary32 step rounded to odd is rounded exactly under RoundMode.RNE only for P &lt;= 22; binary64 holds it: pass carrier=torch.float64
+</pre></div>
+</div>
+</div>
+<p>On random data the effect follows the formats’ precision.
+<code class="docutils literal notranslate"><span class="pre">dev/benchmarks/timing/carrier_double_rounding.py</span> <span class="pre">rates</span></code> counts the outputs on
+which the binary32 and binary64 carriers disagree, at M = N = 256 over N(0, 1)
+operands quantized to the format. At K = 256 FP8 formats disagree on at most
+0.04% of outputs, and formats of up to eleven bits of precision on at most
+0.06% (split) and 0.5% (fused), under the directed modes. The widest
+disagree most: Binary16p12 fused on 1.4%, Binary24p16 on 4.6% split and 22%
+fused. A fused product of two P-bit operands has 2P bits before the add, more
+than binary32 keeps.</p>
+<p><strong>Rounding the carrier step to odd.</strong> <code class="docutils literal notranslate"><span class="pre">carrier_rounding=RoundMode.RO</span></code> on a
+<code class="xref py py-class docutils literal notranslate"><span class="pre">SplitMac</span></code> or <code class="xref py py-class docutils literal notranslate"><span class="pre">FusedMac</span></code> (and on
+the flat functions and the <code class="docutils literal notranslate"><span class="pre">*_gemm_formats</span></code> layer factories) rounds the
+carrier’s product, sum and FMA to odd instead. This is round toward zero onto
+the carrier’s grid with the last bit set whenever the result is inexact. An
+odd result stays strictly between the two carrier values next to the exact
+one, so every format whose rounding boundaries are all even carrier values
+rounds it exactly as it would the exact value (Boldo and Melquiond, “When
+double rounding is odd”). In terms of the format’s precision <code class="docutils literal notranslate"><span class="pre">P</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>the format’s rounding</p></th>
+<th class="head"><p>binary32 (p = 24)</p></th>
+<th class="head"><p>binary64 (p = 53)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RNE</span></code>, <code class="docutils literal notranslate"><span class="pre">RNA</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">&lt;=</span> <span class="pre">22</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">&lt;=</span> <span class="pre">51</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RU</span></code>, <code class="docutils literal notranslate"><span class="pre">RD</span></code>, <code class="docutils literal notranslate"><span class="pre">RZ</span></code>,</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">&lt;=</span> <span class="pre">23</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">&lt;=</span> <span class="pre">52</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RO</span></code></p></td>
+<td></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SR</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">+</span> <span class="pre">prng_bits</span> <span class="pre">&lt;=</span> <span class="pre">23</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">+</span> <span class="pre">prng_bits</span> <span class="pre">&lt;=</span> <span class="pre">52</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The midpoints that <code class="docutils literal notranslate"><span class="pre">RNE</span></code> and <code class="docutils literal notranslate"><span class="pre">RNA</span></code> round at take the extra bit. The bound
+holds below the carrier’s normal range and for saturating formats, but not
+for <code class="docutils literal notranslate"><span class="pre">SR</span></code> below the format’s smallest value, whose arms compute in the
+carrier before they draw. A call whose format is outside the bound raises.
+In binary32 the error names <code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> where binary64 holds
+the format.</p>
+<p>Two results change beyond the corrected neighbours:</p>
+<ul class="simple">
+<li><p>A finite exact sum larger than the carrier’s largest value reaches the cast
+as that value instead of as infinity, so <code class="docutils literal notranslate"><span class="pre">SAT_PROPAGATE</span></code> saturates it, as
+P3109 says a finite value should.</p></li>
+<li><p>With <code class="docutils literal notranslate"><span class="pre">acc=None</span></code> only the product is rounded to odd: no format rounds the
+sum after it, so it stays the carrier’s nearest add.</p></li>
+</ul>
+<p>The odd step is implemented for the <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> single-format GEMMs of one
+family, split and fused, on CPU and CUDA tensors in both carriers. The
+<code class="docutils literal notranslate"><span class="pre">custom_matmul_*_odd</span></code> ops are separate, so the default ones are what they
+were. <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>, <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> and <code class="docutils literal notranslate"><span class="pre">TREE</span></code> rely on error-free transforms rounded
+to nearest, and refuse it. So do palettes, the cross-family macs, the
+convolutions (<a class="reference internal" href="../api.html#mptorch.quant.conv_formats" title="mptorch.quant.conv_formats"><code class="xref py py-func docutils literal notranslate"><span class="pre">conv_formats()</span></code></a>) and an Apple GPU. On the
+CPU it assumes the default floating-point environment; a flush-to-zero mode
+(<code class="docutils literal notranslate"><span class="pre">torch.set_flush_denormal(True)</span></code>) breaks it in subnormal ranges, as it does
+the carrier arithmetic everywhere else.</p>
+<p>It costs time, mostly on the CPU (<code class="docutils literal notranslate"><span class="pre">carrier_double_rounding.py</span> <span class="pre">bench</span></code>,
+measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>time against the nearest step</p></th>
+<th class="head"><p>fused</p></th>
+<th class="head"><p>split</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>CUDA, binary32</p></td>
+<td><p>1.06-1.16x</p></td>
+<td><p>1.05-1.16x</p></td>
+</tr>
+<tr class="row-odd"><td><p>CUDA, binary64 (GeForce)</p></td>
+<td><p>1.2x (SR) - 2.1x (RU)</p></td>
+<td><p>1.2x (SR) - 1.5x</p></td>
+</tr>
+<tr class="row-even"><td><p>CPU, binary32</p></td>
+<td><p>1.4-2.4x</p></td>
+<td><p>1.6-2.1x</p></td>
+</tr>
+<tr class="row-odd"><td><p>CPU, binary64</p></td>
+<td><p>1.5-2.6x</p></td>
+<td><p>1.1-1.7x</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>On a GPU, binary32 rounds to odd with two FMAs in the hardware’s directed
+modes and a select. The binary64 kernels of a consumer GPU are limited by its
+FP64 rate, which the second FMA and the directed modes’ own FP64 compares
+share. The CPU has no directed rounding to call, so each step is a sequence
+of error-free transforms on the sum’s dependency chain: a binary64 sum and an
+exact correction in binary32, and in binary64 an exact product split, two
+sums and a fix of the last bit.</p>
+</section>
+<section id="summing-differently-kahan-block-and-tree">
+<h2>Summing differently: KAHAN, BLOCK and TREE<a class="headerlink" href="#summing-differently-kahan-block-and-tree" title="Link to this heading">#</a></h2>
+<p>A narrow accumulator does badly in the table above because of the <em>order</em> of
+the sum as much as its width. There is one running sum, rounded <span class="math notranslate nohighlight">\(K\)</span>
+times, each time against a total that has grown far larger than the term
+being added. <code class="docutils literal notranslate"><span class="pre">accumulate_algorithm</span></code> changes the order and keeps the
+formats.</p>
+<p>Take one output element and drop its indices <span class="math notranslate nohighlight">\(i, j\)</span>, so that its terms
+are <span class="math notranslate nohighlight">\(a_k b_k\)</span> for <span class="math notranslate nohighlight">\(k = 1, \dots, K\)</span>. Let
+<span class="math notranslate nohighlight">\(p_k = Q_{\text{mul}}(a_k b_k)\)</span> be the rounded product, <span class="math notranslate nohighlight">\(s\)</span> the
+running sum, <span class="math notranslate nohighlight">\(Q_{\text{acc}}\)</span> the accumulate rounding and
+<span class="math notranslate nohighlight">\(Q_{\text{out}}\)</span> a third rounding, the mac’s <code class="docutils literal notranslate"><span class="pre">outer</span></code> format. Each is
+the identity when its format is <code class="docutils literal notranslate"><span class="pre">None</span></code>. The algorithms are:</p>
+<dl class="simple">
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">NAIVE</span></code></dt><dd><p><span class="math notranslate nohighlight">\(s \leftarrow Q_{\text{acc}}(s + p_k)\)</span>, the recurrence above.</p>
+</dd>
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">KAHAN</span></code></dt><dd><p>Kahan’s compensated sum. The compensation <span class="math notranslate nohighlight">\(c\)</span> is held in the
+accumulate format, like the sum:
+<span class="math notranslate nohighlight">\(y = Q_{\text{acc}}(p_k - c)\)</span>, <span class="math notranslate nohighlight">\(t = Q_{\text{acc}}(s + y)\)</span>,
+<span class="math notranslate nohighlight">\(c \leftarrow Q_{\text{acc}}(Q_{\text{acc}}(t - s) - y)\)</span>,
+<span class="math notranslate nohighlight">\(s \leftarrow t\)</span>. This is four accumulate roundings per step, where
+<code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> has one.</p>
+</dd>
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">BLOCK</span></code></dt><dd><p>Two levels. The <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> recurrence runs on a block’s sum. After every
+<code class="docutils literal notranslate"><span class="pre">block_size</span></code> products, and after the last one, the block is added to a
+total <span class="math notranslate nohighlight">\(T\)</span>, <span class="math notranslate nohighlight">\(T \leftarrow Q_{\text{out}}(T + s)\)</span>, and restarted
+from zero. A block’s sum stays small, so a narrow <code class="docutils literal notranslate"><span class="pre">acc</span></code> loses little in
+it. <code class="docutils literal notranslate"><span class="pre">outer</span></code> (wider, or <code class="docutils literal notranslate"><span class="pre">None</span></code> for the carrier) is rounded once per
+block instead of once per product. <code class="docutils literal notranslate"><span class="pre">block_size</span></code> divides 16 or is a
+multiple of it.</p>
+</dd>
+<dt><code class="xref py py-attr docutils literal notranslate"><span class="pre">TREE</span></code></dt><dd><p>The products of a block of <code class="docutils literal notranslate"><span class="pre">block_size</span></code> <span class="math notranslate nohighlight">\(= 2^L\)</span> (up to 256, 16 by
+default) are summed pairwise:
+<span class="math notranslate nohighlight">\(Q_{\text{acc}}(Q_{\text{acc}}(p_1 + p_2) + Q_{\text{acc}}(p_3 + p_4))\)</span>
+and so on up. Every addition is then of two terms of similar size. The
+block’s root is added to the total as in <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code>. This is for
+<code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> only: a fused multiply-add has no product term to pair.</p>
+</dd>
+</dl>
+<p>In <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code> and <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code>, a fused mac’s step,
+<span class="math notranslate nohighlight">\(Q_{\text{fma}}(s + a_k b_k)\)</span>, replaces the split one. A last partial
+block is added like a whole one, and nothing is padded. The CPU and CUDA
+kernels return the same bits in every deterministic mode. The result holds
+the values of the last rounding applied, which is <code class="docutils literal notranslate"><span class="pre">outer</span></code>’s when there is
+one. <code class="xref py py-class docutils literal notranslate"><span class="pre">AccumulateAlgorithm</span></code> states each algorithm step by
+step, including the draws of <code class="docutils literal notranslate"><span class="pre">RoundMode.SR</span></code>.</p>
+<div class="literal-block-wrapper docutils container" id="id11">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_kahan_block_tree.py</span><a class="headerlink" href="#id11" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""KAHAN, BLOCK and TREE on the operands of gemm_accumulation.py."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">AccumulateAlgorithm</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">NAIVE</span><span class="p">,</span> <span class="n">KAHAN</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">,</span> <span class="n">TREE</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="mi">64</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span> <span class="o">/</span> <span class="mi">4</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span> <span class="o">/</span> <span class="mi">4</span>
+<span class="c1"># The reference is computed in float64, on the CPU.</span>
+<span class="n">exact</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">@</span> <span class="n">b</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+<span class="n">binary8p4</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">binary16p8</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>  <span class="c1"># bfloat16's field widths: 8 exponent, 7 mantissa bits</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">report</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">configs</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">title</span><span class="si">:</span><span class="s2">&lt;42</span><span class="si">}{</span><span class="s1">'rel. error'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}{</span><span class="s1">'max |err|'</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mac</span> <span class="ow">in</span> <span class="n">configs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">)</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">-</span> <span class="n">exact</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;40</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">exact</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.2e</span><span class="si">}{</span><span class="n">err</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">&gt;12.2e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">()</span>
+
+
+<span class="c1"># Nothing rounded but float32 itself: what each summation order is worth.</span>
+<span class="n">report</span><span class="p">(</span>
+    <span class="s2">"float32 products and sums"</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="s2">"NAIVE"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">),</span>
+        <span class="s2">"KAHAN"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">KAHAN</span><span class="p">),</span>
+        <span class="s2">"BLOCK, 64 per block"</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">64</span><span class="p">),</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="c1"># Binary8p4 products into a Binary16p8 accumulator, which NAIVE loses bits in at</span>
+<span class="c1"># every one of the 4096 steps.</span>
+<span class="n">report</span><span class="p">(</span>
+    <span class="s2">"Binary8p4 products, Binary16p8 sums"</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="s2">"NAIVE"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">),</span>
+        <span class="s2">"KAHAN"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">KAHAN</span><span class="p">),</span>
+        <span class="s2">"BLOCK, 16 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">16</span>
+        <span class="p">),</span>
+        <span class="s2">"BLOCK, 64 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">64</span>
+        <span class="p">),</span>
+        <span class="s2">"BLOCK, 64 per block, outer=Binary16p8"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">outer</span><span class="o">=</span><span class="n">binary16p8</span>
+        <span class="p">),</span>
+        <span class="s2">"TREE, 16 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">),</span>
+        <span class="s2">"TREE, 256 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">256</span>
+        <span class="p">),</span>
+        <span class="s2">"TREE, 256 per block, outer=Binary16p8"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">outer</span><span class="o">=</span><span class="n">binary16p8</span>
+        <span class="p">),</span>
+        <span class="s2">"the products' own error (acc=None)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="c1"># The same with an accumulator as narrow as the products.</span>
+<span class="n">report</span><span class="p">(</span>
+    <span class="s2">"Binary8p4 products, Binary8p4 sums"</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="s2">"NAIVE"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">),</span>
+        <span class="s2">"KAHAN"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">KAHAN</span><span class="p">),</span>
+        <span class="s2">"BLOCK, 4 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span>
+        <span class="p">),</span>
+        <span class="s2">"BLOCK, 4 per block, outer=Binary16p8"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">outer</span><span class="o">=</span><span class="n">binary16p8</span>
+        <span class="p">),</span>
+        <span class="s2">"TREE, 4 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span>
+        <span class="p">),</span>
+        <span class="s2">"TREE, 4 per block, outer=Binary16p8"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p4</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">outer</span><span class="o">=</span><span class="n">binary16p8</span>
+        <span class="p">),</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="c1"># The second table in binary64 (carrier=torch.float64 on these float32 operands):</span>
+<span class="c1"># each product is exact there, so the multiply format rounds it once, not twice.</span>
+<span class="n">wide</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+<span class="n">report</span><span class="p">(</span>
+    <span class="s2">"binary64: Binary8p4 products, Binary16p8 sums"</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="s2">"NAIVE"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">wide</span><span class="p">),</span>
+        <span class="s2">"KAHAN"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">KAHAN</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">wide</span><span class="p">),</span>
+        <span class="s2">"TREE, 256 per block"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span>
+            <span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">,</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">TREE</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">wide</span>
+        <span class="p">),</span>
+        <span class="s2">"the products' own error (acc=None)"</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">binary8p4</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">wide</span><span class="p">),</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id12">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id12" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float32 products and sums                   rel. error   max |err|
+  NAIVE                                       1.13e-06    3.99e-05
+  KAHAN                                       3.64e-08    6.72e-07
+  BLOCK, 64 per block                         2.05e-07    3.67e-06
+
+Binary8p4 products, Binary16p8 sums         rel. error   max |err|
+  NAIVE                                       7.64e-02    1.83e+00
+  KAHAN                                       2.66e-02    3.77e-01
+  BLOCK, 16 per block                         2.67e-02    3.89e-01
+  BLOCK, 64 per block                         2.79e-02    4.02e-01
+  BLOCK, 64 per block, outer=Binary16p8       2.97e-02    4.11e-01
+  TREE, 16 per block                          2.66e-02    3.86e-01
+  TREE, 256 per block                         2.68e-02    3.81e-01
+  TREE, 256 per block, outer=Binary16p8       2.72e-02    3.77e-01
+  the products' own error (acc=None)          2.65e-02    3.93e-01
+
+Binary8p4 products, Binary8p4 sums          rel. error   max |err|
+  NAIVE                                       6.56e-01    1.00e+01
+  KAHAN                                       5.66e-02    9.91e-01
+  BLOCK, 4 per block                          4.94e-02    7.34e-01
+  BLOCK, 4 per block, outer=Binary16p8        6.23e-02    1.40e+00
+  TREE, 4 per block                           4.83e-02    7.53e-01
+  TREE, 4 per block, outer=Binary16p8         6.05e-02    1.19e+00
+
+binary64: Binary8p4 products, Binary16p8 sums  rel. error   max |err|
+  NAIVE                                       7.64e-02    1.83e+00
+  KAHAN                                       2.66e-02    3.77e-01
+  TREE, 256 per block                         2.68e-02    3.81e-01
+  the products' own error (acc=None)          2.65e-02    3.93e-01
+</pre></div>
+</div>
+</div>
+<p>In float32 the three behave as in any numerical library: <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code> recovers
+about a digit and a half over a 4096-term sum, and blocking about half of
+that. The other two tables show them with formats:</p>
+<ul class="simple">
+<li><p><strong>Second table.</strong> An accumulator with eight bits of precision costs
+<code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> three times the error that the Binary8p4 products already carry.
+Every other row is back at the products’ own error, which no summation can
+improve on.</p></li>
+<li><p><strong>Third table.</strong> This is the narrowest case, sums in Binary8p4 itself.
+<code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> is useless, and the other three are within a factor of two of the
+products’ error. An <code class="docutils literal notranslate"><span class="pre">outer</span></code> format <em>narrower</em> than the carrier costs a
+little, as expected: it is one more rounding, and in exchange the total is
+a value of a format you chose.</p></li>
+<li><p><strong>Fourth table.</strong> The second, in binary64 (<code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code>). A
+product of two float32 operands is exact there, so the multiply format
+rounds it once instead of twice. The errors are the second table’s to three
+digits: the formats round every intermediate far more than binary32 does.</p></li>
+</ul>
+<p>The price is kernel time, in proportion to the roundings per step. On an RTX
+4060 laptop GPU a 1024<sup>3</sup> split-mac GEMM takes 1.2 times <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code>’s
+time under <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code>, 1.3 under <code class="docutils literal notranslate"><span class="pre">TREE</span></code> and 2.2 under <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>
+(<code class="docutils literal notranslate"><span class="pre">BinaryK(8,</span> <span class="pre">4)</span></code> products into <code class="docutils literal notranslate"><span class="pre">BinaryK(16,</span> <span class="pre">11)</span></code> sums under <code class="docutils literal notranslate"><span class="pre">RNE</span></code>,
+September 2026). The three are implemented for the
+single-format ops, on the CPU, CUDA and Apple GPUs, in both carriers (next
+section) where the device has float64. A palette raises.</p>
+</section>
+<section id="float64-and-the-carrier">
+<h2>float64 and the carrier<a class="headerlink" href="#float64-and-the-carrier" title="Link to this heading">#</a></h2>
+<p>A float64 GEMM is computed in binary64 from end to end: every product, every
+sum and every rounding. So is a float32, float16 or bfloat16 GEMM that names
+<code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code>. This is a different arithmetic from the binary32
+one, not the same one widened, in three ways:</p>
+<ul class="simple">
+<li><p><strong>Products of narrow operands are rounded once.</strong> In binary32 a product is
+rounded to 24 bits before the multiply format rounds it again. In binary64
+the product of two operands of at most 26 significant bits is exact, and
+only the format rounds it. Two float32 values qualify, as do two values a
+quantizer has rounded. A binary64 GEMM can therefore round differently
+even when every operand is a float32 value, as the run’s first lines show.
+It agrees with the binary32 GEMM exactly when every product and sum is
+exact in both. Operands already rounded to a narrow format usually give
+that (the FP8 recipe in <a class="reference internal" href="../layers.html"><span class="doc">Layers</span></a> agrees to the bit).</p></li>
+<li><p><strong>Wider formats.</strong> Each call holds the formats to its carrier’s bounds
+(<a class="reference internal" href="../concepts.html"><span class="doc">Formats and rounding</span></a>). Formats beyond binary32, such as a 30-bit multiply
+format into a 40-bit accumulator, are refused on float32 operands and
+computed exactly on float64 ones.</p></li>
+<li><p><strong>Wider random draws.</strong> Under <code class="docutils literal notranslate"><span class="pre">SR</span></code> each rounding draws two words of its
+element’s stream, and <code class="docutils literal notranslate"><span class="pre">P</span> <span class="pre">-</span> <span class="pre">1</span> <span class="pre">+</span> <span class="pre">prng_bits</span></code> may reach 52.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">carrier=torch.float64</span></code> on a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> / <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code>, or on the flat
+function, computes narrower operands the binary64 way. Both operands are
+widened, the binary64 kernel runs, and the result is narrowed back to their
+dtype with one rounding. This is bit for bit the float64 call on the widened
+operands, random draws included, then stored.</p>
+<p>The stored result is held to what that dtype can store (<a class="reference internal" href="../concepts.html"><span class="doc">Formats and rounding</span></a>). A
+float32 result is held to 24 bits of precision in its accumulate or fused
+format. For float32 operands, binary64 therefore improves everything
+<em>before</em> the last rounding: an unquantized sum no longer loses a bit per
+step, and the multiply format can be wider than the result. The run measures
+this.</p>
+<p>The carrier is never narrower than the operands. <code class="docutils literal notranslate"><span class="pre">carrier=torch.float32</span></code>
+on float64 operands raises, and a float32 and a float64 operand cannot be
+mixed in one call under either carrier.</p>
+<p>Every accumulate algorithm runs in binary64 as <code class="docutils literal notranslate"><span class="pre">NAIVE</span></code> does, and so do the
+cross-family macs and the convolutions (<a class="reference internal" href="convolutions.html"><span class="doc">Convolutions</span></a>). A <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code>
+compensation in binary64 carries the bits a binary64 sum drops.</p>
+<div class="literal-block-wrapper docutils container" id="id13">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_float64.py</span><a class="headerlink" href="#id13" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""binary64 GEMMs: every product, sum and rounding in binary64, on any operands."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">AccumulateAlgorithm</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">SuperFP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">binaryK_matmul</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">F32</span><span class="p">,</span> <span class="n">F64</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># The product is rounded once. (1 + 2**-13)**2 = 1 + 2**-12 + 2**-26 is just</span>
+<span class="c1"># above the tie between 1 and 1 + 2**-11 on a 12-bit grid. binary32 rounds the</span>
+<span class="c1"># product to 24 bits before the format sees it -- onto the tie itself, which</span>
+<span class="c1"># round-to-nearest-even then sends to 1 -- and binary64 keeps it whole, for</span>
+<span class="c1"># float64 operands and for float32 ones that name it.</span>
+<span class="n">p12</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">12</span><span class="p">))</span>
+<span class="n">p12_64</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="n">one</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">2</span><span class="o">**-</span><span class="mi">13</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"float32 operands                "</span><span class="p">,</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">one</span><span class="p">,</span> <span class="n">one</span><span class="p">,</span> <span class="n">p12</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"float64 operands                "</span><span class="p">,</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">one</span><span class="o">.</span><span class="n">double</span><span class="p">(),</span> <span class="n">one</span><span class="o">.</span><span class="n">double</span><span class="p">(),</span> <span class="n">p12</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">one</span><span class="p">,</span> <span class="n">one</span><span class="p">,</span> <span class="n">p12_64</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"float32, carrier=torch.float64  "</span><span class="p">,</span> <span class="n">out</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+<span class="c1"># Formats only binary64 carries, against float64's own product.</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">error</span><span class="p">(</span><span class="n">out</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">exact</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">double</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">exact</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">torch</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">exact</span><span class="p">))</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.1e</span><span class="si">}</span><span class="s2">"</span>
+
+
+<span class="n">wide</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">))</span>
+<span class="n">p24</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">31</span><span class="p">,</span> <span class="mi">24</span><span class="p">)</span>
+<span class="n">kahan</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">KAHAN</span>
+<span class="n">macs</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=30, P=40)"</span><span class="p">,</span> <span class="n">wide</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"  KAHAN"</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">),</span> <span class="n">accumulate_algorithm</span><span class="o">=</span><span class="n">kahan</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"FusedMac(P=40)"</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">))),</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=24, P=24)"</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">p24</span><span class="p">,</span> <span class="n">p24</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"SplitMac(superfp, P=40)"</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">SuperFP</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">62</span><span class="p">,</span> <span class="mi">31</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">))),</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=4, P=4)"</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">relative error against a @ b, float64 operands"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mac</span> <span class="ow">in</span> <span class="n">macs</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;24</span><span class="si">}{</span><span class="n">error</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">mac</span><span class="p">),</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">@</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Float32 operands, against the exact product of their values, in each carrier.</span>
+<span class="c1"># A result stored in float32 holds at most 24 bits, so what binary64 buys is</span>
+<span class="c1"># everything before the last rounding: sums that do not lose a bit per step, and</span>
+<span class="c1"># a multiply format wider than the result.</span>
+<span class="n">a32</span><span class="p">,</span> <span class="n">b32</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">b</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+<span class="n">exact32</span> <span class="o">=</span> <span class="n">a32</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="o">@</span> <span class="n">b32</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+<span class="n">macs32</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=24, None)"</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">p24</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">c</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"FusedMac(None)"</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">FusedMac</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">c</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=30, P=24)"</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">p24</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">c</span><span class="p">)),</span>
+    <span class="p">(</span><span class="s2">"SplitMac(P=4, P=4)"</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">c</span><span class="p">)),</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">float32 operands            </span><span class="si">{</span><span class="s1">'binary32'</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}</span><span class="s2">carrier=torch.float64"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">build</span> <span class="ow">in</span> <span class="n">macs32</span><span class="p">:</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">carrier</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">F64</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">error</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a32</span><span class="p">,</span> <span class="n">b32</span><span class="p">,</span> <span class="n">build</span><span class="p">(</span><span class="n">carrier</span><span class="p">)),</span> <span class="n">exact32</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="n">row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"raises"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&lt;26</span><span class="si">}{</span><span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">&lt;10</span><span class="si">}{</span><span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The wide formats are refused where binary32 does the arithmetic, and where a</span>
+<span class="c1"># float32 result would have to store them.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qmatmul</span><span class="p">(</span><span class="n">a32</span><span class="p">,</span> <span class="n">b32</span><span class="p">,</span> <span class="n">wide</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">float32 operands:"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">": "</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qmatmul</span><span class="p">(</span><span class="n">a32</span><span class="p">,</span> <span class="n">b32</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">40</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F64</span><span class="p">))</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"float32, carrier=torch.float64:"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">": "</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+
+<span class="c1"># carrier=torch.float64 is the float64 call on the widened operands, narrowed,</span>
+<span class="c1"># and so is the flat function's keyword; the result keeps the operands' dtype.</span>
+<span class="c1"># (Binary8p4's values are float16's too, so `.to` narrows them exactly.)</span>
+<span class="n">binary8p4_64</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">F32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">):</span>
+    <span class="n">ad</span><span class="p">,</span> <span class="n">bd</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">),</span> <span class="n">b</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">got</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">ad</span><span class="p">,</span> <span class="n">bd</span><span class="p">,</span> <span class="n">binary8p4_64</span><span class="p">)</span>
+    <span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">ad</span><span class="o">.</span><span class="n">double</span><span class="p">(),</span> <span class="n">bd</span><span class="o">.</span><span class="n">double</span><span class="p">(),</span> <span class="n">binary8p4_64</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="si">:</span><span class="s2">&lt;13</span><span class="si">}</span><span class="s2"> carrier=torch.float64 == the float64 call, narrowed: </span><span class="si">{</span><span class="n">same</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">flat</span> <span class="o">=</span> <span class="n">binaryK_matmul</span><span class="p">(</span><span class="n">a32</span><span class="p">,</span> <span class="n">b32</span><span class="p">,</span> <span class="n">mul_K</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">mul_P</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F64</span><span class="p">)</span>
+<span class="n">agrees</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">flat</span><span class="p">,</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a32</span><span class="p">,</span> <span class="n">b32</span><span class="p">,</span> <span class="n">binary8p4_64</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"binaryK_matmul(..., carrier=torch.float64) agrees:"</span><span class="p">,</span> <span class="n">agrees</span><span class="p">)</span>
+
+<span class="c1"># A carrier is never narrower than the operands.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">carrier</span><span class="o">=</span><span class="n">F32</span><span class="p">))</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">carrier=torch.float32 on float64:"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">";"</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id14">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id14" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>float32 operands                 1.0
+float64 operands                 1.00048828125
+float32, carrier=torch.float64   1.00048828125 torch.float32
+
+relative error against a @ b, float64 operands
+  SplitMac(P=30, P=40)    3.9e-10
+    KAHAN                 3.9e-10
+  FusedMac(P=40)          4.4e-12
+  SplitMac(P=24, P=24)    2.9e-07
+  SplitMac(superfp, P=40) 8.1e-04
+  SplitMac(P=4, P=4)      2.6e-01
+
+float32 operands            binary32  carrier=torch.float64
+  SplitMac(P=24, None)      3.0e-07   3.7e-08
+  FusedMac(None)            2.9e-07   2.6e-08
+  SplitMac(P=30, P=24)      raises    2.9e-07
+  SplitMac(P=4, P=4)        2.6e-01   2.6e-01
+
+float32 operands: BinaryK(K=40, P=30, bias=512) asks for 30 bits of precision, and it is rounded in binary32, which has 24
+float32, carrier=torch.float64: BinaryK(K=48, P=40, bias=128) has 40 bits of precision, and a float32 result holds 24
+
+torch.float32 carrier=torch.float64 == the float64 call, narrowed: True
+torch.float16 carrier=torch.float64 == the float64 call, narrowed: True
+binaryK_matmul(..., carrier=torch.float64) agrees: True
+
+carrier=torch.float32 on float64: carrier=torch.float32 is narrower than float64 operands, whose inputs it would round once before the format does
+</pre></div>
+</div>
+</div>
+<p>In the float64 table, <code class="docutils literal notranslate"><span class="pre">KAHAN</span></code> adds nothing to a 40-bit accumulator, which
+already keeps what the 30-bit products carry, and a cross-family mac (a
+superfp multiply into a 40-bit binaryK sum) runs in binary64 like the
+single-family ones.</p>
+<p>The float32 table shows the other side of the choice. Where the formats round
+every intermediate the carrier would (24 bits, or Binary8p4’s four on either
+side), the two carriers are within one rounding of each other or equal to
+the bit. Beyond what the formats keep, the carrier adds little. On a GPU it
+also costs time (see <a class="reference internal" href="calling.html"><span class="doc">Calling the kernels</span></a>, “Performance notes”), in addition to
+the float64 copies of the operands and the result.</p>
+</section>
+<section id="palettes-a-format-per-output-element">
+<h2>Palettes: a format per output element<a class="headerlink" href="#palettes-a-format-per-output-element" title="Link to this heading">#</a></h2>
+<p>A <code class="docutils literal notranslate"><span class="pre">Palette</span></code> in any format slot selects the <em>spatially-varying</em> kernel. Each
+output element’s dot product runs in the palette entry that an integer map,
+<code class="docutils literal notranslate"><span class="pre">prec_idx</span></code>, assigns to it. The map can have:</p>
+<ul class="simple">
+<li><p>the output’s shape <code class="docutils literal notranslate"><span class="pre">[M,</span> <span class="pre">N]</span></code>;</p></li>
+<li><p>shape <code class="docutils literal notranslate"><span class="pre">[M,</span> <span class="pre">1]</span></code>, for one format per row;</p></li>
+<li><p>shape <code class="docutils literal notranslate"><span class="pre">[1,</span> <span class="pre">N]</span></code>, for one format per column.</p></li>
+</ul>
+<p>It can also have a leading batch dimension, of the batch size or of size 1
+to share the map. Its values must lie in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">len(palette))</span></code>. A palette’s
+entries must agree on everything except their widths (sign, stochastic bits,
+saturation and subnormal policy), because the kernel tabulates only the
+widths.</p>
+<div class="literal-block-wrapper docutils container" id="id15">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_palette.py</span><a class="headerlink" href="#id15" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Palette: a different format per output element, selected by prec_idx."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">FormatRangeWarning</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">Palette</span><span class="p">,</span> <span class="n">QMatmul</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">matmul_formats</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">4</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+
+<span class="c1"># An 8-exponent-bit binaryK reaches below 2**-126, where binary32's casts</span>
+<span class="c1"># cannot tell one input from another, so a float32 call with one warns</span>
+<span class="c1"># (concepts, "What the carrier can hold"). Nothing here goes anywhere near</span>
+<span class="c1"># that small.</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">,</span> <span class="n">FormatRangeWarning</span><span class="p">)</span>
+
+<span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p3</span><span class="p">,</span> <span class="n">binary16p8</span> <span class="o">=</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="n">palette</span> <span class="o">=</span> <span class="n">Palette</span><span class="p">([</span><span class="n">binary8p4</span><span class="p">,</span> <span class="n">binary8p3</span><span class="p">,</span> <span class="n">binary16p8</span><span class="p">])</span>
+<span class="n">mac</span> <span class="o">=</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">palette</span><span class="p">,</span> <span class="n">palette</span><span class="p">)</span>  <span class="c1"># entry i: multiply and accumulate in format i</span>
+
+<span class="c1"># One map entry per output row: rows 0-1 in Binary8p4, 2-3 in Binary8p3, 4-5 in</span>
+<span class="c1"># Binary16p8.</span>
+<span class="n">prec_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="p">[</span><span class="mi">2</span><span class="p">]])</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span>
+
+<span class="c1"># Each row equals the same row computed with that single format.</span>
+<span class="k">for</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">rows</span> <span class="ow">in</span> <span class="p">((</span><span class="n">binary8p4</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]),</span> <span class="p">(</span><span class="n">binary8p3</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]),</span> <span class="p">(</span><span class="n">binary16p8</span><span class="p">,</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">])):</span>
+    <span class="n">single</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">fmt</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"rows </span><span class="si">{</span><span class="n">rows</span><span class="si">}</span><span class="s2"> == </span><span class="si">{</span><span class="n">fmt</span><span class="o">.</span><span class="n">K</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">fmt</span><span class="o">.</span><span class="n">P</span><span class="si">}</span><span class="s2"> single-format rows:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">out</span><span class="p">[</span><span class="n">rows</span><span class="p">],</span> <span class="n">single</span><span class="p">[</span><span class="n">rows</span><span class="p">])</span>
+    <span class="p">)</span>
+
+<span class="c1"># A map can also be per column ([1, N]) or dense ([M, N]).</span>
+<span class="n">per_col</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span>
+<span class="n">dense</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"per-column map:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">per_col</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"dense map:     "</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">dense</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># A palette that also has to differentiate needs one map per pass, because</span>
+<span class="c1"># the three passes have three output shapes: [M, N], [M, K] and [K, N].</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="n">matmul_formats</span><span class="p">(</span>
+    <span class="n">mac</span><span class="p">,</span>
+    <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">,</span>  <span class="c1"># forward, [M, N]-shaped (or [M, 1] / [1, N])</span>
+    <span class="n">agrad_prec_idx</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">),</span>  <span class="c1"># grad of a: [M, K]</span>
+    <span class="n">bgrad_prec_idx</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="mi">2</span><span class="p">),</span>  <span class="c1"># grad of b: [K, N]</span>
+<span class="p">)</span>
+<span class="n">layer</span> <span class="o">=</span> <span class="n">QMatmul</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>
+<span class="n">a</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">layer</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"grad through a palette:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># Forgetting one is an error naming the argument, not a silent fallback.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">mac</span><span class="p">,</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"ValueError:"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id16">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id16" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>rows [0, 1] == 8/4 single-format rows: True
+rows [2, 3] == 8/3 single-format rows: True
+rows [4, 5] == 16/8 single-format rows: True
+per-column map: (6, 4)
+dense map:      (6, 4)
+grad through a palette: (6, 32)
+ValueError: this format is a palette, so its gradient of a needs its own prec_idx map (shaped like that pass's output): pass agrad_prec_idx= to matmul_formats
+</pre></div>
+</div>
+</div>
+<section id="a-format-for-every-element">
+<h3>A format for every element<a class="headerlink" href="#a-format-for-every-element" title="Link to this heading">#</a></h3>
+<p>A dense <code class="docutils literal notranslate"><span class="pre">[M,</span> <span class="pre">N]</span></code> map is the general case. Every output element’s dot
+product runs in the palette entry named by its own map entry, independently
+of its row, its column and its neighbours. How the map is chosen is up to the
+caller: a sensitivity analysis, a hardware assignment, a search.</p>
+<p>The run below builds one per element. For each of the 20 elements of a
+product it takes the narrowest of eight BinaryK formats, from 3 to 24 bits of
+precision, whose result stays within 0.1% of the exact dot product there. It
+then runs the whole product as a single palette GEMM and checks every element
+against the single-format GEMM in that element’s format. They are equal to
+the bit, because an element’s dot product reads only its own row and column
+of the operands and its own palette entry.</p>
+<p>The same map picks a <em>pair</em> when the multiply and the accumulate palettes
+differ. Entry <code class="docutils literal notranslate"><span class="pre">i</span></code> of a <code class="docutils literal notranslate"><span class="pre">SplitMac</span></code> palette pairs <code class="docutils literal notranslate"><span class="pre">mul[i]</span></code> with
+<code class="docutils literal notranslate"><span class="pre">acc[i]</span></code>, so one element can multiply in 4 bits into a 24-bit sum while its
+neighbour does the opposite. A <code class="docutils literal notranslate"><span class="pre">FusedMac</span></code> takes a palette the same way. A
+batched product takes a <code class="docutils literal notranslate"><span class="pre">[B,</span> <span class="pre">M,</span> <span class="pre">N]</span></code> map, with a format per element of every
+sample. The fields a palette shares (sign, stochastic bits, saturation and
+subnormals) are shared by every element; a palette whose entries disagree on
+one is refused, with an error naming the entry.</p>
+<div class="literal-block-wrapper docutils container" id="id17">
+<div class="code-block-caption"><span class="caption-text">docs/snippets/gemm_palette_elements.py</span><a class="headerlink" href="#id17" title="Link to this code">#</a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""A format for every output element: a dense prec_idx map over an eight-format palette."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch</span><span class="w"> </span><span class="kn">import</span> <span class="n">BinaryK</span><span class="p">,</span> <span class="n">RoundMode</span><span class="p">,</span> <span class="n">SubnormalsMode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.quant</span><span class="w"> </span><span class="kn">import</span> <span class="n">FusedMac</span><span class="p">,</span> <span class="n">Palette</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">,</span> <span class="n">qmatmul</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">5</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+<span class="n">exact</span> <span class="o">=</span> <span class="n">a</span> <span class="o">@</span> <span class="n">b</span>
+
+<span class="c1"># Eight BinaryK formats, from 3 to 24 bits of precision -- a palette holds at</span>
+<span class="c1"># most eight, and its entries may differ in anything but the fields the</span>
+<span class="c1"># kernel shares across the palette (sign, stochastic bits, saturation and</span>
+<span class="c1"># subnormals).</span>
+<span class="n">formats</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="mi">15</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">24</span><span class="p">,</span> <span class="mi">19</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">31</span><span class="p">,</span> <span class="mi">24</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">palette</span> <span class="o">=</span> <span class="n">Palette</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>
+
+<span class="c1"># Choose each output element's format on its own: the narrowest whose</span>
+<span class="c1"># single-format GEMM is within 0.1% of the exact dot product there, or the</span>
+<span class="c1"># widest where none is. Any rule works -- a map is just an integer per element.</span>
+<span class="n">tol</span> <span class="o">=</span> <span class="mf">1e-3</span>
+<span class="n">errors</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([(</span><span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">f</span><span class="p">))</span> <span class="o">-</span> <span class="n">exact</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">/</span> <span class="n">exact</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">formats</span><span class="p">])</span>
+<span class="n">fits</span> <span class="o">=</span> <span class="n">errors</span> <span class="o">&lt;=</span> <span class="n">tol</span>
+<span class="n">prec_idx</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">fits</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">fits</span><span class="o">.</span><span class="n">int</span><span class="p">()</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"P of the format each output element runs in:"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="n">formats</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">P</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">prec_idx</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]))</span>
+
+<span class="c1"># One GEMM, every element in its own format.</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">palette</span><span class="p">,</span> <span class="n">palette</span><span class="p">),</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">prec_idx</span><span class="p">)</span>
+<span class="n">rel</span> <span class="o">=</span> <span class="p">(</span><span class="n">out</span> <span class="o">-</span> <span class="n">exact</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">/</span> <span class="n">exact</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">worst relative error </span><span class="si">{</span><span class="n">rel</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2"> (target </span><span class="si">{</span><span class="n">tol</span><span class="si">:</span><span class="s2">.0e</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
+
+<span class="c1"># ... and each element is exactly what a single-format GEMM in its format gives.</span>
+<span class="n">same</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">formats</span><span class="p">):</span>
+    <span class="n">here</span> <span class="o">=</span> <span class="n">prec_idx</span> <span class="o">==</span> <span class="n">i</span>
+    <span class="n">same</span><span class="p">[</span><span class="n">here</span><span class="p">]</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">f</span><span class="p">))[</span><span class="n">here</span><span class="p">]</span> <span class="o">==</span> <span class="n">out</span><span class="p">[</span><span class="n">here</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"all </span><span class="si">{</span><span class="n">M</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">N</span><span class="si">}</span><span class="s2"> elements equal their own format's GEMM: </span><span class="si">{</span><span class="nb">bool</span><span class="p">(</span><span class="n">same</span><span class="o">.</span><span class="n">all</span><span class="p">())</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># The multiply and the accumulate of each element can differ too: palette entry</span>
+<span class="c1"># i pairs multiply format i with accumulate format i, so a map entry picks a</span>
+<span class="c1"># pair -- here a 4-bit multiply into a 24-bit sum, or the other way round.</span>
+<span class="n">mul</span> <span class="o">=</span> <span class="n">Palette</span><span class="p">([</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">31</span><span class="p">,</span> <span class="mi">24</span><span class="p">)])</span>
+<span class="n">acc</span> <span class="o">=</span> <span class="n">Palette</span><span class="p">([</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">31</span><span class="p">,</span> <span class="mi">24</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">)])</span>
+<span class="n">pairs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span>
+<span class="n">split</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="n">acc</span><span class="p">),</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">pairs</span><span class="p">)</span>
+<span class="n">ok</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">split</span><span class="p">[</span><span class="n">pairs</span> <span class="o">==</span> <span class="n">i</span><span class="p">],</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">mul</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">acc</span><span class="p">[</span><span class="n">i</span><span class="p">]))[</span><span class="n">pairs</span> <span class="o">==</span> <span class="n">i</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">per-element (multiply, accumulate) pairs match their own GEMM: </span><span class="si">{</span><span class="n">ok</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># A fused step takes a palette the same way, and so do the shared fields: here</span>
+<span class="c1"># every entry rounds stochastically with 8 random bits and no subnormals.</span>
+<span class="n">fused_formats</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">subnormals</span><span class="o">=</span><span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">NORMALS</span><span class="p">),</span>
+    <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="n">prng_bits</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">subnormals</span><span class="o">=</span><span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">NORMALS</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">fused</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">FusedMac</span><span class="p">(</span><span class="n">fused_formats</span><span class="p">,</span> <span class="n">rounding</span><span class="o">=</span><span class="n">RoundMode</span><span class="o">.</span><span class="n">SR</span><span class="p">),</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">pairs</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"stochastic fused palette:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">fused</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="c1"># A batched product takes one map per batch element, [B, M, N], so every</span>
+<span class="c1"># element of every sample can run in its own format.</span>
+<span class="n">ab</span><span class="p">,</span> <span class="n">bb</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+<span class="n">per_sample</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">formats</span><span class="p">),</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">))</span>
+<span class="n">batched</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">ab</span><span class="p">,</span> <span class="n">bb</span><span class="p">,</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">palette</span><span class="p">,</span> <span class="n">palette</span><span class="p">),</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">per_sample</span><span class="p">)</span>
+<span class="n">first</span> <span class="o">=</span> <span class="n">qmatmul</span><span class="p">(</span><span class="n">ab</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">bb</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">SplitMac</span><span class="p">(</span><span class="n">palette</span><span class="p">,</span> <span class="n">palette</span><span class="p">),</span> <span class="n">prec_idx</span><span class="o">=</span><span class="n">per_sample</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"batched map, sample 0 equals its own call:"</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">batched</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">first</span><span class="p">))</span>
+
+<span class="c1"># The fields a palette shares must agree, and it says which entry does not.</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">Palette</span><span class="p">([</span><span class="n">BinaryK</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">BinaryK</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="n">subnormals</span><span class="o">=</span><span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">NORMALS</span><span class="p">)])</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">ValueError:"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id18">
+<div class="code-block-caption"><span class="caption-text">output</span><a class="headerlink" href="#id18" title="Link to this code">#</a></div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>P of the format each output element runs in:
+tensor([[11, 11, 15, 11, 11],
+        [15, 15, 15, 15, 15],
+        [ 8, 15, 11, 15, 11],
+        [15,  8, 15,  6,  8]])
+
+worst relative error 7.62e-04 (target 1e-03)
+all 20 elements equal their own format's GEMM: True
+
+per-element (multiply, accumulate) pairs match their own GEMM: True
+stochastic fused palette: (4, 5)
+batched map, sample 0 equals its own call: True
+
+ValueError: a Palette shares subnormals across its entries (the kernel tabulates only the format widths): entry 1 has subnormals=&lt;SubnormalsMode.NORMALS: 1&gt;, entry 0 has &lt;SubnormalsMode.SUBNORMALS: 0&gt;
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Quantized numerical kernels</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="block.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Block matrix products</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal" tabindex="-1"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-simulated">What is simulated</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-carrier-rounds">What the carrier rounds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#summing-differently-kahan-block-and-tree">Summing differently: KAHAN, BLOCK and TREE</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#float64-and-the-carrier">float64 and the carrier</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#palettes-a-format-per-output-element">Palettes: a format per output element</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-format-for-every-element">A format for every element</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  <div class="tocsection sourcelink">
+    <a href="../_sources/kernels/arithmetic.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

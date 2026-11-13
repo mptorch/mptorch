@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.block &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/block';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../_static/searchtools.js"></script>
+    <script src="../../../_static/language_data.js"></script>
+    <script src="../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.block</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.block</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Block formats: packing a tensor into one, reading it back, and multiplying two.</span>
+
+<span class="sd">A block format (:class:`mptorch.BlockFormat`: OCP MX, NVFP4) stores a tensor</span>
+<span class="sd">as narrow element codes that share a scale per block of ``block_size``</span>
+<span class="sd">consecutive elements along one axis, the *packed* axis. This module is the</span>
+<span class="sd">schema tier of the four elementwise ops and the GEMM over them:</span>
+
+<span class="sd">* :func:`block_pack` rounds a tensor to the format and stores it, as a</span>
+<span class="sd">  :class:`BlockPacked` of ``uint8`` codes and scales;</span>
+<span class="sd">* :func:`block_unpack` decodes a :class:`BlockPacked`;</span>
+<span class="sd">* :func:`block_quantize` and :func:`block_quantize_` are the two fused, the</span>
+<span class="sd">  decoded values of the rounding with no packed intermediate (the second in</span>
+<span class="sd">  place);</span>
+<span class="sd">* :func:`block_matmul` multiplies two :class:`BlockPacked` operands, decoding</span>
+<span class="sd">  them in the GEMM's tile loads, in the dot-product arithmetic it is given.</span>
+
+<span class="sd">The value tier is :class:`mptorch.quant.BlockQuant` and</span>
+<span class="sd">:class:`mptorch.quant.BlockMac`; the layer factories are</span>
+<span class="sd">:func:`mptorch.quant.block_matmul_formats` and</span>
+<span class="sd">:func:`mptorch.quant.block_gemm_formats`.</span>
+
+<span class="sd">The kernels round in the carrier: binary64 for a float64 tensor or</span>
+<span class="sd">``carrier=torch.float64`` (a narrower tensor is widened first and the result</span>
+<span class="sd">narrowed back with one rounding), and binary32 otherwise. A</span>
+<span class="sd">:class:`BlockPacked` remembers the carrier it was packed in, and unpacking it</span>
+<span class="sd">or multiplying it runs in that carrier or a wider one. On MPS, which has no</span>
+<span class="sd">float64, the binary32 carrier is the only one.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">lru_cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">NamedTuple</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mptorch.number</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AccumulateAlgorithm</span><span class="p">,</span>
+    <span class="n">BinaryK</span><span class="p">,</span>
+    <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">FixedPoint</span><span class="p">,</span>
+    <span class="n">RoundMode</span><span class="p">,</span>
+    <span class="n">SaturationMode</span><span class="p">,</span>
+    <span class="n">SubnormalsMode</span><span class="p">,</span>
+    <span class="n">SuperFP</span><span class="p">,</span>
+    <span class="n">_binaryK_findings</span><span class="p">,</span>
+    <span class="n">_block_label</span><span class="p">,</span>
+    <span class="n">_minifloat</span><span class="p">,</span>
+    <span class="n">check_binaryK_storage</span><span class="p">,</span>
+    <span class="n">check_block_carrier</span><span class="p">,</span>
+    <span class="n">check_block_storage</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.ops</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_BELOW_BINARY64</span><span class="p">,</span>
+    <span class="n">_CARRIER</span><span class="p">,</span>
+    <span class="n">_NARROW_STORAGE</span><span class="p">,</span>
+    <span class="n">_call_carrier</span><span class="p">,</span>
+    <span class="n">_check_stored</span><span class="p">,</span>
+    <span class="n">_checked_block_size</span><span class="p">,</span>
+    <span class="n">_checked_carrier</span><span class="p">,</span>
+    <span class="n">_Findings</span><span class="p">,</span>
+    <span class="n">_format_findings</span><span class="p">,</span>
+    <span class="n">_narrowed</span><span class="p">,</span>
+    <span class="n">_report_findings</span><span class="p">,</span>
+    <span class="n">_Stored</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"BlockPacked"</span><span class="p">,</span>
+    <span class="s2">"block_pack"</span><span class="p">,</span>
+    <span class="s2">"block_unpack"</span><span class="p">,</span>
+    <span class="s2">"block_quantize"</span><span class="p">,</span>
+    <span class="s2">"block_quantize_"</span><span class="p">,</span>
+    <span class="s2">"block_matmul"</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<span class="c1"># --- the format as the ops take it -------------------------------------------</span>
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_code_fields</span><span class="p">(</span>
+    <span class="n">f</span><span class="p">:</span> <span class="s2">"BinaryK | SuperFP | FixedPoint"</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""One code's family and layout, as the descriptor spells it: (family,</span>
+<span class="sd">    signed, exp_bits, man_bits, bias, subnormals, normal_binades), family 0 a</span>
+<span class="sd">    binaryK and 1 a superfp, each leaving the other's field 0. A fixed-point</span>
+<span class="sd">    element is family 0: the binaryK layout its integer code is</span>
+<span class="sd">    (`mptorch.number._minifloat`), under SUBNORMALS."""</span>
+    <span class="n">mf</span> <span class="o">=</span> <span class="n">_minifloat</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">FixedPoint</span><span class="p">):</span>
+        <span class="n">sub</span> <span class="o">=</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">is_signed</span><span class="p">),</span> <span class="n">mf</span><span class="o">.</span><span class="n">exp_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">sub</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">SuperFP</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">is_signed</span><span class="p">),</span> <span class="n">mf</span><span class="o">.</span><span class="n">exp_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">normal_binades</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">is_signed</span><span class="p">),</span> <span class="n">mf</span><span class="o">.</span><span class="n">exp_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">man_bits</span><span class="p">,</span> <span class="n">mf</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">subnormals</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The format's ``int[] fmt`` descriptor, in ``BlockFmtField``'s order</span>
+<span class="sd">    (``csrc/common/block_decode.h``): the element code, the scale code, the</span>
+<span class="sd">    block's size and rows. One builder here, one reader there."""</span>
+    <span class="n">e</span> <span class="o">=</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem</span>
+    <span class="n">efam</span><span class="p">,</span> <span class="n">esg</span><span class="p">,</span> <span class="n">ee</span><span class="p">,</span> <span class="n">em</span><span class="p">,</span> <span class="n">eb</span><span class="p">,</span> <span class="n">esub</span><span class="p">,</span> <span class="n">enb</span> <span class="o">=</span> <span class="n">_code_fields</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale</span>
+    <span class="k">if</span> <span class="n">s</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">kind</span><span class="p">,</span> <span class="n">sfields</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">kind</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">)</span> <span class="ow">and</span> <span class="n">s</span><span class="o">.</span><span class="n">P</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="mi">2</span>
+        <span class="n">sfields</span> <span class="o">=</span> <span class="n">_code_fields</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">sfam</span><span class="p">,</span> <span class="n">ssg</span><span class="p">,</span> <span class="n">se</span><span class="p">,</span> <span class="n">sm</span><span class="p">,</span> <span class="n">sb</span><span class="p">,</span> <span class="n">ssub</span><span class="p">,</span> <span class="n">snb</span> <span class="o">=</span> <span class="n">sfields</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">fmt</span><span class="o">.</span><span class="n">elem_bits</span><span class="p">,</span>
+        <span class="n">efam</span><span class="p">,</span>
+        <span class="n">esg</span><span class="p">,</span>
+        <span class="n">ee</span><span class="p">,</span>
+        <span class="n">em</span><span class="p">,</span>
+        <span class="n">eb</span><span class="p">,</span>
+        <span class="n">esub</span><span class="p">,</span>
+        <span class="n">enb</span><span class="p">,</span>
+        <span class="o">-</span><span class="mi">1</span> <span class="k">if</span> <span class="n">fmt</span><span class="o">.</span><span class="n">nan_code</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">fmt</span><span class="o">.</span><span class="n">nan_code</span><span class="p">,</span>
+        <span class="o">-</span><span class="mi">1</span> <span class="k">if</span> <span class="n">fmt</span><span class="o">.</span><span class="n">inf_code</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">fmt</span><span class="o">.</span><span class="n">inf_code</span><span class="p">,</span>
+        <span class="n">e</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+        <span class="n">kind</span><span class="p">,</span>
+        <span class="n">sfam</span><span class="p">,</span>
+        <span class="n">ssg</span><span class="p">,</span>
+        <span class="n">se</span><span class="p">,</span>
+        <span class="n">sm</span><span class="p">,</span>
+        <span class="n">sb</span><span class="p">,</span>
+        <span class="n">ssub</span><span class="p">,</span>
+        <span class="n">snb</span><span class="p">,</span>
+        <span class="mi">0</span> <span class="k">if</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_rule</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_rule</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">fmt</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">fmt</span><span class="o">.</span><span class="n">block_rows</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_float32</span><span class="p">(</span><span class="n">v</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``v`` rounded to the nearest float32, as a Python float."""</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_amax</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``max |x|`` as a 0-d tensor of ``x``'s dtype and device: one reduction,</span>
+<span class="sd">    with no ``|x|``-sized temporary (a weight's worth of memory at the peak of</span>
+<span class="sd">    a layer's step). ``max(-min, max)`` is that value exactly, and a NaN or an</span>
+<span class="sd">    infinity in ``x`` makes it non-finite, as ``vector_norm(x, inf)`` does.</span>
+<span class="sd">    ``torch.aminmax`` rather than ``vector_norm``, which took 25 ms against</span>
+<span class="sd">    1.5 over 2^24 float32 elements on an Apple GPU, and 4.5 ms against 0.3 over</span>
+<span class="sd">    bfloat16 ones on the CPU."""</span>
+    <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">aminmax</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="o">-</span><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_tensor_scale</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">wide</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The per-tensor scale a call packs with: 1 for a format without one.</span>
+
+<span class="sd">    NVFP4's default is ``max(|x|) / (elem_max * top_scale)`` over the finite</span>
+<span class="sd">    elements, in the carrier's arithmetic (float32, or float64 when ``wide``),</span>
+<span class="sd">    so that the tensor's largest block takes the scale ``top_scale``: the</span>
+<span class="sd">    largest one, or under a Four Over Six rule the largest that leaves the</span>
+<span class="sd">    block its second candidate (256 for E4M3). A tensor with no nonzero</span>
+<span class="sd">    finite element takes 1. A caller-supplied (static) scale is rounded to</span>
+<span class="sd">    the carrier's precision (float32 or float64).</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fmt</span><span class="o">.</span><span class="n">has_tensor_scale</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">tensor_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">_block_label</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="si">}</span><span class="s2"> has no per-tensor scale: tensor_scale belongs to a format "</span>
+                <span class="s2">"whose block scale has a mantissa (NVFP4)"</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="mf">1.0</span>
+    <span class="k">if</span> <span class="n">tensor_scale</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">ts</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">tensor_scale</span><span class="p">)</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">_float32</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">tensor_scale</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">ts</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">ts</span> <span class="o">==</span> <span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"tensor_scale must be a positive finite float, got </span><span class="si">{</span><span class="n">tensor_scale</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ts</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mf">1.0</span>
+    <span class="k">assert</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># resolved by BlockFormat.__post_init__</span>
+    <span class="k">if</span> <span class="n">wide</span><span class="p">:</span>
+        <span class="n">amax</span> <span class="o">=</span> <span class="n">_amax</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">amax</span><span class="p">):</span>
+            <span class="n">a</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+            <span class="n">zero</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">amax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="n">a</span><span class="p">,</span> <span class="n">zero</span><span class="p">)</span><span class="o">.</span><span class="n">amax</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+        <span class="n">ts</span> <span class="o">=</span> <span class="n">amax</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">/</span> <span class="p">(</span><span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span> <span class="o">*</span> <span class="n">fmt</span><span class="o">.</span><span class="n">top_scale</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ts</span> <span class="k">if</span> <span class="n">ts</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">1.0</span>
+    <span class="c1"># The non-finite elements are left out only when there are some, which</span>
+    <span class="c1"># costs the temporaries.</span>
+    <span class="n">amax</span> <span class="o">=</span> <span class="n">_amax</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">amax</span><span class="p">):</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+        <span class="n">amax</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="n">a</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((),</span> <span class="n">device</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">device</span><span class="p">))</span><span class="o">.</span><span class="n">amax</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="p">(</span><span class="n">amax</span> <span class="o">/</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span> <span class="o">*</span> <span class="n">fmt</span><span class="o">.</span><span class="n">top_scale</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">ts</span> <span class="k">if</span> <span class="n">ts</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">1.0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_prologue</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span> <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""What every elementwise call checks first: the format, and the carrier the</span>
+<span class="sd">    call rounds in, which the format must be one of; returns whether that is</span>
+<span class="sd">    binary64."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">BlockFormat</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2"> takes a BlockFormat, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">fmt</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">wide</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_call_carrier</span><span class="p">(</span><span class="n">_checked_carrier</span><span class="p">(</span><span class="n">carrier</span><span class="p">),</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">check_block_carrier</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">_CARRIER</span><span class="p">[</span><span class="n">wide</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">wide</span>
+
+
+<span class="c1"># --- a packed tensor --------------------------------------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_moved_shape</span><span class="p">(</span><span class="n">shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""The logical shape with the packed axis moved last: the storage order."""</span>
+    <span class="k">return</span> <span class="p">(</span><span class="o">*</span><span class="n">shape</span><span class="p">[:</span><span class="n">axis</span><span class="p">],</span> <span class="o">*</span><span class="n">shape</span><span class="p">[</span><span class="n">axis</span> <span class="o">+</span> <span class="mi">1</span> <span class="p">:],</span> <span class="n">shape</span><span class="p">[</span><span class="n">axis</span><span class="p">])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_storage_view</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">in_place</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``x`` with its packed axis last, as the rank-2 or rank-3 tensor the ops</span>
+<span class="sd">    read: a view wherever one exists (a 1D tensor is one row, and the leading</span>
+<span class="sd">    dimensions of a rank-4-or-more tensor are folded into one)."""</span>
+    <span class="n">moved</span> <span class="o">=</span> <span class="n">x</span> <span class="k">if</span> <span class="n">axis</span> <span class="o">==</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">x</span><span class="o">.</span><span class="n">movedim</span><span class="p">(</span><span class="n">axis</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">moved</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">moved</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">moved</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">moved</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">moved</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]:</span>
+        <span class="n">batch</span> <span class="o">*=</span> <span class="n">d</span>
+    <span class="k">if</span> <span class="n">in_place</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">moved</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="o">*</span><span class="n">moved</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">_ writes its argument in place, and folding this tensor's leading "</span>
+                <span class="s2">"dimensions with its packed axis moved last needs a copy: use "</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">, which writes a new tensor"</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+    <span class="k">return</span> <span class="n">moved</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="o">*</span><span class="n">moved</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
+
+
+<div class="viewcode-block" id="BlockPacked">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockPacked">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BlockPacked</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A tensor stored in a :class:`mptorch.BlockFormat`: ``uint8`` codes and scales.</span>
+
+<span class="sd">    This is what :func:`block_pack` returns. Its fields are:</span>
+
+<span class="sd">    - ``data``: the element codes of the logical tensor with its packed axis</span>
+<span class="sd">      moved last, ``[..., rows, row_bytes]``. The leading dimensions are</span>
+<span class="sd">      folded into one, and a 1D tensor is stored as one row.</span>
+<span class="sd">    - ``scales``: the scale codes, ``[..., row_tiles, n_blocks]``. A format</span>
+<span class="sd">      without a scale has no columns.</span>
+<span class="sd">    - ``shape``, ``axis`` and ``dtype``: the logical tensor's shape, the axis</span>
+<span class="sd">      it was packed along, and the dtype it was packed from, which</span>
+<span class="sd">      :meth:`unpack` returns.</span>
+<span class="sd">    - ``tensor_scale``: the per-tensor scale it was packed with (1 for a</span>
+<span class="sd">      format without one).</span>
+<span class="sd">    - ``carrier``: the carrier it was packed in, ``torch.float32`` (binary32)</span>
+<span class="sd">      or ``torch.float64`` (binary64). :meth:`unpack` and</span>
+<span class="sd">      :func:`block_matmul` decode it in that carrier or a wider one. It</span>
+<span class="sd">      defaults to ``dtype``'s: binary64 for float64, binary32 otherwise.</span>
+
+<span class="sd">    :attr:`mT` is the logical transpose of the last two dimensions. It reads</span>
+<span class="sd">    the same codes the other way: nothing is copied, and only ``shape`` and</span>
+<span class="sd">    ``axis`` change. This lets :func:`block_matmul` read one packed weight in</span>
+<span class="sd">    both a layer's forward pass and its input gradient.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_pack</span>
+<span class="sd">        &gt;&gt;&gt; w = torch.randn(64, 256)</span>
+<span class="sd">        &gt;&gt;&gt; p = block_pack(w, MXFP8_E4M3)</span>
+<span class="sd">        &gt;&gt;&gt; p.data.shape, p.scales.shape, p.nbytes</span>
+<span class="sd">        (torch.Size([64, 256]), torch.Size([64, 8]), 16896)</span>
+<span class="sd">        &gt;&gt;&gt; p.mT.shape, p.mT.axis, p.mT.data.data_ptr() == p.data.data_ptr()</span>
+<span class="sd">        ((256, 64), 0, True)</span>
+<span class="sd">    """</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="s2">"scales"</span><span class="p">,</span> <span class="s2">"fmt"</span><span class="p">,</span> <span class="s2">"shape"</span><span class="p">,</span> <span class="s2">"axis"</span><span class="p">,</span> <span class="s2">"tensor_scale"</span><span class="p">,</span> <span class="s2">"dtype"</span><span class="p">,</span> <span class="s2">"carrier"</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scales</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span>
+        <span class="n">shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scales</span> <span class="o">=</span> <span class="n">scales</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span> <span class="o">=</span> <span class="n">fmt</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="o">=</span> <span class="n">axis</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span> <span class="o">=</span> <span class="n">tensor_scale</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">dtype</span>
+        <span class="k">if</span> <span class="n">carrier</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">carrier</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">carrier</span> <span class="o">=</span> <span class="n">carrier</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"BlockPacked(shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, axis=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2">, fmt=</span><span class="si">{</span><span class="n">_block_label</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">)</span><span class="si">}</span><span class="s2">, "</span>
+            <span class="sa">f</span><span class="s2">"dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">)"</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The device the codes live on."""</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">device</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">nbytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Bytes of codes and scales together."""</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scales</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">cols</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The length of the packed axis. The rows of ``data`` round it up to whole</span>
+<span class="sd">        blocks."""</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">axis</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">mT</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"BlockPacked"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The logical transpose of the last two dimensions, without a copy."""</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">2</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="o">&lt;</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">"mT swaps a packed tensor's last two dimensions, which needs it packed along "</span>
+                <span class="sa">f</span><span class="s2">"one of them; this one is packed along axis </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2"> of </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+        <span class="n">axis</span> <span class="o">=</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">2</span> <span class="k">else</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">2</span>
+        <span class="k">return</span> <span class="n">BlockPacked</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="n">shape</span><span class="p">,</span>
+            <span class="n">axis</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="BlockPacked.to">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockPacked.to">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"BlockPacked"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""The same codes on ``device``."""</span>
+        <span class="k">return</span> <span class="n">BlockPacked</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scales</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">axis</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tensor_scale</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">carrier</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BlockPacked.unpack">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.BlockPacked.unpack">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">unpack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">""":func:`block_unpack` of this tensor."""</span>
+        <span class="k">return</span> <span class="n">block_unpack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_format_args</span><span class="p">(</span><span class="n">p</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""An operand's format as the schemas take it: the descriptor and its floats,</span>
+<span class="sd">    with ``tensor_scale`` in place of the operand's own when given."""</span>
+    <span class="n">fmt</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">fmt</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">tensor_scale</span> <span class="k">if</span> <span class="n">tensor_scale</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">tensor_scale</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">),</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span><span class="p">,</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_max</span><span class="p">,</span> <span class="n">ts</span><span class="p">)</span>
+
+
+<span class="c1"># --- the elementwise ops -------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="block_pack">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_pack">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_pack</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BlockPacked</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Round ``x`` to a block format along ``axis`` and store it packed.</span>
+
+<span class="sd">    Each run of ``fmt.block_size`` consecutive elements along ``axis`` shares</span>
+<span class="sd">    one scale. For a 2D format the run also spans ``fmt.block_rows`` rows</span>
+<span class="sd">    along the axis before it. The scale is chosen from the block's values as</span>
+<span class="sd">    :class:`mptorch.BlockFormat` describes. Each element is then divided by</span>
+<span class="sd">    the scale and rounded to the element format in ``rounding``. The result</span>
+<span class="sd">    stores the codes, which take a quarter to an eighth of float32's bytes;</span>
+<span class="sd">    :class:`BlockPacked` describes the layout. A transposed view is packed</span>
+<span class="sd">    without a copy, and so is any ``axis``, because the kernel reads ``x``</span>
+<span class="sd">    through its strides.</span>
+
+<span class="sd">    Under ``RoundMode.SR`` an element's random bits are keyed on its index in</span>
+<span class="sd">    the packed orientation (the tensor with ``axis`` moved last).</span>
+<span class="sd">    :func:`block_quantize` with the same generator state therefore draws the</span>
+<span class="sd">    same bits.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        x (Tensor): float32, float64, float16 or bfloat16, of any rank.</span>
+<span class="sd">        fmt (BlockFormat): the format.</span>
+<span class="sd">        axis (int): the axis to pack along. Default: ``-1``</span>
+<span class="sd">        rounding (RoundMode): the elements' rounding mode. The scale is</span>
+<span class="sd">            always chosen by the format's rule. Default: ``RoundMode.RNE``</span>
+<span class="sd">        tensor_scale (float, optional): the per-tensor scale of a format whose</span>
+<span class="sd">            block scale has a mantissa (NVFP4). ``None`` takes</span>
+<span class="sd">            ``max(|x|) / (elem_max * top_scale)``, which reads ``x`` once</span>
+<span class="sd">            more and, on a GPU, synchronizes with it. Default: ``None``</span>
+<span class="sd">        carrier (torch.dtype, optional): the arithmetic the rounding runs in:</span>
+<span class="sd">            ``torch.float64`` packs any ``x`` in binary64, widening a narrower</span>
+<span class="sd">            one first (the default tensor scale is then a float64 quotient),</span>
+<span class="sd">            and ``torch.float32`` names binary32, which a float64 ``x``</span>
+<span class="sd">            refuses. Default: ``None``, ``x``'s own: binary64 for float64,</span>
+<span class="sd">            binary32 otherwise.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        BlockPacked: the codes, the scales and what describes them.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: for a format the carrier does not hold</span>
+<span class="sd">            (:func:`mptorch.number.check_block_carrier`), ``carrier=torch.float32``</span>
+<span class="sd">            on a float64 ``x``, or a ``tensor_scale`` given to a format</span>
+<span class="sd">            without one.</span>
+<span class="sd">        RuntimeError: on a tensor that requires grad under grad mode.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import MXFP4_E2M1</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_pack</span>
+<span class="sd">        &gt;&gt;&gt; p = block_pack(torch.tensor([[0.3, -1.0, 2.5, 6.0] * 8]), MXFP4_E2M1)</span>
+<span class="sd">        &gt;&gt;&gt; p.data.shape, p.scales.tolist()</span>
+<span class="sd">        (torch.Size([1, 16]), [[127]])</span>
+<span class="sd">        &gt;&gt;&gt; p.unpack()[0, :4]</span>
+<span class="sd">        tensor([ 0.5000, -1.0000,  2.0000,  6.0000])</span>
+<span class="sd">    """</span>
+    <span class="n">wide</span> <span class="o">=</span> <span class="n">_prologue</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="p">,</span> <span class="s2">"block_pack"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"block_pack needs a tensor with at least one dimension"</span><span class="p">)</span>
+    <span class="n">axis</span> <span class="o">=</span> <span class="n">axis</span> <span class="o">%</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
+    <span class="n">src</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="k">if</span> <span class="n">wide</span> <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="k">else</span> <span class="n">x</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="n">_tensor_scale</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">wide</span><span class="p">)</span>
+    <span class="n">data</span><span class="p">,</span> <span class="n">scales</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">block_pack</span><span class="o">.</span><span class="n">default</span><span class="p">(</span>
+        <span class="n">_storage_view</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="s2">"block_pack"</span><span class="p">),</span>
+        <span class="n">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">),</span>
+        <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span><span class="p">,</span>
+        <span class="n">fmt</span><span class="o">.</span><span class="n">scale_max</span><span class="p">,</span>
+        <span class="n">ts</span><span class="p">,</span>
+        <span class="n">rounding</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">BlockPacked</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scales</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="n">axis</span><span class="p">,</span> <span class="n">ts</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">_CARRIER</span><span class="p">[</span><span class="n">wide</span><span class="p">])</span></div>
+
+
+
+<div class="viewcode-block" id="block_unpack">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_unpack">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_unpack</span><span class="p">(</span>
+    <span class="n">p</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Decode a :class:`BlockPacked` into a tensor of its logical shape.</span>
+
+<span class="sd">    Each element is its code's value times its block's scale (times the</span>
+<span class="sd">    tensor scale), one product in the carrier, stored in ``dtype``. The</span>
+<span class="sd">    carrier is the one ``p`` was packed in, or binary64 when ``dtype`` is</span>
+<span class="sd">    float64 or ``carrier=torch.float64``. A result narrower than its carrier</span>
+<span class="sd">    rounds that product a second time where the dtype does not hold it (once:</span>
+<span class="sd">    a binary64 product reaches a narrower dtype through</span>
+<span class="sd">    ``narrow_float64``), and :class:`mptorch.FormatRangeWarning` reports it.</span>
+<span class="sd">    ``block_unpack(block_pack(x, fmt, axis))`` equals</span>
+<span class="sd">    ``block_quantize(x, fmt, axis)`` element for element, under the same</span>
+<span class="sd">    generator state.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        p (BlockPacked): the packed tensor.</span>
+<span class="sd">        dtype (torch.dtype, optional): float32, float64, float16 or bfloat16.</span>
+<span class="sd">            Default: ``None``, the dtype ``p`` was packed from.</span>
+<span class="sd">        carrier (torch.dtype, optional): ``torch.float64`` decodes in</span>
+<span class="sd">            binary64; ``torch.float32`` refuses a ``p`` packed in binary64 and</span>
+<span class="sd">            a float64 ``dtype``. Default: ``None``, ``p``'s carrier, or</span>
+<span class="sd">            binary64 for a float64 ``dtype``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tensor: the decoded values, of shape ``p.shape`` (a view with the</span>
+<span class="sd">        packed axis moved back into place).</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_pack, block_unpack</span>
+<span class="sd">        &gt;&gt;&gt; x = torch.tensor([[1.0, 0.1, -3.3, 100.0]])</span>
+<span class="sd">        &gt;&gt;&gt; block_unpack(block_pack(x, MXFP8_E4M3, axis=0))  # a block per element</span>
+<span class="sd">        tensor([[ 1.0000,  0.1016, -3.2500, 96.0000]])</span>
+<span class="sd">    """</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">dtype</span>
+    <span class="n">carrier</span> <span class="o">=</span> <span class="n">_checked_carrier</span><span class="p">(</span><span class="n">carrier</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="ow">and</span> <span class="n">p</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier=torch.float32 is narrower than binary64, which this tensor was packed in "</span>
+            <span class="s2">"(its tensor scale and its format are binary64's); leave carrier unset"</span>
+        <span class="p">)</span>
+    <span class="n">wide</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_call_carrier</span><span class="p">(</span><span class="n">carrier</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+    <span class="n">wide</span> <span class="o">=</span> <span class="n">wide</span> <span class="ow">or</span> <span class="n">p</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+    <span class="n">check_block_carrier</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">_CARRIER</span><span class="p">[</span><span class="n">wide</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_BELOW_BINARY64</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">_NARROW_STORAGE</span><span class="p">):</span>
+        <span class="n">check_block_storage</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="n">storage</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">cols</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">cols</span>
+    <span class="n">out_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">dtype</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">_format_args</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">block_unpack</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">out_dtype</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">out_dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">dtype</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_narrowed</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+    <span class="n">moved</span> <span class="o">=</span> <span class="n">_moved_shape</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">axis</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="n">moved</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">moved</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">out</span><span class="o">.</span><span class="n">movedim</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">axis</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_quantize</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span><span class="p">,</span>
+    <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">in_place</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="n">op</span> <span class="o">=</span> <span class="s2">"block_quantize"</span>
+    <span class="n">wide</span> <span class="o">=</span> <span class="n">_prologue</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2"> needs a tensor with at least one dimension"</span><span class="p">)</span>
+    <span class="n">widen</span> <span class="o">=</span> <span class="n">wide</span> <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+    <span class="k">if</span> <span class="n">in_place</span> <span class="ow">and</span> <span class="n">widen</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">_ with carrier=torch.float64 on a </span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2"> tensor would round a float64 "</span>
+            <span class="sa">f</span><span class="s2">"copy and leave the tensor as it was: use </span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2">, which returns the result"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_BELOW_BINARY64</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">_NARROW_STORAGE</span><span class="p">):</span>
+        <span class="n">check_block_storage</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">storage</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">axis</span> <span class="o">=</span> <span class="n">axis</span> <span class="o">%</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
+    <span class="n">src</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">double</span><span class="p">()</span> <span class="k">if</span> <span class="n">widen</span> <span class="k">else</span> <span class="n">x</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="n">_tensor_scale</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">wide</span><span class="p">)</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">_storage_view</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">in_place</span><span class="o">=</span><span class="n">in_place</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="n">_block_format_ints</span><span class="p">(</span><span class="n">fmt</span><span class="p">),</span> <span class="n">fmt</span><span class="o">.</span><span class="n">elem_max</span><span class="p">,</span> <span class="n">fmt</span><span class="o">.</span><span class="n">scale_max</span><span class="p">,</span> <span class="n">ts</span><span class="p">,</span> <span class="n">rounding</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">in_place</span><span class="p">:</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">block_quant_</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">block_quant</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">widen</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">_narrowed</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">moved</span> <span class="o">=</span> <span class="n">_moved_shape</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="n">axis</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="n">moved</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">moved</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span> <span class="k">if</span> <span class="n">axis</span> <span class="o">==</span> <span class="n">x</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">out</span><span class="o">.</span><span class="n">movedim</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">axis</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="block_quantize">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_quantize">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_quantize</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Round ``x`` to a block format along ``axis`` and return the decoded values.</span>
+
+<span class="sd">    This is :func:`block_pack` and :func:`block_unpack` fused, with no packed</span>
+<span class="sd">    intermediate. It is the fake quantizer that a ``*_quant`` slot of a</span>
+<span class="sd">    layer's formats takes, and :class:`mptorch.quant.BlockQuant` is its value</span>
+<span class="sd">    spelling. The arguments are those of :func:`block_pack`, and the result</span>
+<span class="sd">    has ``x``'s shape, dtype and layout. The function is not differentiable:</span>
+<span class="sd">    wrap it in :class:`mptorch.quant.Quantizer` for a straight-through</span>
+<span class="sd">    gradient.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import NVFP4</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_quantize</span>
+<span class="sd">        &gt;&gt;&gt; block_quantize(torch.tensor([[0.3, -1.0, 2.5, 6.0] * 4]), NVFP4)[0, :4]</span>
+<span class="sd">        tensor([ 0.5000, -1.0000,  2.0000,  6.0000])</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">_quantize</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">rounding</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">carrier</span><span class="p">,</span> <span class="n">in_place</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="block_quantize_">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_quantize_">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_quantize_</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">fmt</span><span class="p">:</span> <span class="n">BlockFormat</span><span class="p">,</span>
+    <span class="n">axis</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">tensor_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">""":func:`block_quantize`, written over ``x`` in place; returns ``x``.</span>
+
+<span class="sd">    Use it for a tensor the caller owns, such as a weight quantized once at</span>
+<span class="sd">    load. Never use it in a ``*_quant`` slot, because a layer's input belongs</span>
+<span class="sd">    to the graph of whatever produced it. ``x`` must have no overlapping</span>
+<span class="sd">    elements. A tensor of rank 4 or more must be able to fold its leading</span>
+<span class="sd">    dimensions as a view with ``axis`` moved last. The out-of-place op has</span>
+<span class="sd">    neither restriction. The result equals that of :func:`block_quantize`</span>
+<span class="sd">    word for word.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_quantize_</span>
+<span class="sd">        &gt;&gt;&gt; w = torch.tensor([[1.0, 0.1, -3.3, 100.0]])</span>
+<span class="sd">        &gt;&gt;&gt; block_quantize_(w, MXFP8_E4M3) is w</span>
+<span class="sd">        True</span>
+<span class="sd">    """</span>
+    <span class="k">return</span> <span class="n">_quantize</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">rounding</span><span class="p">,</span> <span class="n">tensor_scale</span><span class="p">,</span> <span class="n">carrier</span><span class="p">,</span> <span class="n">in_place</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># --- the GEMM -------------------------------------------------------------------</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_BlockGemmSpec</span><span class="p">(</span><span class="n">NamedTuple</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""The block GEMM's arithmetic, resolved into exactly what the op takes.</span>
+
+<span class="sd">    ``args`` is every schema argument after the two operands' formats, in</span>
+<span class="sd">    order: the mac (fused or split, the accumulate format) and the</span>
+<span class="sd">    accumulation (algorithm, rounding, the ``*_accumulated`` tail), but for</span>
+<span class="sd">    the carrier, which is the call's. ``findings`` is what binary32 and</span>
+<span class="sd">    binary64 each say about the formats it rounds with; ``stored`` the format</span>
+<span class="sd">    a result narrower than its carrier holds. The operand formats travel with</span>
+<span class="sd">    the operands. ``epilogue`` applies the operands' tensor scales to the</span>
+<span class="sd">    result rather than in the decode.</span>
+<span class="sd">    """</span>
+
+    <span class="n">args</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">findings</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_Findings</span><span class="p">,</span> <span class="n">_Findings</span><span class="p">]</span> <span class="o">=</span> <span class="p">((),</span> <span class="p">())</span>
+    <span class="n">stored</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_Stored</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">epilogue</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_binaryK_fields</span><span class="p">(</span><span class="n">f</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""A binaryK slot as (quant, K, P, bias, is_signed, saturation, subnormals, prng)."""</span>
+    <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">True</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="kc">True</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">K</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">P</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">saturation</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">subnormals</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="nd">@lru_cache</span><span class="p">(</span><span class="n">maxsize</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_block_gemm_spec</span><span class="p">(</span>
+    <span class="n">acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fused</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tensor_scale_epilogue</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_BlockGemmSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Resolve a block GEMM's arithmetic once; memoized on the values."""</span>
+    <span class="n">carrier</span> <span class="o">=</span> <span class="n">_checked_carrier</span><span class="p">(</span><span class="n">carrier</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"acc"</span><span class="p">,</span> <span class="n">acc</span><span class="p">),</span> <span class="p">(</span><span class="s2">"outer"</span><span class="p">,</span> <span class="n">outer</span><span class="p">)):</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">BinaryK</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"the block GEMM's </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> format is a BinaryK or None, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">f</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+    <span class="n">block</span> <span class="o">=</span> <span class="n">_checked_block_size</span><span class="p">(</span><span class="n">accumulate_algorithm</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="ow">not</span> <span class="n">fused</span><span class="p">)</span>
+    <span class="n">rounded</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="p">(</span><span class="n">acc</span><span class="p">,</span> <span class="n">outer</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">fmt</span> <span class="o">=</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">P</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">saturation</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">subnormals</span><span class="p">)</span>
+            <span class="n">rounded</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">_binaryK_findings</span><span class="p">,</span> <span class="p">(</span><span class="o">*</span><span class="n">fmt</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">prng_bits</span><span class="p">)))</span>
+    <span class="n">findings</span> <span class="o">=</span> <span class="n">_format_findings</span><span class="p">(</span><span class="n">rounded</span><span class="p">)</span>
+    <span class="n">last</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">outer</span>
+        <span class="k">if</span> <span class="n">accumulate_algorithm</span> <span class="ow">in</span> <span class="p">(</span><span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">BLOCK</span><span class="p">,</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">TREE</span><span class="p">)</span>
+        <span class="k">else</span> <span class="n">acc</span>
+    <span class="p">)</span>
+    <span class="n">stored</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_Stored</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+    <span class="k">if</span> <span class="n">last</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">stored</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="p">(</span>
+                <span class="n">check_binaryK_storage</span><span class="p">,</span>
+                <span class="p">(</span><span class="n">last</span><span class="o">.</span><span class="n">K</span><span class="p">,</span> <span class="n">last</span><span class="o">.</span><span class="n">P</span><span class="p">,</span> <span class="n">last</span><span class="o">.</span><span class="n">bias</span><span class="p">,</span> <span class="n">last</span><span class="o">.</span><span class="n">is_signed</span><span class="p">,</span> <span class="n">last</span><span class="o">.</span><span class="n">saturation</span><span class="p">,</span> <span class="n">last</span><span class="o">.</span><span class="n">subnormals</span><span class="p">),</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">_binaryK_fields</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span>
+    <span class="n">o</span> <span class="o">=</span> <span class="n">_binaryK_fields</span><span class="p">(</span><span class="n">outer</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">fused</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span>
+        <span class="n">accumulate_algorithm</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">rounding</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span> <span class="k">if</span> <span class="n">acc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">a</span><span class="p">[</span><span class="mi">7</span><span class="p">],</span>
+        <span class="n">block</span><span class="p">,</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="k">if</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">SaturationMode</span><span class="o">.</span><span class="n">SAT_NONE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span> <span class="k">if</span> <span class="n">outer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">SubnormalsMode</span><span class="o">.</span><span class="n">SUBNORMALS</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="n">o</span><span class="p">[</span><span class="mi">7</span><span class="p">],</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_BlockGemmSpec</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">findings</span><span class="p">,</span> <span class="n">stored</span><span class="p">,</span> <span class="n">carrier</span><span class="p">,</span> <span class="nb">bool</span><span class="p">(</span><span class="n">tensor_scale_epilogue</span><span class="p">))</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">_Operand</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One packed operand as the op reads it."""</span>
+
+    <span class="n">data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="n">scales</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="n">cols</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">trans</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">lead</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_operand</span><span class="p">(</span><span class="n">p</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">role</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">_Operand</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""``p`` in the GEMM's ``role``: ``"a"``, logically ``[..., M, K]``, or</span>
+<span class="sd">    ``"b"``, logically ``[..., K, N]``. Each is read along its K: stored with K</span>
+<span class="sd">    along the packed axis unless it was packed along the other of its last two</span>
+<span class="sd">    dimensions, which the kernel reads transposed."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">BlockPacked</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"block_matmul's </span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2"> is a BlockPacked (block_pack's result), got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">p</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"block_matmul's operands have at least two dimensions; </span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2"> has </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">k_axis</span> <span class="o">=</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">"a"</span> <span class="k">else</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">2</span>
+    <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">axis</span> <span class="o">==</span> <span class="n">k_axis</span><span class="p">:</span>
+        <span class="n">trans</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">elif</span> <span class="n">p</span><span class="o">.</span><span class="n">axis</span> <span class="ow">in</span> <span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span> <span class="o">-</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">trans</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"block_matmul reads </span><span class="si">{</span><span class="n">role</span><span class="si">}</span><span class="s2"> packed along one of its last two dimensions, got axis "</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">axis</span><span class="si">}</span><span class="s2"> of </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_Operand</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">cols</span><span class="p">,</span> <span class="n">trans</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_gemm_carrier</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="n">_BlockGemmSpec</span><span class="p">,</span> <span class="n">a</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Whether a block GEMM runs in binary64: when the spec names it, or when</span>
+<span class="sd">    either operand was packed in it (a carrier is never narrower than what it</span>
+<span class="sd">    reads). ``carrier=torch.float32`` on a binary64 operand raises."""</span>
+    <span class="n">packed64</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="ow">or</span> <span class="n">b</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="ow">and</span> <span class="n">packed64</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">"carrier=torch.float32 is narrower than binary64, which an operand was packed in; "</span>
+            <span class="s2">"leave carrier unset"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">spec</span><span class="o">.</span><span class="n">carrier</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span> <span class="ow">or</span> <span class="n">packed64</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_run_block_gemm</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="n">_BlockGemmSpec</span><span class="p">,</span> <span class="n">a</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Call the block GEMM on two packed operands: ``a @ b`` of their logical</span>
+<span class="sd">    tensors, in the carrier (:func:`_gemm_carrier`), float32 or float64, the</span>
+<span class="sd">    leading dimensions broadcast when one side has none or they are equal.</span>
+
+<span class="sd">    With ``spec.epilogue`` the kernel decodes each element with its block's</span>
+<span class="sd">    scale alone (a tensor scale of 1) and the result is multiplied, once, by</span>
+<span class="sd">    ``alpha``, the product of the two tensor scales in the carrier: the</span>
+<span class="sd">    product of two float32 values is exact in a Python float, so rounding it</span>
+<span class="sd">    to float32 is the one rounding, a float64 product is rounded once by</span>
+<span class="sd">    Python's own multiply, and ``mul_`` by a value of the carrier is the</span>
+<span class="sd">    other."""</span>
+    <span class="n">wide</span> <span class="o">=</span> <span class="n">_gemm_carrier</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+    <span class="n">found</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">findings</span><span class="p">[</span><span class="n">wide</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">found</span><span class="p">:</span>
+        <span class="n">_report_findings</span><span class="p">(</span><span class="n">found</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">wide</span><span class="p">:</span>
+        <span class="n">check_block_carrier</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">check_block_carrier</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">fmt</span><span class="p">,</span> <span class="n">carrier</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+    <span class="n">oa</span><span class="p">,</span> <span class="n">ob</span> <span class="o">=</span> <span class="n">_operand</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="s2">"a"</span><span class="p">),</span> <span class="n">_operand</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="s2">"b"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">oa</span><span class="o">.</span><span class="n">lead</span> <span class="ow">and</span> <span class="n">ob</span><span class="o">.</span><span class="n">lead</span> <span class="ow">and</span> <span class="n">oa</span><span class="o">.</span><span class="n">lead</span> <span class="o">!=</span> <span class="n">ob</span><span class="o">.</span><span class="n">lead</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"block_matmul broadcasts leading dimensions only when they are equal or one "</span>
+            <span class="sa">f</span><span class="s2">"operand has none, got </span><span class="si">{</span><span class="n">oa</span><span class="o">.</span><span class="n">lead</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">ob</span><span class="o">.</span><span class="n">lead</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="n">unit</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">epilogue</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mptorch</span><span class="o">.</span><span class="n">custom_matmul_block</span><span class="o">.</span><span class="n">default</span><span class="p">(</span>
+        <span class="n">oa</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+        <span class="n">oa</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span>
+        <span class="n">oa</span><span class="o">.</span><span class="n">cols</span><span class="p">,</span>
+        <span class="n">oa</span><span class="o">.</span><span class="n">trans</span><span class="p">,</span>
+        <span class="n">ob</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+        <span class="n">ob</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span>
+        <span class="n">ob</span><span class="o">.</span><span class="n">cols</span><span class="p">,</span>
+        <span class="n">ob</span><span class="o">.</span><span class="n">trans</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">_format_args</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">unit</span><span class="p">),</span>
+        <span class="o">*</span><span class="n">_format_args</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">unit</span><span class="p">),</span>
+        <span class="o">*</span><span class="n">spec</span><span class="o">.</span><span class="n">args</span><span class="p">,</span>
+        <span class="n">wide</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">epilogue</span><span class="p">:</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">tensor_scale</span> <span class="o">*</span> <span class="n">b</span><span class="o">.</span><span class="n">tensor_scale</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">wide</span><span class="p">:</span>
+            <span class="n">alpha</span> <span class="o">=</span> <span class="n">_float32</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">alpha</span> <span class="o">!=</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+    <span class="n">lead</span> <span class="o">=</span> <span class="n">oa</span><span class="o">.</span><span class="n">lead</span> <span class="ow">or</span> <span class="n">ob</span><span class="o">.</span><span class="n">lead</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lead</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">lead</span><span class="p">,</span> <span class="o">*</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_stored_as</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="n">_BlockGemmSpec</span><span class="p">,</span> <span class="n">out</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The result, float32 or float64 as its carrier, stored in ``dtype``, the</span>
+<span class="sd">    operands', with the storage check a narrower dtype asks for; a binary64</span>
+<span class="sd">    result is narrowed with one rounding (``ops._narrowed``)."""</span>
+    <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">out</span>
+    <span class="n">wide</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">is</span> <span class="n">torch</span><span class="o">.</span><span class="n">float64</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">stored</span> <span class="ow">and</span> <span class="n">dtype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_BELOW_BINARY64</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">_NARROW_STORAGE</span><span class="p">):</span>
+        <span class="n">_check_stored</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">stored</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_narrowed</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">dtype</span><span class="p">)</span> <span class="k">if</span> <span class="n">wide</span> <span class="k">else</span> <span class="n">out</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="block_matmul">
+<a class="viewcode-back" href="../../../api.html#mptorch.quant.block_matmul">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">block_matmul</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span>
+    <span class="n">b</span><span class="p">:</span> <span class="n">BlockPacked</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">acc</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fused</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">rounding</span><span class="p">:</span> <span class="n">RoundMode</span> <span class="o">=</span> <span class="n">RoundMode</span><span class="o">.</span><span class="n">RNE</span><span class="p">,</span>
+    <span class="n">accumulate_algorithm</span><span class="p">:</span> <span class="n">AccumulateAlgorithm</span> <span class="o">=</span> <span class="n">AccumulateAlgorithm</span><span class="o">.</span><span class="n">NAIVE</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">outer</span><span class="p">:</span> <span class="n">BinaryK</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">carrier</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tensor_scale_epilogue</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Multiply two block-format tensors: ``a @ b`` of their logical values.</span>
+
+<span class="sd">    ``a`` is logically ``[..., M, K]`` and ``b`` is ``[..., K, N]``. The</span>
+<span class="sd">    kernel decodes each element as it loads it (its value times its block's</span>
+<span class="sd">    scale, as :func:`block_unpack` would) and multiplies in the carrier:</span>
+<span class="sd">    binary64 when ``carrier=torch.float64`` or either operand was packed in</span>
+<span class="sd">    binary64 (from a float64 tensor, or with that carrier), and binary32</span>
+<span class="sd">    otherwise. A split mac (``fused=False``) rounds each product to the</span>
+<span class="sd">    carrier and the running sum to ``acc``. A fused mac rounds each fused</span>
+<span class="sd">    multiply-add to ``acc``. ``acc=None`` leaves the sum in the carrier.</span>
+
+<span class="sd">    Each operand is read along K. It may be packed along its K (``a`` along</span>
+<span class="sd">    its last axis, ``b`` along its second-to-last) or along its other</span>
+<span class="sd">    dimension, which the kernel reads transposed. One packed weight therefore</span>
+<span class="sd">    serves both ``x @ w.T`` and ``g @ w``; :attr:`BlockPacked.mT` is the</span>
+<span class="sd">    transpose, without a copy. The two operands may have different formats.</span>
+<span class="sd">    Leading dimensions must be equal, or absent on one side. The function is</span>
+<span class="sd">    not differentiable: see :func:`mptorch.quant.qmatmul` with a</span>
+<span class="sd">    :class:`mptorch.quant.BlockMac`.</span>
+
+<span class="sd">    A format with a per-tensor scale (NVFP4's E4M3, or a superfp scale)</span>
+<span class="sd">    decodes each element as its value times its block's scale times the</span>
+<span class="sd">    tensor scale, inside the loop. ``tensor_scale_epilogue=True`` does what</span>
+<span class="sd">    NVIDIA's NVFP4 GEMMs do instead. The loop sees the elements times their</span>
+<span class="sd">    block scales only, and the result is multiplied once by the product of</span>
+<span class="sd">    the two tensor scales, rounded to the carrier. The two agree in exact</span>
+<span class="sd">    arithmetic and round differently. In the second, the accumulate format</span>
+<span class="sd">    sees products that the tensor scales have not scaled, so it needs their</span>
+<span class="sd">    range.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a (BlockPacked): the left operand.</span>
+<span class="sd">        b (BlockPacked): the right operand.</span>
+<span class="sd">        acc (BinaryK, optional): the accumulate format. Default: ``None``</span>
+<span class="sd">        fused (bool): one rounding per step (a fused multiply-add) instead of</span>
+<span class="sd">            two. Default: ``False``</span>
+<span class="sd">        rounding (RoundMode): the rounding mode of the sum. Default:</span>
+<span class="sd">            ``RoundMode.RNE``</span>
+<span class="sd">        accumulate_algorithm (AccumulateAlgorithm): as for</span>
+<span class="sd">            :class:`mptorch.quant.SplitMac`. Default:</span>
+<span class="sd">            ``AccumulateAlgorithm.NAIVE``</span>
+<span class="sd">        block_size (int, optional): BLOCK's and TREE's block size. Default:</span>
+<span class="sd">            ``None``</span>
+<span class="sd">        outer (BinaryK, optional): BLOCK's and TREE's outer format. Default:</span>
+<span class="sd">            ``None``</span>
+<span class="sd">        carrier (torch.dtype, optional): ``torch.float64`` multiplies in</span>
+<span class="sd">            binary64; ``torch.float32`` refuses an operand packed in</span>
+<span class="sd">            binary64. Default: ``None``, the operands' carrier.</span>
+<span class="sd">        tensor_scale_epilogue (bool): apply the operands' tensor scales to</span>
+<span class="sd">            the result instead of in the decode. It has no effect on formats</span>
+<span class="sd">            without a tensor scale (E8M0). Default: ``False``</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tensor: ``[..., M, N]``, float32 in binary32 and float64 in binary64.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK, MXFP8_E4M3</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import block_matmul, block_pack</span>
+<span class="sd">        &gt;&gt;&gt; x, w = torch.randn(4, 64), torch.randn(16, 64)</span>
+<span class="sd">        &gt;&gt;&gt; y = block_matmul(block_pack(x, MXFP8_E4M3), block_pack(w, MXFP8_E4M3).mT,</span>
+<span class="sd">        ...                  acc=BinaryK(16, 11))</span>
+<span class="sd">        &gt;&gt;&gt; y.shape</span>
+<span class="sd">        torch.Size([4, 16])</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">_block_gemm_spec</span><span class="p">(</span>
+        <span class="n">acc</span><span class="p">,</span>
+        <span class="n">fused</span><span class="p">,</span>
+        <span class="n">rounding</span><span class="p">,</span>
+        <span class="n">accumulate_algorithm</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">outer</span><span class="p">,</span>
+        <span class="n">carrier</span><span class="p">,</span>
+        <span class="n">tensor_scale_epilogue</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">_run_block_gemm</span><span class="p">(</span><span class="n">spec</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

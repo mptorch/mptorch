@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mptorch.quant.modules.format &#8212; MPTorch</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../../_static/styles/theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+<link href="../../../../_static/styles/pydata-sphinx-theme.css?digest=75c7c72ae941e8b558d8" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../../../../_static/scripts/fontawesome.js?digest=75c7c72ae941e8b558d8"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8" />
+<link rel="preload" as="script" href="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8" />
+
+    <script src="../../../../_static/documentation_options.js?v=6c02275b"></script>
+    <script src="../../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/mptorch/quant/modules/format';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../../../../_static/searchtools.js"></script>
+    <script src="../../../../_static/language_data.js"></script>
+    <script src="../../../../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button type="button" class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation" aria-expanded="false" aria-controls="pst-primary-sidebar-modal">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">MPTorch</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+            <li class="nav-item dropdown">
+                <button class="btn dropdown-toggle nav-item" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false"
+                aria-controls="pst-nav-more-links">
+                    More
+                </button>
+                <ul id="pst-nav-more-links" class="dropdown-menu">
+                    
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class=" ">
+  <a class="nav-link dropdown-item nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+                </ul>
+            </li>
+            
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button type="button" class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal" tabindex="-1"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../getting_started.html">
+    Getting started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../concepts.html">
+    Formats and rounding
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../quantizers.html">
+    Quantizers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../kernels/index.html">
+    Quantized numerical kernels
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../layers.html">
+    Layers
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../tutorial.html">
+    Tutorial: training in 8-bit floating point
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../../api.html">
+    API reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button type="button" class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg me-1"></i>System Settings</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg me-1"></i>Light</button></li>
+    <li><button type="button" class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/mptorch/mptorch" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fab fa-github-square fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-house"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">mptorch.quant.modules.format</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for mptorch.quant.modules.format</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The two format containers a quantized layer is configured with.</span>
+
+<span class="sd">Both are ``nn.Module`` subclasses holding optional callables, and both mean</span>
+<span class="sd">the same thing by ``None``: that step is plain PyTorch. A quantizer slot is a</span>
+<span class="sd">``Tensor -&gt; Tensor`` callable applied to one operand or gradient before the</span>
+<span class="sd">math runs, and a math slot replaces one of the layer's GEMMs (or convolutions)</span>
+<span class="sd">with custom arithmetic. Which slots exist, and what each math hook is called</span>
+<span class="sd">with, is decided by the autograd Function that reads the container</span>
+<span class="sd">(``CustomArithLinear``, ``CustomArithConvNd``, ``CustomArithMatmul``).</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">..mac</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockQuant</span>
+
+
+<div class="viewcode-block" id="QAffineFormats">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QAffineFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QAffineFormats</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Quantizers and custom math for an affine layer (Linear, Conv1d/2d/3d).</span>
+
+<span class="sd">    Every slot is optional, and ``None`` means plain PyTorch behaviour for</span>
+<span class="sd">    that step. Quantization is therefore opt-in per tensor and per pass: with</span>
+<span class="sd">    a ``QAffineFormats()`` that has nothing set, ``QLinear`` behaves exactly</span>
+<span class="sd">    as ``nn.Linear``.</span>
+
+<span class="sd">    The forward pass quantizes the input, the weight and the bias through</span>
+<span class="sd">    their ``*_quant`` slots, then runs ``fwd_math`` (or the plain op). The</span>
+<span class="sd">    backward pass quantizes the incoming gradient *separately* for the</span>
+<span class="sd">    input-gradient path (``igrad_quant``) and the weight-gradient path</span>
+<span class="sd">    (``wgrad_quant``), because the two GEMMs may need different formats. It</span>
+<span class="sd">    then runs ``bwd_igrad_math`` and ``bwd_wgrad_math`` (or PyTorch's</span>
+<span class="sd">    defaults).</span>
+
+<span class="sd">    The class inherits from ``nn.Module``. A quantizer that is itself an</span>
+<span class="sd">    ``nn.Module`` (a QAT observer with running statistics) is therefore</span>
+<span class="sd">    registered with the parent model and appears in its ``state_dict``.</span>
+
+<span class="sd">    Backward needs the quantized input (for the weight gradient) and the</span>
+<span class="sd">    quantized weight (for the input gradient) again. The layer can keep each</span>
+<span class="sd">    as a quantized copy, a tensor the size of the operand, or keep the raw</span>
+<span class="sd">    operand and quantize it again in backward, which saves the copy wherever</span>
+<span class="sd">    the raw operand is alive anyway: the weight always is, and an input is</span>
+<span class="sd">    when the op that made it keeps its output (ReLU does). The two</span>
+<span class="sd">    ``recompute_*`` flags choose; ``None`` is the layer's default (both for</span>
+<span class="sd">    ``QConv1d/2d/3d``, the weight only for ``QLinear``). Gradients are</span>
+<span class="sd">    bit-identical either way: under stochastic rounding the second call sees</span>
+<span class="sd">    the random generators as the first did. :doc:`/layers` ("What a layer</span>
+<span class="sd">    keeps for backward") says when each choice saves memory.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        weight_quant (Callable, optional): applied to the weight in the</span>
+<span class="sd">            forward. Default: ``None``</span>
+<span class="sd">        input_quant (Callable, optional): applied to the input in the</span>
+<span class="sd">            forward. Default: ``None``</span>
+<span class="sd">        bias_quant (Callable, optional): applied to the bias in the forward.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        wgrad_quant (Callable, optional): applied to the output gradient</span>
+<span class="sd">            before the weight-gradient GEMM. Default: ``None``</span>
+<span class="sd">        igrad_quant (Callable, optional): applied to the output gradient</span>
+<span class="sd">            before the input-gradient GEMM. Default: ``None``</span>
+<span class="sd">        bgrad_quant (Callable, optional): applied to the output gradient</span>
+<span class="sd">            before the bias-gradient sum. Default: ``None``</span>
+<span class="sd">        fwd_math (Callable, optional): the forward's arithmetic. For Linear,</span>
+<span class="sd">            ``fwd_math(q_input, q_weight, q_bias)``; for Conv, the same plus</span>
+<span class="sd">            ``stride``, ``padding``, ``dilation``, ``groups`` and ``nd`` as</span>
+<span class="sd">            keywords. Default: ``None``</span>
+<span class="sd">        bwd_igrad_math (Callable, optional): the input gradient's arithmetic,</span>
+<span class="sd">            ``bwd_igrad_math(q_grad_output, q_weight)`` for Linear (Conv adds</span>
+<span class="sd">            ``input_size`` and the convolution keywords). Default: ``None``</span>
+<span class="sd">        bwd_wgrad_math (Callable, optional): the weight gradient's</span>
+<span class="sd">            arithmetic, ``bwd_wgrad_math(q_grad_output, q_input)`` for Linear</span>
+<span class="sd">            (Conv adds ``weight_size`` and the convolution keywords).</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        recompute_input (bool, optional): keep the raw input for backward</span>
+<span class="sd">            and run ``input_quant`` on it again there, instead of keeping its</span>
+<span class="sd">            result. ``None`` is the layer's default: ``True`` for a</span>
+<span class="sd">            convolution, ``False`` for ``QLinear``. Under ``None`` only a</span>
+<span class="sd">            quantizer known to be stateless is run twice -- a</span>
+<span class="sd">            :class:`mptorch.quant.Quant` (not in place), a</span>
+<span class="sd">            :class:`mptorch.quant.BlockQuant` called as a fake quantizer, or a</span>
+<span class="sd">            :class:`mptorch.quant.Quantizer` over one -- and any other</span>
+<span class="sd">            callable keeps its result saved, since one with state (a QAT</span>
+<span class="sd">            observer) would update it twice. ``True`` runs any callable again,</span>
+<span class="sd">            which is the caller's promise that it depends only on its input</span>
+<span class="sd">            and the random generators. A quantizer whose result is not a</span>
+<span class="sd">            tensor (a packed block format) keeps it saved. Default: ``None``</span>
+<span class="sd">        recompute_weight (bool, optional): the same for the weight and</span>
+<span class="sd">            ``weight_quant``. ``None`` is ``True`` for every layer, since the</span>
+<span class="sd">            raw weight is alive anyway as the layer's parameter.</span>
+<span class="sd">            Default: ``None``</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QAffineFormats, QLinear, Quant, binaryK_gemm_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = binaryK_gemm_formats(mul_K=8, mul_P=4, accumulate_quant=False)</span>
+<span class="sd">        &gt;&gt;&gt; formats.input_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; formats.weight_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; layer = QLinear(256, 64, formats=formats)</span>
+<span class="sd">        &gt;&gt;&gt; plain = QLinear(256, 64, formats=QAffineFormats())   # as nn.Linear</span>
+<span class="sd">    """</span>
+
+    <span class="c1">#: The weight's format, set by :func:`mptorch.quant.block_gemm_formats`</span>
+    <span class="c1">#: for :meth:`mptorch.quant.QLinear.freeze_packed_` to pack in. A class</span>
+    <span class="c1">#: attribute, so that other formats carry nothing.</span>
+    <span class="n">_block_weight</span><span class="p">:</span> <span class="s2">"BlockQuant | None"</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">weight_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">input_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bias_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">wgrad_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">igrad_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bgrad_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_igrad_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_wgrad_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">recompute_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">recompute_weight</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight_quant</span> <span class="o">=</span> <span class="n">weight_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_quant</span> <span class="o">=</span> <span class="n">input_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bias_quant</span> <span class="o">=</span> <span class="n">bias_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wgrad_quant</span> <span class="o">=</span> <span class="n">wgrad_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">igrad_quant</span> <span class="o">=</span> <span class="n">igrad_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="o">=</span> <span class="n">bgrad_quant</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_math</span> <span class="o">=</span> <span class="n">fwd_math</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_igrad_math</span> <span class="o">=</span> <span class="n">bwd_igrad_math</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wgrad_math</span> <span class="o">=</span> <span class="n">bwd_wgrad_math</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">recompute_input</span> <span class="o">=</span> <span class="n">recompute_input</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recompute_weight</span> <span class="o">=</span> <span class="n">recompute_weight</span></div>
+
+
+
+<div class="viewcode-block" id="QMatmulFormats">
+<a class="viewcode-back" href="../../../../api.html#mptorch.quant.QMatmulFormats">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">QMatmulFormats</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Quantizers and custom math for a quantized matmul.</span>
+
+<span class="sd">    :class:`QMatmul` and :func:`mptorch.quant.qmatmul` read this container.</span>
+<span class="sd">    Its slots mirror those of :class:`QAffineFormats`, renamed for an op whose</span>
+<span class="sd">    two operands play the same role: ``a``/``b`` instead of input/weight, and</span>
+<span class="sd">    one gradient quantizer per operand, because the two gradient GEMMs may</span>
+<span class="sd">    need different formats. Every slot is optional, and ``None`` means plain</span>
+<span class="sd">    PyTorch. A ``QMatmulFormats()`` with nothing set computes</span>
+<span class="sd">    ``torch.matmul`` and its ordinary gradients.</span>
+
+<span class="sd">    There is no ``output_quant``, on purpose. Rounding the result of the op</span>
+<span class="sd">    is an elementwise step, so the caller applies a quantizer for it; it is</span>
+<span class="sd">    not a slot on every op's formats.</span>
+
+<span class="sd">    The class inherits from ``nn.Module``, which registers a stateful</span>
+<span class="sd">    quantizer (a QAT observer) in the parent model's ``state_dict``.</span>
+
+<span class="sd">    The ``recompute_*`` flags are :class:`QAffineFormats`' for the two</span>
+<span class="sd">    operands: keep ``a`` (``b``) raw for backward and quantize it again</span>
+<span class="sd">    there, instead of keeping a quantized copy. Both default to keeping the</span>
+<span class="sd">    copy, since a matmul's operands are activations and whether anything else</span>
+<span class="sd">    keeps one alive depends on the model.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        a_quant (Callable, optional): applied to ``a`` in the forward.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        b_quant (Callable, optional): applied to ``b`` in the forward.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        agrad_quant (Callable, optional): applied to the output gradient</span>
+<span class="sd">            before ``a``'s gradient GEMM. Default: ``None``</span>
+<span class="sd">        bgrad_quant (Callable, optional): applied to the output gradient</span>
+<span class="sd">            before ``b``'s gradient GEMM. Default: ``None``</span>
+<span class="sd">        fwd_math (Callable, optional): ``fwd_math(q_a, q_b) -&gt; a @ b``.</span>
+<span class="sd">            Default: ``None``</span>
+<span class="sd">        bwd_agrad_math (Callable, optional):</span>
+<span class="sd">            ``bwd_agrad_math(q_grad, q_b) -&gt; grad @ b^T``. Default: ``None``</span>
+<span class="sd">        bwd_bgrad_math (Callable, optional):</span>
+<span class="sd">            ``bwd_bgrad_math(q_grad, q_a) -&gt; a^T @ grad``. Default: ``None``</span>
+<span class="sd">        recompute_a (bool, optional): keep ``a`` raw for backward and run</span>
+<span class="sd">            ``a_quant`` on it again there. ``None`` keeps the copy. Set it</span>
+<span class="sd">            where something else keeps ``a`` alive, as attention's softmax</span>
+<span class="sd">            keeps the probabilities that multiply ``V``. ``True`` runs any</span>
+<span class="sd">            callable again, as for :class:`QAffineFormats`. Default: ``None``</span>
+<span class="sd">        recompute_b (bool, optional): the same for ``b`` and ``b_quant``.</span>
+<span class="sd">            Default: ``None``</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        &gt;&gt;&gt; from mptorch import BinaryK</span>
+<span class="sd">        &gt;&gt;&gt; from mptorch.quant import QMatmul, Quant, SplitMac, matmul_formats</span>
+<span class="sd">        &gt;&gt;&gt; formats = matmul_formats(SplitMac(BinaryK(8, 4), BinaryK(16, 11)))</span>
+<span class="sd">        &gt;&gt;&gt; formats.a_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; formats.b_quant = Quant(BinaryK(8, 4))</span>
+<span class="sd">        &gt;&gt;&gt; attn = QMatmul(formats)</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">a_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">b_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">agrad_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bgrad_quant</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">fwd_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_agrad_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">bwd_bgrad_math</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">recompute_a</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">recompute_b</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">a_quant</span> <span class="o">=</span> <span class="n">a_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">b_quant</span> <span class="o">=</span> <span class="n">b_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">agrad_quant</span> <span class="o">=</span> <span class="n">agrad_quant</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bgrad_quant</span> <span class="o">=</span> <span class="n">bgrad_quant</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fwd_math</span> <span class="o">=</span> <span class="n">fwd_math</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_agrad_math</span> <span class="o">=</span> <span class="n">bwd_agrad_math</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_bgrad_math</span> <span class="o">=</span> <span class="n">bwd_bgrad_math</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">recompute_a</span> <span class="o">=</span> <span class="n">recompute_a</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recompute_b</span> <span class="o">=</span> <span class="n">recompute_b</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../../_static/scripts/bootstrap.js?digest=75c7c72ae941e8b558d8"></script>
+<script defer src="../../../../_static/scripts/pydata-sphinx-theme.js?digest=75c7c72ae941e8b558d8"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2024-2026, The MPTorch developers.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.1.
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.24.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
