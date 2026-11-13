@@ -7,6 +7,7 @@ and layers live in :mod:`mptorch.quant`.
 """
 
 import os
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 
 import torch
@@ -56,7 +57,12 @@ from .number import (
 )
 
 # The version is pyproject.toml's, which `uv sync` installs with the package.
-__version__ = _dist_version("mptorch")
+# A source tree imported without being installed (the extension built in place
+# and the directory on sys.path) has no such metadata.
+try:
+    __version__ = _dist_version("mptorch")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 __all__ = [
     "SaturationMode",
