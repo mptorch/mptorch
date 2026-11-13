@@ -1,0 +1,10 @@
+operands  arithmetic                                            rel. error
+float32   torch.matmul                                            2.25e-07
+E4M3      torch.matmul (float32 products and sums)                3.89e-02
+E4M3      FusedMac(None): sequential fp32 FMAs                    3.89e-02
+E4M3      SplitMac(bf16, fp22): exact products, 14-bit sums       3.89e-02
+E4M3      SplitMac(bf16, fp16): exact products, fp16 sums         3.92e-02
+E4M3      SplitMac(bf16, bf16): exact products, bf16 sums         5.37e-02
+E4M3      SplitMac(bf16, bf16) with stochastic sums               6.45e-02
+E4M3      SplitMac(E4M3, fp22): products rounded to E4M3 too      4.76e-02
+E4M3      FusedMac(E4M3): everything in E4M3                      4.22e-01

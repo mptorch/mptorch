@@ -1,0 +1,8 @@
+MXFP8 products exact in binary32: True
+BLOCK with block_size=32 == OCP's two-level sum: True
+NAIVE, one running sum, differs in 48 of 192 elements
+NVFP4, tensor scales in the loop     relative error 1.0e-07
+NVFP4, tensor scales as an epilogue  relative error 4.3e-08
+power-of-two tensor scales, loop == epilogue: True
+16-bit accumulator, tensor scales in the loop     finite: True
+16-bit accumulator, tensor scales as an epilogue  finite: False

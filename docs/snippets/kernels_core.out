@@ -1,0 +1,4 @@
+batched matmul, slice by slice: True
+linear layer, forward and both gradients: True True True
+convolution forward: True
+block product: True

@@ -1,0 +1,223 @@
+"""
+The host and the device must agree bit for bit on every deterministic cast.
+
+That is a claim about two different implementations. The casts in
+mptorch/csrc/common/cast_binaryK.h and cast_superfp.h have float-arithmetic
+fast paths built on a Veltkamp split, ``t - (t - x)`` with ``t = c * x``,
+which is exact only if the compiler neither contracts the multiply and the
+subtraction into one FMA nor evaluates them wider than float. The device pass
+has that guarantee from the ``_rn`` intrinsics; a host build has it only when
+setup.py passes ``-ffp-contract=off`` together with ``-DMPTORCH_FAST_CAST=1``
+and ``FLT_EVAL_METHOD == 0`` holds (mptorch/csrc/common/bit_helper.h states
+the contract). And ``cast_superfp_rne_fast`` is spelled twice, once for each
+backend: the device's form was slower than the integer path on a host, so
+the host has a form of its own since f9a6aa9: the integer path's shape with
+the fast path's arithmetic.
+
+So for one format and one rounding mode the two backends can be running
+different code: binaryK RNE is the same float path on both, superfp RNE is
+the float path in two different spellings, and the directed modes take the
+integer path on both. All are meant to be the same function of the input,
+and this file is what says so. The exhaustive proof is
+dev/benchmarks/sweeps/gemm_cast_{float,superfp,sr}_arith.cu, which compare every one
+of the 2^32 float inputs against a reference and build for the host as well
+as the device, but that runs in minutes rather than in a test suite, and it
+compares a path against its own build. This compares the two builds against
+each other.
+
+A float64 tensor is a third pair of builds: binary64 has no fast path on
+either backend, so both run the integer path instantiated for ``double``,
+compiled once by g++ and once by nvcc, and these compare those too, over
+formats binary32 cannot carry. mptorch/csrc/common/cast_fixedpoint.h has no
+fast path at all, so its pairs are the integer path built twice, in both
+carriers.
+
+Elementwise quantization is the right shape for this: it applies the cast and
+nothing else, so a difference is the cast's. A GEMM is not, since its
+accumulation order is the backend's tiling, so its results are not expected to
+match across devices, and tests/test_qmatmul.py checks each backend against a
+reference instead.
+"""
+
+import math
+
+import pytest
+import torch
+
+from mptorch.number import RoundMode, SaturationMode, SubnormalsMode
+from mptorch.quant import binaryK_quantize, fixedpoint_quantize, superfp_quantize
+from tests.markers import requires_cuda
+
+# Every rounding mode but SR, which draws its own randomness and is compared
+# against a reference per backend in tests/test_sr_rng.py.
+DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]
+
+# 100_003 is prime, so no backend's vector width divides it and the scalar
+# tail runs on both, the same argument tests/test_quantize_dispatch.py makes.
+SIZE = 100_003
+
+# Widths that straddle the fast paths' gate: (8, 4) and (11, 5) are admitted,
+# (6, 3) has a narrow exponent, and (24, 8) is wide enough in the significand
+# that make_binaryK_params' split-product bound refuses it. The
+# parametrization thus covers both sides of the gate without naming which is
+# which; that is make_binaryK_params' business and not this file's.
+BINARYK_FORMATS = [(8, 4), (11, 5), (6, 3), (24, 8)]
+# (3, 4, 15, 7) keeps one supernormal binade, from 2**-13 to the normal region
+# at 2**-6, so ``x`` reaches every arm of superfp's RNE fast path, the flush
+# and the floor's binade included, which the others put below 2**-100.
+SUPERFP_FORMATS = [(3, 4, 1, 7), (2, 3, 2, 3), (5, 5, 1, 15), (3, 4, 8, 7), (3, 4, 15, 7)]
+# (wl, fl, is_signed, symmetric). Fixed point has no fast path, so these compare
+# its integer path as g++ and nvcc build it: a step below 1, above 1 and of 1,
+# both ends of the signed range, unsigned, and all of binary32's mantissa.
+FIXEDPOINT_FORMATS = [
+    (8, 4, True, False),
+    (8, 4, True, True),
+    (12, 4, False, False),
+    (8, -3, True, False),
+    (16, 0, True, False),
+    (24, 10, True, False),
+]
+# binary64's own: precision and exponent fields past binary32's, one on its edge
+BINARYK_FORMATS64 = [(8, 4), (24, 8), (40, 30), (63, 53)]
+SUPERFP_FORMATS64 = [(3, 4, 1, 7), (5, 5, 1, 15), (20, 10, 1020, 511), (40, 8, 254, 127)]
+FIXEDPOINT_FORMATS64 = [
+    (8, 4, True, False),
+    (40, 30, True, False),
+    (53, 20, True, False),  # all of binary64's mantissa
+    (30, 1000, True, False),  # a step far below binary32's range
+]
+
+
+def _same_bits(a: torch.Tensor, b: torch.Tensor) -> bool:
+    """Bitwise equality, so -0.0 and 0.0 differ, except for NaN payloads.
+
+    A NaN only has to still be a NaN. The two backends do not agree on more
+    than that under directed rounding: RU, RD and RZ return the input's exact
+    NaN on the host and a canonical ``0x7fffffff`` on the device, for every
+    binaryK format (superfp agrees on both). Those modes have no fast path, so
+    this is a difference between the two integer builds, stated here rather
+    than quietly excluded. RNE, RNA and RO do preserve the payload on both,
+    and this comparison would catch it if one of them stopped.
+    """
+    nan = a.isnan()
+    if not torch.equal(nan, b.isnan()):
+        return False
+    words = torch.int64 if a.dtype is torch.float64 else torch.int32
+    return torch.equal(a.view(words)[~nan], b.view(words)[~nan])
+
+
+@pytest.fixture(scope="module")
+def x() -> torch.Tensor:
+    """Inputs spanning the arms: subnormal, normal, overflowing, and 0/inf/NaN."""
+    torch.manual_seed(1234)
+    body = torch.randn(SIZE - 8) * torch.exp2(torch.randint(-24, 24, (SIZE - 8,)).float())
+    edges = torch.tensor([0.0, -0.0, float("inf"), float("-inf"), float("nan"), 1.0, -1.0, 65504.0])
+    return torch.cat([body, edges])
+
+
+@pytest.fixture(scope="module")
+def x64() -> torch.Tensor:
+    """float64 inputs spanning binary64: its subnormals, normals from 2**-1022
+    to 2**1023 with 53-bit significands, and 0/inf/NaN and the extremes."""
+    g = torch.Generator().manual_seed(4321)
+    n = SIZE - 10
+    body = (torch.rand(n, dtype=torch.float64, generator=g) + 1.0) * torch.ldexp(
+        torch.ones(n, dtype=torch.float64), torch.randint(-1076, 1024, (n,), generator=g)
+    )
+    body *= torch.where(torch.rand(n, generator=g) < 0.5, -1.0, 1.0).double()
+    fi = torch.finfo(torch.float64)
+    edges = torch.tensor(
+        [0.0, -0.0, math.inf, -math.inf, math.nan, 1.0, -1.0, fi.max, fi.tiny, 5e-324],
+        dtype=torch.float64,
+    )
+    return torch.cat([body, edges])
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
+@pytest.mark.parametrize("K,P", BINARYK_FORMATS64)
+def test_binaryK_quantize_host_matches_device_in_binary64(
+    x64, K, P, rounding_mode, saturation_mode, subnormals_mode
+):
+    kw = dict(
+        K=K,
+        P=P,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+        subnormals_mode=subnormals_mode,
+    )
+    assert _same_bits(binaryK_quantize(x64, **kw), binaryK_quantize(x64.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("man_bits,exp_bits,normal_binades,bias", SUPERFP_FORMATS64)
+def test_superfp_quantize_host_matches_device_in_binary64(
+    x64, man_bits, exp_bits, normal_binades, bias, rounding_mode, saturation_mode
+):
+    kw = dict(
+        man_bits=man_bits,
+        exp_bits=exp_bits,
+        normal_binades=normal_binades,
+        bias=bias,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+    )
+    assert _same_bits(superfp_quantize(x64, **kw), superfp_quantize(x64.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("wl,fl,is_signed,symmetric", FIXEDPOINT_FORMATS64)
+def test_fixedpoint_quantize_host_matches_device_in_binary64(
+    x64, wl, fl, is_signed, symmetric, rounding_mode
+):
+    kw = dict(wl=wl, fl=fl, is_signed=is_signed, symmetric=symmetric, rounding_mode=rounding_mode)
+    assert _same_bits(fixedpoint_quantize(x64, **kw), fixedpoint_quantize(x64.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("subnormals_mode", list(SubnormalsMode))
+@pytest.mark.parametrize("K,P", BINARYK_FORMATS)
+def test_binaryK_quantize_host_matches_device(
+    x, K, P, rounding_mode, saturation_mode, subnormals_mode
+):
+    kw = dict(
+        K=K,
+        P=P,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+        subnormals_mode=subnormals_mode,
+    )
+    assert _same_bits(binaryK_quantize(x, **kw), binaryK_quantize(x.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("man_bits,exp_bits,normal_binades,bias", SUPERFP_FORMATS)
+def test_superfp_quantize_host_matches_device(
+    x, man_bits, exp_bits, normal_binades, bias, rounding_mode, saturation_mode
+):
+    kw = dict(
+        man_bits=man_bits,
+        exp_bits=exp_bits,
+        normal_binades=normal_binades,
+        bias=bias,
+        rounding_mode=rounding_mode,
+        saturation_mode=saturation_mode,
+    )
+    assert _same_bits(superfp_quantize(x, **kw), superfp_quantize(x.cuda(), **kw).cpu())
+
+
+@requires_cuda
+@pytest.mark.parametrize("rounding_mode", DETERMINISTIC)
+@pytest.mark.parametrize("wl,fl,is_signed,symmetric", FIXEDPOINT_FORMATS)
+def test_fixedpoint_quantize_host_matches_device(x, wl, fl, is_signed, symmetric, rounding_mode):
+    kw = dict(wl=wl, fl=fl, is_signed=is_signed, symmetric=symmetric, rounding_mode=rounding_mode)
+    assert _same_bits(fixedpoint_quantize(x, **kw), fixedpoint_quantize(x.cuda(), **kw).cpu())

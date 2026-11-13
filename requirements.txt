@@ -14,8 +14,6 @@ platformdirs>=2.4.0
 pluggy>=1.0.0
 py>=1.10.0
 pyparsing>=3.0.1
-pytest>=6.2.5
-pytest-cov>=6.1.1
 regex>=2021.10.8
 setuptools>=58.0.4
 toml>=0.10.2
@@ -26,6 +24,5 @@ tqdm>=4.62.3
 typing-extensions>=3.10.0.2
 wheel>=0.37.0
 unfoldNd>=0.1.0
-gfloat==0.4
 matplotlib>=3.8.0
 wandb>=0.20.1

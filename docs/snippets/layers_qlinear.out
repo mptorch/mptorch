@@ -1,0 +1,6 @@
+forward      True
+input grad   True
+weight grad  True
+bias grad    True
+
+no formats == nn.Linear: True

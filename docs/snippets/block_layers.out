@@ -1,0 +1,2 @@
+1D weight: forward and both gradients ran
+16 x 16: input gradient from the forward's packing == re-packed: True

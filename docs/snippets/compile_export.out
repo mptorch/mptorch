@@ -1,0 +1,5 @@
+['aten.sym_size.int', 'aten.reshape.default', 'mptorch.custom_matmul_binaryK.default', 'aten.reshape.default', 'aten.add_.Tensor']
+8 True
+5 True
+1 graph, 0 breaks
+compiled == eager: True

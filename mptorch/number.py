@@ -1,386 +1,2877 @@
+"""Number formats, the modes that round into them, and what a float makes of them.
+
+The enums here (:class:`RoundMode`, :class:`SaturationMode`,
+:class:`SubnormalsMode`, :class:`AccumulateAlgorithm`) mirror the C++ enums in
+``csrc/common/modes.h`` one to one, by name and by integer value. The kernels
+receive ``.value`` across the ``torch.ops`` boundary, so the two must stay in
+sync. :class:`Domain` exists in Python only: a format object folds it into
+its :class:`SaturationMode` when it is built. :class:`BinaryK` and
+:class:`SuperFP` are the frozen value types that describe a format.
+
+The ``check_*`` functions report what a *carrier* (the binary float a cast
+rounds in) and a *storage* dtype (the tensor a result is written to) can do
+with a format. They raise :exc:`ValueError` where the format cannot work at
+all, and warn with :class:`FormatRangeWarning` where it works over part of
+its range.
+"""
+
 __all__ = [
+    "SaturationMode",
+    "Domain",
+    "SubnormalsMode",
+    "RoundMode",
+    "AccumulateAlgorithm",
     "Number",
-    "FloatType",
+    "FloatFormat",
+    "BinaryK",
+    "SuperFP",
+    "BlockFormat",
     "FixedPoint",
-    "FloatingPoint",
-    "BlockFloatingPoint",
-    "SuperNormalFloat",
-    "Binary8",
+    "FormatRangeWarning",
+    "E8M0",
+    "E4M3",
+    "E5M2",
+    "E2M1",
+    "E2M3",
+    "E3M2",
+    "MXFP8_E4M3",
+    "MXFP8_E5M2",
+    "MXFP6_E2M3",
+    "MXFP6_E3M2",
+    "MXFP4_E2M1",
+    "NVFP4",
+    "bfp",
 ]
 
+import os
+import sys
+import warnings
+from collections.abc import Callable
+from dataclasses import KW_ONLY, dataclass, field
+from enum import Enum
+from fractions import Fraction
+from functools import lru_cache
+from typing import NamedTuple
 
-from typing import Literal
+import torch
 
 
-class Number:
-    """Base class for all supported number formats.
+class SaturationMode(Enum):
+    """What a format does with a value beyond its largest finite one.
 
-    Users should always instantiate one of the derived classes.
+    Mirrors ``SaturationMode`` in ``csrc/common/modes.h``, by name and value.
+    Each member combines one of IEEE P3109's three saturation modes with the
+    format's *domain* (see :class:`Domain`), which P3109 chooses separately.
+    The finite domain spends on finite values the code points that the
+    extended domain spends on the infinities, and it admits only
+    ``SatFinite``. That leaves four valid combinations, one member each:
+    :attr:`SAT_FINITE` is the finite domain, and the other three are the
+    extended one.
+
+    On a :class:`BinaryK` or :class:`SuperFP` the domain can be given with
+    ``domain=`` instead: ``saturation=SAT_FINITE, domain=Domain.EXTENDED`` is
+    stored as :attr:`SAT_FINITE_EXTENDED`. The flat ``*_quantize`` and
+    ``*_matmul`` functions take no format object, so they name the
+    combination with the member alone.
+
+    The mode is a property of each format slot. A GEMM whose multiply
+    saturates and whose accumulate overflows to infinity can therefore be
+    expressed. A NaN input passes through every mode unchanged.
+
+    Example::
+
+        >>> from mptorch import BinaryK, SaturationMode
+        >>> from mptorch.quant import Quant
+        >>> import torch
+        >>> x = torch.tensor([1.1, 3.3, 500.0])
+        >>> Quant(BinaryK(8, 4, bias=7))(x).tolist()
+        [1.125, 3.25, inf]
+        >>> sat = SaturationMode.SAT_FINITE
+        >>> Quant(BinaryK(8, 4, bias=7, saturation=sat))(x).tolist()
+        [1.125, 3.25, 480.0]
     """
 
-    def __init__(self):
-        pass
+    #: P3109 ``SatFinite``, finite domain: every result beyond the largest
+    #: finite value, an infinite input included, clamps to that value.
+    SAT_FINITE = 0
+    #: P3109 ``SatPropagate``, extended domain: a finite result beyond the
+    #: largest finite value clamps to it, and an infinite one stays infinite.
+    SAT_PROPAGATE = 1
+    #: P3109 ``SatNone``, extended domain, the default: a result beyond the
+    #: largest finite value becomes :math:`\pm\infty` under every rounding mode,
+    #: because the overflow test reads the rounded value. This differs from IEEE
+    #: 754, whose ``roundTowardZero`` never rounds a finite value to infinity.
+    SAT_NONE = 2
+    #: P3109 ``SatFinite``, extended domain: the format keeps its infinity
+    #: codes, so its largest finite value is that of :attr:`SAT_NONE` and
+    #: :attr:`SAT_PROPAGATE`. Every result beyond it, an infinite input
+    #: included, clamps to it, as under :attr:`SAT_FINITE`.
+    SAT_FINITE_EXTENDED = 3
 
-    def __str__(self) -> str:
-        """Placeholder __str__ method."""
-        raise NotImplementedError
 
-    def __repr__(self) -> str:
-        """Placeholder __repr__ method."""
-        raise NotImplementedError
+class Domain(Enum):
+    r"""Whether a format spends code points on the infinities: P3109's domain.
 
+    The *extended* domain has :math:`\pm\infty` (the top code of each sign).
+    The *finite* domain spends those codes on finite values, so its largest
+    finite value is one code higher, and it admits only the ``SatFinite``
+    saturation mode. A :class:`BinaryK` or :class:`SuperFP` takes the domain
+    as ``domain=`` and folds it into its :class:`SaturationMode` when it is
+    built. If it is left ``None``, it follows from the saturation mode: finite
+    for ``SAT_FINITE`` and extended otherwise.
 
-class FloatType(Number):
-    """Base class for all float-like number formats.
+    Example::
 
-    Similar to the :class:`Number` class, users should not instantiate
-    this class directly. It is useful as a means to determine if
-    a number format is of float type.
+        >>> from mptorch import BinaryK, Domain, SaturationMode
+        >>> f = BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE, domain=Domain.EXTENDED)
+        >>> f.saturation, f == BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE_EXTENDED)
+        (<SaturationMode.SAT_FINITE_EXTENDED: 3>, True)
+        >>> BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE).domain
+        <Domain.FINITE: 1>
     """
 
-    pass
+    #: Has :math:`\pm\infty`: P3109's ``e`` formats (``Binary8p4se``).
+    EXTENDED = 0
+    #: No infinities, and every code a value or the NaN: the ``f`` formats.
+    FINITE = 1
 
 
-class FixedPoint(Number):
-    r"""
-    Low-Precision Fixed Point Number Format. Defined similarly to
-    *Deep Learning with Limited Numerical Precision* (https://arxiv.org/abs/1502.02551).
+def _resolve_domain(
+    saturation: SaturationMode, domain: Domain | None, label: str
+) -> tuple[SaturationMode, Domain]:
+    """The saturation mode and the domain a format object stores.
 
-    The representable range is :math:`\left[-2^{\text{wl}-\text{fl}-1},
-    2^{\text{wl}-\text{fl}-1}-2^{-\text{fl}}\right]`
-    and the precision unit (smallest nonzero absolute value) is :math:`2^{-\text{fl}}`.
-    Numbers outside of the representable range can be clamped (if `clamp` is true).
-    We can also give up the smallest representable number to make the range symmetric,
-    :math:`\left[-2^{\text{wl}-\text{fl}-1}+2^{-\text{fl}},
-    2^{\textnormal{wl}-\text{fl}-1}-2^{-\text{fl}}\right]` (if `symmetric` is true).
+    One spelling per combination, so that two spellings of one format compare
+    (and memoize) equal: ``SAT_FINITE`` in the extended domain is stored as
+    ``SAT_FINITE_EXTENDED``, and the domain is filled in from the mode.
+    """
+    if not isinstance(saturation, SaturationMode):
+        raise TypeError(f"{label} saturation must be a SaturationMode, got {saturation!r}")
+    finite = saturation is SaturationMode.SAT_FINITE
+    if domain is None:
+        return saturation, Domain.FINITE if finite else Domain.EXTENDED
+    if not isinstance(domain, Domain):
+        raise TypeError(f"{label} domain must be a Domain or None, got {domain!r}")
+    if domain is Domain.FINITE:
+        if not finite:
+            raise ValueError(
+                f"{label}: the finite domain admits only SatFinite "
+                f"(SaturationMode.SAT_FINITE), got {saturation}"
+            )
+        return saturation, domain
+    if finite:
+        return SaturationMode.SAT_FINITE_EXTENDED, domain
+    return saturation, domain
 
-    Define :math:`\lfloor x \rfloor` to be the largest representable number (multiples of :math:`2^-\text{fl}`)
-    smaller than :math:`x`. For numbers within the representable range, we support two kinds of fixed point
-    quantization: *round to nearest* (RN) and *stochastic rounding* (SR). They correspond to
 
-    .. math::
+class SubnormalsMode(Enum):
+    """How a format handles the range below its smallest normal number.
 
-       \text{RN}(x)
-       =
-       \Biggl \lbrace
-       {
-       \lfloor x \rfloor, \text{ if } \lfloor x \rfloor \leq x \leq \lfloor x \rfloor + 2^{-\text{fl}-1}
-       \atop
-        \lfloor x \rfloor + 2^{-\text{fl}}, \text{ if } \lfloor x \rfloor + 2^{-\text{fl}-1} < x \leq \lfloor x \rfloor + 2^{-\text{fl}}
-       }
+    Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``, by name and value.
+    Only :attr:`SUBNORMALS` is IEEE P3109's: every P3109 format with more than
+    one bit of precision has subnormals. The other two give formats outside
+    the standard. The three differ only in where the bottom of the range is.
 
-    or
+    Below the bottom they all behave the same way. An input ``x`` has two
+    candidates for its magnitude, zero and the smallest value ``x_min``, and
+    the rounding mode picks between them:
 
-    .. math::
-       \textnormal{SR}(x)
-       =
-       \Biggl \lbrace
-       {
-       \lfloor x \rfloor, \text{ with probabilty } 1 - \frac{x - \lfloor x \rfloor}{2^{-\text{fl}}}
-       \atop
-        \lfloor x \rfloor + 2^{-\text{fl}}, \text{ with probabilty } \frac{x - \lfloor x \rfloor}{2^{-\text{fl}}}
-       }
+    * :attr:`RoundMode.RNE` and :attr:`RoundMode.RNA` take the nearer one. On
+      a tie, ``RNE`` takes the zero and ``RNA`` takes ``x_min``.
+    * The directed modes take the candidate in their own direction.
+    * :attr:`RoundMode.RO` takes ``x_min``, the nonzero candidate.
+    * :attr:`RoundMode.SR` takes ``x_min`` with probability ``|x| / x_min``.
 
-    Args:
-        wl: word length of each fixed point number
-        fl: fractional length of each fixed point number
-        clamp: whether to clamp unrepresentable numbers
-        symmetric: whether to make the representable range symmetric
+    All three keep the same two special codes, which the casts' NaN detection
+    and sign handling rely on. The all-zero code is the one zero. It is
+    unsigned, as in P3109, and no cast ever returns ``-0.0``. In a signed
+    format, the code with only the sign bit set (the one that would encode
+    ``-0.0``) is the NaN.
+
+    Example::
+
+        >>> from mptorch import BinaryK, SubnormalsMode
+        >>> from mptorch.quant import Quant
+        >>> import torch
+        >>> x = torch.tensor([2**-7, 2**-6])  # below and at the smallest normal
+        >>> Quant(BinaryK(8, 4, bias=7))(x).tolist()
+        [0.0078125, 0.015625]
+        >>> flush = SubnormalsMode.NORMALS
+        >>> Quant(BinaryK(8, 4, bias=7, subnormals=flush))(x).tolist()
+        [0.0, 0.015625]
     """
 
-    def __init__(self, wl: int, fl: int, clamp: bool = True, symmetric: bool = False):
-        assert wl > 0, "invalid bits for word length: {}".format(wl)
-        assert fl > 0, "invalid bits for fractional length: {}".format(fl)
-        assert type(symmetric) == bool, "invalid type for clamping choice: {}".format(
-            type(clamp)
-        )
-        assert type(symmetric) == bool, "invalid type for symmetric: {}".format(
-            type(symmetric)
-        )
-        self.wl = wl
-        self.fl = fl
-        self.clamp = clamp
-        self.symmetric = symmetric
-
-    def __str__(self):
-        """Print format information in a string format."""
-        return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
-
-    def __repr__(self):
-        """Custom __repr__ method yielding information about the format."""
-        return "FixedPoint (wl={:d}, fl={:d})".format(self.wl, self.fl)
+    SUBNORMALS = 0  #: Gradual underflow, the default: exponent code 0 holds subnormals.
+    NORMALS = 1  #: No subnormals: below the smallest normal, zero or that normal.
+    #: No subnormals. Exponent code 0 is one more binade of normal numbers,
+    #: except its mantissa-zero code, which is still the zero (and with the
+    #: sign bit the NaN). That binade's values therefore start one step above
+    #: the power of two at its foot.
+    EXTENDED_NORMALS = 2
 
 
-class FloatingPoint(FloatType):
-    r"""
-    Low-Precision Floating Point Format. Follows rules set out in the IEEE-754 standard, applying
-    them in the context of custom precision formats.
+class RoundMode(Enum):
+    """How a value is rounded onto a format's grid.
 
-    We set the exponent bias to be :math:`2^{\text{exp}-1} - 1`. In terms of rounding mode (see
-    available quantization functions), we offer support for *round to nearest even* and *stochastic rounding*.
+    Mirrors ``RoundMode`` in ``csrc/common/modes.h``, by name and value. Each
+    member is one of IEEE P3109's rounding modes, whose name is given in
+    parentheses, and defines the result :math:`y` of rounding an input
+    :math:`x`.
 
-    Args:
-        exp: number of bits allocated for exponent
-        man: number of bits allocated for mantissa, referring to number of bits that are
-            supposed to be stored on hardware (not counting the virtual bits)
-        subnormals: allow the use of subnormal values
-        saturate: clamp values instead of using infinities in case of overflow
+    The rounding mode is a property of the operation, not of the format. The
+    kernels take it as a template parameter, because a runtime ``switch``
+    inside a GEMM's accumulate step cost 1.2 to 2.3 times the kernel time.
+    :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac` therefore
+    carry it next to the format.
+
+    Stochastic rounding draws each output element's random bits from a stream
+    keyed on that element's index in the output. The result does not depend
+    on how the work is split across threads or batches. P3109 defines three
+    stochastic modes, ``SR`` (``StochasticA``, also spelled ``SR_A``),
+    ``SR_B`` and ``SR_C``, which differ in how they read the ``prng_bits``
+    random bits (:doc:`/concepts`, "Stochastic rounding").
+
+    Example::
+
+        >>> from mptorch import BinaryK, RoundMode
+        >>> from mptorch.quant import Quant
+        >>> import torch
+        >>> x = torch.tensor([1.1, 3.3])
+        >>> Quant(BinaryK(8, 4, bias=7), RoundMode.RNE)(x).tolist()
+        [1.125, 3.25]
+        >>> Quant(BinaryK(8, 4, bias=7), RoundMode.RZ)(x).tolist()
+        [1.0, 3.25]
+        >>> Quant(BinaryK(8, 4, bias=7), RoundMode.RU)(x).tolist()
+        [1.125, 3.5]
     """
 
-    def __init__(
-        self, exp: int, man: int, subnormals: bool = False, saturate: bool = True
-    ):
-        assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
-        assert 23 >= man >= 0, "invalid bits for mantissa:{}".format(man)
-        self.exp = exp
-        self.man = man
-        self.subnormals = subnormals
-        self.saturate = saturate
-        self.subnormal_min = (
-            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
-        )
-        self.subnormal_max = (
-            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
-            if subnormals
-            else None
-        )
-        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
-        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
-        self.subnormal_min = (
-            2.0 ** (2 - 2 ** (self.exp - 1) - self.man) if subnormals else None
-        )
-        self.subnormal_max = (
-            2.0 ** (2 - 2 ** (self.exp - 1)) * (1.0 - 2.0 ** (-self.man))
-            if subnormals
-            else None
-        )
-        self.normal_max = 2.0 ** (2 ** (self.exp - 1) - 1) * (2.0 - 2.0 ** (-self.man))
-        self.normal_min = 2.0 ** (2 - 2 ** (self.exp - 1))
-
-    def __str__(self):
-        return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
-
-    def __repr__(self):
-        return "FloatingPoint (exponent={:d}, mantissa={:d})".format(self.exp, self.man)
+    RNE = 0  #: Round to nearest, ties to even (``NearestTiesToEven``)
+    RNA = 1  #: Round to nearest, ties to away from zero (``NearestTiesToAway``)
+    RU = 2  #: The smallest :math:`y` such that :math:`y \ge x` (``TowardPositive``)
+    RD = 3  #: The largest :math:`y` such that :math:`y \le x` (``TowardNegative``)
+    RZ = 4  #: The largest :math:`y` such that :math:`|y| \le |x|` (``TowardZero``)
+    RO = 5  #: Round to odd (``ToOdd``)
+    #: Stochastic rounding with ``prng_bits`` = :math:`N` random bits :math:`R`
+    #: (``StochasticA``): with :math:`\eta` the fraction of :math:`|x|` between
+    #: its two neighbours, rounds away from zero iff
+    #: :math:`\lfloor \eta 2^N \rfloor + R \ge 2^N`
+    SR = 6
+    #: ``StochasticB``: away iff :math:`\lfloor \eta 2^{N+1} \rfloor + 2R + 1 \ge 2^{N+1}`
+    SR_B = 7
+    #: ``StochasticC``: away iff :math:`\mathrm{RNITE}(\eta 2^N) + R \ge 2^N`,
+    #: RNITE rounding to nearest with ties to even
+    SR_C = 8
+    SR_A = 6  #: ``StochasticA``: ``SR``'s other name (an alias)
 
     @property
-    def is_fp32(self) -> bool:
-        """Returns if the format is equivalent to the IEEE-754 ``binary32`` format."""
-        return self.man == 23 and self.exp == 8
-
-    @property
-    def is_fp16(self) -> bool:
-        """Returns if the format is equivalent to the IEEE-754 ``binary16`` format."""
-        return self.man == 10 and self.exp == 5
-
-    @property
-    def is_bfloat16(self) -> bool:
-        """Returns if the format is equivalent to the ``bfloat16`` format."""
-        return self.man == 7 and self.exp == 8
+    def is_stochastic(self) -> bool:
+        """Whether this mode draws random bits: ``SR`` (``SR_A``), ``SR_B`` or ``SR_C``."""
+        return self.value >= 6
 
 
-class SuperNormalFloat(FloatType):
-    r"""
-    Low-Precision SuperNormal Floating Point Format. Described in
-    *Range Extension with Supernormals for Mixed-Precision 8-bit DNN Training*
-    (https://www.arith2025.org/proceedings/215900a017.pdf)
+class AccumulateAlgorithm(Enum):
+    """How the partial products of a dot product are folded into its sum.
 
-    We set the exponent bias to be :math:`2^{\text{exp}-1}`. For rounding
-    mode, we apply *round to nearest even*.
+    Mirrors ``AccumulateAlgorithm`` in ``csrc/common/modes.h``, by name and
+    value. It selects the reduction inside a custom-arithmetic GEMM
+    (:class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac`, the
+    flat ``*_matmul`` wrappers).
 
-    Args:
-        exp: number of bits allocated for exponent
-        man: number of bits allocated for mantissa, referring to number of bits that are
-            supposed to be stored on hardware (not counting the virtual bits)
-        binades: number of binades transformed into log range
-        saturate: clamp values instead of using infinities in case of overflow
+    Notation: ``a`` and ``b`` are the two operands of one step, and ``s`` is
+    the running sum. ``round_mul`` and ``round_acc`` are the mac's two
+    roundings. ``round_acc`` is the identity when there is no accumulate
+    format. In a fused mac it is the fused format's rounding, and the step is
+    ``round_acc(fma(a, b, s))`` in place of
+    ``round_acc(s + round_mul(a * b))``. ``round_out`` is the rounding of the
+    mac's ``outer`` format (the identity without one). The products are taken
+    in order, ``k = 1 .. K``:
+
+    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, as a hardware
+      accumulator of the accumulate format does. The result is ``s``.
+    * :attr:`KAHAN`: a compensation ``c`` is carried next to the sum, also in
+      the accumulate format: ``y = round_acc(round_mul(a * b) - c)``,
+      ``t = round_acc(s + y)``, ``c = round_acc(round_acc(t - s) - y)``,
+      ``s = t``. The result is ``s``. With no accumulate format this is
+      Kahan's summation in the carrier.
+    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum ``s``. After
+      every ``block_size`` products, and after the last one, the block is
+      added to a total, ``tot = round_out(tot + s)``, and ``s`` restarts from
+      zero. This gives two levels of precision: a narrow accumulate format
+      inside a block, and a wider outer format across blocks. The result is
+      ``tot``.
+    * :attr:`TREE`: the rounded products ``p1, p2, ...`` of a block of
+      ``block_size = 2**L`` are summed pairwise, in the order they arrive:
+      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` and so on up.
+      The block's root is added to the total as in ``BLOCK``. A last, partial
+      block merges the subtrees it has, smallest first. The algorithm needs a
+      product term, so a fused mac refuses it.
+
+    Under :attr:`RoundMode.SR` every rounding that is not an identity draws
+    once, in the order written. Nothing is padded, so a result does not
+    depend on how a backend tiles ``K``, and the CPU, CUDA and MPS kernels
+    agree to the bit in every deterministic mode (MPS up to the Apple GPU's
+    flush of binary32 subnormals in the arithmetic between roundings). An MPS
+    result is the CPU's under SR as well, since both draw from the CPU
+    generator. ``KAHAN``, ``BLOCK`` and ``TREE`` are implemented for the
+    single-format ops, the cross-family ones, the conv ops and the block
+    GEMM, in both carriers (binary32 only on MPS, which has no float64). A
+    palette raises.
+
+    Example::
+
+        >>> from mptorch import AccumulateAlgorithm
+        >>> AccumulateAlgorithm.NAIVE.value
+        0
     """
 
-    def __init__(
-        self,
-        exp: int,
-        man: int,
-        binades: int | tuple[int] | tuple[int, int],
-        saturate=False,
-    ):
-        assert 8 >= exp > 0, "invalid bits for exponent:{}".format(exp)
-        assert 23 >= man > 0, "invalid bits for mantissa:{}".format(man)
-        if isinstance(binades, int):
-            assert 8 >= binades > 0, "invalid binade size:{}".format(binades)
-        elif len(binades) == 1:
-            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
-        else:
-            assert 8 >= binades[0] > 0, "invalid binade size:{}".format(binades[0])
-            assert 8 >= binades[1] > 0, "invalid binade size:{}".format(binades[1])
-        self.exp = exp
-        self.man = man
-        if isinstance(binades, int):
-            self.binades_l, self.binades_u = binades, binades
-        elif len(binades) == 1:
-            self.binades_l, self.binades_u = binades[0], binades[0]
-        else:
-            self.binades_l, self.binades_u = binades[0], binades[1]
-        # TODO: to remove
-        self.binades = (self.binades_l, self.binades_u)
-        self.saturate = saturate
-
-        min_exp = 1 - 2 ** (exp - 1) + (self.binades_l - 1)
-        max_exp = 2 ** (exp - 1) - 2 - (self.binades_u - 1)
-        self.subnormal_min = 2 ** (min_exp - self.binades_l * (2**man) + 1)
-        self.subnormal_max = 2 ** (min_exp - 1)
-        self.normal_min = 2**min_exp
-        self.normal_max = 2**max_exp
-        self.supernormal_min = 2 ** (max_exp + 1)
-        self.supernormal_max = 2 ** (
-            max_exp + self.binades_u * (2**man) - 1 + int(saturate)
-        )
-
-    def __str__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
-            self.exp, self.man, self.binades_l, self.binades_u
-        )
-
-    def __repr__(self):
-        return "SuperNormalFloat (exponent={:d}, mantissa={:d}, binades=({:d}, {:d}))".format(
-            self.exp, self.man, self.binades_l, self.binades_u
-        )
+    NAIVE = 0  #: Quantize the running sum after every accumulation step.
+    KAHAN = 1  #: Kahan-compensated summation, the compensation in the accumulate format.
+    BLOCK = 2  #: Two-level (FABSum-style) block summation with an outer format.
+    TREE = 3  #: Pairwise summation within a block, folded with an outer format.
 
 
-class BlockFloatingPoint(Number):
-    r"""
-    Low-Precision Block Floating Point Format.
+# --- what a carrier can hold -------------------------------------------------
+#
+# The casts do not build encodings. They round a value of their *carrier*, the
+# binary float the arithmetic runs in, onto the format's grid and hand back a
+# value of the carrier (`docs/source/concepts.rst`, "What the carrier can
+# hold"). The carrier is the operand's by default, binary64 for a float64
+# tensor and binary32 for float32, float16 and bfloat16, and binary64 for
+# those three too where a call asks for it with `carrier=torch.float64`. It is
+# never narrower than the tensor. A format with more range or precision than
+# its carrier is quantized *partially*: the result is still a tensor of
+# plausible numbers, and some of the format's values are simply never among
+# them. The checks below are what stops that being invisible.
+# `dev/benchmarks/formats/format_limits.py` measures the bounds stated here against
+# the kernels, over ~17 M inputs per format in every rounding mode, and
+# `tests/test_format_limits.py` pins the boundaries it found.
+#
+# Two bounds, not one, and they differ by a binade:
+#
+#   representable  every value of the format is a value of the carrier.
+#                  Arithmetic alone: its significand bits (24, 53), nothing
+#                  above its largest finite value, nothing spaced finer than
+#                  its smallest subnormal (2**-149, 2**-1074).
+#   faithful       the cast reaches those values, for every input. Stronger,
+#                  because a cast places its input by the *exponent field*
+#                  of the word and all of a carrier's subnormals share field
+#                  0, so nothing below its smallest normal (2**-126, 2**-1022)
+#                  can be told apart: a binade above that (2**-125, 2**-1021)
+#                  is the lowest value a format may have, for a cast that
+#                  reads the field down there. `_binaryK_extent` derives the
+#                  floor per `SubnormalsMode`, since two of them compare
+#                  magnitudes instead and reach a binade lower.
+#
+# Together the top and bottom leave 253 binades to spend in binary32 and 2045
+# in binary64, which allows at most seven and ten exponent bits.
+#
+# What separates a warning from an error here is not which of those two bounds
+# is missed but whether the format still *works*. A format whose range outruns
+# its carrier quantizes correctly over the part that fits (a wide binaryK used
+# as a precision-only target is a real thing, and `tests/` uses several on
+# purpose); it is simply partial, and being told so is the whole point. That
+# is a warning. An error is for a format that cannot function at all: a grid
+# finer than the carrier's (nothing survives), an exponent field wider than
+# the kernels shift by, stochastic bits with no significand left to draw
+# from, a superfp whose regions come out misordered, or one whose largest
+# finite code is below the carrier's normals, where the largest finite value
+# is zero and every nonzero result overflows.
+#
+# Which carrier a format meets belongs to the call, not to the format, so a
+# carrier's findings are reported per call, from `mptorch.quant.ops`, as the
+# storage checks further down are. All `BinaryK`/`SuperFP` check when they are
+# built is what no carrier can do (binary64's errors, binary64 being the
+# wider), and they warn about nothing.
 
-    BlockFloatingPoint shares an exponent across a block of numbers. The shared
-    exponent is chosen from the largest magnitude in the block.
 
-    Args:
-        wl: word length of the tensor
-        dim: block dimension to share exponent. (\*, D, \*) Tensor where
-            D is at position `dim` will have D different exponents; use -1 if the
-            entire tensor is treated as a single block (there is only 1 shared
-            exponent).
+class _Carrier(NamedTuple):
+    """The binary float a cast rounds in, as the range checks read it.
+
+    Two instances exist, ``_BINARY32`` and ``_BINARY64``. Every exponent is an
+    unbiased power of two: ``man_bits`` is ``precision - 1`` (the stored
+    mantissa bits), ``min_normal_exp`` is the exponent of the smallest normal,
+    which is also the exponent that field 1 encodes, and ``min_simulable_exp``
+    is one binade above it, the lowest a format's smallest value may sit when
+    the cast places inputs by their exponent field.
     """
 
-    def __init__(self, wl: int, dim: int = -1):
-        assert wl > 0 and isinstance(wl, int), "invalid bits for word length:{}".format(
-            wl
-        )
-        assert dim >= -1 and isinstance(dim, int), "invalid dimension"
-        self.wl = wl
-        self.dim = dim
-
-    def __str__(self):
-        return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
-
-    def __repr__(self):
-        return "BlockFloatingPoint (wl={:d}, dim={:d})".format(self.wl, self.dim)
+    name: str
+    precision: int  # significand bits, the implicit one included
+    man_bits: int
+    top_exp: int  # exponent of the largest finite value
+    min_normal_exp: int
+    min_subnormal_exp: int  # exponent of the smallest positive value
+    min_simulable_exp: int  # the lowest a format's own smallest value may be
 
 
-class Binary8(FloatType):
-    r"""
-    Low-Precision ``binary8`` Format the follows the IEEE-P3109 WG specification (https://github.com/P3109/Public/).
-    This is a format showcasing an evolving standard. Changes are likely in the future.
+_BINARY32 = _Carrier("binary32", 24, 23, 127, -126, -149, -125)
+_BINARY64 = _Carrier("binary64", 53, 52, 1023, -1022, -1074, -1021)
+# Keyed on the dtype a `carrier=` argument names, which is the float the
+# carrier is; float16 and bfloat16 never carry, they are rounded in binary32.
+_CARRIERS: dict[torch.dtype, _Carrier] = {torch.float32: _BINARY32, torch.float64: _BINARY64}
+_MAX_EXP_BITS = 30  # `1 << exp_bits` is a C++ `int` in the kernels
 
-    ``binary8`` is a format that takes a value P as an input to determines the number
-    of mantissa and exponent bits.
 
-    Args:
-        P: integer precision of the ``binary8`` format
-        signed: boolean indicating whether the format is signed or unsigned
-        subnormals: allow the use of subnormal values
-        overflow_policy: string indicating the overflow policy, one of:
-            ``saturate_maxfloat2`` (no infinity and +1 normalized value),
-            ``saturate_maxfloat`` (clamp to maxfloat),
-            ``saturate_infty`` (use infinity)
+class FormatRangeWarning(UserWarning):
+    """Warns that a format's range outruns the float it is rounded or stored in.
+
+    Quantizing to such a format is partial: the cast is correct over the part
+    of the format that the carrier holds, and some of the format's values are
+    never returned. The carrier is the operand's: binary64 for a float64
+    tensor, and binary32 for float32, float16 and bfloat16, unless the call
+    names binary64 with ``carrier=torch.float64``.
+
+    The quantizers and GEMMs of :mod:`mptorch.quant` warn per call when a
+    format does one of three things: reaches above the carrier's largest
+    finite value; spaces its values finer than the carrier's smallest
+    subnormal (:math:`2^{-149}` in binary32, :math:`2^{-1074}` in binary64);
+    or has a smallest positive value below the floor the carrier gives it.
+    That floor depends on how the cast finds the bottom of the format:
+
+    * :math:`2^{-125}` (:math:`2^{-1021}`) for a :class:`BinaryK` with
+      ``SubnormalsMode.SUBNORMALS`` and for a :class:`SuperFP`. Their casts
+      place an input on the subnormal or supernormal grid using its exponent
+      field, which all of the carrier's subnormals share. A format reaching
+      lower would have its bottom binade rounded onto the wrong grid.
+    * :math:`2^{-126}` (:math:`2^{-1022}`), the carrier's smallest normal, for
+      a :class:`BinaryK` with ``SubnormalsMode.NORMALS`` or
+      ``SubnormalsMode.EXTENDED_NORMALS``. Their casts find the bottom by
+      comparing magnitudes and read no field. Two cases stop a binade
+      earlier, at the first floor: ``P = 1`` under ``NORMALS``, and
+      ``EXTENDED_NORMALS`` at the carrier's full precision (``P = 24``,
+      ``P = 53``).
+
+    :doc:`/concepts` ("What the carrier can hold") derives both.
+    :class:`BinaryK` and :class:`SuperFP` do not warn when they are built,
+    because a format does not know which carrier it will meet. They raise only
+    for what neither carrier can do.
+
+    The same warning is issued when the result is stored in a dtype narrower
+    than the carrier (float16 or bfloat16 under binary32, and float32 as well
+    under binary64) and the format's range exceeds *that* dtype: above its
+    largest finite value, or spaced finer than its smallest subnormal. The
+    cast rounds in the carrier, and storing the result rounds a second time,
+    onto the dtype's grid. A value above the dtype's range is stored as an
+    infinity, whatever the format's saturation mode.
+
+    This is a warning and not an error because such a format is still useful.
+    A wide binaryK is a reasonable precision-only target, and its unreachable
+    top is then intended. Each warning names the line that made the call, so
+    the default filter reports it once per line, not once per training step.
+
+    Example::
+
+        >>> import warnings
+        >>> import torch
+        >>> from mptorch import BinaryK, FormatRangeWarning
+        >>> from mptorch.quant import Quant
+        >>> q = Quant(BinaryK(16, 8, bias=255))  # values down to 2**-261
+        >>> warnings.simplefilter("ignore", FormatRangeWarning)
+        >>> y = q(torch.ones(2))  # rounded in binary32, without the warning
     """
 
-    def __init__(
-        self,
-        P: int,
-        signed: bool = True,
-        subnormals: int = True,
-        overflow_policy: Literal[
-            "saturarte_infty", "saturate_maxfloat", "saturate_maxfloat2"
-        ] = "saturate_maxfloat2",
-    ):
-        assert 8 > P > 0, "Invalid P: {}".format(P)  # is P = 8 valid?
-        assert overflow_policy in (
-            "saturate_infty",
-            "saturate_maxfloat",
-            "saturate_maxfloat2",
-        ), "Invalid overflow policy: {}".format(overflow_policy)
 
-        self.P = P
-        spec_exp = P == 1
+def _top_of_range(
+    exp_bits: int, man_bits: int, bias: int, reserved: int, carrier: _Carrier
+) -> tuple[int, int, int]:
+    """The largest finite value of a format, in the kernel's terms.
 
-        # Determine mantissa and exponent bits based on P and signed
-        self.man = P - 1
-        self.exp = (8 - P) if signed else (9 - P)
-        max_exp = 2 ** (self.exp - 1) - 1
-        min_exp = -max_exp + spec_exp
+    Returns ``(exponent field, exponent, mantissa code)`` of the largest
+    finite value, transcribed from ``make_normal_range_params`` in
+    ``bit_helper.h``. P3109 counts that value in code points: of the top
+    binade's codes the last ``reserved`` hold no finite value (an infinity
+    outside the finite domain, and the NaN of an unsigned binaryK), and with
+    one or two mantissa bits those can outnumber the binade's codes, which
+    moves the largest finite value a binade or two down, so the loop borrows
+    from lower binades until the code is non-negative. Counted in
+    ``min(man_bits, carrier.man_bits)`` codes, as the kernel counts them; a
+    format asking for more than that has already been rejected for precision
+    before this is read.
+    """
+    codes = 1 << min(man_bits, carrier.man_bits)
+    top_code = codes - 1 - reserved
+    top_field = (1 << exp_bits) - 1
+    while top_code < 0:
+        top_code += codes
+        top_field -= 1
+    return top_field, top_field - bias, top_code
 
-        # Define the subnormal and normal ranges
-        if self.man != 1 and subnormals == True:
-            self.subnormal_min = (2**-self.man) * (2**min_exp)  # this is good
-            self.subnormal_max = (1 - 2**-self.man) * (2**min_exp)  # this is also good
-        else:
-            self.subnormal_min = None
-            self.subnormal_max = None
 
-        # no subnormal case
-        if subnormals == True or self.man == 1:
-            self.normal_min = 2**min_exp  # this is good
-        else:  # values of P with subnormal values will have different normal_min
-            self.normal_min = (1 + 2**-self.man) * (2 ** (min_exp - 1))
+def _width_error(
+    label: str, exp_bits: int, man_bits: int, prng_bits: int, carrier: _Carrier
+) -> str | None:
+    """The bounds that must hold before anything shifts by ``exp_bits``.
 
-        if signed:
-            if (
-                overflow_policy == "saturate_maxfloat2"
-            ):  # no inf case, so max is FF not FE
-                if self.man > 0:
-                    self.normal_max = (2 - 2**-self.man) * (
-                        2**max_exp
-                    )  # good for more than 0 mantissa
-                else:
-                    self.normal_max = 2 ** (max_exp + 1)  # 0 mantissa case
-            else:  # normal case where FE is max
-                if self.man > 0:
-                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
-                        2**max_exp
-                    )  # good for more than 0 mantissa
-                else:
-                    self.normal_max = 2**max_exp  # 0 mantissa case
-        else:  # unsigned case
-            if (
-                overflow_policy == "saturate_maxfloat2"
-            ):  # no inf case, so max is FE not FD
-                if self.man > 0:
-                    self.normal_max = (2 - 2 ** -(self.man - 1)) * (
-                        2**max_exp
-                    )  # good for more than 0 mantissa
-                else:
-                    self.normal_max = 2**max_exp  # 0 mantissa case
-            else:  # normal case where FD is max
-                if self.man > 0:
-                    self.normal_max = (2 - 2**-self.man - 2 ** -(self.man - 1)) * (
-                        2**max_exp
-                    )  # good for more than 1 mantissa
-                elif self.man == 1:
-                    self.normal_max = 1.5 * (
-                        2 ** (max_exp - 1)
-                    )  # (2 - 2**-self.man) * (2**(max_exp-1))
-                else:
-                    self.normal_max = 2 ** (max_exp - 1)
-
-        self.signed = signed
-        self.subnormals = subnormals
-        self.overflow_policy = overflow_policy
-
-    def __repr__(self):
+    Returns the message for the first one violated, or ``None``: a negative
+    ``prng_bits``, an exponent field wider than ``_MAX_EXP_BITS``, a mantissa
+    wider than the carrier's, or stochastic-rounding bits that do not fit next
+    to the mantissa in the carrier's significand. Each is a format that cannot
+    function, never a partial one.
+    """
+    if prng_bits < 0:
+        # `BinaryK`/`SuperFP` refuse a negative count in `__post_init__`; the
+        # plain-integer wrappers in `mptorch.quant.ops` reach here directly
+        return f"{label} asks for {prng_bits} stochastic-rounding bits, which cannot be negative"
+    if exp_bits > _MAX_EXP_BITS:
+        binades = carrier.top_exp - carrier.min_simulable_exp + 1
         return (
-            f"Binary8 (P={self.P}, exp={self.exp}, man={self.man}, signed={self.signed}, "
-            f"subnormals={self.subnormals}, overflow_policy={self.overflow_policy})"
+            f"{label} has {exp_bits} exponent bits; the kernels derive the format's "
+            f"range with `1 << exp_bits` in a 32-bit int, and {carrier.name} spans "
+            f"{binades} binades in any case, so at most {binades.bit_length() - 1} are usable"
+        )
+    if man_bits > carrier.man_bits:
+        return (
+            f"{label} asks for {man_bits + 1} bits of precision, and it is rounded in "
+            f"{carrier.name}, which has {carrier.precision}: the format's grid is finer "
+            f"than anything that can be returned"
+        )
+    if man_bits + prng_bits > carrier.man_bits:
+        return (
+            f"{label} asks for {prng_bits} stochastic-rounding bits below a "
+            f"{man_bits}-bit mantissa; they are drawn from the {carrier.name} significand "
+            f"the rounding happens in, which has {carrier.man_bits} bits to share"
+        )
+    return None
+
+
+class _Extent(NamedTuple):
+    """A format's range, in the only terms the range checks read.
+
+    Derived once from the parameters by `_binaryK_extent` or `_superfp_extent`
+    and held against two things: the carrier a cast rounds in, and a result
+    narrower than that carrier, which the rounded value is stored in. Every
+    exponent is an unbiased power of two.
+    """
+
+    label: str
+    exp_bits: int
+    man_bits: int
+    top_field: int  # the largest finite value's exponent field
+    top_exp: int  # ... its exponent
+    top_code: int  # ... and its mantissa code, of `man_bits`
+    bottom_exp: int  # the exponent of the smallest positive value
+    step_exp: int  # the exponent of the finest spacing anywhere in the format
+    min_bottom: int  # how low `bottom_exp` may go before the carrier's cast loses it
+    bottom_why: str  # ... and what goes wrong below that, for the warning
+    # What lies below the binades that carry a full mantissa, which start at
+    # `normal_exp`: the name of one of `SubnormalsMode`'s three, or
+    # "SUPERNORMALS" for superfp's powers of two.
+    normal_exp: int
+    below: str
+
+
+def _range_findings(ext: _Extent, carrier: _Carrier) -> tuple[str | None, str | None]:
+    """The top and bottom of the range against the carrier's, after the widths.
+
+    Returns ``(error, warning)``, at most one of them set. ``bottom_exp`` is
+    the exponent of the format's smallest positive value and ``step_exp`` that
+    of its finest spacing; for a format whose lowest binade carries a mantissa
+    the two differ by ``man_bits``. ``min_bottom`` is how low that smallest
+    value may go, which `_binaryK_extent` derives per subnormals mode.
+
+    Only the first finding is returned, so a format that outruns its carrier
+    at both ends says so about the top first and about the bottom once that is
+    fixed. The error is the one case that stops the format working at all: no
+    finite value the carrier holds, so every nonzero result overflows.
+    """
+    label, top_exp, bottom_exp, step_exp = ext.label, ext.top_exp, ext.bottom_exp, ext.step_exp
+    name = carrier.name
+    if ext.top_field < 1 or top_exp < carrier.min_normal_exp:
+        return (
+            f"{label} has no finite normal value {name} can hold: the largest "
+            f"finite code sits at 2^{top_exp}, so every nonzero result overflows"
+        ), None
+    if top_exp > carrier.top_exp:
+        return None, (
+            f"{label} reaches 2^{top_exp}, above {name}'s 2^{carrier.top_exp}: the cast "
+            f"saturates at {name}'s largest value on the format's grid instead, and "
+            f"the codes above it are unreachable (needs bias >= {ext.top_field - carrier.top_exp})"
+        )
+    if step_exp < carrier.min_subnormal_exp:
+        return None, (
+            f"{label} spaces its values 2^{step_exp} apart at the bottom, below "
+            f"{name}'s 2^{carrier.min_subnormal_exp}: values that far down are not "
+            f"{name} values at all, so the bottom of the range is unreachable"
+        )
+    if bottom_exp < ext.min_bottom:
+        return None, (
+            f"{label}'s smallest value is 2^{bottom_exp}, below 2^{ext.min_bottom}: "
+            f'{ext.bottom_why}. See concepts.rst, "What the carrier can hold".'
+        )
+    return None, None
+
+
+# The three things that can go wrong below `_Extent.min_bottom`, each as the
+# sentence `_Extent.bottom_why` carries into the warning.
+
+
+def _bottom_by_field(c: _Carrier) -> str:
+    """Why a cast that reads the exponent field loses values below the floor."""
+    return (
+        f"the casts place an input by its {c.name} exponent field, which every {c.name} "
+        f"subnormal shares, so this format's values below 2^{c.min_normal_exp} are "
+        "rounded onto the wrong grid and some are never returned"
+    )
+
+
+def _bottom_tie_by_field(c: _Carrier) -> str:
+    """Why a one-code-per-binade format's floor cannot sit at the smallest normal."""
+    return (
+        "with one code per binade the cast rounds by exponent field alone, and half that "
+        f"value, 2^{c.min_normal_exp - 1}, is a {c.name} subnormal, in the field every "
+        "one of them shares -- so round-to-nearest-even reads it as a tie between two "
+        "binades and returns the smallest value, where the format's answer is zero"
+    )
+
+
+def _bottom_half_unheld(c: _Carrier) -> str:
+    """Why a full-precision extended-normals floor needs a step the carrier lacks."""
+    return (
+        f"half that value, 2^{c.min_normal_exp - 1} x (1 + 2^-{c.man_bits}), is the "
+        f"round-to-nearest boundary below it and needs a step {c.name} does not have, so "
+        f"the cast holds it as 2^{c.min_normal_exp - 1} -- and round-to-nearest-away "
+        "returns the smallest value for that input, where the format's answer is zero"
+    )
+
+
+def _binaryK_label(K: int, P: int, bias: int, is_signed: bool, subnormals: SubnormalsMode) -> str:
+    """The format as its constructor call, for messages; defaults are omitted."""
+    return (
+        f"BinaryK(K={K}, P={P}, bias={bias}"
+        + ("" if is_signed else ", is_signed=False")
+        + ("" if subnormals is SubnormalsMode.SUBNORMALS else f", {subnormals.name}")
+        + ")"
+    )
+
+
+def _binaryK_extent(
+    label: str,
+    man_bits: int,
+    exp_bits: int,
+    bias: int,
+    is_signed: bool,
+    saturation: SaturationMode,
+    subnormals: SubnormalsMode,
+    carrier: _Carrier,
+) -> _Extent:
+    """A binaryK format's range, as an `_Extent`.
+
+    Call it only once `_width_error` has passed, since this shifts by
+    ``exp_bits``. The top comes from `_top_of_range`; the bottom and the finest
+    step depend on the subnormals mode, and so does the floor the carrier's
+    cast is exact down to.
+    """
+    # P3109's reserved codes: +infinity outside the finite domain, and NaN
+    # above it in an unsigned format (`make_binaryK_params`)
+    reserved = (saturation is not SaturationMode.SAT_FINITE) + (0 if is_signed else 1)
+    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
+    min_exp = 1 - bias  # the smallest normal's exponent
+    if subnormals is SubnormalsMode.SUBNORMALS:
+        # the subnormals are one grid of fixed spacing, and its step is both
+        # the smallest value and the finest spacing in the format
+        bottom_exp = step_exp = min_exp - man_bits
+    elif subnormals is SubnormalsMode.NORMALS:
+        bottom_exp, step_exp = min_exp, min_exp - man_bits
+    else:
+        # EXTENDED_NORMALS: one more binade of normals below the rest, minus
+        # its mantissa-zero code, which is still the zero, so the smallest
+        # value is one step into that binade; with man_bits == 0 the step is
+        # the whole binade and the floor is the one NORMALS has
+        bottom_exp = min_exp - 1 if man_bits else min_exp
+        step_exp = bottom_exp - man_bits
+    # How low the floor may go is not the same for the three modes, and the
+    # difference is which of them reads an exponent field down there. In
+    # binary32's numbers, binary64's following in parentheses:
+    # `SUBNORMALS` derives its grid from the input's exponent field, which
+    # every subnormal of the carrier shares, so it is blind below 2**-126
+    # (2**-1022) and needs its floor a binade above that. `NORMALS` and
+    # `EXTENDED_NORMALS` decide by comparing magnitudes as words, which reads
+    # no field at all, so they are exact to 2**-126, and no further, because
+    # below it the floor leaves the carrier's normals and nothing flushes. Two
+    # of their formats stop a binade short of that, both at half the floor,
+    # the one point the compare needs besides the floor itself:
+    #
+    #   man_bits == 0   the round before the compare reads a field after all.
+    #                   With no mantissa it rounds between binades, and a floor
+    #                   at 2**-126 puts half of it, 2**-127, in field 0, where
+    #                   the round sees a tie between binades and carries it up
+    #                   to the floor before the compare can send it to zero.
+    #   EXTENDED, full  at the carrier's full precision (P = 24, 53) half the
+    #   precision       floor, 2**-127 * (1 + 2**-23), needs a 2**-150 step
+    #                   (2**-1075); the carrier holds it as 2**-127, and
+    #                   round-to-nearest-away takes that input up to the floor.
+    #
+    # `dev/benchmarks/sweeps/cast_all_modes_sweep.cu` found both in binary32 by
+    # checking every rounding mode over all 2**32 inputs; binary64 is exact
+    # at both points, and the same bounds apply one carrier wider.
+    if subnormals is SubnormalsMode.SUBNORMALS:
+        min_bottom, bottom_why = carrier.min_simulable_exp, _bottom_by_field(carrier)
+    elif man_bits == 0:
+        min_bottom, bottom_why = carrier.min_simulable_exp, _bottom_tie_by_field(carrier)
+    elif subnormals is SubnormalsMode.EXTENDED_NORMALS:
+        # half the floor's last bit, 2**(bottom_exp - 1 - man_bits), must exist
+        min_bottom = max(carrier.min_normal_exp, man_bits + 1 + carrier.min_subnormal_exp)
+        bottom_why = _bottom_half_unheld(carrier)
+    else:
+        min_bottom, bottom_why = carrier.min_normal_exp, _bottom_by_field(carrier)
+    if bottom_exp < carrier.min_normal_exp:
+        # the floor itself is out of reach, which says more
+        bottom_why = _bottom_by_field(carrier)
+    return _Extent(
+        label,
+        exp_bits,
+        man_bits,
+        top_field,
+        top_exp,
+        top_code,
+        bottom_exp,
+        step_exp,
+        min_bottom,
+        bottom_why,
+        min_exp,
+        subnormals.name,
+    )
+
+
+def _superfp_label(man_bits: int, exp_bits: int, normal_binades: int, bias: int) -> str:
+    """The format as its constructor call, for messages."""
+    return (
+        f"SuperFP(man_bits={man_bits}, exp_bits={exp_bits}, "
+        f"normal_binades={normal_binades}, bias={bias})"
+    )
+
+
+def _superfp_regions_error(label: str, exp_bits: int, normal_binades: int) -> str | None:
+    """The one superfp layout no range can be read from, or ``None``."""
+    binades = 1 << exp_bits
+    if normal_binades >= binades:
+        # no supernormal codes left, which puts the supernormal floor one
+        # *above* the normal one; the cast tests supernormal-then-underflow,
+        # so the format's lowest normal binade would flush to zero
+        return (
+            f"{label} leaves no supernormal codes: normal_binades must be at most "
+            f"2**exp_bits - 1 = {binades - 1}, or the cast flushes the format's "
+            f"lowest normal binade to zero"
+        )
+    return None
+
+
+def _superfp_extent(
+    label: str,
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode,
+    carrier: _Carrier,
+) -> _Extent:
+    """A superfp format's range, as an `_Extent`.
+
+    Call it only once `_width_error` and `_superfp_regions_error` have passed.
+    The normal region holds the top ``normal_binades`` binades with a full
+    mantissa; below it the ``(binades - normal_binades) * 2**man_bits`` codes
+    the other binades would have spent on mantissas encode the zero and, all
+    but that one, further powers of two, the supernormals, and everything
+    below those flushes.
+    """
+    binades = 1 << exp_bits
+    # superfp spends no code on a NaN, signed or not (`make_superfp_params`)
+    reserved = saturation is not SaturationMode.SAT_FINITE
+    top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
+    normal_cutoff = binades - bias - normal_binades
+    # the smallest supernormal, `superfp_region_cutoffs`
+    bottom_exp = normal_cutoff - (binades - normal_binades) * (1 << man_bits) + 1
+    step_exp = min(bottom_exp, normal_cutoff - man_bits)
+    return _Extent(
+        label,
+        exp_bits,
+        man_bits,
+        top_field,
+        top_exp,
+        top_code,
+        bottom_exp,
+        step_exp,
+        carrier.min_simulable_exp,  # the supernormal arm reads the exponent field
+        _bottom_by_field(carrier),
+        normal_cutoff,
+        "SUPERNORMALS",
+    )
+
+
+def _fixedpoint_label(wl: int, fl: int, is_signed: bool, symmetric: bool) -> str:
+    """The format as its constructor call, for messages; defaults are omitted."""
+    return (
+        f"FixedPoint(wl={wl}, fl={fl}"
+        + ("" if is_signed else ", is_signed=False")
+        + (", symmetric=True" if symmetric else "")
+        + ")"
+    )
+
+
+# The derivations are memoized and the reporting is not, deliberately. The
+# elementwise quantizers look their format up on every call, and a flat GEMM
+# wrapper resolves its formats on every call too, so this sits on a per-call
+# path: a cache hit is 0.25 us against 1.04 to redo the derivation. Caching
+# the *warning* instead would make it fire once per process and then go
+# quiet, which is a worse contract than `warnings`' own once-per-location
+# default and would make the tests order-dependent.
+#
+# A binary32 finding that binary64 does not share says so, since the cure is
+# then the binary64 carrier rather than a different format.
+
+
+def _pointing_wider(
+    find: Callable[[_Carrier], tuple[str | None, str | None]], carrier: torch.dtype
+) -> tuple[str | None, str | None]:
+    """Run ``find`` for ``carrier`` and, if binary32 objects where binary64
+    would not, append the way out (``carrier=torch.float64``) to its message.
+    """
+    error, warning = found = find(_CARRIERS[carrier])
+    if carrier is torch.float32 and found != (None, None) and find(_BINARY64) == (None, None):
+
+        def wider(message: str) -> str:
+            end = "" if message.endswith(".") else "."
+            return (
+                f"{message}{end} binary64 holds all of it: a float64 tensor's carrier, "
+                "which carrier=torch.float64 gives a narrower tensor too."
+            )
+
+        return error and wider(error), warning and wider(warning)
+    return found
+
+
+@lru_cache(maxsize=512)
+def _binaryK_findings(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool,
+    saturation: SaturationMode,
+    subnormals: SubnormalsMode,
+    prng_bits: int,
+    carrier: torch.dtype,
+) -> tuple[str | None, str | None]:
+    """What ``carrier`` says about a binaryK format, as ``(error, warning)``.
+
+    Memoized on the whole parameter tuple, which is why it takes plain values
+    rather than a :class:`BinaryK`. The widths are checked first, since the
+    range derivation shifts by the exponent width.
+    """
+    man_bits = P - 1
+    exp_bits = K - P if is_signed else K - P + 1
+    label = _binaryK_label(K, P, bias, is_signed, subnormals)
+
+    def find(c: _Carrier) -> tuple[str | None, str | None]:
+        error = _width_error(label, exp_bits, man_bits, prng_bits, c)
+        if error is not None:
+            return error, None
+        ext = _binaryK_extent(label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, c)
+        return _range_findings(ext, c)
+
+    return _pointing_wider(find, carrier)
+
+
+@lru_cache(maxsize=512)
+def _superfp_findings(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode,
+    prng_bits: int,
+    carrier: torch.dtype,
+) -> tuple[str | None, str | None]:
+    """What ``carrier`` says about a superfp format, as ``(error, warning)``.
+
+    The superfp twin of `_binaryK_findings`, with the region-layout check
+    added to the width checks.
+    """
+    label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
+
+    def find(c: _Carrier) -> tuple[str | None, str | None]:
+        error = _width_error(label, exp_bits, man_bits, prng_bits, c) or _superfp_regions_error(
+            label, exp_bits, normal_binades
+        )
+        if error is not None:
+            return error, None
+        ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, c)
+        return _range_findings(ext, c)
+
+    return _pointing_wider(find, carrier)
+
+
+def _fixedpoint_layout_error(
+    label: str, wl: int, is_signed: bool, symmetric: bool, prng_bits: int
+) -> str | None:
+    """The fixed-point layouts no range can be read from, or ``None``.
+
+    :class:`FixedPoint` refuses these in `__post_init__`; the plain-integer
+    wrappers in `mptorch.quant.ops` reach here directly.
+    """
+    if prng_bits < 0:
+        return f"{label}: prng_bits must be >= 0, got {prng_bits}"
+
+    # a sign bit and at least one magnitude bit
+    min_wl = 2 if is_signed else 1
+    if wl < min_wl:
+        return f"{label}: wl must be >= {min_wl}, got {wl}"
+
+    # symmetric drops the most negative code, which an unsigned format lacks
+    if symmetric and not is_signed:
+        return f"{label}: an unsigned format cannot be symmetric"
+
+    return None
+
+
+@lru_cache(maxsize=512)
+def _fixedpoint_findings(
+    wl: int,
+    fl: int,
+    is_signed: bool,
+    symmetric: bool,
+    prng_bits: int,
+    carrier: torch.dtype,
+) -> tuple[str | None, str | None]:
+    """What ``carrier`` says about a fixed-point format, as ``(error, warning)``.
+
+    The fixed-point twin of `_binaryK_findings`. A fixed-point format has no
+    exponent field, so `_width_error` and `_range_findings` do not apply: its
+    range is its precision, the leading bit of its largest value, and its
+    step, each held against the carrier's here. Every value is a mag_bits-bit
+    integer times the step, so the precision rule is binaryK's on precision,
+    mag_bits against the carrier's significand; stochastic rounding draws its
+    bits below the step in the same significand, so they share it; and both
+    ends of the range must be carrier values, which in two's complement is the
+    bottom, -2^(mag_bits - fl), one binade past the top. Measured with
+    ``dev/benchmarks/formats/format_limits.py fixedpoint ... --audit`` and the
+    ``fixed-beyond`` modes of the cast sweeps (2026-11-10), after SR became
+    integer arithmetic on the word; until then it added 2^(mag_bits - fl) in
+    the carrier, which cost one bit and one binade. The layout is checked
+    first, and returned as is, since no carrier holds it.
+    """
+    label = _fixedpoint_label(wl, fl, is_signed, symmetric)
+
+    # error: a layout with no values (wl too short, symmetric unsigned, negative prng_bits)
+    layout_error = _fixedpoint_layout_error(label, wl, is_signed, symmetric, prng_bits)
+    if layout_error is not None:
+        return layout_error, None
+
+    mag_bits = wl - (1 if is_signed else 0)  # every value is a mag_bits-bit integer times 2^-fl
+    top_exp = mag_bits - 1 - fl  # the largest value's leading bit
+    exp_step = -fl
+
+    # the leading bit of the end farthest from zero: the top, or in two's
+    # complement the bottom, -2^(mag_bits - fl), a binade past it
+    end_exp = top_exp + 1 if is_signed and not symmetric else top_exp
+
+    def find(c: _Carrier) -> tuple[str | None, str | None]:
+        # error: every value is a mag_bits-bit integer, which the carrier's
+        # significand holds only up to its precision
+        if mag_bits > c.precision:
+            return (
+                f"{label} asks for {mag_bits} bits of precision, its magnitude bits, and it "
+                f"is rounded in {c.name}, which has {c.precision}"
+            ), None
+
+        # error: stochastic rounding draws its bits below the step, in the same significand
+        if mag_bits + prng_bits > c.precision:
+            return (
+                f"{label} asks for {prng_bits} stochastic-rounding bits below {mag_bits} "
+                f"magnitude bits; they are drawn from the {c.name} significand the rounding "
+                f"happens in, which has {c.precision} bits to share"
+            ), None
+
+        # error: the whole range is below the carrier's normals
+        if top_exp < c.min_normal_exp:
+            return (
+                f"{label}'s largest value is below {c.name}'s smallest normal, 2^{c.min_normal_exp}"
+            ), None
+
+        # error: an end of the range is past the carrier's largest value
+        if end_exp > c.top_exp:
+            if end_exp > top_exp:
+                end = f"bottom, -2^{end_exp},"
+            else:
+                end = f"largest value, in 2^{top_exp},"
+            return (
+                f"{label}'s {end} is past {c.name}'s range, which stops below 2^{c.top_exp + 1}"
+            ), None
+
+        # warn: the step is below the floor the casts place values by (`_Carrier`)
+        if exp_step < c.min_simulable_exp:
+            return None, (
+                f"{label}'s step, 2^{exp_step}, is below 2^{c.min_simulable_exp}; "
+                f"values near zero may round incorrectly in {c.name}"
+            )
+        return None, None
+
+    return _pointing_wider(find, carrier)
+
+
+def check_binaryK(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool = True,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype = torch.float32,
+    warn: bool = True,
+    stacklevel: int = 3,
+) -> None:
+    """Hold a binaryK format against what a carrier can hold.
+
+    A format that cannot function in the carrier is an error; one whose range
+    merely outruns it quantizes partially rather than wrongly, and is a
+    warning. :class:`BinaryK` calls this with ``carrier=torch.float64`` and
+    ``warn=False``, which raises for what no carrier can do and says nothing
+    else, because which carrier a format meets is the call's to know; the
+    call holds it to that one with :func:`check_binaryK_carrier`.
+
+    Args:
+        K (int): total bits of the format.
+        P (int): bits of precision, the implicit leading bit included.
+        bias (int): the resolved exponent bias, never ``None``.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        saturation (SaturationMode): overflow behaviour and domain.
+            Default: ``SaturationMode.SAT_NONE``.
+        subnormals (SubnormalsMode): what lies below the smallest normal.
+            Default: ``SubnormalsMode.SUBNORMALS``.
+        prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
+        carrier (torch.dtype): ``torch.float32`` for binary32 or
+            ``torch.float64`` for binary64. Default: ``torch.float32``.
+        warn (bool): whether to issue the warning. Default: ``True``.
+        stacklevel (int): how far above this function the caller's own code
+            is, so the warning points there. Default: 3.
+
+    Raises:
+        ValueError: for a format that cannot function in the carrier: more
+            precision than the carrier has, stochastic bits with no
+            significand left to draw from, an exponent field past 30 bits, a
+            negative ``prng_bits``, or no finite value the carrier holds.
+    """
+    error, warning = _binaryK_findings(
+        K, P, bias, is_signed, saturation, subnormals, prng_bits, carrier
+    )
+    if error is not None:
+        raise ValueError(error)
+    if warn and warning is not None:
+        warnings.warn(warning, FormatRangeWarning, stacklevel=stacklevel)
+
+
+def check_superfp(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype = torch.float32,
+    warn: bool = True,
+    stacklevel: int = 3,
+) -> None:
+    """Hold a superfp format against what a carrier can hold.
+
+    The same contract as :func:`check_binaryK`. There is no ``is_signed``:
+    superfp spends no code point on a NaN either way, so signedness does not
+    move the top of the range.
+
+    Args:
+        man_bits (int): stored mantissa bits.
+        exp_bits (int): exponent field width.
+        normal_binades (int): binades at the top of the range that keep their
+            mantissa; the rest encode supernormal powers of two.
+        bias (int): the exponent bias.
+        saturation (SaturationMode): overflow behaviour and domain.
+            Default: ``SaturationMode.SAT_NONE``.
+        prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
+        carrier (torch.dtype): ``torch.float32`` or ``torch.float64``.
+            Default: ``torch.float32``.
+        warn (bool): whether to issue the warning. Default: ``True``.
+        stacklevel (int): how far above this function the caller's own code
+            is. Default: 3.
+
+    Raises:
+        ValueError: as :func:`check_binaryK`, and also for a
+            ``normal_binades`` that leaves no supernormal codes.
+    """
+    error, warning = _superfp_findings(
+        man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier
+    )
+    if error is not None:
+        raise ValueError(error)
+    if warn and warning is not None:
+        warnings.warn(warning, FormatRangeWarning, stacklevel=stacklevel)
+
+
+def check_fixedpoint(
+    wl: int,
+    fl: int,
+    is_signed: bool = True,
+    symmetric: bool = False,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype = torch.float32,
+    warn: bool = True,
+    stacklevel: int = 3,
+) -> None:
+    """Hold a fixed-point format against what a carrier can hold.
+
+    The same contract as :func:`check_binaryK`.
+
+    Args:
+        wl (int): word length, the sign bit included.
+        fl (int): fractional length; the step between values is ``2**-fl``.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        symmetric (bool): whether the most negative code is dropped.
+            Default: ``False``.
+        prng_bits (int): random bits drawn for stochastic rounding. Default: 0.
+        carrier (torch.dtype): ``torch.float32`` or ``torch.float64``.
+            Default: ``torch.float32``.
+        warn (bool): whether to issue the warning. Default: ``True``.
+        stacklevel (int): how far above this function the caller's own code
+            is. Default: 3.
+
+    Raises:
+        ValueError: for a layout with no values (see :class:`FixedPoint`),
+            more magnitude bits than the carrier's mantissa has, with or
+            without ``prng_bits``, a largest value below the carrier's
+            normals, or a range reaching the carrier's top binade.
+    """
+    error, warning = _fixedpoint_findings(wl, fl, is_signed, symmetric, prng_bits, carrier)
+    if error is not None:
+        raise ValueError(error)
+    if warn and warning is not None:
+        warnings.warn(warning, FormatRangeWarning, stacklevel=stacklevel)
+
+
+def check_binaryK_carrier(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool = True,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype,
+) -> None:
+    """:func:`check_binaryK`, reported the way a call reports it.
+
+    The same findings, with the warning naming the first frame outside mptorch
+    and torch, the line that made the call, however deep inside them the call
+    was reached from (a layer's backward, for instance). The arguments are
+    those of :func:`check_binaryK` without ``warn`` and ``stacklevel``, and
+    ``carrier`` is required.
+
+    Raises:
+        ValueError: as :func:`check_binaryK`.
+    """
+    _report_per_call(
+        *_binaryK_findings(K, P, bias, is_signed, saturation, subnormals, prng_bits, carrier)
+    )
+
+
+def check_superfp_carrier(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype,
+) -> None:
+    """:func:`check_binaryK_carrier` for a superfp format.
+
+    The arguments are those of :func:`check_superfp` without ``warn`` and
+    ``stacklevel``, and ``carrier`` is required.
+
+    Raises:
+        ValueError: as :func:`check_superfp`.
+    """
+    _report_per_call(
+        *_superfp_findings(man_bits, exp_bits, normal_binades, bias, saturation, prng_bits, carrier)
+    )
+
+
+def check_fixedpoint_carrier(
+    wl: int,
+    fl: int,
+    is_signed: bool = True,
+    symmetric: bool = False,
+    prng_bits: int = 0,
+    *,
+    carrier: torch.dtype,
+) -> None:
+    """:func:`check_binaryK_carrier` for a fixed-point format.
+
+    The arguments are those of :func:`check_fixedpoint` without ``warn`` and
+    ``stacklevel``, and ``carrier`` is required.
+
+    Raises:
+        ValueError: as :func:`check_fixedpoint`.
+    """
+    _report_per_call(*_fixedpoint_findings(wl, fl, is_signed, symmetric, prng_bits, carrier))
+
+
+# --- what a tensor narrower than its carrier can store ------------------------
+#
+# A float16 or bfloat16 tensor is rounded in binary32, its default carrier,
+# and the result is converted back when it is written: `SIMDTraits`' store in
+# the elementwise quantizers, `store_elem` in the GEMM, a `static_cast` on the
+# host, round to nearest on both backends. Under `carrier=torch.float64`
+# float32 joins them: the operands are widened, rounded in binary64, and the
+# result narrowed by `mptorch.quant.ops._narrowed`, once, to nearest. Either
+# conversion is a second rounding. A format whose results are not all values
+# of the dtype is quantized partially, as one that outruns its carrier is,
+# with one difference worth saying out loud: a result above the dtype's range
+# is stored as an infinity *whatever the format's saturation mode says*, so a
+# `SAT_FINITE` format overflows too.
+#
+# Which results a call can produce depends on the op, and the two answers
+# differ enough to need two rules:
+#
+#   a GEMM       rounds sums and products, which land anywhere, so every value
+#                of its last format is some result: the format's value set
+#                must be the dtype's. The carrier's "representable" question
+#                asked of a narrower float:
+#
+#                                   float16     bfloat16    float32
+#                  precision        P <= 11     P <= 8      P <= 24      raises
+#                  largest value    < 2**16     < 2**128    < 2**128     warns
+#                  finest step      >= 2**-24   >= 2**-133  >= 2**-149   warns
+#
+#   elementwise  rounds the tensor's own values, which are already the
+#                dtype's. A format at least as fine as the dtype somewhere
+#                hands those back unchanged there, so precision and a fine
+#                bottom cost nothing, and a result off the dtype's grid comes
+#                from three places only, at the format's edges: its largest
+#                value inside the dtype's range but not a value of it (an
+#                input above saturates onto it, in a saturating mode); the
+#                dtype's largest value not on the format's grid while the
+#                format reaches past it (an input there rounds up, out of the
+#                dtype's range); and `EXTENDED_NORMALS`' hole, an input the
+#                dtype has and the format does not, whose way up is not the
+#                dtype's. Each warns.
+#
+# Both raise for the storage twin of the carrier's "no finite value" error, a
+# format whose largest value is below the dtype's smallest, of which nothing
+# is stored. And neither has the carrier's "faithful" floor: that exists
+# because the casts read an exponent field, where storing a value reads
+# nothing and rounds it correctly. Under binary32, for bfloat16 only the
+# GEMM's precision bound is new, since its range is binary32's to within its
+# precision, so a format binary32 holds with at most eight bits of precision
+# is inside it at both ends. Under binary64 the carrier passes ranges no
+# narrower dtype holds, so every row can speak. The rule does not otherwise
+# depend on the carrier, which is wider than the dtype either way and rounds
+# the dtype's own values exactly.
+#
+# The dtype belongs to the call, not the format (a `BinaryK` does not know
+# what it will be stored in), so these run per call, from `mptorch.quant.ops`,
+# on the format whose values the result holds: the elementwise quantizer's,
+# and a GEMM's accumulate or fused format. A GEMM's multiply format never
+# reaches storage (its products are intermediates in the carrier), and with
+# the running sum left unquantized no format's values are stored at all.
+
+
+class _Storage(NamedTuple):
+    """A dtype a rounded result is stored in, as `_storage_findings` reads it."""
+
+    name: str
+    man_bits: int  # stored significand bits
+    top_exp: int  # the exponent of the largest finite value
+    min_exp: int  # the exponent of the smallest positive value, a subnormal
+
+
+_STORAGE: dict[torch.dtype, _Storage] = {
+    torch.float16: _Storage("float16", 10, 15, -24),
+    torch.bfloat16: _Storage("bfloat16", 7, 127, -133),
+    torch.float32: _Storage("float32", 23, 127, -149),
+}
+
+
+def _normalized(M: int, k: int) -> tuple[int, int, int]:
+    """``M * 2**k``, for ``M > 0``, as (odd significand, its exponent, the
+    exponent of its leading bit).
+
+    Strips the trailing zeros of ``M`` into the exponent so that two spellings
+    of one value compare equal.
+    """
+    tz = (M & -M).bit_length() - 1
+    M >>= tz
+    return M, k + tz, k + tz + M.bit_length() - 1
+
+
+def _in_storage(M: int, k: int, st: _Storage) -> bool:
+    """Whether ``M * 2**k`` is a finite value of the dtype.
+
+    True when the value is on the dtype's grid at that magnitude (the normals'
+    ``2**(E - man_bits)``, or the subnormals' fixed step below them) and not
+    above its largest value, which with at most ``man_bits + 1`` significant
+    bits is a test on the leading bit's binade.
+    """
+    _, k, lead = _normalized(M, k)
+    min_normal_exp = st.min_exp + st.man_bits
+    return lead <= st.top_exp and k >= max(lead, min_normal_exp) - st.man_bits
+
+
+def _on_format_grid(M: int, k: int, ext: _Extent) -> bool:
+    """Whether ``M * 2**k`` sits on the format's grid, ignoring its top.
+
+    The top is ignored on purpose: the question asked here is which
+    neighbours an input at that magnitude has, which the grid's continuation
+    above the largest value answers. Below the full-mantissa binades the
+    answer depends on what the format keeps down there.
+    """
+    M, k, lead = _normalized(M, k)
+    m = ext.man_bits
+    if lead >= ext.normal_exp:
+        return k >= lead - m
+    if ext.below == "SUBNORMALS":
+        return k >= ext.normal_exp - m
+    if ext.below == "EXTENDED_NORMALS" and m and lead == ext.normal_exp - 1:
+        return k >= lead - m and M != 1  # that binade's power of two is the hole
+    if ext.below == "SUPERNORMALS":
+        return M == 1 and lead >= ext.bottom_exp
+    return False
+
+
+def _storage_value_set_findings(ext: _Extent, st: _Storage) -> tuple[str | None, str | None]:
+    """A GEMM's rule: the format's value set against the dtype's.
+
+    Returns ``(error, warning)``. Precision is checked first, because the two
+    range bounds are only exact once it holds. With at most the dtype's
+    significand bits, a format value in a binade the dtype has normals for is
+    one of them, and one below that is a multiple of ``2**step_exp`` under the
+    dtype's smallest normal, which is a dtype subnormal as long as
+    ``step_exp`` is not below the dtype's own step; and every format value
+    under ``2**(top_exp + 1)`` is at most the dtype's largest finite value as
+    long as ``top_exp`` is not above its own.
+    """
+    label, name = ext.label, st.name
+    if ext.man_bits > st.man_bits:
+        return (
+            f"{label} has {ext.man_bits + 1} bits of precision, and a {name} result holds "
+            f"{st.man_bits + 1}: a GEMM's result can be any of the format's values, and "
+            f"storing it rounds the ones {name} lacks a second time, onto {name}'s grid"
+        ), None
+    if ext.top_exp > st.top_exp:
+        return None, (
+            f"{label} reaches 2^{ext.top_exp}, above {name}'s largest finite value "
+            f"2^{st.top_exp + 1} - 2^{st.top_exp - st.man_bits}: a {name} result stores "
+            f"the format's values above that as infinity, whatever the saturation mode "
+            f"(needs bias >= {ext.top_field - st.top_exp})"
+        )
+    if ext.step_exp < st.min_exp:
+        return None, (
+            f"{label} spaces its values 2^{ext.step_exp} apart at the bottom, below "
+            f"{name}'s 2^{st.min_exp}: a {name} result rounds the values down there "
+            f"a second time, onto {name}'s coarser grid, when it is stored"
+        )
+    return None, None
+
+
+def _storage_edge_findings(
+    ext: _Extent, st: _Storage, saturation: SaturationMode
+) -> tuple[str | None, str | None]:
+    """The elementwise rule: which of the dtype's own values round off its grid.
+
+    Returns ``(error, warning)``; only warnings arise here. An input already
+    on the format's grid comes back unchanged, and one that is not sits where
+    the format's grid is coarser than the dtype's, whose neighbours there are
+    therefore values of the dtype too. What is left is the three edges the
+    module note above names, and nothing else.
+
+    The second edge is reached only by saturating. A largest value that is not
+    the dtype's has more significant bits than the dtype, so the format is
+    finer there, and every input of the dtype above it is already on the
+    format's continued grid: rounding leaves it where it is and `SAT_NONE`
+    makes it an infinity, which is a value of the dtype.
+    """
+    label, name, m = ext.label, st.name, ext.man_bits
+    top = ((1 << m) + ext.top_code, ext.top_exp - m)  # the largest finite value
+    dtype_top = ((1 << (st.man_bits + 1)) - 1, st.top_exp - st.man_bits)
+    if ext.top_exp != st.top_exp:
+        # different binades decide it, and an exponent field of up to 30 bits
+        # would make lining the two up as integers a very large shift
+        above, below = ext.top_exp > st.top_exp, ext.top_exp < st.top_exp
+    else:
+        finer = max(m, st.man_bits)
+        f, d = top[0] << (finer - m), dtype_top[0] << (finer - st.man_bits)
+        above, below = f > d, f < d
+    if above and not _on_format_grid(*dtype_top, ext):
+        return None, (
+            f"{label} reaches past {name}'s largest finite value, which is not on the "
+            f"format's grid: a {name} input near it rounds up out of {name}'s range and "
+            f"is stored as infinity, whatever the saturation mode"
+        )
+    saturates = saturation is not SaturationMode.SAT_NONE
+    if below and saturates and not _in_storage(*top, st):
+        return None, (
+            f"{label}'s largest finite value, ({top[0]}) * 2^{top[1]}, is not a {name} "
+            f"value: a {name} input above it saturates onto it, and storing the result "
+            f"rounds it a second time"
+        )
+    hole = ext.normal_exp - 1
+    if (
+        ext.below == "EXTENDED_NORMALS"
+        and m
+        and _in_storage(1, hole, st)
+        and not _in_storage((1 << m) + 1, hole - m, st)
+    ):
+        return None, (
+            f"{label} has no value at 2^{hole}, and {name} does: the first value above "
+            f"that hole, (2^{m} + 1) * 2^{hole - m}, is where a {name} input there rounds, "
+            f"and it is not a {name} value"
+        )
+    return None, None
+
+
+def _storage_findings(
+    ext: _Extent, storage: torch.dtype, elementwise: bool, saturation: SaturationMode
+) -> tuple[str | None, str | None]:
+    """Hold an `_Extent` against a storage dtype under the rule ``elementwise``
+    selects, after the one error both rules share: a format with no nonzero
+    finite value the dtype can store.
+    """
+    st = _STORAGE[storage]
+    if ext.top_exp < st.min_exp:
+        return (
+            f"{ext.label}'s largest finite value is below 2^{ext.top_exp + 1}, under "
+            f"{st.name}'s smallest positive value 2^{st.min_exp}: a {st.name} result "
+            f"stores none of the format's nonzero finite values"
+        ), None
+    if elementwise:
+        return _storage_edge_findings(ext, st, saturation)
+    return _storage_value_set_findings(ext, st)
+
+
+@lru_cache(maxsize=256)
+def _binaryK_storage_findings(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool,
+    saturation: SaturationMode,
+    subnormals: SubnormalsMode,
+    storage: torch.dtype,
+    elementwise: bool,
+) -> tuple[str | None, str | None]:
+    """What storing a binaryK result in ``storage`` says, as ``(error, warning)``.
+
+    Memoized on the parameter tuple, like `_binaryK_findings`. A format the
+    carrier check has already rejected yields ``(None, None)``, since no range
+    can be read from it and the carrier's error is the one to report.
+    """
+    man_bits = P - 1
+    exp_bits = K - P if is_signed else K - P + 1
+    label = _binaryK_label(K, P, bias, is_signed, subnormals)
+    # Read against binary64, the wider carrier. The extent a storage rule reads
+    # (the top, the step, the floor) is the format's own and the same in
+    # either carrier for a format binary32 holds, and a format only binary64
+    # holds can reach storage too, under `carrier=torch.float64`.
+    if _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None:
+        # the carrier's to report, and the carrier check runs before any call
+        # reaches this: no range can be read from such a format
+        return None, None
+    ext = _binaryK_extent(
+        label, man_bits, exp_bits, bias, is_signed, saturation, subnormals, _BINARY64
+    )
+    if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
+        return None, None  # likewise: no finite value at all, the carrier's error
+    return _storage_findings(ext, storage, elementwise, saturation)
+
+
+@lru_cache(maxsize=256)
+def _superfp_storage_findings(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode,
+    storage: torch.dtype,
+    elementwise: bool,
+) -> tuple[str | None, str | None]:
+    """What storing a superfp result in ``storage`` says, as ``(error, warning)``.
+
+    The superfp twin of `_binaryK_storage_findings`.
+    """
+    label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
+    if (
+        _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None
+        or _superfp_regions_error(label, exp_bits, normal_binades) is not None
+    ):
+        return None, None  # as for binaryK: the carrier check has said so already
+    ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY64)
+    if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
+        return None, None
+    return _storage_findings(ext, storage, elementwise, saturation)
+
+
+@lru_cache(maxsize=256)
+def _fixedpoint_storage_findings(
+    wl: int,
+    fl: int,
+    is_signed: bool,
+    symmetric: bool,
+    storage: torch.dtype,
+    elementwise: bool,
+) -> tuple[str | None, str | None]:
+    """What storing a fixed-point result in ``storage`` says, as ``(error, warning)``.
+
+    The fixed-point twin of `_binaryK_storage_findings`. Only the elementwise
+    rule is implemented: its inputs are already the dtype's values, so only
+    the ends of the range can put a result off the dtype's grid. The GEMM rule
+    raises until there is a fixed-point GEMM. A layout the carrier check has
+    rejected yields ``(None, None)``, as for binaryK.
+    """
+    if not elementwise:
+        raise NotImplementedError("there is no fixed-point GEMM yet, so no GEMM storage rule")
+    label = _fixedpoint_label(wl, fl, is_signed, symmetric)
+    if _fixedpoint_layout_error(label, wl, is_signed, symmetric, 0) is not None:
+        return None, None
+
+    st = _STORAGE[storage]
+    mag_bits = wl - (1 if is_signed else 0)
+    top_exp = mag_bits - 1 - fl
+
+    # the format's max starts a binade higher, or has more bits in the same one
+    max_above = top_exp > st.top_exp or (top_exp == st.top_exp and mag_bits > st.man_bits + 1)
+    # the format's min, -2^(mag_bits - fl), is past the dtype's range
+    min_above = is_signed and not symmetric and mag_bits - fl > st.top_exp
+
+    # the dtype's max is a multiple of the step 2^-fl
+    dtype_max_on_grid = st.top_exp - st.man_bits >= -fl
+
+    # nothing but zero is stored
+    if top_exp < st.min_exp:
+        return (f"{label}'s largest value is below {st.name}'s smallest, 2^{st.min_exp}"), None
+    # an input near the dtype's largest value can round up past it
+    if (max_above or min_above) and not dtype_max_on_grid:
+        return None, (
+            f"{label} exceeds {st.name}'s largest value; inputs near it may round to infinity"
+        )
+    # an infinite input saturates onto an end of the range the dtype cannot hold
+    if max_above or min_above:
+        return None, (
+            f"{label} exceeds {st.name}'s largest value; an infinite input saturates "
+            f"onto the end of its range, which {st.name} stores as infinity"
+        )
+    # an input past the format's largest value saturates onto it
+    if not max_above and not _in_storage((1 << mag_bits) - 1, -fl, st):
+        return None, (
+            f"{label}'s largest value is not a {st.name} value; saturated results are rounded again"
+        )
+    return None, None
+
+
+@lru_cache(maxsize=1)
+def _library_frames() -> tuple[str, ...]:
+    """The source trees a per-call warning looks past to name its caller.
+
+    Returns the mptorch and torch package directories, each with a trailing
+    separator, for ``warnings.warn``'s ``skip_file_prefixes``. A storage
+    check runs where the dtype is known, inside the op, and the op is reached
+    from a wrapper, a layer's math hook or an autograd Function's backward, at
+    different depths and some of them under torch's own frames
+    (``Module.__call__``, ``Function.apply``). So rather than count frames
+    with ``stacklevel`` the warning names the first frame outside both trees,
+    which is the line that made the call: the location worth reading, and the
+    one ``warnings``' default once-per-location rule then keys on, so a
+    training loop hears it once.
+    """
+    roots = [os.path.dirname(os.path.abspath(__file__))]
+    torch_module = sys.modules.get("torch")
+    if torch_module is not None and torch_module.__file__:
+        roots.append(os.path.dirname(os.path.abspath(torch_module.__file__)))
+    return tuple(os.path.join(root, "") for root in roots)
+
+
+def _report_per_call(error: str | None, warning: str | None) -> None:
+    """Raise the error if there is one, else warn, naming the caller's line."""
+    if error is not None:
+        raise ValueError(error)
+    if warning is not None:
+        warnings.warn(warning, FormatRangeWarning, skip_file_prefixes=_library_frames())
+
+
+def check_binaryK_storage(
+    K: int,
+    P: int,
+    bias: int,
+    is_signed: bool = True,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS,
+    *,
+    storage: torch.dtype,
+    elementwise: bool = False,
+) -> None:
+    """Hold a binaryK format against the dtype a result is written in.
+
+    ``storage`` is a dtype narrower than the carrier the cast rounds in:
+    ``torch.float16`` or ``torch.bfloat16`` under binary32, and those or
+    ``torch.float32`` under binary64. Writing the result rounds it a second
+    time, onto the dtype's grid. :func:`check_binaryK_carrier` holds the
+    format against the carrier, and this does not repeat it. Which results
+    can land off the dtype's grid depends on what was rounded, so there are
+    two rules (the module note above gives both): a quantizer's inputs are
+    already the dtype's values, and only three edges of the format's range
+    can move one off the grid, whereas a GEMM's sums reach every value the
+    format has, so its whole value set must be the dtype's. The dtype belongs
+    to the call, not the format, so :mod:`mptorch.quant.ops` runs this per
+    call on the format whose values the result holds, and the warning names
+    the first frame outside mptorch and torch.
+
+    Args:
+        K (int): total bits of the format.
+        P (int): bits of precision, the implicit leading bit included.
+        bias (int): the resolved exponent bias.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        saturation (SaturationMode): overflow behaviour and domain.
+            Default: ``SaturationMode.SAT_NONE``.
+        subnormals (SubnormalsMode): what lies below the smallest normal.
+            Default: ``SubnormalsMode.SUBNORMALS``.
+        storage (torch.dtype): the dtype the result is stored in.
+        elementwise (bool): ``True`` for a quantizer, ``False`` for a GEMM.
+            Default: ``False``.
+
+    Raises:
+        ValueError: where nothing of the format survives being stored (its
+            largest value is below the dtype's smallest), or, for a GEMM,
+            where the format has more precision than the dtype.
+    """
+    _report_per_call(
+        *_binaryK_storage_findings(
+            K, P, bias, is_signed, saturation, subnormals, storage, elementwise
+        )
+    )
+
+
+def check_superfp_storage(
+    man_bits: int,
+    exp_bits: int,
+    normal_binades: int,
+    bias: int,
+    saturation: SaturationMode = SaturationMode.SAT_NONE,
+    *,
+    storage: torch.dtype,
+    elementwise: bool = False,
+) -> None:
+    """:func:`check_binaryK_storage` for a superfp format.
+
+    The same contract, with the format spelled as :func:`check_superfp`
+    spells it and the same ``storage`` and ``elementwise`` keywords.
+
+    Raises:
+        ValueError: as :func:`check_binaryK_storage`.
+    """
+    _report_per_call(
+        *_superfp_storage_findings(
+            man_bits, exp_bits, normal_binades, bias, saturation, storage, elementwise
+        )
+    )
+
+
+def check_fixedpoint_storage(
+    wl: int,
+    fl: int,
+    is_signed: bool = True,
+    symmetric: bool = False,
+    *,
+    storage: torch.dtype,
+    elementwise: bool = False,
+) -> None:
+    """:func:`check_binaryK_storage` for a fixed-point format.
+
+    The same contract, with the format spelled as :func:`check_fixedpoint`
+    spells it and the same ``storage`` and ``elementwise`` keywords. Only the
+    elementwise rule is implemented, since there is no fixed-point GEMM yet.
+
+    Raises:
+        ValueError: where the format's largest value is below the dtype's
+            smallest, so nothing of it is stored.
+        NotImplementedError: for ``elementwise=False``, the GEMM rule.
+    """
+    _report_per_call(
+        *_fixedpoint_storage_findings(wl, fl, is_signed, symmetric, storage, elementwise)
+    )
+
+
+# --- format objects ----------------------------------------------------------
+#
+# One value type per simulated format, carrying exactly what that format's
+# cast reads and nothing else. They exist so a caller can name a format once,
+# `BinaryK(8, 4)`, instead of spelling its five or six schema arguments at
+# each of the places a GEMM, a quantizer or a layer takes one, and so the two
+# halves of a mixed-precision configuration can differ where the kernel
+# already lets them differ.
+#
+# They are frozen and they resolve their derived constants in `__post_init__`,
+# because the thing that reads them memoizes on the value: re-deriving a
+# format per call costs 2.3-6.4 us, which is the whole reason
+# `mptorch.quant.gemm`'s factories resolve once per layer. Frozen also makes
+# them hashable, which is what the memo keys on, and means a format's hash
+# cannot drift from the constants derived at construction.
+
+
+@dataclass(frozen=True)
+class Number:
+    """Base class for every simulated number format.
+
+    Its subclasses are :class:`FloatFormat` (the element-by-element float
+    families), :class:`FixedPoint` (the multiples of a step that a word of
+    bits holds; an elementwise quantizer so far, and no GEMM) and
+    :class:`BlockFormat` (block minifloats: OCP MX and NVFP4, whose elements
+    share a scale per block). Block floating point with integer mantissas,
+    and logarithmic and tapered (posit) formats would also belong here. Each
+    needs a kernel first, so none is declared as an empty class in the
+    meantime.
+
+    Example::
+
+        >>> from mptorch import BinaryK, Number
+        >>> isinstance(BinaryK(8, 4), Number)
+        True
+    """
+
+
+@dataclass(frozen=True)
+class FloatFormat(Number):
+    """Base class for the two floating-point families the kernels implement.
+
+    :class:`BinaryK` and :class:`SuperFP` are its subclasses. A quantizer or
+    GEMM factory that takes a ``FloatFormat`` accepts either.
+
+    Example::
+
+        >>> from mptorch import FloatFormat, SuperFP
+        >>> isinstance(SuperFP(3, 4, 2, 7), FloatFormat)
+        True
+    """
+
+
+@dataclass(frozen=True)
+class BinaryK(FloatFormat):
+    """An IEEE P3109 binaryK float: ``K`` total bits of which ``P`` are precision.
+
+    P3109 is the draft Standard for Arithmetic Formats for Machine Learning
+    (Fitzgibbon, Wintersteiger and Sarnoff give an overview in
+    arXiv:2606.04028). It parameterizes its binary formats by bitwidth,
+    precision (the implicit leading bit included), signedness and domain, and
+    names them ``Binary<K>p<P><s|u><e|f>``. ``K``, ``P``, ``is_signed`` and
+    ``domain`` are those four. ``BinaryK(8, 4)`` is ``Binary8p4se``, and
+    ``BinaryK(8, 4, domain=Domain.FINITE, saturation=SaturationMode.SAT_FINITE)``
+    is ``Binary8p4sf``. The finite domain admits only ``SAT_FINITE``, so that
+    saturation mode alone also selects it.
+
+    Three of P3109's conventions are worth knowing:
+
+    * The format has one zero, unsigned, at the all-zero code. No cast returns
+      ``-0.0``.
+    * In a signed format the NaN is the code with only the sign bit set
+      (which would hold ``-0.0``). In an unsigned format it is the top code.
+    * The largest finite value is counted in code points. With one or two
+      mantissa bits, the codes reserved for infinity and NaN can push it a
+      binade or two down.
+
+    :doc:`/concepts` maps the rest of the standard onto this class and says
+    where MPTorch goes beyond it.
+
+    The rounding mode is a property of the operation, not of the format (see
+    :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac`), because
+    the kernels take it as a template parameter shared by a multiply and its
+    accumulate. The instance is frozen, and therefore hashable, because the
+    code that resolves a format memoizes on its value. The derived ``bias`` is
+    filled in at construction, not at each call site.
+
+    Args:
+        K (int): total bits, sign included.
+        P (int): bits of precision, the implicit leading bit included, so
+            ``P - 1`` mantissa bits are stored; ``1 <= P <= K``.
+        bias (int, optional): exponent bias. Default: P3109's, ``2**(K-P-1)``
+            signed and ``2**(K-P)`` unsigned, which encodes 1.0 at the middle
+            code point. Any other bias gives a format outside the standard.
+            The layout of OCP's E4M3 is spelled this way:
+            ``BinaryK(8, 4, bias=7)``.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        prng_bits (int): width of the random mantissa drawn by
+            :attr:`RoundMode.SR`, ignored under every other rounding mode.
+            Default: 0.
+        saturation (SaturationMode): overflow behaviour. Default:
+            ``SaturationMode.SAT_NONE``.
+        domain (Domain, optional): whether the format has infinities.
+            ``Domain.FINITE`` admits only ``SAT_FINITE``. ``Domain.EXTENDED``
+            with ``SAT_FINITE`` is stored as
+            ``SaturationMode.SAT_FINITE_EXTENDED``. Default: ``None``, which
+            follows from ``saturation``: finite for ``SAT_FINITE``, extended
+            otherwise. The instance stores the resolved domain.
+        subnormals (SubnormalsMode): what lies below the smallest normal. Any
+            value other than ``SUBNORMALS`` gives a format outside the
+            standard. Default: ``SubnormalsMode.SUBNORMALS``.
+
+    Raises:
+        ValueError: for the finite domain with a saturation mode other than
+            ``SAT_FINITE``. Otherwise only for a format that neither carrier
+            can simulate: more than 53 bits of precision,
+            ``P - 1 + prng_bits`` above 52, an exponent field past 30 bits, a
+            negative ``prng_bits``, or no finite value that binary64 holds.
+            Nothing warns here. Whether float32 or float64 arithmetic carries
+            the format depends on the call, so each call checks the format
+            against its own carrier (see :class:`FormatRangeWarning`).
+        TypeError: if ``saturation`` is not a ``SaturationMode`` or
+            ``domain`` is not a ``Domain``.
+
+    Example::
+
+        >>> from mptorch import BinaryK
+        >>> BinaryK(8, 4).bias  # P3109 Binary8p4se
+        8
+        >>> BinaryK(8, 4, is_signed=False).bias  # Binary8p4ue
+        16
+        >>> BinaryK(8, 4, bias=7).man_bits  # OCP E4M3's layout
+        3
+    """
+
+    K: int
+    P: int
+    _: KW_ONLY
+    bias: int | None = None
+    is_signed: bool = True
+    prng_bits: int = 0
+    saturation: SaturationMode = SaturationMode.SAT_NONE
+    domain: Domain | None = None
+    subnormals: SubnormalsMode = SubnormalsMode.SUBNORMALS
+
+    def __post_init__(self) -> None:
+        if self.P < 1 or self.K < self.P:
+            raise ValueError(f"BinaryK needs 1 <= P <= K, got K={self.K}, P={self.P}")
+        saturation, domain = _resolve_domain(self.saturation, self.domain, "BinaryK")
+        object.__setattr__(self, "saturation", saturation)
+        object.__setattr__(self, "domain", domain)
+        if self.prng_bits < 0:
+            raise ValueError(f"BinaryK prng_bits must be non-negative, got {self.prng_bits}")
+        if self.bias is None:
+            middle = 2 ** (self.K - self.P - 1) if self.is_signed else 2 ** (self.K - self.P)
+            object.__setattr__(self, "bias", middle)
+        assert self.bias is not None
+        # Raise for what no carrier can do, and nothing more: the carrier
+        # belongs to the call, which holds the format to it (`check_binaryK`)
+        check_binaryK(
+            self.K,
+            self.P,
+            self.bias,
+            self.is_signed,
+            self.saturation,
+            self.subnormals,
+            self.prng_bits,
+            carrier=torch.float64,
+            warn=False,
         )
 
-    def __str__(self):
-        return self.__repr__()
+    @property
+    def man_bits(self) -> int:
+        """Mantissa bits, as the cast counts them (the implicit bit is not one)."""
+        return self.P - 1
+
+
+@dataclass(frozen=True)
+class SuperFP(FloatFormat):
+    """A supernormal float, as ``common/cast_superfp.h`` implements it.
+
+    The top ``normal_binades`` binades of the exponent range keep a full
+    ``man_bits``-bit mantissa. The remaining binades would have spent
+    ``n = (2**exp_bits - normal_binades) * 2**man_bits`` codes on mantissas.
+    Those codes instead encode the zero and ``n - 1`` further powers of two
+    below the normal binades (the supernormals). Everything below those
+    flushes to zero. The format therefore trades precision at the bottom of
+    the range for dynamic range at the same width.
+
+    The class is deliberately not symmetric with :class:`BinaryK`:
+
+    * ``bias`` is required and has no default, because the cast has no rule
+      to derive one.
+    * There is a single ``normal_binades``, not one per end of the range.
+    * There is no ``subnormals`` mode, because the format has no subnormals.
+
+    The format spends no code point on a NaN, so signedness does not move the
+    top of the range. Its one zero is unsigned, like binaryK's. The instance
+    is frozen, and therefore hashable, because the code that resolves a
+    format memoizes on its value, as for :class:`BinaryK`.
+
+    Args:
+        man_bits (int): stored mantissa bits in the normal region.
+        exp_bits (int): exponent field width, at least 1.
+        normal_binades (int): binades at the top of the range that keep their
+            mantissa. At least 1 and at most ``2**exp_bits - 1``, so that at
+            least one supernormal code remains.
+        bias (int): exponent bias.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        prng_bits (int): width of the random mantissa drawn by
+            :attr:`RoundMode.SR`. Default: 0.
+        saturation (SaturationMode): overflow behaviour. Default:
+            ``SaturationMode.SAT_NONE``.
+        domain (Domain, optional): whether the top code is an infinity, as
+            for :class:`BinaryK`. Default: ``None``, which follows from
+            ``saturation``.
+
+    Raises:
+        ValueError: for the finite domain with a saturation mode other than
+            ``SAT_FINITE``; for a format that neither carrier can simulate, as
+            for :class:`BinaryK`; and for a ``normal_binades`` that leaves no
+            supernormal codes. Each call checks the format against its own
+            carrier (see :class:`FormatRangeWarning`).
+        TypeError: as for :class:`BinaryK`.
+
+    Example::
+
+        >>> from mptorch import SuperFP
+        >>> from mptorch.quant import Quant
+        >>> import torch
+        >>> f = SuperFP(man_bits=3, exp_bits=4, normal_binades=2, bias=7)
+        >>> x = torch.tensor([300.0, 3.0, 0.001])  # normal, supernormal, supernormal
+        >>> Quant(f)(x).tolist()
+        [288.0, 4.0, 0.0009765625]
+    """
+
+    man_bits: int
+    exp_bits: int
+    normal_binades: int
+    bias: int
+    _: KW_ONLY
+    is_signed: bool = True
+    prng_bits: int = 0
+    saturation: SaturationMode = SaturationMode.SAT_NONE
+    domain: Domain | None = None
+
+    def __post_init__(self) -> None:
+        saturation, domain = _resolve_domain(self.saturation, self.domain, "SuperFP")
+        object.__setattr__(self, "saturation", saturation)
+        object.__setattr__(self, "domain", domain)
+        if self.man_bits < 0 or self.exp_bits < 1:
+            raise ValueError(
+                f"SuperFP needs man_bits >= 0 and exp_bits >= 1, "
+                f"got man_bits={self.man_bits}, exp_bits={self.exp_bits}"
+            )
+        if self.normal_binades < 1:
+            raise ValueError(f"SuperFP needs normal_binades >= 1, got {self.normal_binades}")
+        if self.prng_bits < 0:
+            raise ValueError(f"SuperFP prng_bits must be non-negative, got {self.prng_bits}")
+
+        # Raise for what no carrier can do, and nothing more (`check_superfp`)
+        check_superfp(
+            self.man_bits,
+            self.exp_bits,
+            self.normal_binades,
+            self.bias,
+            self.saturation,
+            self.prng_bits,
+            carrier=torch.float64,
+            warn=False,
+        )
+
+
+@dataclass(frozen=True)
+class FixedPoint(Number):
+    """A fixed-point format: ``wl`` bits, of which ``fl`` are fractional.
+
+    Defined as in Gupta et al., *Deep Learning with Limited Numerical
+    Precision* (arXiv:1502.02551). Its values are the multiples of the step
+    ``2**-fl`` that a ``wl``-bit integer holds: with ``n = wl - 1`` magnitude
+    bits in a signed format and ``n = wl`` in an unsigned one, the range is
+    ``[-2**(n - fl), 2**(n - fl) - 2**-fl]`` in two's complement,
+    ``[-(2**(n - fl) - 2**-fl), 2**(n - fl) - 2**-fl]`` with ``symmetric``,
+    and ``[0, 2**(n - fl) - 2**-fl]`` unsigned. ``fl`` may be any integer:
+    negative for a step coarser than 1, above ``wl`` for a format of pure
+    fractions.
+
+    Every :class:`RoundMode` applies, as for :class:`BinaryK`. Below the step
+    the two candidates are zero and ``2**-fl``, picked as :class:`SubnormalsMode`
+    describes. A result beyond the range saturates to its end, an infinite
+    input included, because a fixed-point word has no code for an infinity, so
+    there is no ``saturation`` field. A NaN passes through, the one zero is
+    unsigned (no cast returns ``-0.0``), and an unsigned format rounds every
+    negative value to zero. The instance is frozen for the same reason
+    :class:`BinaryK` is.
+
+    Args:
+        wl (int): word length, the sign bit included; at least 2 signed and 1
+            unsigned.
+        fl (int): fractional length; the step between values is ``2**-fl``.
+        is_signed (bool): whether the format has a sign bit. Default: ``True``.
+        symmetric (bool): drop the most negative code, so the range is
+            symmetric about zero; signed formats only. Default: ``False``.
+        prng_bits (int): width of the random bits drawn by
+            :attr:`RoundMode.SR` below the step, ignored under every other
+            rounding mode. Default: 0.
+
+    Raises:
+        ValueError: for a ``wl`` too short, a symmetric unsigned format, a
+            negative ``prng_bits``, or what binary64 cannot simulate: more
+            than 52 magnitude bits, with or without ``prng_bits``, a
+            largest value below its normals, or a range reaching its top
+            binade. Each call checks the format
+            against its own carrier (see :class:`FormatRangeWarning`).
+
+    Example::
+
+        >>> from mptorch import FixedPoint
+        >>> f = FixedPoint(8, 4)  # steps of 1/16
+        >>> f.min_value, f.max_value, f.step
+        (-8.0, 7.9375, 0.0625)
+        >>> FixedPoint(8, 4, symmetric=True).min_value
+        -7.9375
+    """
+
+    wl: int
+    fl: int
+    _: KW_ONLY
+    is_signed: bool = True
+    symmetric: bool = False
+    prng_bits: int = 0
+
+    def __post_init__(self) -> None:
+        min_wl = 2 if self.is_signed else 1
+        if self.wl < min_wl:
+            raise ValueError(
+                f"FixedPoint needs wl >= {min_wl} "
+                f"({'signed' if self.is_signed else 'unsigned'}), got wl={self.wl}"
+            )
+        if self.symmetric and not self.is_signed:
+            raise ValueError("FixedPoint needs is_signed=True to be symmetric")
+        if self.prng_bits < 0:
+            raise ValueError(f"FixedPoint prng_bits must be non-negative, got {self.prng_bits}")
+
+        # Raise for what no carrier can do, and nothing more (`check_fixedpoint`)
+        check_fixedpoint(
+            self.wl,
+            self.fl,
+            self.is_signed,
+            self.symmetric,
+            self.prng_bits,
+            carrier=torch.float64,
+            warn=False,
+        )
+
+    @property
+    def mag_bits(self) -> int:
+        """Magnitude bits: ``wl`` less the sign bit, if there is one."""
+        return self.wl - (1 if self.is_signed else 0)
+
+    @property
+    def step(self) -> float:
+        """The step between neighbouring values, ``2**-fl``."""
+        return 2.0**-self.fl
+
+    @property
+    def max_value(self) -> float:
+        """The largest value, ``(2**mag_bits - 1) * 2**-fl``."""
+        return ((1 << self.mag_bits) - 1) * self.step
+
+    @property
+    def min_value(self) -> float:
+        """The smallest value: 0 unsigned, ``-max_value`` symmetric, else one step below it."""
+        if not self.is_signed:
+            return 0.0
+        if self.symmetric:
+            return -self.max_value
+        return -(1 << self.mag_bits) * self.step
+
+
+# --- block formats -------------------------------------------------------------
+#
+# A block format stores a tensor as narrow codes that share one scale per
+# block: OCP's MX formats (Microscaling Formats v1.0: an E8M0 power-of-two
+# scale per 32 elements) and NVIDIA's NVFP4 (an E4M3 scale per 16 elements,
+# times a float32 scale per tensor). The element and the scale are each a
+# *minifloat code*: a sign-magnitude layout of `exp_bits` exponent and
+# `man_bits` mantissa bits over a bias, with exponent field 0 holding
+# subnormals (or, under `SubnormalsMode.EXTENDED_NORMALS`, one more binade of
+# normals). A `BinaryK` names that layout, so one value type covers every
+# element and scale the formats use, and `csrc/common/block_decode.h` has one
+# decode and one encode for all of them.
+#
+# The element is rounded by the `BinaryK` cast of its own format under
+# `SAT_FINITE` and then clamped to `elem_max`, which is where the OCP formats
+# part from P3109's: E4M3's `SAT_FINITE` top is 480 and OCP's 448, since OCP
+# spends the code above on NaN; E5M2's are 114688 and 57344, below its
+# infinity. The clamp is exact in every rounding mode: every value between
+# `elem_max` and the format's own top rounds to a code the clamp folds onto
+# `elem_max`. A scale with no mantissa (`P = 1`) is read as E8M0 is, a power
+# of two `2**(code - bias)` for every code but the all-ones one, its NaN, and
+# is set from the block's largest magnitude by integer arithmetic, not by a
+# cast; a scale with a mantissa is cast (to nearest even, under `SAT_FINITE`)
+# and spends its all-ones magnitude code on NaN in the same way.
+#
+# The block kernels round in binary32 or binary64, the call's carrier, and
+# assemble decoded values on its word, so a block format's element, and a
+# scale that is cast, must be formats that carrier holds entirely, and a
+# power-of-two scale's codes must lie in its range. `BlockFormat` raises when
+# it is built only for what binary64 cannot do, as `BinaryK` raises only for
+# what no carrier can, and keeps binary32's verdict, which a call that rounds
+# in binary32 raises (`check_block_carrier`).
+
+
+class _Minifloat(NamedTuple):
+    """A `BinaryK`'s, a `SuperFP`'s or a `FixedPoint`'s code layout, as the
+    block kernels encode and decode it."""
+
+    is_signed: bool
+    exp_bits: int
+    man_bits: int
+    bias: int
+    extended: bool  # EXTENDED_NORMALS: exponent field 0 is a binade of normals
+    # superfp: magnitude codes below `super_codes` are the supernormals, code c
+    # the power of two 2**(super_cutoff + c - 1); 0 for a binaryK layout
+    super_codes: int = 0
+    super_cutoff: int = 0
+
+    @property
+    def bits(self) -> int:
+        """Bits per code, the sign's included."""
+        return int(self.is_signed) + self.exp_bits + self.man_bits
+
+
+def _bias(f: BinaryK) -> int:
+    """A built ``BinaryK``'s bias, which ``__post_init__`` has resolved."""
+    assert f.bias is not None
+    return f.bias
+
+
+def _minifloat(f: "BinaryK | SuperFP | FixedPoint") -> _Minifloat:
+    """The code layout of ``f``: P3109's field widths in sign-magnitude for a
+    ``BinaryK``, for a ``SuperFP`` its fields and its supernormal codes
+    (``cast_superfp.h``'s ``superfp_region_cutoffs``), and for a
+    ``FixedPoint`` the binaryK layout its sign-magnitude integer code is.
+
+    A ``FixedPoint`` with ``M`` magnitude bits is bit for bit the binaryK
+    layout with one exponent bit, ``M - 1`` mantissa bits and bias ``2 - M +
+    fl``: field 0, the subnormals, holds ``m * 2**-fl``, and field 1 holds
+    ``(2**(M-1) + m) * 2**-fl``, so the code ``c`` is the value ``c *
+    2**-fl``. The block kernels decode, round and encode it as that binaryK,
+    so no kernel knows about fixed point: one step from zero to the top,
+    which the element's ``elem_max`` keeps it to."""
+    if isinstance(f, FixedPoint):
+        m = f.mag_bits
+        return _Minifloat(f.is_signed, 1, m - 1, 2 - m + f.fl, False)
+    if isinstance(f, SuperFP):
+        normal_cutoff = (1 << f.exp_bits) - f.normal_binades - f.bias
+        super_codes = ((1 << f.exp_bits) - f.normal_binades) << f.man_bits
+        return _Minifloat(
+            f.is_signed,
+            f.exp_bits,
+            f.man_bits,
+            f.bias,
+            False,
+            super_codes,
+            normal_cutoff - super_codes + 1,
+        )
+    exp_bits = f.K - f.P if f.is_signed else f.K - f.P + 1
+    return _Minifloat(
+        f.is_signed, exp_bits, f.P - 1, _bias(f), f.subnormals is SubnormalsMode.EXTENDED_NORMALS
+    )
+
+
+def _minifloat_value(mf: _Minifloat, mag: int) -> Fraction:
+    """The magnitude a code (sign bit removed) encodes, specials aside."""
+    if mag < mf.super_codes:
+        return Fraction(0) if mag == 0 else Fraction(2) ** (mf.super_cutoff + mag - 1)
+    e, m = mag >> mf.man_bits, mag & ((1 << mf.man_bits) - 1)
+    if e == 0 and not mf.extended:
+        return Fraction(m) * Fraction(2) ** (1 - mf.bias - mf.man_bits)
+    if e == 0 and m == 0:
+        return Fraction(0)  # EXTENDED_NORMALS keeps its binade's foot for the zero
+    return Fraction((1 << mf.man_bits) + m) * Fraction(2) ** (e - mf.bias - mf.man_bits)
+
+
+def _floor_log2(value: Fraction) -> int:
+    """``floor(log2(value))`` of a positive rational, exactly."""
+    num, den = value.numerator, value.denominator
+    e = num.bit_length() - den.bit_length()
+    if (num << -e if e < 0 else num) < (den if e < 0 else den << e):
+        e -= 1
+    return e
+
+
+def _minifloat_code(mf: _Minifloat, value: Fraction) -> int | None:
+    """The magnitude code of a positive ``value``, or ``None`` if the layout has
+    no code for it."""
+    e = _floor_log2(value)
+    if mf.super_codes and e - mf.super_cutoff + 1 < mf.super_codes:
+        # below a superfp's normal binades only its powers of two are values
+        code = e - mf.super_cutoff + 1
+        return code if code >= 1 and value == Fraction(2) ** e else None
+    lowest = -mf.bias if mf.extended else 1 - mf.bias
+    if e >= lowest:
+        field_ = e + mf.bias
+        m = (value / Fraction(2) ** e - 1) * (1 << mf.man_bits)
+        if m.denominator != 1 or field_ >= (1 << mf.exp_bits) or (field_ == 0 and m == 0):
+            return None
+        return (field_ << mf.man_bits) | int(m)
+    if mf.extended:
+        return None
+    m = value / Fraction(2) ** (1 - mf.bias - mf.man_bits)
+    return int(m) if m.denominator == 1 else None
+
+
+def _significant_bits(value: Fraction) -> int:
+    """How many bits the significand of a dyadic ``value`` needs."""
+    num = value.numerator
+    return (num >> ((num & -num).bit_length() - 1)).bit_length()
+
+
+def _block_part_error(
+    role: str, f: "BinaryK | SuperFP | FixedPoint", carrier: torch.dtype
+) -> str | None:
+    """Why a block format cannot use ``f`` as its element or cast scale in
+    ``carrier``, or ``None``.
+
+    The block kernels assemble decoded values on the carrier's word, so the
+    format rounded with (``f`` under ``SAT_FINITE``) has to be one the
+    carrier holds entirely: no error and no range warning. A ``FixedPoint``
+    element is held to its own rule, `_fixedpoint_findings`, which is the
+    binaryK rule of its layout with the stochastic-rounding bits counted
+    against the magnitude bits.
+    """
+    if isinstance(f, FixedPoint):
+        error, warning = _fixedpoint_findings(
+            f.wl, f.fl, f.is_signed, f.symmetric, f.prng_bits, carrier
+        )
+    elif isinstance(f, SuperFP):
+        error, warning = _superfp_findings(
+            f.man_bits,
+            f.exp_bits,
+            f.normal_binades,
+            f.bias,
+            SaturationMode.SAT_FINITE,
+            f.prng_bits,
+            carrier,
+        )
+    else:
+        error, warning = _binaryK_findings(
+            f.K,
+            f.P,
+            f.bias,
+            f.is_signed,
+            SaturationMode.SAT_FINITE,
+            f.subnormals,
+            f.prng_bits,
+            carrier,
+        )
+    found = error or warning
+    if found is None:
+        return None
+    name = _CARRIERS[carrier].name
+    return f"a BlockFormat's {role} must be a format {name} holds entirely: {found}"
+
+
+class ScaleRounding(Enum):
+    """How a :class:`BlockFormat` chooses a block's scale from the block's
+    largest magnitude ``amax``.
+
+    Mirrors ``ScaleRounding`` in ``csrc/common/block_decode.h``, by name and
+    value. Two quantities are used below:
+
+    * ``r = amax / elem_max`` is the scale that would put ``amax`` exactly on
+      ``elem_max``. For a cast scale it is also divided by the tensor scale.
+    * ``T`` is ``elem_max`` plus half the element format's step above it (7
+      for E2M1, whose largest values are 4 and 6). It is the largest scaled
+      element that rounding to nearest would still take to ``elem_max``.
+
+    Every rule's result is clamped to the scale's codes, and a zero cast
+    scale is raised to the smallest positive one. No rule depends on the
+    elements' rounding mode. With E2M1 elements and a power-of-two scale, a
+    block's largest element lands, in E2M1's units, in ``[4, 8)`` under
+    :attr:`OCP`, ``[4.5, 9]`` under :attr:`NEAREST`, ``(3, 6]`` under
+    :attr:`UP` and ``(3.5, 7]`` under :attr:`SELECTIVE`. Anything above 6
+    saturates to 6.
+
+    The three ``FOUR_OVER_SIX`` rules (Cook et al., `Four Over Six
+    <https://arxiv.org/abs/2512.02010>`__) read the block's elements, not only
+    ``amax``. A block has two candidate scales:
+
+    * :attr:`NEAREST`'s scale, under which the block's largest element lands
+      on ``elem_max`` (6 for E2M1);
+    * the scale nearest to ``r * elem_max / 2**emax``, under which it lands
+      on ``elem_max``'s power of two (4).
+
+    The block is quantized under both, in the call's rounding mode, and takes
+    the second scale if its error is strictly the smaller. The three rules
+    differ in the error they compare. They need a cast scale, because a power
+    of two cannot hold the factor of 1.5 between the candidates. With
+    ``block_rows > 1`` the block is the whole tile: it has one pair of
+    candidates, the error is taken over all of its elements, and it makes
+    one choice. Under these rules the default tensor scale gives the
+    tensor's largest block the scale ``top_scale`` instead of ``scale_max``
+    (256 instead of 448 for E4M3), so that this block also has both
+    candidates. Errors are counted in fixed point, in units of
+    ``2**(floor(log2(amax)) - 22)``. A block's error is therefore exact, and
+    the choice is the same on every backend, in whatever order the elements
+    are added up. A square tile therefore also makes the same choice
+    whichever of its two axes the tensor is packed along.
+
+    Example::
+
+        >>> import dataclasses
+        >>> from mptorch import MXFP4_E2M1, ScaleRounding
+        >>> MXFP4_E2M1.scale_rule
+        <ScaleRounding.OCP: 0>
+        >>> dataclasses.replace(MXFP4_E2M1, scale_rounding=ScaleRounding.UP).scale_rule
+        <ScaleRounding.UP: 2>
+    """
+
+    #: OCP MX's rule, for a power-of-two scale only: ``2**(floor(log2(amax)) -
+    #: emax)``. A block's largest element can pass ``elem_max`` by up to
+    #: ``2**(emax + 1) / elem_max`` (4/3 for E2M1) and saturate. The default
+    #: for a power-of-two scale (E8M0).
+    OCP = 0
+    #: ``r`` rounded to nearest even in the scale format. The scale can be up
+    #: to half a scale step below ``r``. In E4M3's normals that is a factor
+    #: of 1.0625, which E2M1's top step absorbs. Where the scale's values are
+    #: powers of two it is a factor of 1.5, which saturates the largest
+    #: element by up to a third. NVFP4's rule, and the default for a binaryK
+    #: scale with a mantissa (E4M3).
+    NEAREST = 1
+    #: The smallest scale that is at least ``r``. No element passes
+    #: ``elem_max``, but the grid can be up to twice as coarse for the rest
+    #: of the block. The rule that NVIDIA's MXFP8 pretraining recipe uses for
+    #: E8M0 (arXiv 2506.08027).
+    UP = 2
+    #: :attr:`NEAREST`, or the next scale up if the block's largest element
+    #: would otherwise land above ``T``. That is the only case where the
+    #: clamp at ``elem_max`` moves the element further than rounding to
+    #: nearest does. With a power-of-two scale this is the smallest scale
+    #: with ``amax / scale <= T``. The default for a :class:`SuperFP` scale,
+    #: whose values below its normal binades are powers of two.
+    SELECTIVE = 3
+    #: Four Over Six by the sum of squared errors, which the paper finds best
+    #: for post-training quantization.
+    FOUR_OVER_SIX_MSE = 4
+    #: Four Over Six by the sum of absolute errors, which the paper finds
+    #: best for pre-training.
+    FOUR_OVER_SIX_MAE = 5
+    #: Four Over Six by the largest absolute error.
+    FOUR_OVER_SIX_ABS_MAX = 6
+
+    @property
+    def is_four_over_six(self) -> bool:
+        """Whether this is one of the three ``FOUR_OVER_SIX`` rules."""
+        return self.value >= ScaleRounding.FOUR_OVER_SIX_MSE.value
+
+
+@dataclass(frozen=True)
+class BlockFormat(Number):
+    """A block format: narrow element codes that share one scale per block.
+
+    Covers OCP's Microscaling (MX) formats and NVIDIA's NVFP4, and the same
+    construction over :class:`SuperFP` elements and scales. A tensor is split
+    into blocks of ``block_size`` consecutive elements along one axis, the
+    *packed* axis. The functions that take a block format name that axis with
+    ``axis``. Each block stores one ``scale`` code and ``block_size`` element
+    codes, and an element decodes to its ``elem`` value times its block's
+    scale. :func:`mptorch.quant.block_quantize` rounds a tensor to the
+    format, :func:`mptorch.quant.block_pack` stores it in ``uint8`` codes, and
+    :func:`mptorch.quant.block_matmul` multiplies two packed operands.
+
+    The kind of ``scale`` decides whether the tensor has a second scale. The
+    tensor scale is not an option of its own:
+
+    - A *power-of-two* scale (``scale.P == 1``: E8M0, the MX presets) reaches
+      from ``2**-127`` to ``2**127``, so the block scale is enough. The
+      format has no tensor scale, and ``tensor_scale=`` raises.
+    - A *cast* scale is a binaryK with a mantissa (NVFP4's E4M3) or a
+      superfp. It follows a block's largest magnitude more closely, but over
+      a much shorter range (E4M3: ``2**-9`` to 448). The format therefore
+      also has one scale per tensor, a value of the carrier (float32 in
+      binary32, float64 in binary64), which brings the tensor into that
+      range. A block's scale is then its scale code's value times the tensor
+      scale, one product in the carrier. The functions that quantize or pack
+      take it as ``tensor_scale`` (its default is given below).
+      ``tensor_scale=1.0`` leaves the block scales alone.
+    - ``scale=None`` stores the element codes unscaled.
+
+    A tensor scale without block scales is not available.
+
+    With ``block_rows > 1`` a scale is shared by a *tile* of ``block_rows``
+    consecutive rows of ``block_size`` elements. The rows run along the axis
+    before the packed one, never across a batch dimension. A square tile
+    (``block_rows == block_size``) quantizes a matrix to the same values
+    whichever of its two axes is packed, in every deterministic rounding
+    mode. One packed weight can therefore serve a layer's forward pass and
+    its input gradient, which reads it transposed.
+    ``dataclasses.replace(NVFP4, block_rows=16)`` is NVFP4 with 16 x 16
+    weight tiles.
+
+    **Choosing the scale.** The block scale is chosen from the block's
+    largest magnitude ``amax`` by ``scale_rounding``
+    (:class:`ScaleRounding`). The defaults are:
+
+    - A power-of-two scale (``scale.P == 1``, E8M0) is
+      ``2**(floor(log2(amax)) - emax)``, clamped to its codes, where
+      ``emax = floor(log2(elem_max))``. This is OCP MX's rule.
+    - A ``BinaryK`` scale with a mantissa (E4M3) is
+      ``amax / (elem_max * tensor_scale)`` rounded to nearest even by the
+      scale format's cast. This is NVFP4's rule.
+    - A ``SuperFP`` scale rounds that ratio the same way, except where the
+      block's largest element would then saturate further than rounding to
+      nearest allows. There it takes the next scale up.
+
+    A cast scale is clamped to its largest value and raised to its smallest
+    positive one. The tensor scale defaults to
+    ``max(|x|) / (elem_max * top_scale)`` over the whole tensor ``x``.
+
+    **Rounding the elements.** Each element is divided by its scale and
+    rounded, in the call's rounding mode, by ``elem``'s cast (binaryK or
+    superfp) under ``SaturationMode.SAT_FINITE``. It is then clamped to
+    ``elem_max``. ``elem``'s own ``saturation`` is not read; its
+    ``subnormals`` and ``prng_bits`` are.
+
+    **Special values.** An infinite input saturates to ``elem_max``. A NaN
+    input takes ``nan_code`` when the element format has one. Otherwise the
+    block's scale becomes the scale format's NaN, and the whole block (every
+    element of a 2D tile) decodes to NaN. With neither (``scale=None`` and no
+    ``nan_code``) the NaN becomes ``elem_max``. No value decodes to ``-0.0``.
+
+    **Superfp codes.** A superfp code follows its format's layout: the normal
+    binades' codes as in a binaryK, and below them, from code 1, the
+    supernormal powers of two (see :class:`SuperFP`). It spends no code on
+    NaN or infinity unless ``nan_code`` or ``inf_code`` says so, as for a
+    binaryK element. A superfp scale spends its all-ones code on NaN, like
+    every cast scale.
+
+    **Carriers.** The block ops round in binary32, or in binary64 for a
+    float64 tensor or ``carrier=torch.float64``, and a format has to be one
+    the call's carrier holds: its element and a cast scale entirely, and a
+    power-of-two scale's codes within ``2**-127 .. 2**127`` in binary32 and
+    ``2**-1023 .. 2**1023`` in binary64. Building a format checks binary64's
+    bounds, and a call that rounds in binary32 checks binary32's, so an
+    element with nine or ten exponent bits, or an E8M0-style scale biased
+    past binary32's range, is a format of float64 tensors.
+
+    Args:
+        elem (BinaryK or SuperFP): the element format. At most 16 bits, and a
+            format that binary64 holds entirely (binary32 too, for a call that
+            rounds in it).
+        scale (BinaryK or SuperFP, optional): the scale format, one byte. It
+            is E8M0 (``BinaryK(8, 1, bias=127, is_signed=False,
+            subnormals=SubnormalsMode.EXTENDED_NORMALS)``), a binaryK with a
+            mantissa such as E4M3, or a superfp. The last two also bring a
+            per-tensor scale. ``None`` stores the element codes unscaled.
+        block_size (int): elements per block along the packed axis. A power
+            of two in [2, 128], with ``elem_bits * block_size`` a multiple of
+            8.
+        block_rows (int): rows per scale tile. A power of two in [1, 128],
+            with ``block_rows * block_size <= 16384``; 1 without a scale.
+            Default: ``1``
+        elem_max (float, optional): the largest magnitude an element takes, a
+            value of ``elem``. Default: ``None``, ``elem``'s largest finite
+            value under ``SAT_FINITE``.
+        nan_code (int, optional): the magnitude code (sign bit clear) that
+            the element format spends on NaN, above ``elem_max``'s. Default:
+            ``None``
+        inf_code (int, optional): the magnitude code it spends on infinity.
+            It is decoded but never produced. Default: ``None``
+        scale_rounding (ScaleRounding, optional): how a block's scale is
+            chosen. ``OCP`` needs a power-of-two scale. A ``FOUR_OVER_SIX``
+            rule needs a cast scale. Default:
+            ``None``, the scale's own rule: ``OCP`` for a power-of-two scale,
+            ``NEAREST`` for a binaryK with a mantissa, ``SELECTIVE`` for a
+            superfp. The default is resolved against the scale each time the
+            format is built, so
+            ``dataclasses.replace(NVFP4, scale=SuperFP(...))`` takes the
+            superfp's rule.
+
+    These attributes are derived when the format is built and are read-only:
+
+    - ``scale_rule``: the :class:`ScaleRounding` in effect (``None`` without
+      a scale). Formats compare by it, so leaving ``scale_rounding`` at its
+      default and naming that default give equal formats.
+    - ``elem_bits``: the bits per element code, sign included (``elem.K`` for
+      a binaryK, ``elem.wl`` for a fixed point).
+    - ``emax``: ``floor(log2(elem_max))``.
+    - ``scale_max``: the largest scale, the value of the code below the
+      scale's NaN (448 for E4M3, ``2**127`` for E8M0, 0 without a scale).
+    - ``top_scale``: the scale that the default tensor scale gives the
+      tensor's largest block. It is ``scale_max``, or under a
+      ``FOUR_OVER_SIX`` rule the largest scale ``v`` for which
+      ``v * elem_max / 2**emax`` is also a scale (256 for E4M3, since 384 is
+      one).
+    - ``has_tensor_scale``: whether the scale is cast (anything but
+      E8M0-style), which brings the per-tensor scale.
+    - ``bytes_per_block``: the bytes of element codes in one row of a block.
+    - ``is_square``: ``block_rows == block_size``.
+
+    Raises:
+        ValueError: for any of the following: sizes outside the ranges above;
+            an element over 16 bits or a scale over 8; an element or cast
+            scale that binary64 does not hold entirely; an ``elem_max`` that
+            is not a value of ``elem``; a ``nan_code`` or ``inf_code`` at or
+            below ``elem_max``'s code; a power-of-two scale that is signed or
+            reaches past ``2**-1023`` or ``2**1023`` (the pack multiplies by
+            its reciprocal); ``scale_rounding=OCP`` on a cast scale; a
+            ``FOUR_OVER_SIX`` rule on a power-of-two scale; or any
+            ``scale_rounding`` without a scale.
+        TypeError: if ``elem`` or ``scale`` is not a ``BinaryK`` or a
+            ``SuperFP``.
+
+    Example::
+
+        >>> from mptorch import MXFP8_E4M3, NVFP4
+        >>> MXFP8_E4M3.elem_max, MXFP8_E4M3.emax, MXFP8_E4M3.bytes_per_block
+        (448.0, 8, 32)
+        >>> NVFP4.scale_max, NVFP4.has_tensor_scale
+        (448.0, True)
+        >>> import dataclasses
+        >>> dataclasses.replace(NVFP4, block_rows=16).is_square
+        True
+        >>> from mptorch import E2M1, E8M0, BlockFormat, SuperFP
+        >>> sfp4 = BlockFormat(SuperFP(1, 2, 1, 1), E8M0, 32)  # 0 .. 6, down to 1/8
+        >>> sfp4.elem_bits, sfp4.elem_max, sfp4.emax
+        (4, 6.0, 2)
+        >>> BlockFormat(E2M1, SuperFP(3, 4, 2, 7), 16).scale_rule
+        <ScaleRounding.SELECTIVE: 3>
+    """
+
+    elem: "BinaryK | SuperFP | FixedPoint"
+    scale: "BinaryK | SuperFP | None"
+    block_size: int
+    _: KW_ONLY
+    block_rows: int = 1
+    elem_max: float | None = None
+    nan_code: int | None = None
+    inf_code: int | None = None
+    scale_rounding: ScaleRounding | None = field(default=None, compare=False)
+    scale_rule: ScaleRounding | None = field(init=False, repr=False)
+    elem_bits: int = field(init=False, repr=False, compare=False)
+    emax: int = field(init=False, repr=False, compare=False)
+    scale_max: float = field(init=False, repr=False, compare=False)
+    top_scale: float = field(init=False, repr=False, compare=False)
+    has_tensor_scale: bool = field(init=False, repr=False, compare=False)
+    bytes_per_block: int = field(init=False, repr=False, compare=False)
+    is_square: bool = field(init=False, repr=False, compare=False)
+    # Why binary32 cannot carry the format (its element, its cast scale, or a
+    # power-of-two scale's range), or None: what a call that rounds in
+    # binary32 raises (`check_block_carrier`). binary64's verdict raised when
+    # the format was built.
+    _binary32_error: str | None = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        elem, scale = self.elem, self.scale
+        if not isinstance(elem, BinaryK | SuperFP | FixedPoint):
+            raise TypeError(
+                f"a BlockFormat's element is a BinaryK, a SuperFP or a FixedPoint, got "
+                f"{type(elem).__name__}"
+            )
+        if isinstance(elem, FixedPoint):
+            if not (elem.is_signed and elem.symmetric):
+                raise ValueError(
+                    f"a FixedPoint block element must be signed and symmetric, got {elem}: a "
+                    "block code is sign-magnitude, which has no code for two's complement's "
+                    "bottom, and an unsigned element's top code would be its layout's NaN"
+                )
+            if self.nan_code is not None or self.inf_code is not None:
+                raise ValueError(
+                    "a FixedPoint block element has a value at every code, so it has no "
+                    "nan_code or inf_code"
+                )
+        mf = _minifloat(elem)
+        bits = mf.bits
+        if bits > 16:
+            raise ValueError(f"a BlockFormat's element codes are at most 16 bits, got {bits}")
+        bs, br = self.block_size, self.block_rows
+        if not 2 <= bs <= 128 or bs & (bs - 1):
+            raise ValueError(f"block_size must be a power of two in [2, 128], got {bs}")
+        if (bits * bs) % 8:
+            raise ValueError(
+                f"a block of {bs} {bits}-bit codes is {bits * bs} bits; a block must fill "
+                "whole bytes, so elem_bits * block_size must be a multiple of 8"
+            )
+        if not 1 <= br <= 128 or br & (br - 1) or br * bs > 16384:
+            raise ValueError(
+                f"block_rows must be a power of two in [1, 128] with block_rows * block_size "
+                f"<= 16384, got block_rows={br} and block_size={bs}"
+            )
+        error = _block_part_error("element", elem, torch.float64)
+        if error is not None:
+            raise ValueError(error)
+        binary32_error = _block_part_error("element", elem, torch.float32)
+
+        # P3109's NaN at the top of an unsigned binaryK; superfp spends no code on one
+        reserved = 0 if elem.is_signed or isinstance(elem, SuperFP) else 1
+        _, top_exp, top_code = _top_of_range(mf.exp_bits, mf.man_bits, mf.bias, reserved, _BINARY64)
+        top = Fraction((1 << mf.man_bits) + top_code) * Fraction(2) ** (top_exp - mf.man_bits)
+        if self.elem_max is None:
+            elem_max = top
+        else:
+            elem_max = Fraction(self.elem_max)
+            if not 0 < elem_max <= top or _minifloat_code(mf, elem_max) is None:
+                raise ValueError(
+                    f"elem_max must be a positive value of the element format {elem} no larger "
+                    f"than its largest finite value {float(top)}, got {self.elem_max}"
+                )
+        max_code = _minifloat_code(mf, elem_max)
+        assert max_code is not None
+        magnitudes = 1 << (bits - int(elem.is_signed))
+        for name, code in (("nan_code", self.nan_code), ("inf_code", self.inf_code)):
+            if code is not None and not max_code < code < magnitudes:
+                raise ValueError(
+                    f"{name} is a magnitude code above elem_max's ({max_code:#x}) and below "
+                    f"{magnitudes:#x}, which the encoder never produces for a value; got {code}"
+                )
+        if self.nan_code is not None and self.nan_code == self.inf_code:
+            raise ValueError("nan_code and inf_code must differ")
+
+        rounding = self.scale_rounding
+        if rounding is not None and not isinstance(rounding, ScaleRounding):
+            raise TypeError(
+                f"scale_rounding is a ScaleRounding or None, got {type(rounding).__name__}"
+            )
+        if scale is None:
+            if br != 1:
+                raise ValueError("block_rows is the rows a scale is shared by, and needs a scale")
+            if rounding is not None:
+                raise ValueError("scale_rounding chooses a block's scale, and needs a scale")
+            scale_max, tensor_scaled = 0.0, False
+        else:
+            if not isinstance(scale, BinaryK | SuperFP):
+                raise TypeError(
+                    "a BlockFormat's scale is a BinaryK, a SuperFP or None, got "
+                    f"{type(scale).__name__}"
+                )
+            smf = _minifloat(scale)
+            if smf.bits > 8:
+                raise ValueError(f"a BlockFormat's scale is one byte, got {smf.bits} bits")
+            if isinstance(scale, BinaryK) and scale.P == 1:
+                if scale.is_signed:
+                    raise ValueError(
+                        "a power-of-two scale (P=1, E8M0) is unsigned: its codes are exponents"
+                    )
+                lo, hi = -_bias(scale), (1 << scale.K) - 2 - _bias(scale)
+                for carrier in (_BINARY64, _BINARY32):
+                    if lo < -carrier.top_exp or hi > carrier.top_exp:
+                        error = (
+                            f"a power-of-two scale's codes are 2^{lo} .. 2^{hi}, and must lie in "
+                            f"2^-{carrier.top_exp} .. 2^{carrier.top_exp}, where {carrier.name} "
+                            "holds the reciprocal the pack multiplies by as well"
+                        )
+                        if carrier is _BINARY64:
+                            raise ValueError(error)
+                        binary32_error = binary32_error or error
+                scale_max, tensor_scaled = 2.0**hi, False
+                if rounding is not None and rounding.is_four_over_six:
+                    raise ValueError(
+                        f"ScaleRounding.{rounding.name} chooses between two scales a factor of "
+                        "elem_max / 2**emax apart (1.5 for E2M1), which a power-of-two scale "
+                        "cannot hold: it takes a cast scale, such as NVFP4's E4M3"
+                    )
+            else:
+                error = _block_part_error("scale", scale, torch.float64)
+                if error is not None:
+                    raise ValueError(error)
+                binary32_error = binary32_error or _block_part_error("scale", scale, torch.float32)
+                nan_mag = (1 << (smf.bits - int(scale.is_signed))) - 1
+                scale_max, tensor_scaled = float(_minifloat_value(smf, nan_mag - 1)), True
+                if scale_max <= 0:
+                    raise ValueError(
+                        f"the scale format {scale} has no positive value below its NaN"
+                    )
+                if rounding is ScaleRounding.OCP:
+                    raise ValueError(
+                        "ScaleRounding.OCP is OCP MX's rule for a power-of-two scale, and "
+                        f"{scale} is a cast scale: use NEAREST, UP or SELECTIVE"
+                    )
+            if rounding is None:
+                if not tensor_scaled:
+                    rounding = ScaleRounding.OCP
+                elif isinstance(scale, SuperFP):
+                    rounding = ScaleRounding.SELECTIVE
+                else:
+                    rounding = ScaleRounding.NEAREST
+
+        # The scale the default tensor scale gives the tensor's largest block.
+        # Under Four Over Six that block needs its second candidate too, a
+        # factor of elem_max / 2^emax up, so it is the largest scale whose
+        # multiple by that factor is still a scale (256 for E4M3: 384 is one,
+        # and 288 * 1.5 = 432 is not).
+        top_scale = scale_max
+        if scale is not None and rounding is not None and rounding.is_four_over_six:
+            smf = _minifloat(scale)
+            factor = elem_max / Fraction(2) ** _floor_log2(elem_max)
+            for mag in range((1 << (smf.bits - int(scale.is_signed))) - 2, 0, -1):
+                value = _minifloat_value(smf, mag)
+                if value * factor <= Fraction(scale_max) and (
+                    _minifloat_code(smf, value * factor) is not None
+                ):
+                    top_scale = float(value)
+                    break
+
+        derived = {
+            "scale_rule": rounding,
+            "elem_max": float(elem_max),
+            "elem_bits": bits,
+            "emax": _floor_log2(elem_max),
+            "scale_max": scale_max,
+            "top_scale": top_scale,
+            "has_tensor_scale": tensor_scaled,
+            "bytes_per_block": bits * bs // 8,
+            "is_square": br == bs,
+            "_binary32_error": binary32_error,
+        }
+        for name, value in derived.items():
+            object.__setattr__(self, name, value)
+
+
+def check_block_carrier(fmt: BlockFormat, *, carrier: torch.dtype) -> None:
+    """Hold a block format against the carrier a call rounds in.
+
+    binary64's verdict on the element, the scale and the scale's range was
+    given when ``fmt`` was built, which raised for anything binary64 cannot
+    carry. What is left per call is binary32's, kept on the format.
+
+    Raises:
+        ValueError: for ``carrier=torch.float32`` when binary32 does not hold
+            the element or the cast scale entirely, or a power-of-two scale's
+            range; binary64 does, so a float64 tensor or
+            ``carrier=torch.float64`` takes the format.
+    """
+    if carrier is torch.float32 and fmt._binary32_error is not None:
+        raise ValueError(
+            f"{_block_label(fmt)} rounds in binary32 here, and {fmt._binary32_error}; "
+            "binary64 holds it: pack a float64 tensor, or pass carrier=torch.float64"
+        )
+
+
+def _block_label(fmt: BlockFormat) -> str:
+    """The format as a short constructor-like label, for messages."""
+    rows = f", block_rows={fmt.block_rows}" if fmt.block_rows != 1 else ""
+    return f"BlockFormat({fmt.elem}, {fmt.scale}, {fmt.block_size}{rows})"
+
+
+@lru_cache(maxsize=256)
+def _block_storage_findings(
+    fmt: BlockFormat, storage: torch.dtype, elementwise: bool
+) -> tuple[str | None, str | None]:
+    """What storing a block format's decoded values in ``storage`` says.
+
+    Returns ``(error, warning)``; only warnings arise. A decoded value is an
+    element value times its block's scale (times the tensor scale). The
+    elementwise rule, for a quantizer or an unpack of a tensor of that dtype:
+    with a power-of-two scale the scale follows the block's largest input, so
+    a decoded value is the input itself wherever the scaled element grid is
+    at least as fine as the dtype's and a point of a coarser binary grid
+    elsewhere, a value of the dtype either way, except where a block
+    saturates onto ``elem_max`` times its scale, which needs ``elem_max``'s
+    significand to fit the dtype's. With a mantissa-bearing scale a decoded
+    value is a product in the carrier the dtype does not hold in general. The
+    value-set rule (``elementwise=False``) asks the same of every value the
+    scale's range can produce.
+    """
+    st = _STORAGE[storage]
+    label = _block_label(fmt)
+    if fmt.has_tensor_scale:
+        return None, (
+            f"{label}'s values are an element times its block's scale times the tensor scale, "
+            f"products rounded in the carrier that {st.name} does not hold in general: a {st.name} "
+            "result rounds them a second time when it is stored"
+        )
+    assert fmt.elem_max is not None  # resolved by __post_init__
+    top = Fraction(fmt.elem_max)
+    if _significant_bits(top) > st.man_bits + 1:
+        return None, (
+            f"{label}'s largest element value {fmt.elem_max} has {_significant_bits(top)} "
+            f"significant bits and {st.name} holds {st.man_bits + 1}: a block that saturates "
+            f"stores it rounded a second time"
+        )
+    if fmt.scale is None:
+        lo, hi = 0, 0
+    elif elementwise:
+        return None, None
+    else:
+        assert isinstance(fmt.scale, BinaryK)  # a cast scale has a tensor scale, above
+        lo, hi = -_bias(fmt.scale), (1 << fmt.scale.K) - 2 - _bias(fmt.scale)
+    mf = _minifloat(fmt.elem)
+    top_exp = fmt.emax + hi
+    if top_exp > st.top_exp:
+        return None, (
+            f"{label} reaches 2^{top_exp}, above {st.name}'s largest finite value: a "
+            f"{st.name} result stores those values as infinity"
+        )
+    if mf.super_codes:
+        step_exp = mf.super_cutoff + lo  # the smallest supernormal, the finest spacing
+    else:
+        step_exp = (-mf.bias if mf.extended else 1 - mf.bias) - mf.man_bits + lo
+    if not elementwise and step_exp < st.min_exp:
+        return None, (
+            f"{label} spaces its values 2^{step_exp} apart at the bottom, below {st.name}'s "
+            f"2^{st.min_exp}: a {st.name} result rounds them a second time when it is stored"
+        )
+    return None, None
+
+
+def check_block_storage(
+    fmt: BlockFormat, *, storage: torch.dtype, elementwise: bool = True
+) -> None:
+    """Hold a block format's decoded values against the dtype a result is written in.
+
+    ``storage`` is ``torch.float16`` or ``torch.bfloat16`` (or ``torch.float32``
+    for a result decoded in binary64), whose result rounds a decoded value a
+    second time where the dtype does not hold it.
+    ``elementwise=True`` is the rule for :func:`mptorch.quant.block_quantize`
+    and :func:`mptorch.quant.block_unpack` on a tensor of that dtype (its
+    inputs are already the dtype's values); ``False`` holds every value the
+    format can decode to. See :func:`check_binaryK_storage` for the two rules.
+
+    Warns:
+        FormatRangeWarning: where a decoded value can land off the dtype's grid.
+    """
+    _report_per_call(*_block_storage_findings(fmt, storage, elementwise))
+
+
+# The element and scale formats of OCP MX v1.0 and NVFP4, spelled as the
+# binaryK layouts they are (OCP's biases are IEEE 754's, one below P3109's).
+E8M0 = BinaryK(8, 1, bias=127, is_signed=False, subnormals=SubnormalsMode.EXTENDED_NORMALS)
+E4M3 = BinaryK(8, 4, bias=7)
+E5M2 = BinaryK(8, 3, bias=15)
+E2M1 = BinaryK(4, 2, bias=1)
+E2M3 = BinaryK(6, 4, bias=1)
+E3M2 = BinaryK(6, 3, bias=3)
+
+# OCP MX v1.0's concrete formats (block 32, E8M0 scale) and NVFP4 (block 16,
+# E4M3 scale and a float32 tensor scale). E4M3 and E5M2 spend codes on NaN and
+# infinity, so their largest values are OCP's, below their SAT_FINITE tops.
+MXFP8_E4M3 = BlockFormat(E4M3, E8M0, 32, elem_max=448.0, nan_code=0x7F)
+MXFP8_E5M2 = BlockFormat(E5M2, E8M0, 32, elem_max=57344.0, nan_code=0x7F, inf_code=0x7C)
+MXFP6_E2M3 = BlockFormat(E2M3, E8M0, 32)
+MXFP6_E3M2 = BlockFormat(E3M2, E8M0, 32)
+MXFP4_E2M1 = BlockFormat(E2M1, E8M0, 32)
+NVFP4 = BlockFormat(E2M1, E4M3, 16)
+
+
+def bfp(bits: int, block_size: int = 16, *, block_rows: int = 1) -> BlockFormat:
+    """Block floating point: ``bits``-bit integer elements sharing a power-of-two scale.
+
+    The elements are ``FixedPoint(bits, bits - 2, symmetric=True)``: a sign
+    and ``bits - 1`` magnitude bits, one step of ``2**-(bits - 2)`` from zero
+    to the largest value, ``2 - 2**-(bits - 2)``, so ``emax`` is 0 and a
+    block's E8M0 scale is ``2**floor(log2(amax))``, OCP's rule. Any other
+    ``fl`` gives the same block values and only moves ``emax``; build the
+    :class:`BlockFormat` directly for one.
+
+    ``bfp(8, 32)`` is OCP's MXINT8 but for one code: MXINT8's elements are two's
+    complement, and ``-2`` has no sign-magnitude code. The block GEMM takes
+    element codes of up to 8 bits; ``bfp(9)`` to ``bfp(16)`` pack, unpack and
+    quantize only.
+
+    Args:
+        bits: the element's word length, sign included, 2 to 16.
+        block_size: elements per block, a power of two in [2, 128] with
+            ``bits * block_size`` a multiple of 8.
+        block_rows: rows per tile; ``block_rows > 1`` shares a scale over a
+            ``block_rows x block_size`` tile.
+    """
+    return BlockFormat(
+        FixedPoint(bits, bits - 2, symmetric=True), E8M0, block_size, block_rows=block_rows
+    )

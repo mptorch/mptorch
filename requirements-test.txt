@@ -1,0 +1,7 @@
+pytest>=6.2.5
+pytest-cov>=6.1.1
+# Pinned to a commit on gfloat's main branch (not yet on PyPI, where the
+# latest release is still 0.5.2) because it has RoundMode.ToOdd, needed to
+# test mptorch's round-to-odd support. Switch this back to a normal PyPI
+# version pin (e.g. gfloat>=0.6.0) once a release containing ToOdd ships.
+gfloat @ git+https://github.com/graphcore-research/gfloat.git@b142762de8d091d658e59b1341d33003d2907d6e

@@ -1,0 +1,213 @@
+#pragma once
+
+// The CUDA backend as common/gemm_host.h's driver sees it: a launch context
+// and one `launch` per op. Nothing here needs nvcc, so the .cpp that owns the
+// tensors (custom_matmul_entry.cpp) includes it; the `launch_as` bodies are
+// in custom_matmul_kernel.cuh and are instantiated by the eight
+// custom_matmul_*.cu files.
+//
+// The split exists for build time. Under nvcc a translation unit that
+// includes ATen's tensor headers pays about 25 s of fixed front-end cost,
+// against about 3 s for one that includes only the policy headers and the
+// CUDA fp16 headers. The only things the GEMM .cu files ever needed from ATen
+// were at::Tensor in a signature and getCurrentCUDAStream() in a launch, and
+// both now happen on the g++ side of this header.
+
+#include "../common/gemm_accumulate.h"
+#include "../common/gemm_args.h"
+#include "../common/gemm_block.h"
+#include "../common/gemm_cross.h"
+#include "../common/gemm_gather.h"
+#include <ATen/cuda/PhiloxCudaState.h>
+#include <cuda_runtime_api.h>
+#include <cstdint>
+
+namespace mptorch::gemm_cuda
+{
+
+  struct CudaBackend
+  {
+    // What the kernel needs beyond the shape. The Philox state is present
+    // even when use_rng is false (as an empty state) so the launch signature
+    // does not branch on it; only RoundMode::SR reads it.
+    struct LaunchContext
+    {
+      at::PhiloxCudaState rng{};
+      cudaStream_t stream = nullptr;
+    };
+
+    // gemm_backend.cpp: draws (seed, offset) from ATen's default CUDA
+    // generator and picks up the current stream.
+    static LaunchContext make_context(bool use_rng, uint64_t draws_per_thread);
+
+    // Defined in custom_matmul_kernel.cuh. Each custom_matmul_*.cu
+    // instantiates it for the two ops it owns in binary32 (T = float), and
+    // its custom_matmul_*_f64.cu twin for the same two ops in binary64
+    // (T = double), so every kernel specialization lives in exactly one
+    // object and the binary64 kernels can be left out of a build.
+    template <class T, class Args>
+    static void launch_as(const mptorch::gemm::GemmShape &s, const Args &args,
+                          const LaunchContext &ctx);
+
+    // The carrier is chosen here, on the host, once per call: a float64 GEMM
+    // runs the binary64 kernels, and every other dtype runs the binary32
+    // ones, whose loads convert on the device. A build with MPTORCH_NO_FP64
+    // has no binary64 objects to call, and gemm_dtype_of has already refused
+    // float64 operands by the time this runs.
+    template <class Args>
+    static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
+                       const LaunchContext &ctx)
+    {
+#if !defined(MPTORCH_NO_FP64)
+      if (s.dt == mptorch::GemmDtype::Double)
+        return launch_as<double>(s, args, ctx);
+#endif
+      launch_as<float>(s, args, ctx);
+    }
+
+    // KAHAN, BLOCK and TREE (common/gemm_accumulate.h). The algorithm is a
+    // template parameter of the launch, as the round mode is of the policies,
+    // and for the same reason: each is its own accumulate step, and a switch
+    // between them inside the K-loop would keep all of them live in it. It
+    // is resolved here, on the host, once per call, after the carrier.
+    // Defined in the kernel header next to launch_as and instantiated by
+    // the six custom_matmul_{binaryK,superfp}_{kahan,block,tree}.cu
+    // files, one per family and algorithm, so that the eight NAIVE files
+    // compile what they always compiled, and in binary64 by their six
+    // *_f64.cu twins; the cross-family ops' are in
+    // custom_matmul_cross_{kahan,block,tree}{,_f64}.cu.
+    template <class T, AccumulateAlgorithm ALG, class Base>
+    static void launch_accumulated_as(const mptorch::gemm::GemmShape &s,
+                                      const mptorch::gemm::AccumulateArgs<Base> &args,
+                                      const LaunchContext &ctx);
+
+    template <class T, class Base>
+    static void launch_accumulated(const mptorch::gemm::GemmShape &s,
+                                   const mptorch::gemm::AccumulateArgs<Base> &args,
+                                   const LaunchContext &ctx)
+    {
+      switch (args.alg)
+      {
+      case AccumulateAlgorithm::KAHAN:
+        return launch_accumulated_as<T, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+      case AccumulateAlgorithm::BLOCK:
+        return launch_accumulated_as<T, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+      case AccumulateAlgorithm::TREE:
+        // A fused mac has no tree (no product term): check_accumulate_algorithm
+        // has refused it, and no such kernel is instantiated to call.
+        if constexpr (mptorch::gemm::AccumulateArgs<Base>::has_product)
+          return launch_accumulated_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
+        return;
+      case AccumulateAlgorithm::NAIVE:
+        return; // refused by run_custom_matmul_accumulated: NAIVE is the twin op's
+      }
+    }
+
+    template <class Base>
+    static void launch(const mptorch::gemm::GemmShape &s,
+                       const mptorch::gemm::AccumulateArgs<Base> &args, const LaunchContext &ctx)
+    {
+#if !defined(MPTORCH_NO_FP64)
+      if (s.dt == mptorch::GemmDtype::Double)
+        return launch_accumulated<double>(s, args, ctx);
+#endif
+      launch_accumulated<float>(s, args, ctx);
+    }
+
+    // The conv ops (common/gemm_gather.h): the same kernel over a Gathered
+    // policy, built from `Inner`, the Args of the GEMM op a conv op runs the
+    // arithmetic of (a single-format op's, its AccumulateArgs, or a palette
+    // op's). ALG is NAIVE except for an AccumulateArgs. Defined in the kernel
+    // header next to launch_as and instantiated by the fourteen
+    // custom_conv_*.cu files (the cross-family ops' four included), so
+    // that no file that compiled a kernel before the conv ops existed
+    // compiles anything new, and in binary64 by their *_f64.cu twins.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    static void launch_conv_as(const mptorch::gemm::GemmShape &s,
+                               const mptorch::gemm::ConvArgs<Inner> &args, const LaunchContext &ctx);
+
+    template <class T, class Inner>
+    static void launch_conv(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
+                            const LaunchContext &ctx)
+    {
+      if constexpr (requires { args.inner.alg; })
+      {
+        switch (args.inner.alg)
+        {
+        case AccumulateAlgorithm::KAHAN:
+          return launch_conv_as<T, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+        case AccumulateAlgorithm::BLOCK:
+          return launch_conv_as<T, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+        case AccumulateAlgorithm::TREE:
+          if constexpr (Inner::has_product)
+            return launch_conv_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
+          return;
+        case AccumulateAlgorithm::NAIVE:
+          return; // a NAIVE conv call runs on the twin's own Args
+        }
+      }
+      else
+      {
+        launch_conv_as<T, AccumulateAlgorithm::NAIVE>(s, args, ctx);
+      }
+    }
+
+    template <class Inner>
+    static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
+                       const LaunchContext &ctx)
+    {
+#if !defined(MPTORCH_NO_FP64)
+      if (s.dt == mptorch::GemmDtype::Double)
+        return launch_conv<double>(s, args, ctx);
+#endif
+      launch_conv<float>(s, args, ctx);
+    }
+
+    // The block GEMM (common/gemm_block.h): the same kernel over a Blocked
+    // policy built from `Inner`, the Args of the mac it runs (BlockSplitArgs,
+    // BinaryKFusedArgs or an AccumulateArgs of either). Defined in the kernel
+    // header and instantiated by the four custom_matmul_block*.cu files,
+    // and in binary64 by their *_f64.cu twins.
+    template <class T, AccumulateAlgorithm ALG, class Inner>
+    static void launch_block_as(const mptorch::gemm::GemmShape &s,
+                                const mptorch::gemm::BlockGemmArgs<Inner> &args, const LaunchContext &ctx);
+
+    template <class T, class Inner>
+    static void launch_block(const mptorch::gemm::GemmShape &s,
+                             const mptorch::gemm::BlockGemmArgs<Inner> &args, const LaunchContext &ctx)
+    {
+      if constexpr (requires { args.inner.alg; })
+      {
+        switch (args.inner.alg)
+        {
+        case AccumulateAlgorithm::KAHAN:
+          return launch_block_as<T, AccumulateAlgorithm::KAHAN>(s, args, ctx);
+        case AccumulateAlgorithm::BLOCK:
+          return launch_block_as<T, AccumulateAlgorithm::BLOCK>(s, args, ctx);
+        case AccumulateAlgorithm::TREE:
+          if constexpr (Inner::has_product)
+            return launch_block_as<T, AccumulateAlgorithm::TREE>(s, args, ctx);
+          return;
+        case AccumulateAlgorithm::NAIVE:
+          return; // a NAIVE call runs on the mac's own Args
+        }
+      }
+      else
+      {
+        launch_block_as<T, AccumulateAlgorithm::NAIVE>(s, args, ctx);
+      }
+    }
+
+    template <class Inner>
+    static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::BlockGemmArgs<Inner> &args,
+                       const LaunchContext &ctx)
+    {
+#if !defined(MPTORCH_NO_FP64)
+      if (s.dt == mptorch::GemmDtype::Double)
+        return launch_block<double>(s, args, ctx);
+#endif
+      launch_block<float>(s, args, ctx);
+    }
+  };
+
+} // namespace mptorch::gemm_cuda

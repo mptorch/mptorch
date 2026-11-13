@@ -1,0 +1,1239 @@
+"""The format vocabulary of ``mptorch.quant.mac`` against the flat GEMM wrappers.
+
+Formats have two spellings. The schema tier is the eight ``*_matmul*`` wrappers
+in ``quant/ops.py``, one per op with every schema argument spelled out. The value
+tier is ``BinaryK``/``SuperFP``, ``Quant``, ``SplitMac``/``FusedMac`` and
+``Palette``, with ``qmm``/``qbmm``/``qmatmul``, ``QMatmul`` and ``Quantizer`` as the
+differentiable entry points built on it. The ops themselves take rank 2 or 3
+operands only. Everything else ``torch.matmul`` accepts (1D promotion, leading
+dimensions, broadcasting) is done in Python, which the backward tests cover.
+
+The load-bearing tests are the first group. Every mac resolves to the same
+``_GemmSpec`` (op, schema arguments, stored formats, carrier, per-carrier verdicts)
+the equivalent flat-wrapper call builds, over a grid of widths and modes. That
+equality is the whole equivalence claim between the two API tiers: while it
+holds they cannot drift apart, and without it a default (a bias, an accumulate
+fallback, a carrier) resolved differently in one tier changes results silently.
+The remaining groups cover validation at construction, the elementwise ``Quant``,
+the autograd guard on the raw ops, and the gradients of ``qmatmul``.
+"""
+
+import itertools
+from typing import Any
+
+import pytest
+import torch
+
+from mptorch import (
+    AccumulateAlgorithm,
+    BinaryK,
+    FixedPoint,
+    RoundMode,
+    SaturationMode,
+    SubnormalsMode,
+    SuperFP,
+)
+from mptorch.quant import (
+    FusedMac,
+    Palette,
+    QMatmul,
+    QMatmulFormats,
+    Quant,
+    Quantizer,
+    SplitMac,
+    binaryK_matmul,
+    binaryK_quantize,
+    fixedpoint_quantize,
+    matmul_formats,
+    qbmm,
+    qmatmul,
+    qmm,
+    superfp_quantize,
+)
+from mptorch.quant.mac import spec_for_mac
+from mptorch.quant.ops import (
+    _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_spec,
+    _binaryK_fma_mixed_spec,
+    _binaryK_fma_odd_spec,
+    _binaryK_fma_spec,
+    _binaryK_mixed_spec,
+    _binaryK_odd_spec,
+    _binaryK_spec,
+    _superfp_accumulated_spec,
+    _superfp_fma_mixed_spec,
+    _superfp_fma_odd_spec,
+    _superfp_fma_spec,
+    _superfp_mixed_spec,
+    _superfp_odd_spec,
+    _superfp_spec,
+)
+from tests.markers import available_devices, float64_devices
+
+# ------------------------------------------------------------------------------------
+# The equivalence claim: a mac resolves to the flat wrapper's spec.
+
+
+def _binaryK_grid():
+    """Yield ``(K, P, signed, rounding, saturation, subnormals)`` over the widths
+    and modes the GEMM test modules run, crossed."""
+    for (K, P), signed, rm, sat, sub in itertools.product(
+        [(8, 4), (16, 11), (6, 3)],
+        [True, False],
+        [RoundMode.RNE, RoundMode.SR, RoundMode.RZ],
+        [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE],
+        [SubnormalsMode.SUBNORMALS, SubnormalsMode.NORMALS],
+    ):
+        yield K, P, signed, rm, sat, sub
+
+
+@pytest.mark.parametrize("K,P,is_signed,rm,sat,sub", list(_binaryK_grid()))
+def test_binaryK_split_mac_resolves_to_flat_spec(K, P, is_signed, rm, sat, sub):
+    """A symmetric binaryK ``SplitMac`` equals ``_binaryK_spec`` with every field
+    spelled out, so no mode or sign is dropped on the way to the op."""
+    fmt = BinaryK(K, P, is_signed=is_signed, saturation=sat, subnormals=sub)
+    assert spec_for_mac(SplitMac(fmt, fmt, rounding=rm)) == _binaryK_spec(
+        mul_K=K,
+        mul_P=P,
+        mul_is_signed=is_signed,
+        acc_K=K,
+        acc_P=P,
+        acc_is_signed=is_signed,
+        rounding_mode=rm,
+        saturation_mode=sat,
+        subnormals_mode=sub,
+    )
+
+
+def test_binaryK_split_mac_without_accumulate_format():
+    """``acc=None`` is the unrounded sum: it resolves to ``accumulate_quant=False``
+    rather than needing a flag beside the format."""
+    assert spec_for_mac(SplitMac(BinaryK(8, 4))) == _binaryK_spec(
+        mul_K=8, mul_P=4, accumulate_quant=False
+    )
+
+
+def test_binaryK_split_mac_asymmetric_slots():
+    """Saturation and subnormals belong to the format slot, not the op, so the
+    accumulate's modes reach the ``acc_*`` arguments instead of the multiply's."""
+    mul = BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE)
+    acc = BinaryK(12, 6, saturation=SaturationMode.SAT_NONE, subnormals=SubnormalsMode.NORMALS)
+    assert spec_for_mac(SplitMac(mul, acc)) == _binaryK_spec(
+        mul_K=8,
+        mul_P=4,
+        acc_K=12,
+        acc_P=6,
+        saturation_mode=SaturationMode.SAT_FINITE,
+        subnormals_mode=SubnormalsMode.SUBNORMALS,
+        acc_saturation_mode=SaturationMode.SAT_NONE,
+        acc_subnormals_mode=SubnormalsMode.NORMALS,
+    )
+
+
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.SR])
+@pytest.mark.parametrize("binades", [1, 8])
+def test_superfp_split_mac_resolves_to_flat_spec(rm, binades):
+    """The superfp twin of the binaryK equality, at one and eight normal binades."""
+    fmt = SuperFP(3, 4, binades, 7)
+    assert spec_for_mac(SplitMac(fmt, fmt, rounding=rm)) == _superfp_spec(
+        mul_man_bits=3,
+        mul_exp_bits=4,
+        mul_normal_binades=binades,
+        mul_bias=7,
+        acc_man_bits=3,
+        acc_exp_bits=4,
+        acc_normal_binades=binades,
+        acc_bias=7,
+        rounding_mode=rm,
+    )
+
+
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.SR])
+def test_fused_macs_resolve_to_flat_specs(rm):
+    """A ``FusedMac`` of either family equals its ``*_fma_spec``."""
+    assert spec_for_mac(FusedMac(BinaryK(8, 4), rounding=rm)) == _binaryK_fma_spec(
+        fma_K=8, fma_P=4, rounding_mode=rm
+    )
+    assert spec_for_mac(FusedMac(SuperFP(3, 4, 8, 7), rounding=rm)) == _superfp_fma_spec(
+        fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=8, fma_bias=7, rounding_mode=rm
+    )
+
+
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.RU, RoundMode.SR])
+def test_odd_macs_resolve_to_flat_specs(rm):
+    """``carrier_rounding=RoundMode.RO`` resolves to the ``*_odd`` builders'
+    specs: the twin's schema arguments, the odd op, and the findings of the
+    twin plus the guarantee's (none for these formats)."""
+    odd: dict[str, Any] = dict(rounding=rm, carrier_rounding=RoundMode.RO)
+    assert spec_for_mac(FusedMac(BinaryK(8, 4), **odd)) == _binaryK_fma_odd_spec(
+        fma_K=8, fma_P=4, rounding_mode=rm
+    )
+    assert spec_for_mac(FusedMac(SuperFP(3, 4, 8, 7), **odd)) == _superfp_fma_odd_spec(
+        fma_man_bits=3, fma_exp_bits=4, fma_normal_binades=8, fma_bias=7, rounding_mode=rm
+    )
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), BinaryK(16, 11), **odd)) == _binaryK_odd_spec(
+        mul_K=8, mul_P=4, acc_K=16, acc_P=11, rounding_mode=rm
+    )
+    sfp: dict[str, Any] = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+    assert spec_for_mac(SplitMac(SuperFP(**sfp), None, **odd)) == _superfp_odd_spec(
+        **{f"mul_{k}": v for k, v in sfp.items()}, accumulate_quant=False, rounding_mode=rm
+    )
+    spec = spec_for_mac(FusedMac(BinaryK(8, 4), **odd))
+    plain = spec_for_mac(FusedMac(BinaryK(8, 4), rounding=rm))
+    assert spec.op is torch.ops.mptorch.custom_matmul_binaryK_fma_odd.default
+    assert spec.args == plain.args  # the twin's schema, argument for argument
+    assert FusedMac(BinaryK(8, 4), **odd) != FusedMac(BinaryK(8, 4), rounding=rm)  # memo key
+
+
+def test_fused_mac_without_a_format_is_the_unrounded_step():
+    """``FusedMac(None)`` picks the binaryK fused op with its rounding switched off."""
+    spec = spec_for_mac(FusedMac(None))
+    assert spec.op is torch.ops.mptorch.custom_matmul_binaryK_fma.default
+    assert spec.args[0] is False  # fma_quant, the first schema argument
+
+
+def test_palette_macs_resolve_to_flat_specs():
+    """A list of formats resolves to the four palette (``*_mixed``) specs, each
+    field becoming the list the flat wrapper takes."""
+    pal = [BinaryK(8, 4), BinaryK(6, 3)]
+    assert spec_for_mac(SplitMac(pal, pal)) == _binaryK_mixed_spec(
+        mul_K=[8, 6], mul_P=[4, 3], acc_K=[8, 6], acc_P=[4, 3]
+    )
+    assert spec_for_mac(FusedMac(pal)) == _binaryK_fma_mixed_spec(fma_K=[8, 6], fma_P=[4, 3])
+    spal = [SuperFP(3, 4, 8, 7), SuperFP(2, 4, 8, 7)]
+    assert spec_for_mac(SplitMac(spal, spal)) == _superfp_mixed_spec(
+        mul_man_bits=[3, 2],
+        mul_exp_bits=[4, 4],
+        mul_normal_binades=[8, 8],
+        mul_bias=[7, 7],
+        acc_man_bits=[3, 2],
+        acc_exp_bits=[4, 4],
+        acc_normal_binades=[8, 8],
+        acc_bias=[7, 7],
+    )
+    assert spec_for_mac(FusedMac(spal)) == _superfp_fma_mixed_spec(
+        fma_man_bits=[3, 2], fma_exp_bits=[4, 4], fma_normal_binades=[8, 8], fma_bias=[7, 7]
+    )
+
+
+def test_palette_on_one_slot_broadcasts_the_other():
+    """A single format opposite a palette is repeated to its length, either way
+    round.
+
+    The palette ops read the palette size off the first pair of lists, so a
+    scalar multiply against a palette accumulate would leave the op with no
+    length to read.
+    """
+    assert spec_for_mac(SplitMac([BinaryK(8, 4), BinaryK(6, 3)], BinaryK(8, 4))) == (
+        _binaryK_mixed_spec(mul_K=[8, 6], mul_P=[4, 3], acc_K=8, acc_P=4)
+    )
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), [BinaryK(8, 4), BinaryK(6, 3)])) == (
+        _binaryK_mixed_spec(mul_K=[8, 8], mul_P=[4, 4], acc_K=[8, 6], acc_P=[4, 3])
+    )
+
+
+def test_spec_resolution_is_memoized():
+    """A mac built twice resolves once: equal frozen values return the same object.
+
+    Resolving a format costs 2.3 to 6.4 microseconds, most of a small GEMM's
+    Python overhead, so ``spec_for_mac`` memoizes on the value. A mac that stopped
+    being hashable, or a memo keyed on identity, would pay that on every call.
+    """
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), BinaryK(8, 4))) is spec_for_mac(
+        SplitMac(BinaryK(8, 4), BinaryK(8, 4))
+    )
+
+
+@pytest.mark.parametrize("carrier", [None, torch.float32, torch.float64])
+def test_carrier_resolves_to_the_flat_spec(carrier):
+    """The carrier is part of the spec, and both tiers put it in the same place.
+
+    ``BinaryK(40, 30, bias=512)`` is a format only binary64 holds, so the two
+    tiers must also agree on what each carrier finds in it.
+    """
+    fmt, wide = BinaryK(16, 8), BinaryK(40, 30, bias=512)
+    assert spec_for_mac(SplitMac(fmt, wide, carrier=carrier)) == _binaryK_spec(
+        mul_K=16, mul_P=8, acc_K=40, acc_P=30, acc_bias=512, carrier=carrier
+    )
+    assert spec_for_mac(FusedMac(wide, carrier=carrier)) == _binaryK_fma_spec(
+        fma_K=40, fma_P=30, fma_bias=512, carrier=carrier
+    )
+    assert spec_for_mac(FusedMac([fmt, wide], carrier=carrier)) == _binaryK_fma_mixed_spec(
+        fma_K=[16, 40], fma_P=[8, 30], fma_bias=[128, 512], carrier=carrier
+    )
+    sfp = SuperFP(3, 4, 1, 22)
+    assert spec_for_mac(SplitMac(sfp, sfp, carrier=carrier)) == _superfp_spec(
+        mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=22, carrier=carrier
+    )
+    assert spec_for_mac(SplitMac(fmt, wide, carrier=carrier)).carrier == carrier
+
+
+@pytest.mark.parametrize("carrier", [None, torch.float32])
+@pytest.mark.parametrize(
+    "algorithm,block_size",
+    [
+        (AccumulateAlgorithm.KAHAN, None),
+        (AccumulateAlgorithm.BLOCK, 4),
+        (AccumulateAlgorithm.BLOCK, 48),
+        (AccumulateAlgorithm.TREE, None),
+        (AccumulateAlgorithm.TREE, 64),
+    ],
+)
+@pytest.mark.parametrize("with_outer", [False, True])
+def test_accumulate_algorithms_resolve_to_the_flat_spec(carrier, algorithm, block_size, with_outer):
+    """KAHAN, BLOCK and TREE: the block size, the outer format and what the
+    result stores are resolved by the flat builder for both tiers."""
+    kahan = algorithm is AccumulateAlgorithm.KAHAN
+    tree = algorithm is AccumulateAlgorithm.TREE
+    if kahan and with_outer:
+        pytest.skip("KAHAN takes no outer format")
+    fmt, wide = BinaryK(8, 4), BinaryK(16, 11, saturation=SaturationMode.SAT_FINITE)
+    common: dict[str, Any] = dict(
+        accumulate_algorithm=algorithm, block_size=block_size, carrier=carrier
+    )
+    flat_outer: dict[str, Any] = (
+        dict(outer_K=16, outer_P=11, outer_saturation_mode=SaturationMode.SAT_FINITE)
+        if with_outer
+        else {}
+    )
+    spec = spec_for_mac(SplitMac(fmt, fmt, outer=wide if with_outer else None, **common))
+    assert spec == _binaryK_accumulated_spec(mul_K=8, mul_P=4, **flat_outer, **common)
+    # The arguments the *_accumulated op takes after its twin's: the block
+    # size (TREE's default is 16), whether there is an outer format, the format.
+    assert spec.args[-9:-7] == (0 if kahan else block_size or 16, with_outer)
+    # The result holds the last rounding: KAHAN's sum is the accumulate
+    # format's, a total is the outer format's, or nobody's.
+    stored = [fmt_args[:2] for _, fmt_args in spec.stored]
+    assert stored == ([(8, 4)] if kahan else [(16, 11)] if with_outer else [])
+    # Both carriers hold these formats, so neither has anything to say.
+    assert spec.findings == ((), ())
+
+    if not tree:
+        assert spec_for_mac(
+            FusedMac(fmt, outer=wide if with_outer else None, **common)
+        ) == _binaryK_fma_accumulated_spec(fma_K=8, fma_P=4, **flat_outer, **common)
+    sfp, swide = SuperFP(3, 4, 8, 7), SuperFP(8, 6, 32, 31)
+    sflat_outer: dict[str, Any] = (
+        dict(outer_man_bits=8, outer_exp_bits=6, outer_normal_binades=32, outer_bias=31)
+        if with_outer
+        else {}
+    )
+    assert spec_for_mac(
+        SplitMac(sfp, None, outer=swide if with_outer else None, **common)
+    ) == _superfp_accumulated_spec(
+        mul_man_bits=3,
+        mul_exp_bits=4,
+        mul_normal_binades=8,
+        mul_bias=7,
+        accumulate_quant=False,
+        **sflat_outer,
+        **common,
+    )
+    if not tree:
+        # An unrounded fused step has no family of its own: the outer format's.
+        unrounded = spec_for_mac(FusedMac(None, outer=swide if with_outer else None, **common))
+        family = "superfp" if with_outer else "binaryK"
+        op = getattr(torch.ops.mptorch, f"custom_matmul_{family}_fma_accumulated")
+        assert unrounded.op is op.default
+
+
+def test_a_naive_spec_is_what_it_was_before_the_other_algorithms():
+    """KAHAN, BLOCK and TREE are ops of their own, so a NAIVE spec names the
+    op and the arguments it named before they existed, and calling it costs
+    what it did."""
+    ops = torch.ops.mptorch
+    sfp: dict[str, Any] = dict(man_bits=3, exp_bits=4, normal_binades=8, bias=7)
+    sfp_mul: dict[str, Any] = {f"mul_{k}": v for k, v in sfp.items()}
+    sfp_fma: dict[str, Any] = {f"fma_{k}": v for k, v in sfp.items()}
+    for spec, op, n_args in (
+        (_binaryK_spec(mul_K=8, mul_P=4), ops.custom_matmul_binaryK, 17),
+        (_superfp_spec(**sfp_mul), ops.custom_matmul_superfp, 17),
+        (_binaryK_fma_spec(fma_K=8, fma_P=4), ops.custom_matmul_binaryK_fma, 10),
+        (
+            _superfp_fma_spec(**sfp_fma),
+            ops.custom_matmul_superfp_fma,
+            10,
+        ),
+    ):
+        assert spec.op is op.default
+        assert len(spec.args) == n_args
+        assert len(op.default._schema.arguments) == 4 + n_args
+    kahan = _binaryK_accumulated_spec(
+        mul_K=8, mul_P=4, accumulate_algorithm=AccumulateAlgorithm.KAHAN
+    )
+    # and the accumulated builder, asked for NAIVE, is the NAIVE builder
+    assert _binaryK_accumulated_spec(mul_K=8, mul_P=4) == _binaryK_spec(mul_K=8, mul_P=4)
+    assert kahan.op is ops.custom_matmul_binaryK_accumulated.default
+    assert len(kahan.args) == 17 + 9
+
+
+def test_a_spec_holds_what_each_carrier_says_about_its_formats():
+    """``findings`` holds binary32's verdicts, then binary64's, errors first.
+
+    The 40-bit format's 30 bits of precision are an error in binary32 (24 at
+    most), and the 16-bit format's smallest value, 2^(2 - 128 - 8) = 2^-134, is a
+    range warning there. binary64 holds both formats, and an 8-bit format gives
+    neither carrier anything to say. A call indexes this pair by its carrier, so
+    a swapped order misreports both.
+    """
+    spec = spec_for_mac(SplitMac(BinaryK(16, 8), BinaryK(40, 30, bias=512)))
+    b32, b64 = spec.findings
+    assert [error is not None for error, _ in b32] == [True, False]
+    assert "30 bits of precision" in str(b32[0][0]) and "2^-134" in str(b32[1][1])
+    assert b64 == ()
+    assert spec_for_mac(SplitMac(BinaryK(8, 4), BinaryK(8, 4))).findings == ((), ())
+
+
+def test_the_spec_memo_tells_carriers_apart():
+    """The carrier is part of a mac's value, so the memo cannot hand a binary64
+    call the spec resolved for the default carrier."""
+    fmt = BinaryK(8, 4)
+    assert spec_for_mac(SplitMac(fmt, fmt)) != spec_for_mac(
+        SplitMac(fmt, fmt, carrier=torch.float64)
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "error", "match"),
+    [
+        (
+            lambda: SplitMac(BinaryK(8, 4), carrier=torch.float16),
+            ValueError,
+            "torch.float32 .binary32.",
+        ),
+        (
+            lambda: FusedMac(BinaryK(8, 4), carrier=torch.int32),
+            ValueError,
+            "torch.float32 .binary32.",
+        ),
+        (
+            lambda: Quant(BinaryK(8, 4), carrier="binary64"),  # ty: ignore[invalid-argument-type]
+            TypeError,
+            "must be a torch.dtype",
+        ),
+    ],
+)
+def test_a_carrier_must_name_one(build, error, match):
+    """``carrier`` is ``torch.float32``, ``torch.float64`` or ``None``: another dtype
+    raises ``ValueError`` naming the valid ones, and a string raises ``TypeError``."""
+    with pytest.raises(error, match=match):
+        build()
+
+
+# ------------------------------------------------------------------------------------
+# The format objects themselves.
+
+
+def test_binaryK_bias_defaults_to_the_middle_of_the_exponent_range():
+    """The default is P3109's bias, half the exponent codes: 2^(K-P-1) signed,
+    2^(K-P) unsigned, whose exponent field is one bit wider. A given bias wins."""
+    assert BinaryK(8, 4).bias == 2 ** (8 - 4 - 1)
+    assert BinaryK(8, 4, is_signed=False).bias == 2 ** (8 - 4)
+    assert BinaryK(8, 4, bias=3).bias == 3
+
+
+def test_superfp_bias_has_no_default_rule():
+    """``SuperFP`` requires its bias, because the cast has no derivation for one:
+    ``tests/test_superfp_quantize.py`` runs ``exp_bits=3, bias=7``, which no rule
+    in terms of the exponent width produces."""
+    with pytest.raises(TypeError):
+        SuperFP(3, 4, 8)  # ty: ignore[missing-argument]
+
+
+def test_fixedpoint_fields_after_fl_are_keyword_only():
+    """``FixedPoint(8, 4, False)`` would read as unsigned or as symmetric depending
+    on the field order, so everything after ``fl`` is keyword-only, as for
+    ``BinaryK``'s fields after ``P``."""
+    with pytest.raises(TypeError):
+        FixedPoint(8, 4, False)  # ty: ignore[too-many-positional-arguments]
+
+
+@pytest.mark.parametrize(
+    ("fmt", "mag_bits", "step", "min_value", "max_value"),
+    [
+        (FixedPoint(8, 4), 7, 2.0**-4, -8.0, 7.9375),
+        (FixedPoint(8, 4, symmetric=True), 7, 2.0**-4, -7.9375, 7.9375),
+        (FixedPoint(8, 4, is_signed=False), 8, 2.0**-4, 0.0, 15.9375),
+        (FixedPoint(4, -2), 3, 4.0, -32.0, 28.0),  # a step coarser than 1
+        (FixedPoint(4, 6), 3, 2.0**-6, -0.125, 0.109375),  # pure fractions
+    ],
+)
+def test_fixedpoint_range(fmt, mag_bits, step, min_value, max_value):
+    """The range is the multiples of ``2**-fl`` a ``wl``-bit integer holds: two's
+    complement signed, one code short of it symmetric, from zero unsigned."""
+    assert (fmt.mag_bits, fmt.step) == (mag_bits, step)
+    assert (fmt.min_value, fmt.max_value) == (min_value, max_value)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: BinaryK(4, 8),
+        lambda: BinaryK(8, 0),
+        lambda: BinaryK(8, 4, prng_bits=-1),
+        lambda: SuperFP(3, 0, 8, 7),
+        lambda: SuperFP(3, 4, 0, 7),
+        lambda: FixedPoint(1, 0),
+        lambda: FixedPoint(0, 0, is_signed=False),
+        lambda: FixedPoint(8, 4, is_signed=False, symmetric=True),
+        lambda: FixedPoint(8, 4, prng_bits=-1),
+    ],
+)
+def test_format_objects_validate_at_construction(call):
+    """A malformed format (``P > K``, no precision, negative prng bits, no exponent
+    bits, no normal binade, no magnitude bits, a symmetric unsigned fixed point)
+    raises when built, not at the first call."""
+    with pytest.raises(ValueError):
+        call()
+
+
+def test_formats_are_frozen_and_hashable():
+    """Equal formats hash equal and cannot be mutated, which is what lets
+    ``spec_for_mac`` memoize on the value without going stale."""
+    fmt = BinaryK(8, 4)
+    assert hash(fmt) == hash(BinaryK(8, 4)) and fmt == BinaryK(8, 4)
+    with pytest.raises(AttributeError):
+        fmt.K = 9  # ty: ignore[invalid-assignment]
+    fxp = FixedPoint(8, 4)
+    assert hash(fxp) == hash(FixedPoint(8, 4)) and fxp == FixedPoint(8, 4)
+    with pytest.raises(AttributeError):
+        fxp.wl = 9  # ty: ignore[invalid-assignment]
+
+
+# ------------------------------------------------------------------------------------
+# Palette validation.
+
+
+def test_palette_rejects_disagreeing_shared_fields_and_names_the_entry():
+    """A palette op takes one sign and one set of modes for all entries, so an
+    entry that disagrees raises, and the message names the field and the entry."""
+    with pytest.raises(ValueError, match=r"is_signed.*entry 1"):
+        Palette([BinaryK(8, 4), BinaryK(6, 3, is_signed=False)])
+    with pytest.raises(ValueError, match=r"saturation.*entry 2"):
+        Palette(
+            [
+                BinaryK(8, 4),
+                BinaryK(6, 3),
+                BinaryK(6, 3, saturation=SaturationMode.SAT_FINITE),
+            ]
+        )
+
+
+def test_palette_rejects_mixed_families():
+    """One palette is one op, and no op mixes binaryK with superfp entries."""
+    with pytest.raises(TypeError, match="same type"):
+        Palette([BinaryK(8, 4), SuperFP(3, 4, 8, 7)])
+
+
+def test_palette_rejects_a_family_with_no_gemm():
+    """A fixed-point format has an elementwise quantizer and no GEMM kernel yet."""
+    with pytest.raises(TypeError, match="no GEMM kernel takes FixedPoint"):
+        Palette([FixedPoint(8, 4)])
+
+
+def test_palette_rejects_empty_and_oversized():
+    """The palette ops hold between one and eight formats."""
+    with pytest.raises(ValueError, match="at least one"):
+        Palette([])
+    with pytest.raises(ValueError, match="at most 8"):
+        Palette([BinaryK(8, 4)] * 9)
+
+
+def test_split_mac_mixes_families_one_format_per_slot():
+    """A multiply in one family and an accumulate in the other is a
+    cross-family op, ``custom_matmul_binaryK_superfp`` or
+    ``custom_matmul_superfp_binaryK`` (``tests/test_cross_family.py`` holds
+    their numbers); a palette in either slot has no op to select, and says
+    so."""
+    bk, sf = BinaryK(8, 4), SuperFP(3, 4, 8, 7)
+    ops = torch.ops.mptorch
+    assert spec_for_mac(SplitMac(bk, sf)).op is ops.custom_matmul_binaryK_superfp.default
+    assert spec_for_mac(SplitMac(sf, bk)).op is ops.custom_matmul_superfp_binaryK.default
+    with pytest.raises(ValueError, match="different families.*no palette variant"):
+        SplitMac([bk, BinaryK(8, 3)], sf)
+
+
+def test_split_mac_rejects_unequal_palettes():
+    """Two palettes share one ``prec_idx`` map, so their lengths must agree."""
+    with pytest.raises(ValueError, match="same length"):
+        SplitMac([BinaryK(8, 4), BinaryK(6, 3)], [BinaryK(8, 4)] * 3)
+
+
+# ------------------------------------------------------------------------------------
+# Quant: the elementwise half of the vocabulary.
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_quant_equals_the_flat_quantizer(device):
+    """``Quant`` is bit-identical to the flat quantizer of its family, with RNE as
+    the default rounding."""
+    x = torch.randn(64, device=device)
+    assert torch.equal(
+        Quant(BinaryK(8, 4))(x), binaryK_quantize(x, K=8, P=4, rounding_mode=RoundMode.RNE)
+    )
+    assert torch.equal(
+        Quant(SuperFP(3, 4, 8, 7), RoundMode.RZ)(x),
+        superfp_quantize(
+            x,
+            man_bits=3,
+            exp_bits=4,
+            normal_binades=8,
+            bias=7,
+            rounding_mode=RoundMode.RZ,
+        ),
+    )
+    assert torch.equal(
+        Quant(FixedPoint(8, 4, symmetric=True), RoundMode.RD)(x * 8),
+        fixedpoint_quantize(x * 8, wl=8, fl=4, symmetric=True, rounding_mode=RoundMode.RD),
+    )
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_a_bias_of_zero_is_a_bias(device):
+    """``bias=0`` is a format, not a request for the default.
+
+    A wrapper that tests ``not bias`` instead of ``bias is None`` quantizes
+    ``BinaryK(14, 4, bias=0)``, whose ten exponent bits reach the top of binary64's
+    range, at P3109's bias of 2^(14-4-1) = 512. The raw op call below is the
+    reference, with ``bias`` as its fourth argument, and the spec indices are the
+    positions of the bias arguments in each schema.
+    """
+    x = torch.tensor([0.0352, 0.3, 3.0], dtype=torch.float64, device=device)
+    raw = torch.ops.mptorch.binaryK_quant.default(x, 14, 4, 0, 0, True, 0, 2, 0)
+    assert torch.equal(binaryK_quantize(x, 14, 4, bias=0), raw)
+    assert torch.equal(Quant(BinaryK(14, 4, bias=0))(x), raw)
+    assert not torch.equal(binaryK_quantize(x, 14, 4), raw)
+    assert _binaryK_spec(mul_K=14, mul_P=4, mul_bias=0, acc_bias=0).args[2] == 0
+    assert _binaryK_spec(mul_K=14, mul_P=4, mul_bias=0, acc_bias=0).args[7] == 0
+    assert _binaryK_fma_spec(fma_K=14, fma_P=4, fma_bias=0).args[3] == 0
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16])
+@pytest.mark.parametrize("carrier", [None, torch.float64])
+def test_quant_carrier_is_the_flat_quantizers(device, dtype, carrier):
+    """``Quant`` hands ``carrier`` to the flat quantizer unchanged, for operands at
+    and below the carrier's width."""
+    x = (torch.randn(64, device=device) * 4).to(dtype)
+    assert torch.equal(
+        Quant(BinaryK(8, 4), carrier=carrier)(x), binaryK_quantize(x, 8, 4, carrier=carrier)
+    )
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_raw_ops_raise_on_requires_grad_operands(device):
+    """The flat ops have no gradient, so they raise on a ``requires_grad`` operand
+    and name the differentiable entry point.
+
+    Without the guard the op returns a tensor with a ``grad_fn`` and leaves
+    ``.grad`` as ``None``, which is a silently untrained model.
+    """
+    a = torch.randn(4, 5, device=device, requires_grad=True)
+    b = torch.randn(5, 3, device=device)
+    with pytest.raises(RuntimeError, match="qmatmul"):
+        binaryK_matmul(a, b, mul_K=8, mul_P=4)
+    with pytest.raises(RuntimeError, match="Quantizer"):
+        binaryK_quantize(a, K=8, P=4)
+    with pytest.raises(RuntimeError, match="Quantizer"):
+        fixedpoint_quantize(a, wl=8, fl=4)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_raw_ops_still_run_without_grad(device):
+    """Detached, or under ``no_grad``, the raw op runs and returns the same values:
+    the guard is about a gradient that would vanish, not about the operand."""
+    a = torch.randn(4, 5, device=device, requires_grad=True)
+    b = torch.randn(5, 3, device=device)
+    expected = binaryK_matmul(a.detach(), b, mul_K=8, mul_P=4)
+    with torch.no_grad():
+        assert torch.equal(binaryK_matmul(a, b, mul_K=8, mul_P=4), expected)
+
+
+# ------------------------------------------------------------------------------------
+# qmm / qbmm / qmatmul.
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "formats",
+    [
+        None,
+        BinaryK(8, 4),
+        SplitMac(BinaryK(8, 4), BinaryK(8, 4)),
+        FusedMac(BinaryK(8, 4)),
+        SuperFP(3, 4, 8, 7),
+    ],
+)
+def test_qmatmul_accepts_every_formats_spelling(device, formats):
+    """``formats`` may be nothing, a bare number format, or either mac."""
+    a = torch.randn(2, 6, 8, device=device)
+    b = torch.randn(2, 8, 4, device=device)
+    out = qmatmul(a, b, formats)
+    assert out.shape == (2, 6, 4)
+    assert torch.isfinite(out).all()
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_number_is_shorthand_for_a_symmetric_split_mac(device):
+    """A bare format means that format for both the multiply and the accumulate."""
+    a = torch.randn(6, 8, device=device)
+    b = torch.randn(8, 4, device=device)
+    assert torch.equal(
+        qmatmul(a, b, BinaryK(8, 4)),
+        qmatmul(a, b, SplitMac(BinaryK(8, 4), BinaryK(8, 4))),
+    )
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_equals_the_flat_wrapper(device):
+    """The forward of the differentiable entry point is the flat wrapper's result,
+    bit for bit."""
+    a = torch.randn(6, 8, device=device)
+    b = torch.randn(8, 4, device=device)
+    assert torch.equal(
+        qmatmul(a, b, BinaryK(8, 4)),
+        binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=8, acc_P=4),
+    )
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmm_and_qbmm_check_rank(device):
+    """``qmm`` is strictly 2D and ``qbmm`` strictly 3D with equal batch sizes, like
+    ``torch.mm`` and ``torch.bmm``. Only ``qmatmul`` broadcasts."""
+    a3 = torch.randn(2, 6, 8, device=device)
+    b3 = torch.randn(2, 8, 4, device=device)
+    with pytest.raises(ValueError, match="2D"):
+        qmm(a3, b3)
+    with pytest.raises(ValueError, match="3D"):
+        qbmm(a3[0], b3[0])
+    with pytest.raises(ValueError, match="equal batch"):
+        qbmm(a3, b3[:1])
+    assert qbmm(a3, b3).shape == (2, 6, 4)
+    assert qmm(a3[0], b3[0]).shape == (6, 4)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_palette_needs_a_map(device):
+    """A palette mac needs a ``prec_idx`` of the output's shape, and a map beside a
+    single format is rejected rather than ignored."""
+    a = torch.randn(6, 8, device=device)
+    b = torch.randn(8, 4, device=device)
+    mac = SplitMac([BinaryK(8, 4), BinaryK(6, 3)], [BinaryK(8, 4), BinaryK(6, 3)])
+    with pytest.raises(ValueError, match="prec_idx"):
+        qmatmul(a, b, mac)
+    idx = torch.randint(0, 2, (6, 4), device=device)
+    assert qmatmul(a, b, mac, prec_idx=idx).shape == (6, 4)
+    with pytest.raises(ValueError, match="no meaning"):
+        qmatmul(a, b, BinaryK(8, 4), prec_idx=idx)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_palette_gradients_need_their_own_maps(device):
+    """One map cannot serve three passes, whose outputs have three shapes.
+
+    The forward map is ``[M, N]``, the gradient of ``a`` needs ``[M, K]`` and that
+    of ``b`` ``[K, N]``. Backward without them raises and names the missing map.
+    """
+    a = torch.randn(6, 8, device=device, requires_grad=True)
+    b = torch.randn(8, 4, device=device, requires_grad=True)
+    mac = SplitMac([BinaryK(8, 4), BinaryK(6, 3)], [BinaryK(8, 4), BinaryK(6, 3)])
+    fwd_idx = torch.randint(0, 2, (6, 4), device=device)
+
+    out = qmatmul(a, b, mac, prec_idx=fwd_idx)
+    with pytest.raises(ValueError, match="agrad_prec_idx"):
+        out.sum().backward()
+
+    formats = matmul_formats(
+        mac,
+        prec_idx=fwd_idx,
+        agrad_prec_idx=torch.randint(0, 2, (6, 8), device=device),
+        bgrad_prec_idx=torch.randint(0, 2, (8, 4), device=device),
+    )
+    a2 = a.detach().clone().requires_grad_(True)
+    b2 = b.detach().clone().requires_grad_(True)
+    qmatmul(a2, b2, formats).sum().backward()
+    assert a2.grad is not None and a2.grad.shape == a2.shape
+    assert b2.grad is not None and b2.grad.shape == b2.shape
+
+
+# ------------------------------------------------------------------------------------
+# The differentiable layer.
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize(
+    "a_shape,b_shape",
+    [
+        ((6, 8), (8, 4)),
+        ((2, 6, 8), (2, 8, 4)),
+        ((2, 6, 8), (8, 4)),
+        ((8,), (8, 4)),
+        ((6, 8), (8,)),
+        ((8,), (8,)),
+        ((3, 1, 6, 8), (2, 8, 4)),
+    ],
+)
+def test_qmatmul_backward_matches_autograd_through_torch_matmul(device, a_shape, b_shape):
+    """With no formats, both the values and the gradients are torch's own.
+
+    The shapes cover what Python handles above the rank 2 or 3 op boundary: 1D
+    promotion on either side, a batch folded against a 2D operand, and leading
+    dimensions that broadcast. The backward must restore the dropped dimensions
+    and sum each gradient over the broadcast ones, so the gradient shapes are
+    checked as well. The values differ from torch's by summation order only,
+    hence the 1e-5 tolerance.
+    """
+    a = torch.randn(*a_shape, device=device, requires_grad=True)
+    b = torch.randn(*b_shape, device=device, requires_grad=True)
+    a_ref = a.detach().clone().requires_grad_(True)
+    b_ref = b.detach().clone().requires_grad_(True)
+
+    out = qmatmul(a, b)
+    ref = a_ref @ b_ref
+    assert torch.equal(out, ref)
+
+    g = torch.randn_like(out)
+    out.backward(g)
+    ref.backward(g)
+    assert a.grad is not None and b.grad is not None
+    assert a_ref.grad is not None and b_ref.grad is not None
+    assert a.grad.shape == a.shape and b.grad.shape == b.shape
+    assert torch.allclose(a.grad, a_ref.grad, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(b.grad, b_ref.grad, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_backward_runs_in_the_named_arithmetic(device):
+    """Each gradient goes through the GEMM its hook names, so a coarse format
+    moves the gradients and not just the output."""
+    a = torch.randn(4, 8, 6, device=device, requires_grad=True)
+    b = torch.randn(4, 6, 5, device=device, requires_grad=True)
+    a_ref = a.detach().clone().requires_grad_(True)
+    b_ref = b.detach().clone().requires_grad_(True)
+
+    out = qmatmul(a, b, BinaryK(8, 4))
+    ref = a_ref @ b_ref
+    g = torch.randn_like(out)
+    out.backward(g)
+    ref.backward(g)
+    assert a.grad is not None and a_ref.grad is not None
+    assert not torch.equal(a.grad, a_ref.grad)
+    assert (
+        torch.nn.functional.cosine_similarity(a.grad.flatten(), a_ref.grad.flatten(), dim=0) > 0.9
+    )
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_only_computes_the_gradients_asked_for(device):
+    """An operand without ``requires_grad`` gets no gradient GEMM and no ``.grad``."""
+    a = torch.randn(4, 6, device=device, requires_grad=True)
+    b = torch.randn(6, 5, device=device)
+    qmatmul(a, b, BinaryK(8, 4)).sum().backward()
+    assert a.grad is not None and b.grad is None
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_formats_quantizers_are_applied(device):
+    """``a_quant`` and ``b_quant`` run on the operands before the product, which
+    with no math hook is torch's own."""
+    a = torch.randn(4, 6, device=device)
+    b = torch.randn(6, 5, device=device)
+    fmt = BinaryK(8, 4)
+    formats = QMatmulFormats(a_quant=Quant(fmt), b_quant=Quant(fmt))
+    assert torch.equal(qmatmul(a, b, formats), Quant(fmt)(a) @ Quant(fmt)(b))
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_qmatmul_module_matches_the_function(device):
+    """``QMatmul`` is a thin module over ``qmatmul``, bit for bit."""
+    a = torch.randn(2, 4, 6, device=device)
+    b = torch.randn(2, 6, 5, device=device)
+    mac = SplitMac(BinaryK(8, 4), BinaryK(8, 4))
+    assert torch.equal(QMatmul(mac).to(device)(a, b), qmatmul(a, b, mac))
+
+
+def test_qmatmul_module_registers_stateful_quantizers():
+    """``QMatmulFormats`` is an ``nn.Module``, so a quantizer that is itself a module
+    (a QAT observer, say) is registered under the parent and reaches its
+    ``state_dict``."""
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            formats = matmul_formats(SplitMac(BinaryK(8, 4), BinaryK(8, 4)))
+            formats.a_quant = Quantizer(BinaryK(8, 4))
+            self.mm = QMatmul(formats)
+
+    block = Block()
+    assert any("mm.formats" in k for k in block.state_dict()) or isinstance(
+        block.mm.formats.a_quant, torch.nn.Module
+    )
+    assert isinstance(block.mm.formats, torch.nn.Module)
+
+
+# ------------------------------------------------------------------------------------
+# Quantizer: the straight-through estimator.
+
+
+@pytest.mark.parametrize("device", available_devices)
+@pytest.mark.parametrize("fmt", [BinaryK(8, 4), FixedPoint(8, 4)], ids=str)
+def test_quantizer_forward_quantizes_and_backward_passes_through(device, fmt):
+    """The straight-through estimator: forward is ``Quant``, and with no backward
+    format the gradient passes unchanged."""
+    x = torch.randn(32, device=device, requires_grad=True)
+    q = Quantizer(fmt)
+    out = q(x)
+    assert torch.equal(out, Quant(fmt)(x.detach()))
+    g = torch.randn_like(out)
+    out.backward(g)
+    assert x.grad is not None and torch.equal(x.grad, g)
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_quantizer_backward_format_is_its_own(device):
+    """The second format quantizes the incoming gradient, not the forward one."""
+    x = torch.randn(32, device=device, requires_grad=True)
+    q = Quantizer(BinaryK(8, 4), BinaryK(6, 3))
+    g = torch.randn(32, device=device)
+    q(x).backward(g)
+    assert x.grad is not None and torch.equal(x.grad, Quant(BinaryK(6, 3))(g))
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_quantizer_with_no_formats_is_the_identity(device):
+    """No formats means no rounding in either direction."""
+    x = torch.randn(32, device=device, requires_grad=True)
+    out = Quantizer()(x)
+    assert torch.equal(out, x)
+    g = torch.randn_like(out)
+    out.backward(g)
+    assert x.grad is not None and torch.equal(x.grad, g)
+
+
+# --- block formats: BlockMac, BlockQuant and the layer factories ------------------
+
+
+def test_bfp_is_a_fixedpoint_element_with_an_e8m0_scale():
+    """bfp(bits): FixedPoint(bits, bits - 2, symmetric=True) elements, one step
+    of 2^-(bits - 2) up to 2 - 2^-(bits - 2), so emax 0 and OCP's scale rule;
+    the element code is wl bits, and a 16 x 8-bit block is 16 bytes plus its
+    scale. Another fl gives the same values and moves emax only."""
+    from mptorch import E8M0, BlockFormat, FixedPoint, bfp
+    from mptorch import ScaleRounding as R
+
+    f = bfp(8, 16)
+    assert f == BlockFormat(FixedPoint(8, 6, symmetric=True), E8M0, 16)
+    assert f.elem_bits == 8 and f.emax == 0 and f.scale_rule is R.OCP
+    assert f.elem_max == 2 - 2.0**-6 and f.bytes_per_block == 16
+    assert bfp(16, 16, block_rows=4).block_rows == 4
+    assert bfp(3).elem_max == 1.5 and bfp(2).elem_max == 1.0
+    other = BlockFormat(FixedPoint(8, 0, symmetric=True), E8M0, 16)
+    assert other.emax == 6 and other.elem_max == 127.0
+
+
+def test_scale_rounding_resolves_and_compares_by_the_rule():
+    """A BlockFormat's scale rule defaults to its scale's own (OCP for a power
+    of two, NEAREST for E4M3, SELECTIVE for a superfp), is resolved again when
+    the format is rebuilt with another scale, and is what formats compare and
+    hash by, so the default and its spelled-out value are one format."""
+    import dataclasses
+
+    from mptorch import E2M1, E4M3, E8M0, MXFP4_E2M1, MXFP8_E4M3, NVFP4, BlockFormat
+    from mptorch import ScaleRounding as R
+
+    sfp = SuperFP(3, 4, 2, 7)
+    assert MXFP8_E4M3.scale_rule is R.OCP and NVFP4.scale_rule is R.NEAREST
+    assert BlockFormat(E2M1, sfp, 16).scale_rule is R.SELECTIVE
+    assert BlockFormat(E4M3, None, 32).scale_rule is None
+    ocp = BlockFormat(E2M1, E8M0, 32, scale_rounding=R.OCP)
+    assert ocp == MXFP4_E2M1 and hash(ocp) == hash(MXFP4_E2M1)
+    assert dataclasses.replace(MXFP4_E2M1, scale_rounding=R.UP) != MXFP4_E2M1
+    assert dataclasses.replace(NVFP4, scale=sfp).scale_rule is R.SELECTIVE
+    assert dataclasses.replace(MXFP8_E4M3, scale=E4M3).scale_rule is R.NEAREST
+    up = dataclasses.replace(NVFP4, scale_rounding=R.UP)
+    assert dataclasses.replace(up, scale=sfp).scale_rule is R.UP  # named, so kept
+
+
+def test_block_mac_resolves_to_the_flat_spec():
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockMac
+    from mptorch.quant.block import _block_gemm_spec
+    from mptorch.quant.mac import spec_for_block_mac
+
+    for acc, fused, rm, alg, bs, outer, epilogue in itertools.product(
+        (None, BinaryK(16, 11)),
+        (False, True),
+        (RoundMode.RNE, RoundMode.SR),
+        (AccumulateAlgorithm.NAIVE, AccumulateAlgorithm.BLOCK),
+        (None,),
+        (None,),
+        (False, True),
+    ):
+        block = 8 if alg is AccumulateAlgorithm.BLOCK else bs
+        mac = BlockMac(
+            MXFP8_E4M3,
+            acc=acc,
+            fused=fused,
+            rounding=rm,
+            accumulate_algorithm=alg,
+            block_size=block,
+            outer=outer,
+            tensor_scale_epilogue=epilogue,
+        )
+        want = _block_gemm_spec(acc, fused, rm, alg, block, outer, None, epilogue)
+        assert spec_for_block_mac(mac) == want
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+@pytest.mark.parametrize("square", [False, True])
+def test_qmatmul_with_a_block_mac(device, square):
+    import dataclasses
+
+    from mptorch import MXFP8_E4M3, NVFP4
+    from mptorch.quant import BlockMac, block_matmul, block_pack
+
+    fa = dataclasses.replace(MXFP8_E4M3, block_rows=32) if square else MXFP8_E4M3
+    fb = dataclasses.replace(NVFP4, block_rows=16) if square else NVFP4
+    mac = BlockMac(fa, fb, BinaryK(16, 11))
+    a = torch.randn(3, 20, 64, device=device, requires_grad=True)
+    b = torch.randn(64, 12, device=device, requires_grad=True)
+    y = qmatmul(a, b, mac)
+    assert y.shape == (3, 20, 12)
+    assert torch.equal(
+        y,
+        block_matmul(
+            block_pack(a.detach(), fa), block_pack(b.detach(), fb, 0), acc=BinaryK(16, 11)
+        ),
+    )
+    g = torch.randn_like(y)
+    y.backward(g)
+    # a's gradient is g @ b^T in the block GEMM: g packed along its last
+    # dimension in a's format, b along its last in b's; b's is a^T @ g
+    ga = block_matmul(block_pack(g, fa), block_pack(b.detach(), fb, -1).mT, acc=BinaryK(16, 11))
+    assert a.grad is not None and b.grad is not None
+    assert torch.equal(a.grad, ga)
+    gb = block_matmul(block_pack(a.detach(), fa, -2).mT, block_pack(g, fb, -2), acc=BinaryK(16, 11))
+    assert torch.equal(b.grad, gb.sum(0))
+    # the module, and the bare BlockFormat spelling
+    assert torch.equal(QMatmul(mac)(a, b), y)
+    assert qmatmul(a.detach(), b.detach(), fa).shape == y.shape
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+def test_block_gemm_formats_on_qlinear(device):
+    import dataclasses
+
+    from mptorch import MXFP8_E4M3, NVFP4
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats, block_matmul, block_pack
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    acc = BinaryK(16, 11)
+    layer = QLinear(64, 24, formats=block_gemm_formats(NVFP4, w16, MXFP8_E4M3, acc=acc)).to(device)
+    x = torch.randn(5, 7, 64, device=device, requires_grad=True)
+    y = layer(x)
+    w, bias = layer.weight.detach(), layer.bias.detach()
+    xp = block_pack(x.detach().reshape(-1, 64), NVFP4)
+    want = block_matmul(xp, block_pack(w, w16, 1).mT, acc=acc).reshape(5, 7, 24) + bias
+    assert torch.equal(y, want)
+    g = torch.randn_like(y)
+    y.backward(g)
+    gp = g.reshape(-1, 24)
+    assert x.grad is not None and layer.weight.grad is not None
+    assert torch.equal(
+        x.grad,
+        block_matmul(block_pack(gp, MXFP8_E4M3), block_pack(w, w16, 0), acc=acc).reshape(5, 7, 64),
+    )
+    assert torch.equal(
+        layer.weight.grad,
+        block_matmul(
+            block_pack(gp, MXFP8_E4M3, 0).mT,
+            block_pack(x.detach().reshape(-1, 64), NVFP4, 0),
+            acc=acc,
+        ),
+    )
+
+    # A square-tiled weight packed once by weight_quant: the same forward, and
+    # the input gradient read from that packing equals re-packing along 0.
+    packed = block_gemm_formats(NVFP4, w16, MXFP8_E4M3, acc=acc)
+    calls = []
+    q = BlockQuant(w16, axis=1)
+
+    def counting(t):
+        calls.append(t._version)
+        return q.pack(t)
+
+    packed.weight_quant = counting
+    layer2 = QLinear(64, 24, formats=packed).to(device)
+    layer2.load_state_dict(layer.state_dict())
+    x2 = x.detach().clone().requires_grad_()
+    y2 = layer2(x2)
+    y2.backward(g)
+    assert x2.grad is not None and x.grad is not None
+    assert layer2.weight.grad is not None and layer.weight.grad is not None
+    assert (
+        torch.equal(y2, y)
+        and torch.equal(x2.grad, x.grad)
+        and torch.equal(layer2.weight.grad, layer.weight.grad)
+    )
+    # one packing per optimizer step: the memo sees the step's in-place write
+    opt = torch.optim.SGD(layer2.parameters(), lr=0.1)
+    with torch.no_grad():
+        first = q.pack(layer2.weight)
+        layer2(x2.detach())
+        assert q.pack(layer2.weight) is first
+        opt.step()
+        assert q.pack(layer2.weight) is not first
+
+
+def test_a_packed_1d_weight_refuses_the_input_gradient():
+    from mptorch import MXFP8_E4M3
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats
+
+    f = block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3)
+    f.weight_quant = BlockQuant(MXFP8_E4M3, axis=1).pack
+    layer = QLinear(64, 8, formats=f)
+    y = layer(torch.randn(4, 64, requires_grad=True))  # inference is fine
+    with pytest.raises(ValueError, match="block_rows=32"):
+        y.sum().backward()
+    with torch.no_grad():
+        assert layer(torch.randn(4, 64)).shape == (4, 8)
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+        ),
+    ],
+)
+def test_a_square_weight_under_four_over_six_serves_both_passes(device):
+    """A Four Over Six rule on a 16 x 16 weight tile. The tile's choice between
+    its two scales is made on integer errors, so it does not depend on the axis
+    the weight is packed along, and the packing the forward made is the one
+    the input gradient would make from the float weight."""
+    import dataclasses
+
+    from mptorch import NVFP4, ScaleRounding
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats, block_matmul, block_pack
+
+    act = dataclasses.replace(NVFP4, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
+    w16 = dataclasses.replace(act, block_rows=16)
+    acc = BinaryK(16, 11)
+    formats = block_gemm_formats(act, w16, acc=acc)
+    formats.weight_quant = BlockQuant(w16, axis=1).pack
+    layer = QLinear(64, 32, formats=formats).to(device)
+    x = torch.randn(8, 64, device=device, requires_grad=True)
+    y = layer(x)
+    w, bias = layer.weight.detach(), layer.bias.detach()
+    assert torch.equal(block_pack(w, w16, 0).unpack(), block_pack(w, w16, 1).unpack())
+    # the control: 1D blocks under the rule quantize the weight differently along its two axes
+    assert not torch.equal(block_pack(w, act, 0).unpack(), block_pack(w, act, 1).unpack())
+    want = block_matmul(block_pack(x.detach(), act), block_pack(w, w16, 1).mT, acc=acc) + bias
+    assert torch.equal(y, want)
+    g = torch.randn_like(y)
+    y.backward(g)
+    assert x.grad is not None
+    assert torch.equal(x.grad, block_matmul(block_pack(g, act), block_pack(w, w16, 0), acc=acc))
+
+
+def test_the_packing_memo_sees_a_converted_weight():
+    """``nn.Module``'s conversions swap a parameter's data and keep the object
+    and its version counter, so the memo keys on the dtype as well. Without it
+    ``.half()`` was answered with the float32 weight's packing."""
+    import dataclasses
+
+    from mptorch import NVFP4
+    from mptorch.quant import BlockQuant, block_pack
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    q = BlockQuant(w16, axis=1)
+    lin = torch.nn.Linear(64, 32)
+    with torch.no_grad():
+        first = q.pack(lin.weight)
+        assert first.dtype == torch.float32
+        lin.half()
+        second = q.pack(lin.weight)
+        assert second is not first and second.dtype == torch.float16
+        fresh = block_pack(lin.weight, w16, 1)
+        assert torch.equal(second.data, fresh.data) and torch.equal(second.scales, fresh.scales)
+        assert q.pack(lin.weight) is second
+        lin.float()
+        third = q.pack(lin.weight)
+        assert third is not second and third.dtype == torch.float32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA")
+def test_a_packed_weight_follows_its_layer_to_another_device():
+    """The same for the device: a layer that had run on the CPU raised a device
+    mismatch after ``.cuda()``, the memo handing its GEMM the CPU's packing."""
+    import dataclasses
+
+    from mptorch import NVFP4
+    from mptorch.quant import BlockQuant, QLinear, block_gemm_formats
+
+    w16 = dataclasses.replace(NVFP4, block_rows=16)
+    acc = BinaryK(16, 11)
+
+    def packed_layer():
+        q = BlockQuant(w16, axis=1)
+        f = block_gemm_formats(NVFP4, w16, acc=acc)
+        f.weight_quant = q.pack
+        return QLinear(64, 32, formats=f), q
+
+    layer, q = packed_layer()
+    x = torch.randn(8, 64)
+    with torch.no_grad():
+        y_cpu = layer(x)
+        on_cpu = q.pack(layer.weight)
+        layer.cuda()
+        y_cuda = layer(x.cuda())
+        on_cuda = q.pack(layer.weight)
+        assert on_cuda is not on_cpu and on_cuda.data.device.type == "cuda"
+        # a layer that has only ever been on the device
+        want, _ = packed_layer()
+        want.load_state_dict(layer.state_dict())
+        assert torch.equal(y_cuda, want.cuda()(x.cuda()))
+        layer.cpu()
+        assert q.pack(layer.weight).data.device.type == "cpu"
+        assert torch.equal(layer(x), y_cpu)
+
+
+def test_qmatmul_with_superfp_block_formats():
+    """A BlockMac over superfp elements and a superfp scale runs the forward and
+    both gradients, and its forward is the block GEMM of the packed operands."""
+    import dataclasses
+
+    from mptorch import E8M0, BlockFormat
+    from mptorch.quant import BlockMac, block_matmul, block_pack
+
+    fa = BlockFormat(SuperFP(3, 4, 2, 7), E8M0, 32, elem_max=448.0, nan_code=0x7F)
+    fb = dataclasses.replace(
+        BlockFormat(SuperFP(2, 3, 2, 3), SuperFP(3, 4, 2, 7), 16), block_rows=16
+    )
+    a = torch.randn(6, 64, requires_grad=True)
+    b = torch.randn(64, 16, requires_grad=True)
+    y = qmatmul(a, b, BlockMac(fa, fb, BinaryK(16, 11)))
+    want = block_matmul(
+        block_pack(a.detach(), fa), block_pack(b.detach(), fb, 0), acc=BinaryK(16, 11)
+    )
+    assert torch.equal(y, want)
+    y.sum().backward()
+    assert a.grad is not None and b.grad is not None

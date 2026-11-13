@@ -1,0 +1,219 @@
+"""The differentiable matmul: ``CustomArithMatmul`` and the ``QMatmul`` module.
+
+The GEMM ops themselves have no autograd kernel: they are the schema tier, and
+an op that quantizes its own arithmetic has no derivative the dispatcher could
+infer. This is the layer that gives them one, and it is the same split
+``QLinear`` uses: a ``torch.autograd.Function`` that quantizes the operands per
+``formats`` and calls ``formats.fwd_math``, with a ``backward`` that quantizes
+the incoming gradient separately for each of the two gradient paths before
+calling that path's own math hook.
+
+What is different from ``CustomArithLinear`` is only what a symmetric op
+implies: two operands with the same standing rather than an input and a
+weight, so ``a``/``b``, ``a_quant``/``b_quant``, ``agrad_quant``/
+``bgrad_quant``, and ``torch.matmul``'s operand rules, under which a gradient
+has to be reduced back over the dimensions the forward broadcast, and the
+dimension a 1D operand was promoted along has to come off again.
+"""
+
+import torch
+
+from ._saved import load, quantize_operand, restore, save
+
+
+def _promote(x: torch.Tensor | None, was_1d: bool, dim: int) -> torch.Tensor | None:
+    """Put the dimension ``torch.matmul`` promoted back onto a saved operand.
+
+    A 1D ``a`` gains a leading row and a 1D ``b`` a trailing column, and both
+    are removed from the result, so the backward has to put them back before
+    it can transpose anything. Returns a view, or ``None`` for an operand
+    this call has no gradient to compute from.
+    """
+    return x.unsqueeze(dim) if (was_1d and x is not None) else x
+
+
+def _restore(grad: torch.Tensor, a_1d: bool, b_1d: bool) -> torch.Tensor:
+    """Put the promoted dimensions back onto an incoming gradient.
+
+    ``b``'s column first: on a scalar output (both operands 1D) there is no
+    dimension -2 to insert ``a``'s row at until ``b``'s has been inserted.
+    """
+    if b_1d:
+        grad = grad.unsqueeze(-1)
+    if a_1d:
+        grad = grad.unsqueeze(-2)
+    return grad
+
+
+def _reduce(grad: torch.Tensor, shape: tuple[int, ...], was_1d: bool, dim: int) -> torch.Tensor:
+    """One operand's gradient, back in that operand's own shape.
+
+    ``shape`` is the operand's *promoted* shape. ``sum_to_size`` folds away
+    every batch dimension the forward broadcast, including the ones a rank-2
+    operand never had, and the squeeze undoes the 1D promotion.
+    """
+    grad = grad.sum_to_size(shape)
+    return grad.squeeze(dim) if was_1d else grad
+
+
+class CustomArithMatmul(torch.autograd.Function):
+    """``a @ b`` with per-operand quantization and custom dot-product math.
+
+    Mirrors ``CustomArithLinear``: ``forward(a, b, formats)`` quantizes both
+    operands and calls ``formats.fwd_math``; ``backward`` quantizes the
+    incoming gradient once per gradient path that was actually requested,
+    calls that path's math hook, and reduces each result back to its
+    operand's shape. Any hook left ``None`` falls back to ``torch.matmul``,
+    so a ``QMatmulFormats()`` with nothing set is plain ``torch.matmul`` with
+    an extra frame. ``formats`` gets no gradient.
+    """
+
+    @staticmethod
+    def _default_fwd(q_a: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
+        """The forward without a custom hook: ``a @ b``."""
+        return torch.matmul(q_a, q_b)
+
+    @staticmethod
+    def _default_agrad(q_grad: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
+        """``a``'s gradient without a custom hook: ``grad @ b^T``."""
+        return torch.matmul(q_grad, q_b.transpose(-2, -1))
+
+    @staticmethod
+    def _default_bgrad(q_grad: torch.Tensor, q_a: torch.Tensor) -> torch.Tensor:
+        """``b``'s gradient without a custom hook: ``a^T @ grad``."""
+        return torch.matmul(q_a.transpose(-2, -1), q_grad)
+
+    #: What a ``None`` recompute flag means here, as (a, b): both are kept.
+    #: A matmul's operands are activations, and whether anything else keeps
+    #: one alive depends on the model: attention's ``softmax(...) @ V`` can
+    #: recompute ``a``, which softmax keeps, but not ``V``, a Linear's output
+    #: that nothing keeps (``_saved``: a raw operand is kept only where it is
+    #: known to be alive anyway).
+    _RECOMPUTE_DEFAULT = (False, False)
+
+    @staticmethod
+    def forward(ctx, a, b, formats):
+        ctx.formats = formats
+        recompute_a, recompute_b = CustomArithMatmul._RECOMPUTE_DEFAULT
+
+        # Save only what backward reads, as CustomArithLinear does: q_b feeds
+        # a's gradient and q_a feeds b's, so a call that needs one gradient
+        # does not pin a quantized copy of both operands. What is saved of an
+        # operand that is read is its quantized value or the raw operand,
+        # quantized again in backward (_saved). A quantizer that returns some
+        # other structure than a tensor (a packed block format, which
+        # block_matmul_formats' square-tiled slots return) is kept as it is.
+        q_a, saved_a, ctx.replay_a = quantize_operand(
+            a,
+            formats.a_quant,
+            getattr(formats, "recompute_a", None),
+            recompute_a,
+            ctx.needs_input_grad[1],
+        )
+        q_b, saved_b, ctx.replay_b = quantize_operand(
+            b,
+            formats.b_quant,
+            getattr(formats, "recompute_b", None),
+            recompute_b,
+            ctx.needs_input_grad[0],
+        )
+
+        fwd_math = formats.fwd_math or CustomArithMatmul._default_fwd
+        output = fwd_math(q_a, q_b)
+
+        save(ctx, saved_a, saved_b)
+        ctx.promotion = (a.dim() == 1, b.dim() == 1)
+        ctx.shapes = (a.shape, b.shape)
+        return output
+
+    @staticmethod
+    def backward(ctx, *grad_outputs):
+        formats = ctx.formats
+        saved_a, saved_b = load(ctx)
+        a_1d, b_1d = ctx.promotion
+        a_shape, b_shape = ctx.shapes
+        grad_a = grad_b = None
+
+        grad = _restore(grad_outputs[0], a_1d, b_1d)
+
+        # Quantize the gradient only for the paths that will consume it, and
+        # both quantizations ahead of both math calls, in this order, so a
+        # stochastic quantizer draws from the global generator in the same
+        # sequence however many gradients are requested.
+        q_agrad = (
+            (formats.agrad_quant(grad) if formats.agrad_quant else grad)
+            if ctx.needs_input_grad[0]
+            else None
+        )
+        q_bgrad = (
+            (formats.bgrad_quant(grad) if formats.bgrad_quant else grad)
+            if ctx.needs_input_grad[1]
+            else None
+        )
+
+        if q_agrad is not None:
+            # A recomputed operand is quantized again only here, so its copy
+            # lives for this one GEMM.
+            q_b = _promote(restore(saved_b, ctx.replay_b), b_1d, -1)
+            assert q_b is not None  # saved iff a's gradient was asked for
+            agrad_math = formats.bwd_agrad_math or CustomArithMatmul._default_agrad
+            promoted = (1, *a_shape) if a_1d else tuple(a_shape)
+            grad_a = _reduce(agrad_math(q_agrad, q_b), promoted, a_1d, -2)
+            del q_b
+
+        if q_bgrad is not None:
+            q_a = _promote(restore(saved_a, ctx.replay_a), a_1d, 0)
+            assert q_a is not None  # saved iff b's gradient was asked for
+            bgrad_math = formats.bwd_bgrad_math or CustomArithMatmul._default_bgrad
+            promoted = (*b_shape, 1) if b_1d else tuple(b_shape)
+            grad_b = _reduce(bgrad_math(q_bgrad, q_a), promoted, b_1d, -1)
+
+        return grad_a, grad_b, None
+
+
+class QMatmul(torch.nn.Module):
+    """``torch.matmul`` with the arithmetic of one :class:`QMatmulFormats`.
+
+    This is the module form of :func:`mptorch.quant.qmatmul`. Like
+    ``QLinear``, it is a module because its formats are one: a
+    ``QMatmulFormats`` is an ``nn.Module``, so a quantizer that carries state
+    (a QAT observer) is registered in the parent model's ``state_dict`` when
+    the matmul is held as a submodule. A quantized attention block calls two
+    of these per head. For backward it keeps quantized copies of both
+    operands, unless the formats' ``recompute_a`` / ``recompute_b`` say to
+    keep an operand raw and quantize it again there (worth it for the
+    softmax probabilities, which softmax keeps alive anyway).
+
+    Args:
+        formats (None or Number or SplitMac or FusedMac or QMatmulFormats):
+            everything :func:`mptorch.quant.qmatmul` accepts, converted once
+            here by :func:`mptorch.quant.matmul.as_matmul_formats`.
+            Default: ``None`` (plain ``torch.matmul``)
+
+    Shape:
+        - Input: ``a`` and ``b`` in any shapes ``torch.matmul`` accepts.
+        - Output: ``torch.matmul``'s output shape.
+
+    Example::
+
+        >>> import torch
+        >>> from mptorch import BinaryK
+        >>> from mptorch.quant import QMatmul, SplitMac
+        >>> mm = QMatmul(SplitMac(BinaryK(8, 4), BinaryK(16, 11)))
+        >>> mm(torch.randn(2, 4, 8), torch.randn(8, 3)).shape
+        torch.Size([2, 4, 3])
+    """
+
+    def __init__(self, formats=None):
+        super().__init__()
+        # The conversion lives with the functional entry point, and is
+        # imported here rather than at module scope because that module
+        # imports this one.
+        from ..matmul import as_matmul_formats
+
+        self.formats = as_matmul_formats(formats)
+
+    # nn.Module declares forward as a writable Callable attribute, which ty
+    # reads a method override as narrowing; every direct subclass does this.
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return CustomArithMatmul.apply(a, b, self.formats)

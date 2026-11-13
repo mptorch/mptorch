@@ -1,37 +1,67 @@
 name: documentation
 
-on: 
+# Builds the Sphinx site on every pull request into main or dev, and publishes
+# it on a push to either: GitHub Pages serves the `docs` branch, which the
+# deploy step overwrites, so the site is whichever of the two was pushed last.
+on:
   push:
     branches:
       - main
+      - dev
   pull_request:
     branches:
       - main
+      - dev
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+# A newer push to the same branch supersedes a build still running, so an
+# older run cannot finish last and publish the older site.
+concurrency:
+  group: documentation-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          cache: 'pip'
       - name: Install dependencies
         run: |
-          pip install sphinx pydata-sphinx-theme sphinx-autodoc-typehints
-          pip install -r requirements.txt
+          uv pip install --system setuptools
+          uv pip install --system -r requirements.txt -r docs/requirements.txt
+      # The compiler cache, as in ci.yml's build jobs.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: ${{ github.job }}
+          max-size: 500M
+      # autodoc imports mptorch, which loads the compiled extension, so the
+      # site needs a build; it runs no kernel, so the binary64 twins are left
+      # out. --no-build-isolation builds against the torch installed above.
       - name: Install mptorch library
+        env:
+          MPTORCH_NO_FP64: '1'
         run: |
-          pip install -e .
+          uv pip install --system -e . --no-build-isolation
+      # The pages build with zero warnings; a new one fails the build here,
+      # on the pull request, rather than on the published site. The code
+      # blocks' outputs are the committed docs/snippets/*.out files.
       - name: Sphinx build
         run: |
-          sphinx-build docs/source _build
+          sphinx-build -W --keep-going -b html docs/source _build
       - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: peaceiris/actions-gh-pages@v4
         with:
           publish_branch: docs
