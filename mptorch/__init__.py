@@ -7,6 +7,7 @@ and layers live in :mod:`mptorch.quant`.
 """
 
 import os
+from importlib.metadata import version as _dist_version
 
 import torch
 
@@ -54,7 +55,8 @@ from .number import (
     bfp,
 )
 
-__version__ = "0.4.0"
+# The version is pyproject.toml's, which `uv sync` installs with the package.
+__version__ = _dist_version("mptorch")
 
 __all__ = [
     "SaturationMode",

@@ -23,6 +23,10 @@ concurrency:
   group: documentation-${{ github.ref }}
   cancel-in-progress: true
 
+# uv downloads its own Python 3.12, as in ci.yml.
+env:
+  UV_PYTHON: '3.12'
+
 jobs:
   docs:
     runs-on: ubuntu-latest
@@ -32,14 +36,6 @@ jobs:
         uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          uv pip install --system setuptools
-          uv pip install --system -r requirements.txt -r docs/requirements.txt
       # The compiler cache, as in ci.yml's build jobs.
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.24
@@ -48,18 +44,17 @@ jobs:
           max-size: 500M
       # autodoc imports mptorch, which loads the compiled extension, so the
       # site needs a build; it runs no kernel, so the binary64 twins are left
-      # out. --no-build-isolation builds against the torch installed above.
-      - name: Install mptorch library
+      # out. uv installs the docs group and then builds mptorch against its
+      # torch.
+      - name: Install mptorch and the docs tools
         env:
           MPTORCH_NO_FP64: '1'
-        run: |
-          uv pip install --system -e . --no-build-isolation
+        run: uv sync --locked --no-default-groups --group docs
       # The pages build with zero warnings; a new one fails the build here,
       # on the pull request, rather than on the published site. The code
       # blocks' outputs are the committed docs/snippets/*.out files.
       - name: Sphinx build
-        run: |
-          sphinx-build -W --keep-going -b html docs/source _build
+        run: uv run --no-sync sphinx-build -W --keep-going -b html docs/source _build
       - name: Deploy to GitHub Pages
         if: github.event_name != 'pull_request'
         uses: peaceiris/actions-gh-pages@v4

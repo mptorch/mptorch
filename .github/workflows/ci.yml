@@ -2,6 +2,11 @@ name: Build and test
 
 on: [push]
 
+# uv downloads its own Python 3.12, the oldest the project supports, in place
+# of .python-version's. The project's commands then run in .venv, through uv.
+env:
+  UV_PYTHON: '3.12'
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -11,20 +16,16 @@ jobs:
       uses: astral-sh/setup-uv@v10.0.1
       with:
         enable-cache: true
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
+    # The pinned linters, and torch for ty's import resolution. The extension is
+    # not built: ty reads mptorch's sources.
     - name: Install lint tools
-      run: uv pip install --system -r requirements-dev.txt
+      run: uv sync --locked --no-install-project --no-default-groups --group dev
     - name: Ruff check
-      run: ruff check mptorch tests dev/benchmarks
+      run: uv run --no-sync ruff check mptorch tests dev/benchmarks
     - name: Ruff format check
-      run: ruff format --check mptorch tests dev/benchmarks
-    - name: Install runtime dependencies for ty's import resolution
-      run: uv pip install --system -r requirements.txt
+      run: uv run --no-sync ruff format --check mptorch tests dev/benchmarks
     - name: ty check
-      run: ty check mptorch
+      run: uv run --no-sync ty check mptorch
 
   build-linux:
     runs-on: ubuntu-latest
@@ -37,14 +38,6 @@ jobs:
       uses: astral-sh/setup-uv@v10.0.1
       with:
         enable-cache: true
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        uv pip install --system setuptools
-        uv pip install --system -r requirements.txt
     # torch.utils.cpp_extension puts ccache in front of the compilers when it is
     # on PATH, and this action keeps the cache between runs, so a push that
     # leaves mptorch/csrc alone compiles nothing: a clean build was 452 s of
@@ -57,14 +50,14 @@ jobs:
       with:
         key: ${{ github.job }}
         max-size: 500M
+    # Installs uv.lock's packages and then builds mptorch against its torch.
+    # --locked fails the job if pyproject.toml changed without a `uv lock`.
     - name: Install mptorch library version to test
-      run: |
-        uv pip install --system -e ".[test]" --no-build-isolation
+      run: uv sync --locked
     - name: Compiler cache statistics
       run: ccache --show-stats
     - name: Test with pytest
-      run: |
-        pytest tests
+      run: uv run --no-sync pytest tests
 
   # The same on Apple silicon: Apple clang builds the CPU and MPS backends,
   # and the suite runs on both. GitHub's macOS runners are VMs. macos-15's
@@ -81,23 +74,16 @@ jobs:
       uses: astral-sh/setup-uv@v10.0.1
       with:
         enable-cache: true
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        uv pip install --system setuptools
-        uv pip install --system -r requirements.txt
     # The compiler cache, as in build-linux.
     - name: Set up ccache
       uses: hendrikmuhs/ccache-action@v1.2.24
       with:
         key: ${{ github.job }}
         max-size: 500M
+    # Installs uv.lock's packages and then builds mptorch against its torch.
+    # --locked fails the job if pyproject.toml changed without a `uv lock`.
     - name: Install mptorch library version to test
-      run: |
-        uv pip install --system -e ".[test]" --no-build-isolation
+      run: uv sync --locked
     - name: Compiler cache statistics
       run: ccache --show-stats
     - name: Check that the MPS kernels were built
@@ -105,7 +91,7 @@ jobs:
       # quant_ops.cpp defines (so the check below cannot pass on a build that
       # registered none or only some), and each must have an MPS kernel.
       run: |
-        python - <<'EOF'
+        uv run --no-sync python - <<'EOF'
         import re
         import torch, mptorch
         assert torch.backends.mps.is_built(), 'this torch was built without MPS'
@@ -121,10 +107,9 @@ jobs:
         EOF
     - name: Probe the Apple GPU
       run: |
-        python -c "
+        uv run --no-sync python -c "
         from tests.markers import HAS_MPS
         print('MPS runs on this runner: the MPS tests will run.' if HAS_MPS else 'MPS does not run on this runner: the MPS tests will be skipped.')
         " | tee -a "$GITHUB_STEP_SUMMARY"
     - name: Test with pytest
-      run: |
-        pytest tests
+      run: uv run --no-sync pytest tests

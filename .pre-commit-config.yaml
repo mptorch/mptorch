@@ -1,4 +1,5 @@
 repos:
+  # rev must match the ruff pin in pyproject.toml's dev group.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.4
     hooks:
@@ -10,15 +11,11 @@ repos:
     hooks:
       - id: ty
         name: ty check (mptorch/, tests/, dev/benchmarks/)
-        # The ty on PATH, held to requirements-dev.txt's pin: a different one
-        # reports different findings, which would read as the code's.
-        entry: >-
-          bash -c 'want=$(sed -n "s/^ty==//p" requirements-dev.txt);
-          have=$(ty --version | cut -d " " -f 2);
-          if [ "$have" != "$want" ]; then
-          echo "ty $have is on PATH and requirements-dev.txt pins $want; install it, e.g. uv tool install ty==$want";
-          exit 1; fi;
-          ty check mptorch tests dev/benchmarks'
+        # .venv's ty, which uv.lock pins (pyproject.toml's dev group): a
+        # different version reports different findings, which would read as
+        # the code's. Called directly rather than through `uv run`, so a commit
+        # never waits on a sync or a rebuild.
+        entry: .venv/bin/ty check mptorch tests dev/benchmarks
         language: system
         pass_filenames: false
         files: ^(mptorch|tests|dev/benchmarks)/.*\.py$

@@ -1521,7 +1521,7 @@ def test_bfp_matches_gfloat(mode, bits):
 )
 def test_mx_presets_match_gfloat(mode, name):
     """The MX presets against gfloat's quantize_block (the pinned commit in
-    requirements-test.txt), an OCP implementation of its own, in every
+    pyproject.toml's test group), an OCP implementation of its own, in every
     deterministic mode. The first row puts values between elem_max and
     2^(emax + 1) in a block, where gfloat's saturation could differ from
     mptorch's: both saturate them to elem_max."""

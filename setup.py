@@ -21,7 +21,8 @@ Environment switches, all read at build time:
     Leave the CUDA device code at nvcc's default compression instead of
     ``--compress-mode=size`` (a larger extension, slightly less build work).
 
-Always install with ``pip3 install -e . --no-build-isolation``, so that the
+Install with ``uv sync``, which builds MPTorch in ``.venv`` without build
+isolation (``pyproject.toml``'s ``no-build-isolation-package``), so that the
 extension is compiled against the torch that will import it. An isolated build
 resolves its own torch, and an ABI mismatch then shows up as an ``undefined
 symbol`` error at import.
@@ -29,7 +30,8 @@ symbol`` error at import.
 The objects are kept, in ``build/temp.<platform>-<key>`` (one directory per
 configuration; ``build_config.txt`` inside says which), so a rebuild compiles
 only the translation units whose sources, headers or flags changed, whether it
-is run as ``pip3 install -e .`` or as ``python3 setup.py build_ext --inplace``.
+is run by ``uv sync`` or as ``uv run --no-sync python setup.py build_ext
+--inplace``.
 ``rm -rf build`` is how to ask for a clean build. With ``ccache`` (or
 ``sccache``) on ``PATH``, torch puts it in front of both compilers, and a clean
 build then recompiles only what the cache has not seen.
@@ -233,7 +235,7 @@ def build_directory(configuration: list[str]) -> Path:
 class IncrementalBuildExtension(BuildExtension):
     """torch's ``BuildExtension``, compiling into a directory that is kept.
 
-    An editable install (``pip3 install -e .``) hands ``build_ext`` a
+    An editable install (``uv sync``, ``pip3 install -e .``) hands ``build_ext`` a
     ``build_temp`` inside a ``TemporaryDirectory``
     (``setuptools.command.editable_wheel``), so ninja starts from nothing each
     time and every install is a clean build: 340 s for 179 translation units,

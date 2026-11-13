@@ -4,12 +4,12 @@ Getting started
 Requirements
 ------------
 
-- Python >= 3.12 and PyTorch >= 2.1
+- `uv <https://docs.astral.sh/uv/getting-started/installation/>`_, which installs everything else, Python and PyTorch included
 - A C++ compiler (GCC >= 10 on Linux: the extension is compiled as C++20)
 - CUDA >= 12.0, only if the CUDA kernels are wanted
 - On macOS, nothing more. The Apple GPU (MPS) kernels are built with the rest and compiled for the GPU when first used, so Xcode is not needed.
 
-MPTorch is a C++/CUDA extension, so installing it compiles the kernels against the PyTorch you have installed.
+MPTorch is a C++/CUDA extension, so installing it compiles the kernels against the PyTorch it is installed with.
 
 Installation
 ------------
@@ -18,47 +18,23 @@ From the root of the repository:
 
 .. code-block:: console
 
-   $ pip install -e . --no-build-isolation
+   $ uv sync
 
-or 
-
-.. code-block:: console
-
-   $ uv pip install -e . --no-build-isolation
-
-if you have ``uv`` on your machine.
-
-Always pass ``--no-build-isolation``. Without it, ``pip`` builds the extension in a throw-away environment against a *freshly downloaded* PyTorch, which may not be the one you run. The result then fails to import with an ``undefined symbol`` error. With the flag, the build uses your installed PyTorch.
-
-The CUDA kernels are built when ``torch.cuda.is_available()`` is true and ``CUDA_HOME`` is set. The Apple GPU kernels are built on macOS when PyTorch was built with MPS (``USE_MPS=0`` leaves them out). To force a CPU-only build, or a debug build:
+This downloads the Python that ``.python-version`` names (3.14), creates ``.venv`` with it, installs the packages pinned in ``uv.lock`` (PyTorch, and the tools for the tests, the linters, the documentation and the examples), and then compiles MPTorch against that PyTorch and installs it in editable mode. Commands run in the environment through ``uv run``:
 
 .. code-block:: console
 
-   $ USE_CUDA=0 pip install -e . --no-build-isolation
-   $ DEBUG=1 pip install -e . --no-build-isolation
+   $ uv run pytest tests/
+   $ uv run python my_script.py
 
-The first build compiles about 180 source files and takes several minutes. The compiled objects are kept under ``build/``, so running the same command again after a change recompiles only the files the change reaches, and takes seconds when nothing changed. Delete ``build/`` to start from scratch. If `ccache <https://ccache.dev>`_ is installed, PyTorch's extension builder uses it without further setup, and a build from scratch then reuses whatever it has compiled before.
+To update, pull and run ``uv sync`` again. ``uv run`` syncs too, before it runs its command. Either one rebuilds the extension when ``pyproject.toml``, ``setup.py`` or a file under ``mptorch/csrc/`` changed. The first build compiles about 180 source files and takes several minutes. The compiled objects are kept under ``build/``, so a rebuild compiles only the files the change reaches, and takes seconds when nothing changed. Delete ``build/`` to start from scratch. If `ccache <https://ccache.dev>`_ is installed, PyTorch's extension builder uses it without further setup, and a build from scratch then reuses whatever it has compiled before.
 
-The test suite needs two extra packages, kept in a ``test`` extra:
-
-.. code-block:: console
-
-   $ pip install -e ".[test]" --no-build-isolation
-   $ pytest tests/
-
-These commands also have ``uv`` equivalents:
+The CUDA kernels are built when ``torch.cuda.is_available()`` is true and ``CUDA_HOME`` is set. The Apple GPU kernels are built on macOS when PyTorch was built with MPS. Environment variables select other builds: ``USE_CUDA=0`` leaves out the CUDA kernels, ``USE_MPS=0`` the MPS ones, and ``DEBUG=1`` builds with debug symbols and no optimization. ``uv sync`` and ``uv run`` rebuild whenever one of them changes, so export it for the session rather than setting it on one command:
 
 .. code-block:: console
 
-   $ USE_CUDA=0 uv pip install -e . --no-build-isolation
-   $ DEBUG=1 uv pip install -e . --no-build-isolation
-
-and
-
-.. code-block:: console
-
-   $ uv pip install -e ".[test]" --no-build-isolation
-   $ pytest tests/
+   $ export USE_CUDA=0
+   $ uv sync
 
 A first example
 ---------------

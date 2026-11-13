@@ -1,9 +1,23 @@
 [project]
 name = "mptorch"
-dynamic = ["dependencies", "optional-dependencies", "version"]
+version = "0.4.0"
 license = {text = "GPL-3.0"}
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.12"
+# setuptools and ninja are listed here as well as in [build-system]: uv builds
+# MPTorch inside .venv (no-build-isolation-package, below), and it installs a
+# project's own dependencies before building it, so these are what puts the
+# build tools there first, in the same `uv sync`. That takes the whole table
+# to be static, the version included (mptorch.__version__ reads it back): uv
+# reads static metadata without running setup.py, and anything dynamic makes
+# it run setup.py in .venv before torch is there. numpy is not imported by
+# MPTorch, but torch warns at import (`Failed to initialize NumPy`) without it.
+dependencies = [
+    "torch>=2.1",
+    "numpy",
+    "setuptools",
+    "ninja",
+]
 
 [build-system]
 requires = ["setuptools", "torch", "ninja"]
@@ -13,25 +27,48 @@ build-backend = "setuptools.build_meta"
 Repository = "https://github.com/mptorch/mptorch"
 Issues = "https://github.com/mptorch/mptorch/issues"
 
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-version = {attr = "mptorch.__version__"}
-
-[tool.setuptools.dynamic.optional-dependencies]
-test = {file = ["requirements-test.txt"]}
-dev = {file = ["requirements-dev.txt"]}
-docs = {file = ["docs/requirements.txt"]}
+# Installed by `uv sync` and `uv run`, all of them (default-groups, below).
+[dependency-groups]
+test = [
+    "pytest>=6.2.5",
+    "pytest-cov>=6.1.1",
+    "numpy",
+    # Pinned to a commit on gfloat's main branch (not yet on PyPI, where the
+    # latest release is still 0.5.2) because it has RoundMode.ToOdd, needed to
+    # test mptorch's round-to-odd support. Switch this back to a normal PyPI
+    # version pin (e.g. gfloat>=0.6.0) once a release containing ToOdd ships.
+    "gfloat @ git+https://github.com/graphcore-research/gfloat.git@b142762de8d091d658e59b1341d33003d2907d6e",
+]
+# Exact versions: a newer ruff or ty can report new findings (or rename a rule
+# an ignore comment names) with no code change. Bump them on purpose, in a
+# commit that fixes what the new version reports. ruff's must match
+# .pre-commit-config.yaml's ruff-pre-commit rev.
+dev = [
+    "ruff==0.16.4",
+    "ty==0.0.100",
+    "pre-commit>=4.0.0",
+]
+docs = [
+    "sphinx",
+    "sphinx-autodoc-typehints",
+    "pydata-sphinx-theme",
+    "torchvision",
+]
+examples = [
+    "matplotlib",
+    "numpy",
+    "torchvision",
+    "tqdm",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 
 # torch and torchvision come from PyTorch's index and everything else from
-# PyPI. Without `explicit`, uv sync takes every package that index also serves
-# from it alone, and it serves old copies of some (requests 2.28.1, certifi
-# 2022.12.7, ...), which held Sphinx at 7.3.7. uv pip reads [tool.uv.pip]
-# instead, where `unsafe-best-match` takes the best of both indexes. The CUDA
-# index has no macOS wheels, so macOS takes torch from PyPI, whose macOS
-# builds carry MPS.
+# PyPI. Without `explicit`, uv takes every package that index also serves from
+# it alone, and it serves old copies of some (requests 2.28.1, certifi
+# 2022.12.7, ...), which held Sphinx at 7.3.7. The CUDA index has no macOS
+# wheels, so macOS takes torch from PyPI, whose macOS builds carry MPS.
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu132"
@@ -41,10 +78,14 @@ explicit = true
 torch = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
 torchvision = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
 
-# The project commands (uv sync, uv run, uv lock). They do not read
-# [tool.uv.pip] below, which only the uv pip commands do, so the build
-# settings are in both.
 [tool.uv]
+# `uv sync` installs every dependency group, so one command sets up the tests,
+# the linters, the docs and the examples.
+default-groups = "all"
+# Python comes from uv's own installations (the version in .python-version,
+# downloaded the first time), never from Homebrew or conda: a venv made from
+# one of those breaks when an upgrade removes its interpreter.
+python-preference = "only-managed"
 # Build against the torch already in the environment. An isolated build
 # resolves a torch of its own, whose ABI may not match the one that imports the
 # extension (an `undefined symbol` error), and whose headers move with every
@@ -53,13 +94,10 @@ no-build-isolation-package = ["mptorch"]
 # What makes uv sync and uv run rebuild the editable install. uv's default
 # names only pyproject.toml, setup.py and setup.cfg, so an edit under
 # mptorch/csrc would keep the old extension; the variables are setup.py's
-# build options. (uv pip install -e . rebuilds every time and does not read
-# this.)
+# build options.
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "setup.py" },
-    { file = "requirements*.txt" },
-    { file = "docs/requirements.txt" },
     { file = "mptorch/csrc/**/*" },
     { env = "USE_CUDA" },
     { env = "USE_MPS" },
@@ -67,11 +105,6 @@ cache-keys = [
     { env = "MPTORCH_NO_FP64" },
     { env = "MPTORCH_COMPRESS_FATBIN" },
 ]
-
-[tool.uv.pip]
-extra-index-url = ["https://download.pytorch.org/whl/cu132"]
-index-strategy = "unsafe-best-match"
-no-build-isolation = true
 
 [tool.pytest.ini_options]
 # Several test modules quantize to formats binary32 cannot carry whole -- a

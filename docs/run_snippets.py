@@ -5,8 +5,8 @@ next to it, the ``*.out`` file this script writes -- so every code block in
 the documentation is backed by a real run, and re-running this script after a
 change to the library is how the recorded outputs are kept honest.
 
-    python3 docs/run_snippets.py            # all snippets
-    python3 docs/run_snippets.py formats    # only those whose name contains it
+    uv run python docs/run_snippets.py            # all snippets
+    uv run python docs/run_snippets.py formats    # only those whose name contains it
 
 Each snippet runs in its own interpreter with ``docs/snippets`` as the working
 directory, so a relative path inside one (the MNIST download in the tutorial)

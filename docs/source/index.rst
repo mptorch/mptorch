@@ -36,8 +36,8 @@ Every code block in these pages is a file under ``docs/snippets/``, and the outp
 
 .. code-block:: console
 
-   $ python docs/run_snippets.py            # every snippet
-   $ python docs/run_snippets.py rounding   # those whose name contains "rounding"
+   $ uv run python docs/run_snippets.py            # every snippet
+   $ uv run python docs/run_snippets.py rounding   # those whose name contains "rounding"
 
 Indices
 -------
