@@ -124,6 +124,7 @@ The full documentation -- an explanation of the formats and rounding modes with 
 pip3 install -r docs/requirements.txt
 sphinx-build -b html docs/source docs/_build/html
 ```
+With `uv sync` (see [Using uv](#using-uv)), that is `uv sync --extra docs` followed by `uv run sphinx-build -b html docs/source docs/_build/html`.
 Every code block in it is a script under `docs/snippets/` whose recorded output is shown next to it; `python3 docs/run_snippets.py` regenerates them.
 
 ## Installation
@@ -160,23 +161,46 @@ DEBUG=1 pip install -e . --no-build-isolation
 
 The compiled objects are kept under `build/`, so running the install command again after a change recompiles only the files the change reaches, and takes seconds when nothing changed. Delete `build/` to start from scratch. If [ccache](https://ccache.dev) is installed, PyTorch's extension builder uses it without further setup, and a build from scratch then reuses whatever it has compiled before.
 
-### Using uv instead of pip
+### Using uv
 
-Every `pip install` command in this README works the same with `uv pip install` in its place; use whichever is available. A virtual environment created by `uv venv` doesn't contain `pip` at all, so there `uv pip` is the one to use:
+[uv](https://docs.astral.sh/uv/) can install MPTorch in two ways: as a project, with `uv sync`, or in place of pip, with `uv pip`.
+
+#### With `uv sync`
+
+`pyproject.toml` configures uv's project commands, so from the base directory
+```
+uv sync --extra test
+```
+creates `.venv` if there is none, installs the dependencies, and then builds MPTorch against the `torch` it has just installed and installs it in editable mode. The project's settings already build without isolation, so there is no `--no-build-isolation` to pass. `torch` and `torchvision` come from PyTorch's CUDA 13.2 wheel index on Linux and from PyPI on macOS, and everything else from PyPI. The versions are pinned in `uv.lock`, which `uv sync` writes the first time and follows afterwards. The extras are `test` (the test suite), `docs` (the documentation) and `dev` (the linters); select the ones you need. Commands then run in that environment through `uv run`:
+```
+uv run pytest tests/
+uv run python my_script.py
+```
+
+`uv sync` and `uv run` rebuild the extension when a file under `mptorch/csrc/`, `setup.py` or a requirements file changes, and when one of the build variables changes (`USE_CUDA`, `USE_MPS`, `DEBUG`, `MPTORCH_NO_FP64`, `MPTORCH_COMPRESS_FATBIN`). Because the variables are part of that check, export one for the whole session rather than setting it on a single command: after `DEBUG=1 uv sync`, a plain `uv run` finds `DEBUG` unset and rebuilds without it.
+
+`uv sync` makes the environment match the lock exactly, uninstalling any package the selected extras do not list; `uv sync --inexact` leaves such packages installed. `uv run` never uninstalls anything. To move to the newest `torch`, run `uv lock --upgrade-package torch --upgrade-package torchvision` and then `uv sync`, which recompiles the whole extension against it.
+
+The CUDA toolkit that compiles the extension has to match the CUDA version of the `torch` build. To use a toolkit other than 13.x, point `[[tool.uv.index]]` in `pyproject.toml` at the matching PyTorch index (for instance `https://download.pytorch.org/whl/cu129` for CUDA 12.9).
+
+#### With `uv pip`
+
+Every `pip install` command in this README works the same with `uv pip install` in its place. A virtual environment created by `uv venv` doesn't contain `pip` at all, so there `uv pip` is the one to use:
 ```
 uv venv
 uv pip install torch setuptools ninja
 uv pip install -e . --no-build-isolation
 ```
-`uv pip` installs into the activated environment, or into `.venv` in the current directory if none is activated. `--no-build-isolation` is just as necessary with `uv` as with `pip`.
+`uv pip` installs into the activated environment, or into `.venv` in the current directory if none is activated. `--no-build-isolation` is just as necessary with `uv pip` as with `pip`. Run from the base directory, `uv pip` also looks for `torch` on PyTorch's CUDA 13.2 index (the `[tool.uv.pip]` table in `pyproject.toml`). Unlike `uv sync`, `uv pip install -e .` rebuilds every time it runs; since the compiled objects are kept under `build/`, that takes seconds when nothing changed.
 
 ### Running the tests
 
-The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren't required to just use the library, so they're kept in a separate `test` extra. Install it with the same `--no-build-isolation` flag (with `uv pip install` in place of `pip3 install` if you use `uv`), then run the suite:
+The test suite has a couple of extra dependencies (`pytest`, `gfloat`) that aren't required to just use the library, so they're kept in a separate `test` extra. Install it with the same `--no-build-isolation` flag (with `uv pip install` in place of `pip install` if you use `uv pip`), then run the suite:
 ```
 pip install -e ".[test]" --no-build-isolation
 pytest tests/
 ```
+With `uv sync`, the same is `uv sync --extra test` followed by `uv run pytest tests/`.
 On a machine without a CUDA device, the CUDA tests are skipped automatically, and so are the MPS tests without an Apple GPU.
 
 ## Acknowledgements

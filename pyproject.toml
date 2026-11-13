@@ -20,13 +20,53 @@ version = {attr = "mptorch.__version__"}
 [tool.setuptools.dynamic.optional-dependencies]
 test = {file = ["requirements-test.txt"]}
 dev = {file = ["requirements-dev.txt"]}
+docs = {file = ["docs/requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["."]
 
+# torch and torchvision come from PyTorch's index and everything else from
+# PyPI. Without `explicit`, uv sync takes every package that index also serves
+# from it alone, and it serves old copies of some (requests 2.28.1, certifi
+# 2022.12.7, ...), which held Sphinx at 7.3.7. uv pip reads [tool.uv.pip]
+# instead, where `unsafe-best-match` takes the best of both indexes. The CUDA
+# index has no macOS wheels, so macOS takes torch from PyPI, whose macOS
+# builds carry MPS.
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
+torchvision = [{ index = "pytorch", marker = "sys_platform != 'darwin'" }]
+
+# The project commands (uv sync, uv run, uv lock). They do not read
+# [tool.uv.pip] below, which only the uv pip commands do, so the build
+# settings are in both.
+[tool.uv]
+# Build against the torch already in the environment. An isolated build
+# resolves a torch of its own, whose ABI may not match the one that imports the
+# extension (an `undefined symbol` error), and whose headers move with every
+# build environment, which makes ninja and ccache recompile every object.
+no-build-isolation-package = ["mptorch"]
+# What makes uv sync and uv run rebuild the editable install. uv's default
+# names only pyproject.toml, setup.py and setup.cfg, so an edit under
+# mptorch/csrc would keep the old extension; the variables are setup.py's
+# build options. (uv pip install -e . rebuilds every time and does not read
+# this.)
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "setup.py" },
+    { file = "requirements*.txt" },
+    { file = "docs/requirements.txt" },
+    { file = "mptorch/csrc/**/*" },
+    { env = "USE_CUDA" },
+    { env = "USE_MPS" },
+    { env = "DEBUG" },
+    { env = "MPTORCH_NO_FP64" },
+    { env = "MPTORCH_COMPRESS_FATBIN" },
+]
 
 [tool.uv.pip]
 extra-index-url = ["https://download.pytorch.org/whl/cu132"]

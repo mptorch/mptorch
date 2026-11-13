@@ -1,5 +1,14 @@
+import os
+
 import pytest
 import torch
+
+# Triton 3.9 contracts a multiply and an add into an FMA in the kernels Inductor
+# generates around the ops (our kernels are not Triton's), unless told
+# otherwise, and warns that 3.10 stops by default. The suite takes 3.10's
+# default now, which is also eager's: eager runs the two as separate kernels.
+# Triton reads it when it compiles a kernel, after this module is imported.
+os.environ.setdefault("TRITON_DEFAULT_FP_FUSION", "0")
 
 
 @pytest.fixture(scope="function", autouse=True)
