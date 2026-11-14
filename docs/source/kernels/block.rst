@@ -230,15 +230,19 @@ An operand packed along its other dimension is read transposed, which costs
 one select in the load. Under stochastic rounding each output element draws
 as in every product of the routine.
 
-The decode costs little compared with the arithmetic. At :math:`1024^3` on
-an RTX 4060 laptop GPU, the block product was compared with the flat product
-on the decoded float32 operands (``dev/benchmarks/timing/benchmark_block.py``):
+What the decode costs depends on the arithmetic beside it: it shows most
+where each step is cheapest, and little once a step rounds more. At
+:math:`1024^3` on an RTX 4060 laptop GPU, the block product was compared
+with the flat product on the decoded float32 operands
+(``dev/benchmarks/timing/benchmark_block.py``):
 
 - with a fused mac under round-to-nearest, the cheapest arithmetic and so
-  the one where the decode shows most, it takes 1.15 to 1.18 times as long;
-- with a fused mac under stochastic rounding, 1.05 to 1.08 times;
-- with a split mac, less than half as long, because the flat product also
-  rounds every product to a multiply format and the block product does not.
+  the one where the decode shows most, it takes 1.29 to 1.32 times as long;
+- with a fused mac under stochastic rounding, 1.07 to 1.08 times;
+- with a split mac, 0.40 to 0.45 times as long under round-to-nearest and
+  0.54 to 0.55 times under stochastic rounding, because the flat product
+  also rounds every product to a multiply format and the block product does
+  not.
 
 The kernels compute in binary32 or binary64 on the CPU and CUDA, and return
 a float32 or a float64 result accordingly. An Apple GPU has no float64, so

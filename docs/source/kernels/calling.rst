@@ -304,15 +304,18 @@ Performance notes
   returned, costs nothing per call beyond the kernel.
 - **One launch per batch.** A batched call is one kernel launch (one
   parallel region on the CPU) over the whole batch. On attention-shaped
-  operands it is 2-4x faster than the loop of 2D calls it replaces
+  operands it is 2-5x faster than the loop of 2D calls it replaces
   (``dev/benchmarks/timing/benchmark_qmatmul.py``).
 - **Stochastic rounding is not free.** Each rounding draws from a
   per-element Philox stream, so a ``RoundMode.SR`` GEMM is slower than a
   deterministic one.
-- **binary64 is slower.** On an RTX 4060 a float64 GEMM took 2.7-3.1x the
-  time of the same product computed in binary32 (up to 6x for a stochastic
-  split step). On the CPU the two are within a percent, except where binary32
-  runs vector code (next item), which binary64 does not. A float64 model
+- **binary64 is slower.** On an RTX 4060 a float64 GEMM took about 2.5x the
+  time of the same product computed in binary32 (from 1.7x to 4.8x, the most
+  for a binaryK split step under round-to-nearest-even). On the CPU the two
+  are within a few percent in the deterministic modes, and binary64 takes
+  1.4-1.6x under stochastic rounding, whose every rounding draws two random
+  words in binary64; except where binary32 runs vector code (next item),
+  which binary64 does not. A float64 model
   whose formats binary32 can carry gets the binary32 speed back as a float32
   model. A float32 model with ``carrier=torch.float64`` pays the binary64
   time plus the widening and narrowing copies.
@@ -324,11 +327,11 @@ Performance notes
   signed, keep their subnormals, not saturate with ``SAT_PROPAGATE``, and
   have a precision from 2 to 23 bits and a range well inside binary32's (in
   practice at most seven exponent bits). The results are the scalar loop's,
-  word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-9x the scalar loop
-  on one thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen; on an M3
+  word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-10x the scalar loop
+  on one thread (a split step 3.5 to 0.49 ns) and 8-12x on sixteen; on an M3
   Pro (NEON) about 4x at every thread count (0.69 ns a split step on one).
   The odd carrier step (``carrier_rounding=RoundMode.RO``) has vector tiles
-  for the same cases: with AVX-512 it runs at 1.0-1.2x the default tile on
+  for the same cases: with AVX-512 it runs at 0.9-1.2x the default tile on
   one thread, through the directed roundings the instruction set has, and
   with AVX2 or NEON at about 3-5x, through binary64 error-free transforms.
   Every other mode, format and accumulator runs the scalar loop, palettes

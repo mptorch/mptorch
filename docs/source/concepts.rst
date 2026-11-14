@@ -1625,7 +1625,7 @@ finest step                                  :math:`2^{-149}`            :math:`
 smallest value, ``SUBNORMALS`` or SuperFP    :math:`\ge 2^{-125}`        :math:`\ge 2^{-1021}`
 smallest value, the other two modes (\*)     :math:`\ge 2^{-126}`        :math:`\ge 2^{-1022}`
 exponent bits, at P3109's bias               :math:`\le 7`               :math:`\le 10`
-matrix products on a consumer GPU            fastest                     about 3x slower
+matrix products on a consumer GPU            fastest                     about 2.5x slower
 ===========================================  ==========================  ==========================
 
 (\*) ``NORMALS`` and ``EXTENDED_NORMALS``. The bound is one binade higher

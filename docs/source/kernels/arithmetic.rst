@@ -211,12 +211,12 @@ time against the nearest step  fused                 split
 CUDA, binary32                 1.05-1.16x            1.05-1.14x
 CUDA, binary64 (GeForce)       1.1x (SR) - 2.0x (RU) 1.1x (SR) - 1.5x
 CPU, binary32, vector tiles    1.2x                  0.9-1.0x
-CPU, binary32, scalar loop     1.3-1.9x              1.4-2.4x
+CPU, binary32, scalar loop     1.2-1.8x              1.4-2.4x
 CPU, binary64                  1.4-2.7x              1.2-2.1x
 ============================== ===================== =====================
 
 The palettes, the cross-family macs and the convolutions cost what the GEMM
-of their step costs: 1.04-1.14x on CUDA, and on the CPU the scalar loop's
+of their step costs: 1.03-1.14x on CUDA, and on the CPU the scalar loop's
 ratio, or the tile's for a convolution over a format the tiles take.
 
 On a GPU, binary32 rounds to odd with two FMAs in the hardware's directed
@@ -310,9 +310,9 @@ that. The other two tables show them with formats:
 
 The price is kernel time, in proportion to the roundings per step. On an RTX
 4060 laptop GPU a 1024\ :sup:`3` split-mac GEMM takes 1.2 times ``NAIVE``'s
-time under ``BLOCK``, 1.3 under ``TREE`` and 2.2 under ``KAHAN``
+time under ``BLOCK``, 1.4 under ``TREE`` and 2.25 under ``KAHAN``
 (``BinaryK(8, 4)`` products into ``BinaryK(16, 11)`` sums under ``RNE``,
-September 2026). The three are implemented for the
+November 2026). The three are implemented for the
 single-format ops, on the CPU, CUDA and Apple GPUs, in both carriers (next
 section) where the device has float64. A palette raises.
 

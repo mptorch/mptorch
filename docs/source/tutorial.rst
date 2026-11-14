@@ -14,7 +14,7 @@ change any one ingredient, and see what it does to a training run.
 This tutorial builds up from the formats to a trained network. Every code
 block is a file under ``docs/snippets/tutorial/``, and every output is
 recorded from a run. The training script of the last section took about
-three minutes on a laptop GPU.
+a minute on a laptop GPU.
 
 1. The formats
 --------------

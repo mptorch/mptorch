@@ -343,7 +343,7 @@ ReLU MLP, ``recompute_input=False`` for a convolution after a GELU, and
 with :math:`V`.
 
 The cost is one elementwise pass per recomputed operand. Measured on an RTX
-4060, it was within 0.6% of the step when the products run on mptorch's
+4060, it was within 0.7% of the step when the products run on mptorch's
 kernels. With PyTorch's own products it was a few percent, and 12% for the
 weights of 4096-wide Linear layers at 256 tokens, the case where recomputing
 also saved the most memory (from 148 to 20 MiB for three layers).
