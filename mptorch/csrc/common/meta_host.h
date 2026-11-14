@@ -728,7 +728,9 @@ namespace mptorch::meta
 
 namespace mptorch::meta
 {
-  // run_custom_conv_odd (carrier_odd_conv_host.h).
+  // run_custom_conv_odd (carrier_odd_conv_host.h). The flag-on branch needs
+  // AccumulateFamily<OddArgs<B>> (carrier_odd_accumulate.h), which
+  // meta_gemm.cpp includes before it instantiates this.
   template <class Base, class Widths, class Common>
   Tensor meta_custom_conv_odd(const char *op_name, const g::OddArgs<Base> &args,
                               const g::AccumulateTail<Widths, Common> &tail, const Tensor &a,
@@ -737,14 +739,20 @@ namespace mptorch::meta
                               c10::IntArrayRef dilation, int64_t groups,
                               int64_t accumulate_algorithm, int64_t round_mode)
   {
+#if defined(MPTORCH_ODD_ACCUMULATED)
+    return meta_custom_conv_single(op_name, args, tail, a, b, conv_pass, out_size, stride,
+                                   padding, dilation, groups, accumulate_algorithm, round_mode);
+#else
     TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
                 accumulate_algorithm, " is not an AccumulateAlgorithm");
     TORCH_CHECK(tail.block_size >= 0 && tail.block_size <= (int64_t(1) << 30), op_name,
                 ": block_size ", tail.block_size, " is out of range");
-    g::check_naive_only(op_name, accumulate_algorithm);
+    if (static_cast<AccumulateAlgorithm>(accumulate_algorithm) != AccumulateAlgorithm::NAIVE)
+      g::odd_accumulated_unavailable(op_name);
     TORCH_CHECK(tail.block_size == 0 && !tail.outer_quant, op_name,
                 ": AccumulateAlgorithm.NAIVE takes no block_size and no outer format");
     return meta_custom_conv(op_name, args, a, b, nullptr, conv_pass, out_size, stride, padding,
                             dilation, groups, round_mode);
+#endif
   }
 } // namespace mptorch::meta

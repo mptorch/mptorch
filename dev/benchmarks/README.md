@@ -79,7 +79,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 | `cpu_gemm_tile_state.py` | CPU GEMMs through the ops at ragged and thin shapes, as JSON, for comparing two builds | `--threads 8`, under each build's `PYTHONPATH` in turn |
 | `python_call_overhead.py` | what the Python wrappers cost per call: the bare op, a resolved spec, per-call resolution, memoized format objects | `--device cpu` or `cuda` |
 | `sr_variants.py` | SR's cost per rounding in StochasticA, B and C, quantizers and GEMMs | `bench` |
-| `carrier_double_rounding.py` | `rates`: how often the binary32 carrier rounds a mac step wrongly, against the binary64 carrier and the round-to-odd ops; `bench`: what the round-to-odd step costs | `rates --device cuda`, `bench` |
+| `carrier_double_rounding.py` | `rates`: how often the binary32 carrier rounds a mac step wrongly, against the binary64 carrier and the round-to-odd ops; `bench`: what the round-to-odd step costs; `rates-accumulated`, `bench-accumulated`: the same under KAHAN, BLOCK and TREE (a build with `MPTORCH_ODD_ACCUMULATED=1`) | `rates --device cuda`, `bench`, `rates-accumulated`, `bench-accumulated` |
 | `layer_bwd_memory.py` | a layer's peak and held memory, and step time, by which gradients are asked for; `recompute`: the layers' `recompute_input`/`recompute_weight` flags | `cuda`, `cuda recompute` |
 | `mixed_prec_idx_memo.py` | the palette ops' `prec_idx` bounds-check memo, by map dtype and layout: an int64 map must hit it too | CUDA, no argument |
 

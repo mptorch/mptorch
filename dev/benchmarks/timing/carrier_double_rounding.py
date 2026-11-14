@@ -22,12 +22,19 @@ round the exact value. This script measures both sides of that:
     passes against their defaults, through the public API (a two-entry
     palette per row, binaryK products summed in a superfp format, and a 3x3
     QConv2d forward whose GEMM has the same K and N as the square GEMM's).
+``rates-accumulated``, ``bench-accumulated``
+    The same two under KAHAN, BLOCK and TREE (blocks of 16 folded into an
+    outer format), through SplitMac and FusedMac: the default op against its
+    ``*_accumulated_odd`` twin, which a build has with
+    ``MPTORCH_ODD_ACCUMULATED=1``.
 
-Both call the ops through the specs the Python layer builds, so they run as
-soon as the C++ ops exist.
+``rates`` and ``bench`` call the ops through the specs the Python layer
+builds, so they run as soon as the C++ ops exist.
 
 Run: python3 dev/benchmarks/timing/carrier_double_rounding.py rates [--device cuda]
      python3 dev/benchmarks/timing/carrier_double_rounding.py bench [--rounds 3] [--cpu-n 256]
+     python3 dev/benchmarks/timing/carrier_double_rounding.py rates-accumulated
+     python3 dev/benchmarks/timing/carrier_double_rounding.py bench-accumulated [--rounds 3]
 """
 
 import argparse
@@ -39,9 +46,9 @@ from typing import Any, cast
 
 import torch
 
-from mptorch import RoundMode
+from mptorch import AccumulateAlgorithm, BinaryK, RoundMode
 from mptorch.number import FormatRangeWarning
-from mptorch.quant import binaryK_quantize
+from mptorch.quant import FusedMac, SplitMac, binaryK_quantize, qmm
 from mptorch.quant.ops import _binaryK_fma_spec, _binaryK_spec, _GemmSpec
 
 R = RoundMode
@@ -247,6 +254,123 @@ def bench(args: argparse.Namespace) -> None:
     print("(CPU times are per step per thread: wall time × threads / n³.)")
 
 
+# KAHAN, and BLOCK and TREE folding blocks of 16 into the accumulate format.
+_ALGORITHMS = (
+    (AccumulateAlgorithm.KAHAN, None),
+    (AccumulateAlgorithm.BLOCK, 16),
+    (AccumulateAlgorithm.TREE, 16),
+)
+
+
+def _accumulated_mac(kind, mul, acc, algorithm, block_size, mode, carrier_rounding):
+    extra: dict[str, Any] = dict(
+        rounding=mode,
+        accumulate_algorithm=algorithm,
+        block_size=block_size,
+        outer=None if block_size is None else acc,
+        carrier_rounding=carrier_rounding,
+    )
+    return FusedMac(acc, **extra) if kind == "fused" else SplitMac(mul, acc, **extra)
+
+
+def _accumulated_cases():
+    """(kind, mul, acc, algorithm, block_size): TREE has no fused case."""
+    for kind in ("split", "fused"):
+        for algorithm, block_size in _ALGORITHMS:
+            if kind == "fused" and algorithm is AccumulateAlgorithm.TREE:
+                continue
+            yield kind, algorithm, block_size
+
+
+def _have_odd_accumulated() -> bool:
+    try:
+        a = torch.ones(1, 1)
+        qmm(a, a, FusedMac(BinaryK(8, 4), accumulate_algorithm=AccumulateAlgorithm.KAHAN,
+                           carrier_rounding=R.RO))  # fmt: skip
+    except RuntimeError:
+        return False
+    return True
+
+
+def rates_accumulated(args: argparse.Namespace) -> None:
+    warnings.simplefilter("ignore", FormatRangeWarning)
+    dev = args.device
+    torch.manual_seed(0)
+    n = k = 256
+    have_odd = _have_odd_accumulated()
+    head = "| algorithm | mac | formats | " + " | ".join(m.name for m in RATE_MODES) + " |"
+    if have_odd:
+        head += " odd 32 vs 64 (max) | default 64 vs odd 64 (max) |"
+    print(head)
+    print("|" + "---|" * (head.count("|") - 1))
+    for (mK, mP), (aK, aP) in (((8, 4), (16, 11)), ((16, 11), (24, 16))):
+        mul, acc = BinaryK(mK, mP), BinaryK(aK, aP)
+        a = binaryK_quantize(torch.randn(n, k, device=dev), mK, mP)
+        b = binaryK_quantize(torch.randn(k, n, device=dev), mK, mP)
+        a64, b64 = a.double(), b.double()
+        for kind, algorithm, block_size in _accumulated_cases():
+            cells, odd_cells, b64_cells = [], [], []
+            for mode in RATE_MODES:
+                mac = _accumulated_mac(kind, mul, acc, algorithm, block_size, mode, R.RNE)
+                d32, d64 = qmm(a, b, mac).double(), qmm(a64, b64, mac)
+                cells.append(f"{_differ(d32, d64):.2f}%")
+                if have_odd:
+                    odd = _accumulated_mac(kind, mul, acc, algorithm, block_size, mode, R.RO)
+                    o32, o64 = qmm(a, b, odd).double(), qmm(a64, b64, odd)
+                    odd_cells.append(_differ(o32, o64))
+                    b64_cells.append(_differ(d64, o64))
+            fmts = f"binary{mK}p{mP} / {aK}p{aP}" if kind == "split" else f"binary{aK}p{aP}"
+            row = f"| {algorithm.name} | {kind} | {fmts} | " + " | ".join(cells) + " |"
+            if have_odd:
+                row += f" {max(odd_cells):.2f}% | {max(b64_cells):.2f}% |"
+            print(row, flush=True)
+
+
+def bench_accumulated(args: argparse.Namespace) -> None:
+    if not _have_odd_accumulated():
+        raise SystemExit("this build has no odd accumulated kernels (MPTORCH_ODD_ACCUMULATED=1)")
+    cases = []
+    for thr in args.cpu_threads:
+        cases.append(("cpu", thr, torch.float32, args.cpu_n))
+        cases.append(("cpu", thr, torch.float64, args.cpu_n))
+    if torch.cuda.is_available():
+        cases.append(("cuda", 0, torch.float32, 1024))
+        cases.append(("cuda", 0, torch.float64, 512))
+    mul, acc = BinaryK(8, 4), BinaryK(16, 11)
+    print("| device | carrier | algorithm | mac | mode | default | odd | odd / default |")
+    print("|---|---|---|---|---|---|---|---|")
+    for dev, thr, dtype, n in cases:
+        if thr:
+            torch.set_num_threads(thr)
+        torch.manual_seed(0)
+        unit, scale = ("ns", 1e9) if dev == "cpu" else ("ps", 1e12)
+        per = scale * thr if thr else scale
+        a = binaryK_quantize(torch.randn(n, n, device=dev, dtype=dtype), 8, 4)
+        b = binaryK_quantize(torch.randn(n, n, device=dev, dtype=dtype), 8, 4)
+        for kind, algorithm, block_size in _accumulated_cases():
+            for mode in (R.RNE, R.RU):
+                macs = [
+                    _accumulated_mac(kind, mul, acc, algorithm, block_size, mode, cr)
+                    for cr in (R.RNE, R.RO)
+                ]
+                plain, twin = (partial(qmm, a, b, m) for m in macs)
+                plain()
+                twin()
+                ts, to = [], []
+                for _ in range(args.rounds):
+                    ts.append(_time(plain, dev))
+                    to.append(_time(twin, dev))
+                t0, t1 = min(ts) / n**3 * per, min(to) / n**3 * per
+                where = f"{dev} {thr} thr" if thr else dev
+                carrier = "binary64" if dtype is torch.float64 else "binary32"
+                print(
+                    f"| {where} | {carrier} | {algorithm.name} | {kind} | {mode.name} | "
+                    f"{t0:.2f} {unit} | {t1:.2f} {unit} | {t1 / t0:.2f} |",
+                    flush=True,
+                )
+    print("(CPU times are per step per thread: wall time × threads / n³.)")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -258,8 +382,20 @@ def main() -> None:
     b.add_argument("--rounds", type=int, default=3)
     b.add_argument("--cpu-n", type=int, default=256)
     b.add_argument("--cpu-threads", type=lambda v: [int(t) for t in v.split(",")], default=[1, 16])
+    ra = sub.add_parser("rates-accumulated")
+    ra.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ba = sub.add_parser("bench-accumulated")
+    ba.add_argument("--rounds", type=int, default=3)
+    ba.add_argument("--cpu-n", type=int, default=256)
+    ba.add_argument("--cpu-threads", type=lambda v: [int(t) for t in v.split(",")], default=[1, 16])
     args = p.parse_args()
-    {"rates": rates, "bench": bench}[args.cmd](args)
+    commands = {
+        "rates": rates,
+        "bench": bench,
+        "rates-accumulated": rates_accumulated,
+        "bench-accumulated": bench_accumulated,
+    }
+    commands[args.cmd](args)
 
 
 if __name__ == "__main__":

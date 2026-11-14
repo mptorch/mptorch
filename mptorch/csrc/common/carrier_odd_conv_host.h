@@ -6,18 +6,21 @@
 // point with the packed Args wrapped as in carrier_odd_gemm_host.h.
 //
 // The single-format and cross-family ones take their twins' schema, the
-// *_accumulated one, but run NAIVE only, through run_custom_conv_odd below
-// rather than run_custom_conv_single: that one also builds an AccumulateArgs
-// for KAHAN, BLOCK and TREE, which an OddArgs has no AccumulateFamily for.
-// The palette ones are NAIVE only like their twins.
+// *_accumulated one, and run every algorithm through run_custom_conv_odd
+// below: KAHAN, BLOCK and TREE need a build with MPTORCH_ODD_ACCUMULATED=1,
+// whose odd Args have an AccumulateFamily (carrier_odd_accumulate.h), and
+// raise otherwise. The palette ones are NAIVE only like their twins.
 
 #include "carrier_odd_gemm_host.h"
 
 namespace mptorch::gemm
 {
-  // run_custom_conv_single's checks for a NAIVE call, in its order and with
-  // its messages, then the conv driver on the odd Args. run_custom_conv checks
-  // no algorithm, so the refusal of the others is this function's.
+  // A single-format or cross-family odd conv op. With MPTORCH_ODD_ACCUMULATED
+  // it is the twin's body, run_custom_conv_single, on the odd Args. Without
+  // it, that body's checks for a NAIVE call, in its order and with its
+  // messages, then the conv driver on the odd Args, and the other algorithms
+  // raise, naming the flag (run_custom_conv checks no algorithm, so the
+  // refusal is this function's).
   template <class Backend, class Base, class Widths, class Common>
   at::Tensor run_custom_conv_odd(const char *op_name, const OddArgs<Base> &args,
                                  const AccumulateTail<Widths, Common> &tail, at::Tensor a,
@@ -26,15 +29,22 @@ namespace mptorch::gemm
                                  c10::IntArrayRef dilation, int64_t groups,
                                  int64_t accumulate_algorithm, int64_t round_mode)
   {
+#if defined(MPTORCH_ODD_ACCUMULATED)
+    return run_custom_conv_single<Backend>(op_name, args, tail, a, b, conv_pass, out_size, stride,
+                                           padding, dilation, groups, accumulate_algorithm,
+                                           round_mode);
+#else
     TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
                 accumulate_algorithm, " is not an AccumulateAlgorithm");
     TORCH_CHECK(tail.block_size >= 0 && tail.block_size <= (int64_t(1) << 30), op_name,
                 ": block_size ", tail.block_size, " is out of range");
-    check_naive_only(op_name, accumulate_algorithm);
+    if (static_cast<AccumulateAlgorithm>(accumulate_algorithm) != AccumulateAlgorithm::NAIVE)
+      odd_accumulated_unavailable(op_name);
     TORCH_CHECK(tail.block_size == 0 && !tail.outer_quant, op_name,
                 ": AccumulateAlgorithm.NAIVE takes no block_size and no outer format");
     return run_custom_conv<Backend>(op_name, args, a, b, nullptr, conv_pass, out_size, stride,
                                     padding, dilation, groups, round_mode);
+#endif
   }
 
   template <class Backend>

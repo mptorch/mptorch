@@ -13,7 +13,9 @@ also held to the CPU op's words, SR included.
 """
 
 import math
+import re
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -35,7 +37,16 @@ from mptorch.quant import (
 from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import _narrowed
 
-from .markers import available_devices, float64_devices, requires_mps
+from .markers import (
+    HAS_ODD,
+    HAS_ODD_ACCUMULATED,
+    available_devices,
+    float64_devices,
+    requires_cuda,
+    requires_mps,
+    requires_odd_accumulated,
+)
+from .test_carrier_rounding import _quantize64, _ro53
 
 NAIVE, KAHAN, BLOCK, TREE = (
     AccumulateAlgorithm.NAIVE,
@@ -151,16 +162,34 @@ class _Reference:
     def operands(self, k):
         return self.a[:, k, None].expand_as(self.zero), self.b[None, k, :].expand_as(self.zero)
 
-    def product(self, k):
-        x, y = self.operands(k)
+    # The carrier operations, each with the rounding that follows it: the
+    # carrier's nearest operation here, and in _OddReference the format's
+    # rounding of the exact value wherever a format rounds the result.
+
+    def rounded_product(self, x, y):
         return self.mul(x * y)
+
+    def rounded_sum(self, x, y):
+        return self.add(x + y)
+
+    def rounded_diff(self, x, y):
+        return self.add(x - y)
+
+    def rounded_fma(self, x, y, z):
+        return self.add(_fma(x, y, z))
+
+    def folded(self, tot, x):
+        return self.outer(tot + x)
+
+    def product(self, k):
+        return self.rounded_product(*self.operands(k))
 
     def step(self, k, s):
         """NAIVE's step: the sum ``s`` after product ``k``."""
         if self.fused:
             x, y = self.operands(k)
-            return self.add(_fma(x, y, s))
-        return self.add(s + self.product(k))
+            return self.rounded_fma(x, y, s)
+        return self.rounded_sum(s, self.product(k))
 
     def naive(self):
         s = self.zero
@@ -173,11 +202,11 @@ class _Reference:
         for k in range(self.K):
             if self.fused:
                 x, y = self.operands(k)
-                y = self.add(_fma(x, y, -c))
+                y = self.rounded_fma(x, y, -c)
             else:
-                y = self.add(self.product(k) - c)
-            t = self.add(s + y)
-            c = self.add(self.add(t - s) - y)
+                y = self.rounded_diff(self.product(k), c)
+            t = self.rounded_sum(s, y)
+            c = self.rounded_diff(self.rounded_diff(t, s), y)
             s = t
         return s
 
@@ -186,7 +215,7 @@ class _Reference:
         for k in range(self.K):
             blk = self.step(k, blk)
             if (k + 1) % block_size == 0 or k + 1 == self.K:
-                tot = self.outer(tot + blk)
+                tot = self.folded(tot, blk)
                 blk = self.zero
         return tot
 
@@ -200,16 +229,16 @@ class _Reference:
             for i, k in enumerate(range(start, min(start + block_size, self.K))):
                 v, level = self.product(k), 0
                 while i >> level & 1:
-                    v = self.add(levels.pop(level) + v)
+                    v = self.rounded_sum(levels.pop(level), v)
                     level += 1
                 levels[level] = v
             # A whole block has left one subtree, at the top level. A partial
             # one is flushed lowest level first.
             root = None
             for level in sorted(levels):
-                root = levels[level] if root is None else self.add(levels[level] + root)
+                root = levels[level] if root is None else self.rounded_sum(levels[level], root)
             assert root is not None
-            tot = self.outer(tot + root)
+            tot = self.folded(tot, root)
         return tot
 
     def run(self, algorithm, block_size):
@@ -722,3 +751,320 @@ def test_the_accumulated_ops_need_a_gradient_entry_point_too():
     mac = SplitMac(BinaryK(8, 4), None, accumulate_algorithm=KAHAN)
     qmatmul(a, b, mac).sum().backward()
     assert a.grad is not None and a.grad.shape == a.shape
+
+
+# --- the odd carrier step (carrier_rounding=RoundMode.RO) ---------------------
+#
+# The odd step rounds to odd every carrier operation a format rounds next, so
+# the format rounds the exact value (common/carrier_odd_accumulate.h). The
+# reference is _Reference with those operations exact: each one's value in
+# rationals, rounded to the format, which test_carrier_rounding's reference
+# forms as round to odd at 53 bits followed by the binary64 quantizer (exactly
+# the format's rounding of the exact value, for a format inside binary64's
+# bound). The operations no format rounds stay the carrier's nearest: an
+# unrounded sum, and an unrounded total. The formats sit at the binary32 bound
+# (P = 22), where the carrier's last bits decide the format's rounding often:
+# test_the_default_step_double_rounds_where_the_odd_one_does_not checks that
+# the cases tell the two steps apart.
+
+ODD = RoundMode.RO
+ODD_FAMILIES: dict[str, tuple[Any, ...]] = {
+    "binaryK": (BinaryK(28, 21), BinaryK(28, 22), BinaryK(29, 22)),
+    "superfp": (
+        SuperFP(18, 6, 40, 31),
+        SuperFP(19, 6, 40, 31),
+        SuperFP(19, 6, 48, 31),
+    ),
+}
+# binary64's bound, P = 51, for the binary64 kernels' cases.
+ODD_FAMILIES64: dict[str, tuple[Any, ...]] = {
+    "binaryK_wide": (BinaryK(60, 50), BinaryK(60, 51), BinaryK(61, 51)),
+    "superfp_wide": (
+        SuperFP(49, 8, 200, 127),
+        SuperFP(50, 8, 200, 127),
+        SuperFP(50, 8, 240, 127),
+    ),
+}
+
+
+class _OddReference(_Reference):
+    """_Reference with each carrier operation a format rounds next exact."""
+
+    def __init__(self, a, b, mul, add, outer, mode):
+        super().__init__(a, b, mul, add, outer, mode)
+        self.formats = (mul, add, outer)
+        self.mode = mode
+
+    @staticmethod
+    def _exact(t):
+        return [Fraction(v) for v in t.double().flatten().tolist()]
+
+    def _rounded(self, fmt, values):
+        q = _quantize64(_ro53(values), fmt, self.mode)
+        return q.to(self.zero.dtype).reshape(self.zero.shape)
+
+    def rounded_product(self, x, y):
+        X, Y = self._exact(x), self._exact(y)
+        return self._rounded(self.formats[0], [p * q for p, q in zip(X, Y, strict=True)])
+
+    def rounded_sum(self, x, y):
+        if self.formats[1] is None:
+            return x + y
+        X, Y = self._exact(x), self._exact(y)
+        return self._rounded(self.formats[1], [p + q for p, q in zip(X, Y, strict=True)])
+
+    def rounded_diff(self, x, y):
+        if self.formats[1] is None:
+            return x - y
+        X, Y = self._exact(x), self._exact(y)
+        return self._rounded(self.formats[1], [p - q for p, q in zip(X, Y, strict=True)])
+
+    def rounded_fma(self, x, y, z):
+        X, Y, Z = self._exact(x), self._exact(y), self._exact(z)
+        exact = [p * q + r for p, q, r in zip(X, Y, Z, strict=True)]
+        return self._rounded(self.formats[1], exact)
+
+    def folded(self, tot, x):
+        if self.formats[2] is None:
+            return tot + x
+        T, X = self._exact(tot), self._exact(x)
+        return self._rounded(self.formats[2], [p + q for p, q in zip(T, X, strict=True)])
+
+
+def _odd_operands(M, K, N, device, dtype):
+    """Operands whose carrier sums are inexact at the carrier's last bits:
+    exponents spread over 2^-10..2^10, and pairs of products that nearly
+    cancel."""
+    g = torch.Generator().manual_seed(K * 7919 + M)
+    exps = torch.randint(-10, 11, (M, K), generator=g).double()
+    a = torch.randn(M, K, generator=g, dtype=torch.float64) * torch.pow(2.0, exps)
+    b = torch.randn(K, N, generator=g, dtype=torch.float64)
+    for k in range(0, min(K, 8) - 1, 2):
+        a[:, k + 1] = a[:, k]
+        b[k + 1] = -b[k] * (1 + 2.0 ** -(9 + 3 * k))
+    return a.to(device=device, dtype=dtype), b.to(device=device, dtype=dtype)
+
+
+def _odd_mac(kind, fmts, algorithm, mode, block_size=None, outer=None, carrier_rounding=ODD):
+    narrow, wide, _ = fmts
+    extra: dict[str, Any] = dict(
+        rounding=mode,
+        accumulate_algorithm=algorithm,
+        block_size=block_size,
+        outer=outer,
+        carrier_rounding=carrier_rounding,
+    )
+    if kind == "split":
+        return SplitMac(narrow, wide, **extra), (narrow, wide)
+    if kind == "split_exact_sum":
+        return SplitMac(narrow, None, **extra), (narrow, None)
+    return FusedMac(wide, **extra), (None, wide)
+
+
+def _odd_case(device, kind, fmts, algorithm, mode, block_size, outer, K, dtype):
+    """The odd kernel's result, and _OddReference's."""
+    a, b = _odd_operands(5, K, 3, device, dtype)
+    mac, (mul, add) = _odd_mac(kind, fmts, algorithm, mode, block_size, outer)
+    got = qmm(a, b, mac).cpu()
+    ref = _OddReference(a.cpu(), b.cpu(), mul, add, outer, mode).run(algorithm, block_size)
+    return got, ref
+
+
+# KAHAN, then BLOCK and TREE each with a block inside a slab and one past it,
+# one with the outer format and one without.
+_ODD_RUNS = (
+    (KAHAN, None, False),
+    (BLOCK, 4, True),
+    (BLOCK, 32, False),
+    (TREE, 4, False),
+    (TREE, 32, True),
+)
+
+
+def _odd_check(device, kind, fmts, mode, dtype, Ks=(17, 40)):
+    for algorithm, block_size, with_outer in _ODD_RUNS:
+        if algorithm is TREE and kind == "fused":
+            continue
+        outer = fmts[2] if with_outer else None
+        for K in Ks:
+            got, ref = _odd_case(device, kind, fmts, algorithm, mode, block_size, outer, K, dtype)
+            assert torch.equal(got, ref), (
+                f"{algorithm.name} {kind} {mode.name} block_size={block_size} outer={outer} K={K}"
+            )
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("family", list(ODD_FAMILIES))
+@pytest.mark.parametrize("kind", ["split", "split_exact_sum", "fused"])
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_odd_accumulators_round_each_exact_step(device, family, kind, mode):
+    _odd_check(device, kind, ODD_FAMILIES[family], mode, torch.float32)
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("family", list(ODD_FAMILIES64))
+@pytest.mark.parametrize("kind", ["split", "split_exact_sum", "fused"])
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RU, RoundMode.RZ], ids=lambda m: m.name)
+def test_the_odd_accumulators_in_binary64(device, family, kind, mode):
+    _odd_check(device, kind, ODD_FAMILIES64[family], mode, torch.float64, Ks=(40,))
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize(
+    "pair", [("binaryK", "superfp"), ("superfp", "binaryK")], ids=["bk_sf", "sf_bk"]
+)
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_odd_cross_family_accumulators(device, pair, mode):
+    """A binaryK multiply with a superfp accumulate, and the reverse: the outer
+    format is the accumulate format's family."""
+    mul_family, acc_family = pair
+    fmts = (ODD_FAMILIES[mul_family][0], ODD_FAMILIES[acc_family][1], ODD_FAMILIES[acc_family][2])
+    _odd_check(device, "split", fmts, mode, torch.float32)
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
+@pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RU], ids=lambda m: m.name)
+def test_the_default_step_double_rounds_where_the_odd_one_does_not(device, algorithm, mode):
+    """What the odd step is for: on these operands the default step's carrier
+    rounding moves the format's result, KAHAN's compensation included (under
+    RNE), and the odd step's result is the exact reduction's. So the cases
+    above tell the two steps apart."""
+    fmts = ODD_FAMILIES["binaryK"]
+    block_size = None if algorithm is KAHAN else 4
+    outer = None if algorithm is KAHAN else fmts[2]
+    a, b = _odd_operands(5, 40, 3, device, torch.float32)
+    ref = _OddReference(a.cpu(), b.cpu(), fmts[0], fmts[1], outer, mode).run(algorithm, block_size)
+    odd, _ = _odd_mac("split", fmts, algorithm, mode, block_size, outer)
+    nearest, _ = _odd_mac("split", fmts, algorithm, mode, block_size, outer, RoundMode.RNE)
+    assert torch.equal(qmm(a, b, odd).cpu(), ref)
+    assert not torch.equal(qmm(a, b, nearest).cpu(), ref)
+
+
+@requires_odd_accumulated
+@requires_cuda
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_cpu_and_cuda_odd_accumulators_agree_word_for_word(dtype, mode):
+    """Every odd accumulated op, on shapes past a tile, NaN-free operands."""
+    word = torch.int32 if dtype is torch.float32 else torch.int64
+    a, b = _odd_operands(33, 70, 17, "cpu", dtype)
+    bk, sf = ODD_FAMILIES["binaryK"], ODD_FAMILIES["superfp"]
+    macs = []
+    for algorithm, block_size, with_outer in _ODD_RUNS:
+        for kind in ("split", "split_exact_sum", "fused"):
+            if algorithm is TREE and kind == "fused":
+                continue
+            for fmts in (bk, sf, (bk[0], sf[1], sf[2]), (sf[0], bk[1], bk[2])):
+                if kind != "split" and type(fmts[0]) is not type(fmts[1]):
+                    continue
+                outer = fmts[2] if with_outer else None
+                macs.append(_odd_mac(kind, fmts, algorithm, mode, block_size, outer)[0])
+    for mac in macs:
+        cpu = qmm(a, b, mac)
+        cuda = qmm(a.cuda(), b.cuda(), mac).cpu()
+        assert torch.equal(cpu.view(word), cuda.view(word)), mac
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
+def test_odd_sr_is_seeded_and_bracketed(device, algorithm, dtype):
+    """Under SR the odd accumulators draw as the default ones do: a seed
+    repeats a result, another seed moves it, and a one-step reduction lands
+    on one of the two neighbours of the exact product."""
+    fmt = BinaryK(16, 11, prng_bits=8)
+    block_size = None if algorithm is KAHAN else 4
+    mac = SplitMac(
+        fmt,
+        fmt,
+        rounding=RoundMode.SR,
+        accumulate_algorithm=algorithm,
+        block_size=block_size,
+        carrier_rounding=ODD,
+    )
+    a, b = _odd_operands(9, 40, 7, device, dtype)
+    torch.manual_seed(5)
+    first = qmm(a, b, mac)
+    torch.manual_seed(5)
+    assert torch.equal(qmm(a, b, mac), first)
+    torch.manual_seed(6)
+    assert not torch.equal(qmm(a, b, mac), first)
+    x = torch.full((4000, 1), 1.3, device=device, dtype=dtype)
+    y = torch.full((1, 1), 0.7, device=device, dtype=dtype)
+    one = qmm(x, y, SplitMac(fmt, None, rounding=RoundMode.SR, accumulate_algorithm=algorithm,
+                             block_size=block_size, carrier_rounding=ODD)).flatten()  # fmt: skip
+    lo = Quant(fmt, RoundMode.RD)(x[:1] * y).item()
+    hi = Quant(fmt, RoundMode.RU)(x[:1] * y).item()
+    assert set(one.unique().tolist()) == {lo, hi}
+
+
+@requires_odd_accumulated
+def test_the_odd_accumulated_specs_are_the_flat_wrappers():
+    """Both API tiers resolve an odd accumulated mac to one spec."""
+    bk = BinaryK(16, 11)
+    mac = SplitMac(
+        BinaryK(8, 4),
+        bk,
+        accumulate_algorithm=BLOCK,
+        block_size=8,
+        outer=BinaryK(20, 14),
+        rounding=RoundMode.RU,
+        carrier_rounding=ODD,
+    )
+    spec = spec_for_mac(mac)
+    assert str(spec.op).endswith("custom_matmul_binaryK_accumulated_odd.default")
+    a, b = _operands(4, 24, 3, "cpu")
+    flat = binaryK_matmul(
+        a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=11, accumulate_algorithm=BLOCK, block_size=8,
+        outer_K=20, outer_P=14, rounding_mode=RoundMode.RU, carrier_rounding=ODD,
+    )  # fmt: skip
+    assert torch.equal(flat, qmm(a, b, mac))
+
+
+def test_the_odd_accumulators_bound_the_outer_format():
+    """The outer format's cast rounds an odd sum too, so it is held to the
+    same bound as the mac's formats."""
+    a = torch.ones(2, 2)
+    with pytest.raises(ValueError, match="outer format"):
+        binaryK_matmul(
+            a, a, mul_K=8, mul_P=4, acc_K=16, acc_P=11, accumulate_algorithm=BLOCK,
+            block_size=4, outer_K=30, outer_P=23, carrier_rounding=ODD,
+        )  # fmt: skip
+    mac = SplitMac(BinaryK(8, 4), BinaryK(16, 11), accumulate_algorithm=TREE, block_size=4,
+                   outer=BinaryK(30, 23), carrier_rounding=ODD)  # fmt: skip
+    with pytest.raises(ValueError, match="outer format"):
+        qmm(a, a, mac)
+
+
+@pytest.mark.skipif(
+    not HAS_ODD or HAS_ODD_ACCUMULATED,
+    reason="the odd accumulated kernels are built (or no odd kernel is)",
+)
+def test_without_the_flag_the_odd_accumulators_raise_naming_it():
+    a = torch.ones(2, 8)
+    mac = FusedMac(BinaryK(8, 4), accumulate_algorithm=KAHAN, carrier_rounding=ODD)
+    with pytest.raises(RuntimeError, match="MPTORCH_ODD_ACCUMULATED=1"):
+        qmm(a, a.T, mac)
+
+
+def test_every_odd_accumulated_unit_includes_the_overloads():
+    """Each of the 72 instantiation units of the odd step under KAHAN, BLOCK
+    and TREE includes common/carrier_odd_accumulate.h, whose
+    AccumulateFamily<OddArgs<B>> it cannot compile without, and a CPU one
+    also cpu/custom_matmul_odd_kernel.h, which every CPU odd unit includes so
+    that all of them see one set of the tile trait's specializations."""
+    csrc = Path(__file__).resolve().parents[1] / "mptorch" / "csrc"
+    stem = re.compile(r"_(kahan|block|tree)_odd(_f64)?\.(cpp|cu)$")
+    units = sorted(p for d in ("cpu", "cuda") for p in (csrc / d).iterdir() if stem.search(p.name))
+    assert len(units) == 72
+    for unit in units:
+        text = unit.read_text()
+        assert '#include "../common/carrier_odd_accumulate.h"' in text, unit.name
+        if unit.parent.name == "cpu":
+            assert '#include "custom_matmul_odd_kernel.h"' in text, unit.name

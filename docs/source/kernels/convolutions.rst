@@ -122,9 +122,10 @@ constants computed once on the host. Nothing is divided per element.
 
 The arithmetic between the loads is the matrix product's, unchanged. Every
 format, rounding mode and accumulate algorithm therefore applies, and so does
-the odd carrier step under ``NAIVE`` (``carrier_rounding=RoundMode.RO``;
-:doc:`arithmetic`, "What the carrier rounds"), and each pass is **bit for bit
-the GEMM over the explicit matrices**.
+the odd carrier step (``carrier_rounding=RoundMode.RO``; :doc:`arithmetic`,
+"What the carrier rounds"; under ``KAHAN``, ``BLOCK`` and ``TREE`` in a build
+with ``MPTORCH_ODD_ACCUMULATED=1``), and each pass is **bit for bit the GEMM
+over the explicit matrices**.
 ``tests/test_qconv_gemm.py`` builds those matrices and checks this with
 ``torch.equal``, stochastic rounding included. The difference is in memory:
 a pass allocates its result and nothing else.

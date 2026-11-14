@@ -61,7 +61,7 @@ from mptorch.quant import (
     superfp_quantize,
     superfp_quantize_,
 )
-from tests.markers import HAS_ODD, requires_cuda
+from tests.markers import HAS_ODD, HAS_ODD_ACCUMULATED, requires_cuda
 
 # Dynamo says once per function that it traces through the format checks'
 # lru_cache; the checks are pure, so the cache only saves time.
@@ -108,6 +108,24 @@ MACS = {
     "superfp_fma_mixed_odd": FusedMac(PAL_SFP, rounding=SR, carrier_rounding=R.RO),
     "binaryK_superfp_odd": SplitMac(BK, SFP, rounding=SR, carrier_rounding=R.RO),
     "superfp_binaryK_odd": SplitMac(SFP, BK_ACC, rounding=SR, carrier_rounding=R.RO),
+    "binaryK_accumulated_odd": SplitMac(
+        BK, BK_ACC, rounding=SR, accumulate_algorithm=A.KAHAN, carrier_rounding=R.RO
+    ),
+    "superfp_accumulated_odd": SplitMac(
+        SFP, SFP, rounding=SR, accumulate_algorithm=A.TREE, block_size=4, carrier_rounding=R.RO
+    ),
+    "binaryK_fma_accumulated_odd": FusedMac(
+        BK_ACC, rounding=SR, accumulate_algorithm=A.BLOCK, block_size=4, carrier_rounding=R.RO
+    ),
+    "superfp_fma_accumulated_odd": FusedMac(
+        SFP, rounding=SR, accumulate_algorithm=A.KAHAN, carrier_rounding=R.RO
+    ),
+    "binaryK_superfp_accumulated_odd": SplitMac(
+        BK, SFP, rounding=SR, accumulate_algorithm=A.KAHAN, carrier_rounding=R.RO
+    ),
+    "superfp_binaryK_accumulated_odd": SplitMac(
+        SFP, BK_ACC, rounding=SR, accumulate_algorithm=A.BLOCK, block_size=8, carrier_rounding=R.RO
+    ),
 }
 CONV_MACS = {
     k: MACS[k]
@@ -132,6 +150,9 @@ CONV_MACS = {
         "superfp_fma_mixed_odd",
         "binaryK_superfp_odd",
         "superfp_binaryK_odd",
+        "binaryK_accumulated_odd",
+        "superfp_fma_accumulated_odd",
+        "superfp_binaryK_accumulated_odd",
     )
 }
 
@@ -142,9 +163,21 @@ def _is_odd(name: str) -> bool:
     return name.endswith("_odd") or name == "_carrier_odd"
 
 
-if not HAS_ODD:
-    MACS = {k: v for k, v in MACS.items() if not _is_odd(k)}
-    CONV_MACS = {k: v for k, v in CONV_MACS.items() if not _is_odd(k)}
+def _is_odd_accumulated(name: str) -> bool:
+    """An odd op under KAHAN, BLOCK or TREE, which a build without
+    MPTORCH_ODD_ACCUMULATED=1 registers and makes raise."""
+    return name.endswith("_accumulated_odd")
+
+
+def _unbuilt(name: str) -> bool:
+    """Whether this build left out the kernels of op (or mac) `name`."""
+    return (not HAS_ODD and _is_odd(name)) or (
+        not HAS_ODD_ACCUMULATED and _is_odd_accumulated(name)
+    )
+
+
+MACS = {k: v for k, v in MACS.items() if not _unbuilt(k)}
+CONV_MACS = {k: v for k, v in CONV_MACS.items() if not _unbuilt(k)}
 # A recorded call's tensors are what the workload passed; this many per op
 # keep the opcheck cases to a few seconds.
 CALLS_PER_OP = 3
@@ -265,7 +298,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 60
+    assert len(names) == 66
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -276,7 +309,7 @@ def test_every_op_has_a_meta_and_an_autograd_kernel():
 
 
 def test_the_workload_reaches_every_op():
-    assert sorted(_calls()) == [n for n in _op_names() if HAS_ODD or not _is_odd(n)]
+    assert sorted(_calls()) == [n for n in _op_names() if not _unbuilt(n)]
 
 
 @pytest.mark.skipif(HAS_ODD, reason="the odd kernels are built")
@@ -286,7 +319,7 @@ def test_without_the_odd_kernels_every_odd_op_raises_naming_the_flag():
     odd op takes its twin's schema, so the twin's recorded call is a valid
     call of it."""
     odd = [n for n in _op_names() if _is_odd(n)]
-    assert len(odd) == 21
+    assert len(odd) == 27
     x = torch.ones(1)
     for name in odd:
         func = getattr(torch.ops.mptorch, name).default
@@ -295,6 +328,27 @@ def test_without_the_odd_kernels_every_odd_op_raises_naming_the_flag():
         else:
             args = _calls()[name[: -len("_odd")]][0][1]
         with pytest.raises(RuntimeError, match="MPTORCH_NO_ODD=1") as cpu:
+            func(*_fresh(args))
+        with pytest.raises(RuntimeError) as meta:
+            func(*_on_meta(args))
+        assert str(meta.value) == str(cpu.value), name
+
+
+@pytest.mark.skipif(
+    not HAS_ODD or HAS_ODD_ACCUMULATED,
+    reason="the odd accumulated kernels are built (or no odd one is)",
+)
+def test_without_the_flag_every_odd_accumulated_op_raises_naming_it():
+    """A build without MPTORCH_ODD_ACCUMULATED=1 keeps the six
+    *_accumulated_odd ops registered, and each raises the same message from
+    its CPU and its Meta kernel, called on its twin's recorded call (the
+    twin's schema)."""
+    names = [n for n in _op_names() if _is_odd_accumulated(n)]
+    assert len(names) == 6
+    for name in names:
+        func = getattr(torch.ops.mptorch, name).default
+        args = _calls()[name[: -len("_odd")]][0][1]
+        with pytest.raises(RuntimeError, match="MPTORCH_ODD_ACCUMULATED=1") as cpu:
             func(*_fresh(args))
         with pytest.raises(RuntimeError) as meta:
             func(*_on_meta(args))
@@ -324,8 +378,8 @@ def test_the_tags():
 def test_opcheck(name):
     """The schema, the fake result against the real one, and AOTAutograd with
     symbolic shapes against eager."""
-    if not HAS_ODD and _is_odd(name):
-        pytest.skip("built with MPTORCH_NO_ODD=1")
+    if _unbuilt(name):
+        pytest.skip("this build has no kernels for it")
     for func, args in _calls()[name]:
         torch.library.opcheck(
             func,
@@ -336,8 +390,8 @@ def test_opcheck(name):
 
 @pytest.mark.parametrize("name", _op_names())
 def test_the_meta_device_gives_the_cpu_layout(name):
-    if not HAS_ODD and _is_odd(name):
-        pytest.skip("built with MPTORCH_NO_ODD=1")
+    if _unbuilt(name):
+        pytest.skip("this build has no kernels for it")
     for func, args in _calls()[name]:
         want = pytree.tree_leaves(func(*_fresh(args)))
         meta_args = _on_meta(args)
@@ -372,8 +426,8 @@ def test_a_meta_call_draws_nothing():
 
 def _with(name, call=0, **changes):
     """Recorded call `call` of op `name`, with arguments replaced by name, or
-    None for an odd op in a build without its kernels."""
-    if not HAS_ODD and _is_odd(name):
+    None for an op in a build without its kernels."""
+    if _unbuilt(name):
         return None
     func, args = _calls()[name][call]
     names = [a.name for a in func._schema.arguments]
@@ -428,6 +482,13 @@ def _gemm_cases():
         "odd cross naive only": _with(
             "custom_matmul_binaryK_superfp_odd", accumulate_algorithm=A.TREE.value
         ),
+        "odd accumulated naive": _with(
+            "custom_matmul_binaryK_accumulated_odd", accumulate_algorithm=0
+        ),
+        "fma_quant odd accumulated": _with(
+            "custom_matmul_superfp_fma_accumulated_odd", fma_quant=False
+        ),
+        "odd accumulated tree size": _with("custom_matmul_superfp_accumulated_odd", block_size=3),
     }
 
 
@@ -456,7 +517,9 @@ def _conv_cases():
         "palette map": _with("custom_conv_binaryK_mixed", prec_idx=torch.zeros(5, 1)),
         "fma_quant palette": _with("custom_conv_binaryK_fma_mixed", fma_quant=False),
         "cross groups": _with("custom_conv_superfp_binaryK", groups=0),
-        "odd naive only": _with("custom_conv_binaryK_odd", accumulate_algorithm=A.KAHAN.value),
+        "odd kahan block size": _with(
+            "custom_conv_binaryK_odd", accumulate_algorithm=A.KAHAN.value, block_size=4
+        ),
         "odd naive block size": _with("custom_conv_superfp_odd", block_size=4),
         "odd algorithm": _with("custom_conv_superfp_binaryK_odd", accumulate_algorithm=99),
         "fma_quant odd": _with("custom_conv_binaryK_fma_odd", fma_quant=False),
@@ -529,13 +592,14 @@ _GEMM_IDS = [
     "palette lengths", "prec_idx rank", "prec_idx form", "prec_idx batch", "palette naive only",
     "fma_quant palette", "fma_quant odd", "cross inner", "cross accumulated naive",
     "odd naive only", "odd palette naive only", "fma_quant odd palette", "odd palette lengths",
-    "odd cross naive only",
+    "odd cross naive only", "odd accumulated naive", "fma_quant odd accumulated",
+    "odd accumulated tree size",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
     "out_size", "round mode", "algorithm", "naive block size", "kahan block size", "dtypes",
     "igrad channels", "wgrad samples", "palette naive only", "palette lengths", "palette map",
-    "fma_quant palette", "cross groups", "odd naive only", "odd naive block size",
+    "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
     "odd cross groups",
 ]  # fmt: skip
@@ -565,7 +629,7 @@ def test_a_meta_call_raises_the_cpu_message(case):
     table = {"gemm": _gemm_cases, "conv": _conv_cases, "block": _block_cases, "other": _other_cases}
     entry = table[group]()[key]
     if entry is None:
-        pytest.skip("built with MPTORCH_NO_ODD=1")
+        pytest.skip("this build has no kernels for it")
     func, args = entry
     with pytest.raises(RuntimeError) as cpu:
         func(*args)

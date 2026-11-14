@@ -61,6 +61,7 @@ from .markers import (
     requires_cuda,
     requires_mps,
     requires_odd,
+    requires_odd_accumulated,
 )
 
 # Every test here runs an odd op, or the default op beside one; a build with
@@ -648,29 +649,15 @@ def test_sr_holds_precision_and_random_bits_together():
 @pytest.mark.parametrize(
     "build",
     [
-        lambda: FusedMac(
-            BinaryK(8, 4), accumulate_algorithm=AccumulateAlgorithm.KAHAN, carrier_rounding=R.RO
-        ),
-        lambda: SplitMac(
-            BinaryK(8, 4),
-            SuperFP(3, 4, 8, 7),
-            accumulate_algorithm=AccumulateAlgorithm.TREE,
-            block_size=4,
-            carrier_rounding=R.RO,
-        ),
         lambda: FusedMac(None, carrier_rounding=R.RO),
+        lambda: FusedMac(
+            None, accumulate_algorithm=AccumulateAlgorithm.KAHAN, carrier_rounding=R.RO
+        ),
         lambda: FusedMac(BinaryK(8, 4), carrier_rounding=R.RD),
-        lambda: binaryK_superfp_matmul(
-            torch.ones(2, 2),
-            torch.ones(2, 2),
-            mul_K=8,
-            mul_P=4,
-            acc_man_bits=3,
-            acc_exp_bits=4,
-            acc_normal_binades=8,
-            acc_bias=7,
-            block_size=4,
-            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+        lambda: SplitMac(
+            Palette([BinaryK(8, 4), BinaryK(8, 3)]),
+            BinaryK(16, 11),
+            accumulate_algorithm=AccumulateAlgorithm.KAHAN,
             carrier_rounding=R.RO,
         ),
         lambda: binaryK_matmul_mixed(
@@ -696,9 +683,8 @@ def test_sr_holds_precision_and_random_bits_together():
             torch.ones(2, 2),
             fma_K=8,
             fma_P=4,
-            block_size=16,
+            fma_quant=False,
             carrier_rounding=R.RO,
-            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
         ),
         lambda: binaryK_matmul_fma(
             torch.ones(2, 2),
@@ -706,24 +692,77 @@ def test_sr_holds_precision_and_random_bits_together():
             fma_K=8,
             fma_P=4,
             fma_quant=False,
+            block_size=4,
+            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
             carrier_rounding=R.RO,
         ),
     ],
     ids=[
-        "kahan",
-        "cross-family TREE",
         "unrounded fma",
+        "unrounded fma KAHAN",
         "not RNE or RO",
-        "flat cross-family BLOCK",
+        "palette KAHAN",
         "flat palette KAHAN",
         "flat palette fma_quant=False",
-        "flat BLOCK",
         "fma_quant=False",
+        "BLOCK fma_quant=False",
     ],
 )
 def test_what_the_odd_step_does_not_implement_raises(build):
     with pytest.raises(ValueError):
         build()
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: qmm(
+            torch.ones(2, 8),
+            torch.ones(8, 2),
+            FusedMac(
+                BinaryK(8, 4), accumulate_algorithm=AccumulateAlgorithm.KAHAN, carrier_rounding=R.RO
+            ),
+        ),
+        lambda: qmm(
+            torch.ones(2, 8),
+            torch.ones(8, 2),
+            SplitMac(
+                BinaryK(8, 4),
+                SuperFP(3, 4, 8, 7),
+                accumulate_algorithm=AccumulateAlgorithm.TREE,
+                block_size=4,
+                carrier_rounding=R.RO,
+            ),
+        ),
+        lambda: binaryK_superfp_matmul(
+            torch.ones(2, 8),
+            torch.ones(8, 2),
+            mul_K=8,
+            mul_P=4,
+            acc_man_bits=3,
+            acc_exp_bits=4,
+            acc_normal_binades=8,
+            acc_bias=7,
+            block_size=4,
+            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+            carrier_rounding=R.RO,
+        ),
+        lambda: binaryK_matmul_fma(
+            torch.ones(2, 8),
+            torch.ones(8, 2),
+            fma_K=8,
+            fma_P=4,
+            block_size=16,
+            carrier_rounding=R.RO,
+            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+        ),
+    ],
+    ids=["kahan", "cross-family TREE", "flat cross-family BLOCK", "flat BLOCK"],
+)
+def test_what_phase_y_added_runs(build):
+    """The odd step under KAHAN, BLOCK and TREE, which raised before phase Y."""
+    assert build().shape == (2, 2)
 
 
 def test_the_op_refuses_an_unrounded_fused_step():
@@ -985,6 +1024,78 @@ def test_the_cpu_and_cuda_odd_conv_passes_agree_word_for_word(mode):
         cpu = _check_three_passes(mac, "cpu", stride=2, padding=1, maps=maps)
         cuda_maps = tuple(None if m is None else m.cuda() for m in maps)
         cuda = _check_three_passes(mac, "cuda", stride=2, padding=1, maps=cuda_maps)
+        for c, d in zip(cpu, cuda, strict=True):
+            assert torch.equal(c.view(torch.int32), d.cpu().view(torch.int32)), mac
+
+
+def _odd_accumulated_conv_macs(mode: RoundMode) -> dict[str, FusedMac | SplitMac]:
+    """The odd conv ops under KAHAN, BLOCK and TREE: every kind of mac, each
+    family, the outer format on and off."""
+    K, B, T = AccumulateAlgorithm.KAHAN, AccumulateAlgorithm.BLOCK, AccumulateAlgorithm.TREE
+    odd: dict[str, Any] = dict(rounding=mode, carrier_rounding=R.RO)
+    bk_outer, sf_outer = BinaryK(20, 14), SuperFP(12, 6, 32, 31)
+    return {
+        "bk_split_kahan": SplitMac(BinaryK(12, 7), B12, accumulate_algorithm=K, **odd),
+        "bk_noacc_tree": SplitMac(
+            BinaryK(12, 7), None, accumulate_algorithm=T, block_size=8, **odd
+        ),
+        "bk_fused_block": FusedMac(
+            B12, accumulate_algorithm=B, block_size=4, outer=bk_outer, **odd
+        ),
+        "sf_split_tree": SplitMac(
+            SuperFP(5, 5, 16, 15), S12, accumulate_algorithm=T, block_size=4, outer=sf_outer, **odd
+        ),
+        "sf_fused_kahan": FusedMac(S12, accumulate_algorithm=K, **odd),
+        "bk_sf_block": SplitMac(BinaryK(12, 7), S12, accumulate_algorithm=B, block_size=32, **odd),
+        "sf_bk_tree": SplitMac(
+            SuperFP(5, 5, 16, 15), B12, accumulate_algorithm=T, block_size=2, outer=bk_outer, **odd
+        ),
+    }
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("mode", (*DETERMINISTIC, R.SR), ids=lambda m: m.name)
+@pytest.mark.parametrize("which", list(_odd_accumulated_conv_macs(R.RNE)))
+def test_every_odd_accumulated_conv_pass_is_the_odd_gemm_over_the_unfold(device, mode, which):
+    """The input gradient against the residue-class GEMMs (R-4's equality
+    with the zero-inserted sum is NAIVE's only)."""
+    from .test_qconv_gemm import _check_three_passes
+
+    mac = _odd_accumulated_conv_macs(mode)[which]
+    assert str(spec_for_mac(mac).op).endswith("_accumulated_odd.default")
+    _check_three_passes(mac, device, stride=(2, 1), padding=(1, 0))
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("geometry", ["1d_strided", "2d_groups", "3d_all"])
+def test_the_odd_accumulated_conv_ops_hold_over_the_geometries(device, geometry):
+    from .test_qconv_gemm import GEOMETRIES, _check_three_passes
+
+    size, kernel, stride, padding, dilation, groups, C, Cout = GEOMETRIES[geometry]
+    for which, mode in (
+        ("bk_split_kahan", R.RU),
+        ("sf_split_tree", R.RD),
+        ("bk_fused_block", R.RZ),
+    ):
+        _check_three_passes(
+            _odd_accumulated_conv_macs(mode)[which], device, C=C, Cout=Cout, size=size,
+            kernel=kernel, stride=stride, padding=padding, dilation=dilation, groups=groups,
+        )  # fmt: skip
+    mac = _odd_accumulated_conv_macs(R.RU)["bk_split_kahan"]
+    _check_three_passes(mac, device, stride=2, padding=1, dtype=torch.float64)
+
+
+@requires_odd_accumulated
+@requires_cuda
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_cpu_and_cuda_odd_accumulated_conv_passes_agree_word_for_word(mode):
+    from .test_qconv_gemm import _check_three_passes
+
+    for mac in _odd_accumulated_conv_macs(mode).values():
+        cpu = _check_three_passes(mac, "cpu", stride=2, padding=1)
+        cuda = _check_three_passes(mac, "cuda", stride=2, padding=1)
         for c, d in zip(cpu, cuda, strict=True):
             assert torch.equal(c.view(torch.int32), d.cpu().view(torch.int32)), mac
 

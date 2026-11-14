@@ -146,4 +146,22 @@ namespace mptorch::gemm
                   "_carrier_odd: a, b and c must share one dtype, device and shape");
     }
   }
+
+#if !defined(MPTORCH_ODD_ACCUMULATED)
+  // A build without MPTORCH_ODD_ACCUMULATED=1 (setup.py) compiles no odd
+  // kernel under KAHAN, BLOCK or TREE (common/carrier_odd_accumulate.h). The
+  // *_accumulated_odd ops and the odd conv ops' calls past NAIVE raise here,
+  // naming the flag, from their entry points and Meta kernels, before
+  // anything instantiates a driver on their Args, so the units the flag
+  // leaves out are never referenced. Appended after everything else in this
+  // header, which the Meta units include, so that no line above it moves.
+  [[noreturn]] inline void odd_accumulated_unavailable(const char *op_name)
+  {
+    TORCH_CHECK(false, op_name,
+                ": this build has no kernels for KAHAN, BLOCK and TREE with the carrier step "
+                "rounded to odd (they are built with MPTORCH_ODD_ACCUMULATED=1); use "
+                "AccumulateAlgorithm.NAIVE, keep carrier_rounding=RoundMode.RNE, or rebuild "
+                "with the flag");
+  }
+#endif
 } // namespace mptorch::gemm

@@ -18,6 +18,10 @@ Environment switches, all read at build time:
 ``MPTORCH_NO_ODD=1``
     Leave out the kernels of the carrier step rounded to odd
     (``carrier_rounding=RoundMode.RO``); the odd ops stay registered and raise.
+``MPTORCH_ODD_ACCUMULATED=1``
+    Also build the odd step's kernels under KAHAN, BLOCK and TREE (44% more
+    compile work); without it those calls raise, naming the flag.
+    ``MPTORCH_NO_ODD=1`` overrides it.
 ``USE_MPS=0``
     On macOS, build without the Metal kernels of the MPS backend.
 ``MPTORCH_COMPRESS_FATBIN=0``
@@ -502,6 +506,27 @@ def get_extensions():
         extra_compile_args["nvcc"].append("-DMPTORCH_NO_ODD=1")
     odd_units = {"gemm_odd_tile.cpp", "carrier_odd_kernel.cu"}
 
+    # The odd step under KAHAN, BLOCK and TREE (common/carrier_odd_accumulate.h)
+    # is opt-in at build time: its 72 instantiation files, whose stems end in
+    # _{kahan,block,tree}_odd or _odd_f64, hold as many kernels as the default
+    # accumulated ones, and add 44% to the build's compile work (a clean build
+    # without ccache, 2026-11-14: 1,938 s against 4,420 s for the other 228
+    # units; 6m12s on 16 jobs). Without
+    # MPTORCH_ODD_ACCUMULATED=1 they are left out, and the entry points and
+    # Meta kernels of those calls raise, naming this flag, before they
+    # instantiate a driver. MPTORCH_NO_ODD=1 leaves them out either way.
+    odd_accumulated = not no_odd and os.getenv("MPTORCH_ODD_ACCUMULATED", "0") == "1"
+    if odd_accumulated:
+        print("MPTORCH_ODD_ACCUMULATED=1: building the odd step's KAHAN, BLOCK and TREE kernels.")
+        extra_compile_args["cxx"].append("-DMPTORCH_ODD_ACCUMULATED=1")
+        extra_compile_args["nvcc"].append("-DMPTORCH_ODD_ACCUMULATED=1")
+    else:
+        print(
+            "The odd step's KAHAN, BLOCK and TREE kernels are left out "
+            "(MPTORCH_ODD_ACCUMULATED=1 builds them)."
+        )
+    odd_accumulated_stem = re.compile(r"_(kahan|block|tree)_odd(_f64)?$")
+
     # nvcc stores each .cu file's device code in .nv_fatbin twice: as a native
     # image for the architecture it was built for, and as PTX for any newer
     # one. By default only the PTX is compressed, and the native images are
@@ -546,8 +571,9 @@ def get_extensions():
 
         Sorted so the ninja build file, and with it the incremental rebuild, is
         stable across runs. Relative because setuptools rejects absolute source
-        paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``, and
-        the odd kernels' units under ``MPTORCH_NO_ODD=1``.
+        paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``, the
+        odd kernels' units under ``MPTORCH_NO_ODD=1``, and the odd accumulated
+        ones unless ``MPTORCH_ODD_ACCUMULATED=1``.
         """
         return sorted(
             str(p.relative_to(root))
@@ -557,6 +583,7 @@ def get_extensions():
                 no_odd
                 and (p.stem.endswith("_odd") or p.stem.endswith("_odd_f64") or p.name in odd_units)
             )
+            and not (not odd_accumulated and odd_accumulated_stem.search(p.stem))
         )
 
     # Sources are globbed, so a new kernel file only needs to land in the right

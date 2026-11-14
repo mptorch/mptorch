@@ -90,4 +90,10 @@ TORCH_LIBRARY_IMPL(mptorch, MPS, m)
   m.impl("custom_conv_superfp_fma_mixed_odd", TORCH_FN(superfp_conv_fma_mixed_odd_mps));
   m.impl("custom_conv_binaryK_superfp_odd", TORCH_FN(binaryK_superfp_conv_odd_mps));
   m.impl("custom_conv_superfp_binaryK_odd", TORCH_FN(superfp_binaryK_conv_odd_mps));
+  m.impl("custom_matmul_binaryK_accumulated_odd", TORCH_FN(binaryK_matmul_accumulated_odd_mps));
+  m.impl("custom_matmul_superfp_accumulated_odd", TORCH_FN(superfp_matmul_accumulated_odd_mps));
+  m.impl("custom_matmul_binaryK_fma_accumulated_odd", TORCH_FN(binaryK_matmul_fma_accumulated_odd_mps));
+  m.impl("custom_matmul_superfp_fma_accumulated_odd", TORCH_FN(superfp_matmul_fma_accumulated_odd_mps));
+  m.impl("custom_matmul_binaryK_superfp_accumulated_odd", TORCH_FN(binaryK_superfp_matmul_accumulated_odd_mps));
+  m.impl("custom_matmul_superfp_binaryK_accumulated_odd", TORCH_FN(superfp_binaryK_matmul_accumulated_odd_mps));
 }

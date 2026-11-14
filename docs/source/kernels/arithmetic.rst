@@ -193,14 +193,24 @@ GEMMs, the palettes (:class:`~mptorch.quant.Palette`, each entry held to the
 bound) and the cross-family macs (both formats held to it), split and fused,
 and the three passes of a convolution over any of them
 (:func:`~mptorch.quant.conv_formats`; :doc:`convolutions`), on CPU and CUDA
-tensors in both carriers. The ``custom_matmul_*_odd`` and
-``custom_conv_*_odd`` ops are separate, so the default ones are what they
-were, and a build with ``MPTORCH_NO_ODD=1`` leaves their kernels out (the ops
-then raise, naming the flag). ``KAHAN``, ``BLOCK`` and ``TREE`` rely on
-error-free transforms rounded to nearest, and refuse it. So does an Apple
-GPU. On the CPU it assumes the default floating-point environment; a
-flush-to-zero mode (``torch.set_flush_denormal(True)``) breaks it in
-subnormal ranges, as it does the carrier arithmetic everywhere else.
+tensors in both carriers. ``KAHAN``, ``BLOCK`` and ``TREE`` (below) take it
+too, over a single format or a cross-family mac, GEMM and convolution alike
+(a palette sums with ``NAIVE`` only). They round to odd every carrier
+operation that a format rounds next: ``KAHAN``'s term, sum and both
+differences, ``TREE``'s products and merges, and the folds of ``BLOCK`` and
+``TREE`` when an outer format rounds them, the outer format held to the bound
+too. Each format operation is then correctly rounded, which is what Kahan's
+compensation assumes and what the nearest carrier step can break. Those
+kernels are as many as the default accumulated ones, a large part of the
+build, so they are built only with ``MPTORCH_ODD_ACCUMULATED=1`` (CI sets it);
+without it such a call raises, naming the flag. The ``custom_matmul_*_odd``,
+``custom_matmul_*_accumulated_odd`` and ``custom_conv_*_odd`` ops are
+separate, so the default ones are what they were, and a build with
+``MPTORCH_NO_ODD=1`` leaves all their kernels out (the ops then raise, naming
+the flag). An Apple GPU refuses the odd step. On the CPU it assumes the
+default floating-point environment; a flush-to-zero mode
+(``torch.set_flush_denormal(True)``) breaks it in subnormal ranges, as it
+does the carrier arithmetic everywhere else.
 
 It costs time, mostly on the CPU (``carrier_double_rounding.py bench``,
 measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU):
@@ -218,6 +228,25 @@ CPU, binary64                  1.4-2.7x              1.2-2.1x
 The palettes, the cross-family macs and the convolutions cost what the GEMM
 of their step costs: 1.03-1.14x on CUDA, and on the CPU the scalar loop's
 ratio, or the tile's for a convolution over a format the tiles take.
+
+Under ``KAHAN``, ``BLOCK`` and ``TREE`` (binary8p4 products, binary16p11
+sums, blocks of 16 folded into binary16p11;
+``carrier_double_rounding.py bench-accumulated``):
+
+============================== ===================== =====================
+time against the nearest step  binary32              binary64
+============================== ===================== =====================
+CUDA (a GeForce)               1.04-1.20x            1.3-1.5x
+CPU, one thread                1.7-2.8x              1.65-2.5x
+CPU, sixteen threads           1.2-2.4x              1.5-2.7x
+============================== ===================== =====================
+
+The CPU has no vector tiles for these algorithms, default or odd, and
+``KAHAN`` puts four rounded operations on each step's dependency chain, so
+the CPU pays the odd step's error-free transforms most there. On the formats
+of that table the binary32 and binary64 odd steps agree on every output
+(``rates-accumulated``), while the nearest carriers disagree on up to 0.1%
+of outputs under ``KAHAN`` and 3.3% for a fused ``BLOCK`` over binary24p16.
 
 On a GPU, binary32 rounds to odd with two FMAs in the hardware's directed
 modes and a select. The binary64 kernels of a consumer GPU are limited by its

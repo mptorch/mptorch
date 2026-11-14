@@ -189,3 +189,33 @@ Tensor superfp_binaryK_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c
 {
   no_metal_kernel("custom_conv_superfp_binaryK_odd");
 }
+
+Tensor binaryK_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_accumulated_odd");
+}
+
+Tensor superfp_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_accumulated_odd");
+}
+
+Tensor binaryK_matmul_fma_accumulated_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_fma_accumulated_odd");
+}
+
+Tensor superfp_matmul_fma_accumulated_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_fma_accumulated_odd");
+}
+
+Tensor binaryK_superfp_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_superfp_accumulated_odd");
+}
+
+Tensor superfp_binaryK_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_binaryK_accumulated_odd");
+}

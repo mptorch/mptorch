@@ -64,7 +64,9 @@ from .block import (
     block_quantize_,
 )
 from .ops import (
+    _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_odd_spec,
     _binaryK_fma_accumulated_spec,
     _binaryK_fma_mixed_odd_spec,
     _binaryK_fma_mixed_spec,
@@ -74,16 +76,20 @@ from .ops import (
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
     _binaryK_spec,
+    _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_odd_spec,
     _binaryK_superfp_spec,
     _checked_block_size,
     _checked_carrier,
     _GemmSpec,
+    _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
+    _superfp_binaryK_accumulated_odd_spec,
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
+    _superfp_fma_accumulated_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_odd_spec,
     _superfp_fma_mixed_spec,
@@ -613,9 +619,10 @@ def _checked_carrier_rounding(
 
     ``RO`` selects the ``custom_matmul_*_odd`` and ``custom_conv_*_odd`` ops,
     whose carrier steps round to odd so that the format's cast rounds the
-    exact value. They exist for NAIVE reductions only, single-format,
-    palette and cross-family alike, and their step must be rounded by a
-    format afterwards. Each refusal says so here rather than at the call.
+    exact value: single-format, palette and cross-family, under every
+    accumulate algorithm a mac of that kind takes (a palette NAIVE only,
+    `_checked_accumulation`). Their step must be rounded by a format
+    afterwards, which is the refusal here.
     """
     mode = mac.carrier_rounding
     if not isinstance(mode, RoundMode) or mode not in (RoundMode.RNE, RoundMode.RO):
@@ -625,13 +632,6 @@ def _checked_carrier_rounding(
         )
     if mode is RoundMode.RNE:
         return
-    where = "keep carrier_rounding=RoundMode.RNE"
-    if mac.accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
-        raise ValueError(
-            f"carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only, "
-            f"as KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest: use "
-            f"NAIVE, or {where} (the default)"
-        )
     if slots[0] is None:
         raise ValueError(
             "carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "
@@ -708,11 +708,14 @@ class SplitMac:
             for formats narrow enough: ``P`` at most 22 under ``RNE`` and
             ``RNA``, 23 under the directed modes and ``RO``, and
             ``P + prng_bits`` at most 23 under ``SR``, in binary32 (51, 52
-            and 52 in binary64); a call outside those raises. ``RO`` is
-            implemented for ``NAIVE``, one format per slot and one family,
-            on CPU and CUDA tensors. With ``acc=None`` only the product is
-            rounded to odd, since no format rounds the sum after it.
-            Default: ``RoundMode.RNE``
+            and 52 in binary64), the ``outer`` format's included; a call
+            outside those raises. ``RO`` is implemented on CPU and CUDA
+            tensors, for palettes under ``NAIVE`` and for every other mac
+            under every algorithm: ``KAHAN``, ``BLOCK`` and ``TREE`` round
+            each carrier sum a format rounds next to odd too, in a build
+            with ``MPTORCH_ODD_ACCUMULATED=1`` (without it they raise).
+            With ``acc=None`` only the product is rounded to odd, since no
+            format rounds the sum after it. Default: ``RoundMode.RNE``
 
     Raises:
         ValueError: if ``mul`` is ``None``, if both slots are palettes of
@@ -977,7 +980,7 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         fields["saturation_mode"] = fma_0.saturation
         if isinstance(fma_0, BinaryK):
             fields["subnormals_mode"] = fma_0.subnormals
-        odd = mac.carrier_rounding is RoundMode.RO  # NAIVE (`_checked_carrier_rounding`)
+        odd = mac.carrier_rounding is RoundMode.RO
         if _varies(fma):
             if odd:
                 build = _binaryK_fma_mixed_odd_spec if binaryK else _superfp_fma_mixed_odd_spec
@@ -985,7 +988,14 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
                 build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
             return build(**fields)
         if odd:
-            build = _binaryK_fma_odd_spec if binaryK else _superfp_fma_odd_spec
+            if naive:
+                build = _binaryK_fma_odd_spec if binaryK else _superfp_fma_odd_spec
+            else:
+                build = (
+                    _binaryK_fma_accumulated_odd_spec
+                    if binaryK
+                    else _superfp_fma_accumulated_odd_spec
+                )
             return build(**fields)
         if naive:
             build = _binaryK_fma_spec if binaryK else _superfp_fma_spec
@@ -1011,13 +1021,19 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         if isinstance(acc_0, BinaryK):
             fields["acc_subnormals_mode"] = acc_0.subnormals
     binaryK = isinstance(mul_0, BinaryK)
-    odd = mac.carrier_rounding is RoundMode.RO  # NAIVE (`_checked_carrier_rounding`)
+    odd = mac.carrier_rounding is RoundMode.RO
     if acc is not None and type(acc[0]) is not type(mul_0):
         # Cross-family: one format per slot (`SplitMac.__post_init__`), and
         # the accumulate format is always rounded, so the ops take no flag.
         del fields["accumulate_quant"]
-        if odd:
+        if odd and naive:
             build = _binaryK_superfp_odd_spec if binaryK else _superfp_binaryK_odd_spec
+        elif odd:
+            build = (
+                _binaryK_superfp_accumulated_odd_spec
+                if binaryK
+                else _superfp_binaryK_accumulated_odd_spec
+            )
         elif naive:
             build = _binaryK_superfp_spec if binaryK else _superfp_binaryK_spec
         else:
@@ -1032,7 +1048,10 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
             build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
         return build(**fields)
     if odd:
-        build = _binaryK_odd_spec if binaryK else _superfp_odd_spec
+        if naive:
+            build = _binaryK_odd_spec if binaryK else _superfp_odd_spec
+        else:
+            build = _binaryK_accumulated_odd_spec if binaryK else _superfp_accumulated_odd_spec
         return build(**fields)
     if naive:
         build = _binaryK_spec if binaryK else _superfp_spec

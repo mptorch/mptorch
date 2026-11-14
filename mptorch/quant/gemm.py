@@ -48,19 +48,25 @@ from .block import BlockPacked, _block_gemm_spec, _run_block_gemm, _stored_as
 from .mac import BlockMac, BlockQuant, Mac, _as_block_quant, spec_for_block_mac, spec_for_mac
 from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
+    _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
+    _binaryK_fma_accumulated_odd_spec,
     _binaryK_fma_accumulated_spec,
     _binaryK_fma_odd_spec,
     _binaryK_odd_spec,
+    _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_odd_spec,
     _checked_carrier_rounding_call,
     _gemm_mixed_nd,
     _gemm_nd,
     _run_gemm,
+    _superfp_accumulated_odd_spec,
     _superfp_accumulated_spec,
+    _superfp_binaryK_accumulated_odd_spec,
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
+    _superfp_fma_accumulated_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_odd_spec,
     _superfp_odd_spec,
@@ -238,7 +244,7 @@ def binaryK_gemm_formats(
             Default: ``None``
         carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
             steps to odd, as for :func:`mptorch.quant.binaryK_matmul`,
-            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``
+            for every pass of the layer. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set and every
@@ -261,36 +267,63 @@ def binaryK_gemm_formats(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _binaryK_odd_spec(
-            mul_K=mul_K,
-            mul_P=mul_P,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            accumulate_quant=accumulate_quant,
-            acc_K=acc_K,
-            acc_P=acc_P,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            acc_subnormals_mode=acc_subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _binaryK_accumulated_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _binaryK_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _binaryK_accumulated_spec(
         mul_K=mul_K,
@@ -390,7 +423,7 @@ def binaryK_gemm_formats_fma(
             Default: ``None``
         carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
             steps to odd, as for :func:`mptorch.quant.binaryK_matmul_fma`,
-            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``
+            for every pass of the layer. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -407,29 +440,49 @@ def binaryK_gemm_formats_fma(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _binaryK_fma_odd_spec(
-            fma_K=fma_K,
-            fma_P=fma_P,
-            fma_bias=fma_bias,
-            fma_is_signed=fma_is_signed,
-            fma_quant=fma_quant,
-            fma_prng_bits=fma_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _binaryK_fma_accumulated_odd_spec(
+                fma_K=fma_K,
+                fma_P=fma_P,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _binaryK_fma_odd_spec(
+                fma_K=fma_K,
+                fma_P=fma_P,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _binaryK_fma_accumulated_spec(
         fma_K=fma_K,
@@ -543,7 +596,7 @@ def superfp_gemm_formats(
             Default: ``None``
         carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
             steps to odd, as for :func:`mptorch.quant.superfp_matmul`,
-            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``
+            for every pass of the layer. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -563,37 +616,64 @@ def superfp_gemm_formats(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _superfp_odd_spec(
-            mul_man_bits=mul_man_bits,
-            mul_exp_bits=mul_exp_bits,
-            mul_normal_binades=mul_normal_binades,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            accumulate_quant=accumulate_quant,
-            acc_man_bits=acc_man_bits,
-            acc_exp_bits=acc_exp_bits,
-            acc_normal_binades=acc_normal_binades,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _superfp_accumulated_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _superfp_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _superfp_accumulated_spec(
         mul_man_bits=mul_man_bits,
@@ -689,7 +769,7 @@ def superfp_gemm_formats_fma(
             Default: ``None``
         carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
             steps to odd, as for :func:`mptorch.quant.superfp_matmul_fma`,
-            for every pass of the layer; ``NAIVE`` only. Default: ``RoundMode.RNE``
+            for every pass of the layer. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -707,30 +787,50 @@ def superfp_gemm_formats_fma(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _superfp_fma_odd_spec(
-            fma_man_bits=fma_man_bits,
-            fma_exp_bits=fma_exp_bits,
-            fma_normal_binades=fma_normal_binades,
-            fma_bias=fma_bias,
-            fma_is_signed=fma_is_signed,
-            fma_quant=fma_quant,
-            fma_prng_bits=fma_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _superfp_fma_accumulated_odd_spec(
+                fma_man_bits=fma_man_bits,
+                fma_exp_bits=fma_exp_bits,
+                fma_normal_binades=fma_normal_binades,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _superfp_fma_odd_spec(
+                fma_man_bits=fma_man_bits,
+                fma_exp_bits=fma_exp_bits,
+                fma_normal_binades=fma_normal_binades,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _superfp_fma_accumulated_spec(
         fma_man_bits=fma_man_bits,
@@ -800,7 +900,7 @@ def binaryK_superfp_gemm_formats(
     is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With
     ``BLOCK`` or ``TREE`` the outer format is a superfp one.
     ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
-    every pass, as for :func:`mptorch.quant.ops.binaryK_superfp_matmul`; ``NAIVE`` only.
+    every pass, as for :func:`mptorch.quant.ops.binaryK_superfp_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -819,36 +919,62 @@ def binaryK_superfp_gemm_formats(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _binaryK_superfp_odd_spec(
-            mul_K=mul_K,
-            mul_P=mul_P,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            acc_man_bits=acc_man_bits,
-            acc_exp_bits=acc_exp_bits,
-            acc_normal_binades=acc_normal_binades,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _binaryK_superfp_accumulated_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _binaryK_superfp_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _binaryK_superfp_accumulated_spec(
         mul_K=mul_K,
@@ -918,7 +1044,7 @@ def superfp_binaryK_gemm_formats(
     is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With
     ``BLOCK`` or ``TREE`` the outer format is a binaryK one.
     ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
-    every pass, as for :func:`mptorch.quant.ops.superfp_binaryK_matmul`; ``NAIVE`` only.
+    every pass, as for :func:`mptorch.quant.ops.superfp_binaryK_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -938,35 +1064,61 @@ def superfp_binaryK_gemm_formats(
         torch.Size([32, 64])
     """
     if carrier_rounding is not RoundMode.RNE:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        odd_spec = _superfp_binaryK_odd_spec(
-            mul_man_bits=mul_man_bits,
-            mul_exp_bits=mul_exp_bits,
-            mul_normal_binades=mul_normal_binades,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            acc_K=acc_K,
-            acc_P=acc_P,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            acc_subnormals_mode=acc_subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            odd_spec = _superfp_binaryK_accumulated_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+                carrier=carrier,
+            )
+        else:
+            odd_spec = _superfp_binaryK_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+            )
         return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _superfp_binaryK_accumulated_spec(
         mul_man_bits=mul_man_bits,

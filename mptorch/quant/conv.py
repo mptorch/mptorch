@@ -78,12 +78,18 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed").default,
                 (),
             )
-            # The odd ops (carrier_rounding=RoundMode.RO), NAIVE only: the
-            # single-format one on its twin's accumulated schema, with the
-            # tail, and the palette one on its twin's.
+            # The odd ops (carrier_rounding=RoundMode.RO): the single-format
+            # conv op is on its twin's accumulated schema, so it runs NAIVE
+            # with the tail and the other algorithms as their spec is; the
+            # palette one is NAIVE only, on its twin's schema.
+            odd_conv = getattr(ops, f"custom_conv_{family}{mac}_odd").default
             table[getattr(ops, f"custom_matmul_{family}{mac}_odd").default] = (
-                getattr(ops, f"custom_conv_{family}{mac}_odd").default,
+                odd_conv,
                 _NAIVE_TAIL[family],
+            )
+            table[getattr(ops, f"custom_matmul_{family}{mac}_accumulated_odd").default] = (
+                odd_conv,
+                (),
             )
             table[getattr(ops, f"custom_matmul_{family}{mac}_mixed_odd").default] = (
                 getattr(ops, f"custom_conv_{family}{mac}_mixed_odd").default,
@@ -95,10 +101,9 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
         conv = getattr(ops, f"custom_conv_{mul}_{acc}").default
         table[getattr(ops, f"custom_matmul_{mul}_{acc}").default] = (conv, _NAIVE_TAIL[acc])
         table[getattr(ops, f"custom_matmul_{mul}_{acc}_accumulated").default] = (conv, ())
-        table[getattr(ops, f"custom_matmul_{mul}_{acc}_odd").default] = (
-            getattr(ops, f"custom_conv_{mul}_{acc}_odd").default,
-            _NAIVE_TAIL[acc],
-        )
+        odd_conv = getattr(ops, f"custom_conv_{mul}_{acc}_odd").default
+        table[getattr(ops, f"custom_matmul_{mul}_{acc}_odd").default] = (odd_conv, _NAIVE_TAIL[acc])
+        table[getattr(ops, f"custom_matmul_{mul}_{acc}_accumulated_odd").default] = (odd_conv, ())
     return table
 
 
@@ -349,8 +354,9 @@ def conv_formats(
             its products and its sums in formats of two families, as for a
             GEMM. A palette selects the per-output-element ops, which need
             one map per pass. A mac with ``carrier_rounding=RoundMode.RO``
-            runs the odd conv ops in every pass, ``NAIVE`` only, as its GEMM
-            would.
+            runs the odd conv ops in every pass, under every algorithm its
+            GEMM takes (``KAHAN``, ``BLOCK`` and ``TREE`` in a build with
+            ``MPTORCH_ODD_ACCUMULATED=1``).
         prec_idx (Tensor, optional): the forward's palette map, indexed like
             the output with its spatial dimensions flattened: ``[Cout, OUT]``
             with ``OUT`` the number of output positions, ``[Cout, 1]`` (one

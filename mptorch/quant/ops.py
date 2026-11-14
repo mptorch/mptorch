@@ -782,9 +782,9 @@ def _odd(
 def _checked_naive(accumulate_algorithm: AccumulateAlgorithm) -> None:
     if accumulate_algorithm is not AccumulateAlgorithm.NAIVE:
         raise ValueError(
-            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only: "
-            "KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest; use NAIVE, "
-            "or keep carrier_rounding=RoundMode.RNE with the other algorithms"
+            "carrier_rounding=RoundMode.RO: this op implements AccumulateAlgorithm.NAIVE only; "
+            "KAHAN, BLOCK and TREE are the single-format and cross-family ops' (their "
+            "*_accumulated_odd twins), and the palette ops have none"
         )
 
 
@@ -945,19 +945,92 @@ def _superfp_binaryK_odd_spec(
     return _odd(spec, op, slots, RoundMode(a[10]))
 
 
-def _checked_carrier_rounding_call(carrier_rounding: RoundMode, accumulated: bool) -> None:
-    """A flat wrapper's ``carrier_rounding`` other than RNE: RO, with no accumulation."""
+# The odd step under KAHAN, BLOCK and TREE: the accumulated twin's spec with
+# its op replaced by the *_accumulated_odd one, and the outer format, when one
+# folds the blocks, bounded with the mac's formats (its cast rounds an odd sum
+# too). The tail is the accumulation's (`_binaryK_accumulation`,
+# `_superfp_accumulation`): block_size, outer_quant, the outer format, and its
+# prng_bits last. A NAIVE call never comes here (`_checked_block_size` refuses
+# one that names a block size or an outer format, and the callers send a plain
+# NAIVE call to the NAIVE odd builders).
+
+
+def _odd_accumulated(
+    spec: _GemmSpec,
+    op: Callable,
+    slots: list[tuple[str, int, int]],
+    naive_len: int,
+    outer_superfp: bool,
+    round_mode: int,
+) -> _GemmSpec:
+    """``spec``, an accumulated one, with its op the odd twin ``op``."""
+    tail = spec.args[naive_len:]
+    if tail[1]:  # outer_quant
+        P = tail[2] + 1 if outer_superfp else tail[3]
+        slots = [*slots, ("outer", P, tail[8])]
+    return _odd(spec, op, slots, RoundMode(round_mode))
+
+
+def _binaryK_accumulated_odd_spec(**keywords: Any) -> _GemmSpec:
+    """:func:`_binaryK_accumulated_spec` with the carrier step rounded to odd."""
+    spec = _binaryK_accumulated_spec(**keywords)
+    a = spec.args  # as _binaryK_odd_spec's, then the tail from [17]
+    slots = [("multiply", a[1], a[15])] + ([("accumulate", a[6], a[16])] if a[4] else [])
+    op = torch.ops.mptorch.custom_matmul_binaryK_accumulated_odd.default
+    return _odd_accumulated(spec, op, slots, 17, False, a[10])
+
+
+def _superfp_accumulated_odd_spec(**keywords: Any) -> _GemmSpec:
+    """:func:`_superfp_accumulated_spec` with the carrier step rounded to odd."""
+    spec = _superfp_accumulated_spec(**keywords)
+    a = spec.args  # as _superfp_odd_spec's, then the tail from [17]
+    slots = [("multiply", a[0] + 1, a[15])] + ([("accumulate", a[6] + 1, a[16])] if a[5] else [])
+    op = torch.ops.mptorch.custom_matmul_superfp_accumulated_odd.default
+    return _odd_accumulated(spec, op, slots, 17, True, a[12])
+
+
+def _binaryK_fma_accumulated_odd_spec(*, fma_quant: bool = True, **keywords: Any) -> _GemmSpec:
+    """:func:`_binaryK_fma_accumulated_spec` with the carrier step rounded to odd."""
+    _checked_fma_quant(fma_quant)
+    spec = _binaryK_fma_accumulated_spec(fma_quant=fma_quant, **keywords)
+    a = spec.args  # as _binaryK_fma_odd_spec's, then the tail from [10]
+    op = torch.ops.mptorch.custom_matmul_binaryK_fma_accumulated_odd.default
+    return _odd_accumulated(spec, op, [("fused", a[2], a[9])], 10, False, a[6])
+
+
+def _superfp_fma_accumulated_odd_spec(*, fma_quant: bool = True, **keywords: Any) -> _GemmSpec:
+    """:func:`_superfp_fma_accumulated_spec` with the carrier step rounded to odd."""
+    _checked_fma_quant(fma_quant)
+    spec = _superfp_fma_accumulated_spec(fma_quant=fma_quant, **keywords)
+    a = spec.args  # as _superfp_fma_odd_spec's, then the tail from [10]
+    op = torch.ops.mptorch.custom_matmul_superfp_fma_accumulated_odd.default
+    return _odd_accumulated(spec, op, [("fused", a[1] + 1, a[9])], 10, True, a[7])
+
+
+def _binaryK_superfp_accumulated_odd_spec(**keywords: Any) -> _GemmSpec:
+    """:func:`_binaryK_superfp_accumulated_spec` with the carrier step rounded to odd."""
+    spec = _binaryK_superfp_accumulated_spec(**keywords)
+    a = spec.args  # as _binaryK_superfp_odd_spec's, then the tail from [16]
+    slots = [("multiply", a[1], a[14]), ("accumulate", a[4] + 1, a[15])]
+    op = torch.ops.mptorch.custom_matmul_binaryK_superfp_accumulated_odd.default
+    return _odd_accumulated(spec, op, slots, 16, True, a[10])
+
+
+def _superfp_binaryK_accumulated_odd_spec(**keywords: Any) -> _GemmSpec:
+    """:func:`_superfp_binaryK_accumulated_spec` with the carrier step rounded to odd."""
+    spec = _superfp_binaryK_accumulated_spec(**keywords)
+    a = spec.args  # as _superfp_binaryK_odd_spec's, then the tail from [16]
+    slots = [("multiply", a[0] + 1, a[14]), ("accumulate", a[6], a[15])]
+    op = torch.ops.mptorch.custom_matmul_superfp_binaryK_accumulated_odd.default
+    return _odd_accumulated(spec, op, slots, 16, False, a[10])
+
+
+def _checked_carrier_rounding_call(carrier_rounding: RoundMode) -> None:
+    """A flat wrapper's ``carrier_rounding`` other than RNE: it must be RO."""
     if carrier_rounding is not RoundMode.RO:
         raise ValueError(
             "carrier_rounding is RoundMode.RNE (the carrier's nearest step) or RoundMode.RO "
             f"(rounded to odd), got {carrier_rounding!r}"
-        )
-    if accumulated:
-        raise ValueError(
-            "carrier_rounding=RoundMode.RO is implemented for AccumulateAlgorithm.NAIVE only: "
-            "it takes no block_size and no outer format, since KAHAN, BLOCK and TREE rely on "
-            "error-free transforms rounded to nearest; drop them, or keep "
-            "carrier_rounding=RoundMode.RNE"
         )
 
 
@@ -2118,8 +2191,11 @@ def binaryK_matmul(
             formats with ``P`` at most 22 under ``RNE``/``RNA``, 23 under the
             directed modes and ``RO``, and ``P + prng_bits`` at most 23 under
             ``SR`` in binary32 (51, 52 and 52 in binary64); a call outside
-            those raises. ``RO`` runs the ``custom_matmul_*_odd`` ops: NAIVE
-            only, on CPU and CUDA tensors. With ``accumulate_quant=False``
+            those raises. ``RO`` runs the ``custom_matmul_*_odd`` ops, on CPU
+            and CUDA tensors: under ``KAHAN``, ``BLOCK`` and ``TREE`` the
+            ``*_accumulated_odd`` ones, which also hold the outer format to the
+            bound and need a build with ``MPTORCH_ODD_ACCUMULATED=1``.
+            With ``accumulate_quant=False``
             only the product is rounded to odd. See
             :doc:`/kernels/arithmetic`, "What the carrier rounds".
             Default: ``RoundMode.RNE``
@@ -2216,36 +2292,63 @@ def binaryK_matmul(
             outer_subnormals_mode=outer_subnormals_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _binaryK_odd_spec(
-            mul_K=mul_K,
-            mul_P=mul_P,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            accumulate_quant=accumulate_quant,
-            acc_K=acc_K,
-            acc_P=acc_P,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            acc_subnormals_mode=acc_subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            spec = _binaryK_accumulated_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+            )
+        else:
+            spec = _binaryK_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
 
@@ -2524,37 +2627,64 @@ def superfp_matmul(
             outer_saturation_mode=outer_saturation_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _superfp_odd_spec(
-            mul_man_bits=mul_man_bits,
-            mul_exp_bits=mul_exp_bits,
-            mul_normal_binades=mul_normal_binades,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            accumulate_quant=accumulate_quant,
-            acc_man_bits=acc_man_bits,
-            acc_exp_bits=acc_exp_bits,
-            acc_normal_binades=acc_normal_binades,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            spec = _superfp_accumulated_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+            )
+        else:
+            spec = _superfp_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                accumulate_quant=accumulate_quant,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
 
@@ -2766,29 +2896,49 @@ def binaryK_matmul_fma(
             outer_subnormals_mode=outer_subnormals_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _binaryK_fma_odd_spec(
-            fma_K=fma_K,
-            fma_P=fma_P,
-            fma_bias=fma_bias,
-            fma_is_signed=fma_is_signed,
-            fma_quant=fma_quant,
-            fma_prng_bits=fma_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            spec = _binaryK_fma_accumulated_odd_spec(
+                fma_K=fma_K,
+                fma_P=fma_P,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+            )
+        else:
+            spec = _binaryK_fma_odd_spec(
+                fma_K=fma_K,
+                fma_P=fma_P,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
 
@@ -3000,30 +3150,50 @@ def superfp_matmul_fma(
             outer_saturation_mode=outer_saturation_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _superfp_fma_odd_spec(
-            fma_man_bits=fma_man_bits,
-            fma_exp_bits=fma_exp_bits,
-            fma_normal_binades=fma_normal_binades,
-            fma_bias=fma_bias,
-            fma_is_signed=fma_is_signed,
-            fma_quant=fma_quant,
-            fma_prng_bits=fma_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            spec = _superfp_fma_accumulated_odd_spec(
+                fma_man_bits=fma_man_bits,
+                fma_exp_bits=fma_exp_bits,
+                fma_normal_binades=fma_normal_binades,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+            )
+        else:
+            spec = _superfp_fma_odd_spec(
+                fma_man_bits=fma_man_bits,
+                fma_exp_bits=fma_exp_bits,
+                fma_normal_binades=fma_normal_binades,
+                fma_bias=fma_bias,
+                fma_is_signed=fma_is_signed,
+                fma_quant=fma_quant,
+                fma_prng_bits=fma_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
 
@@ -3257,7 +3427,7 @@ def binaryK_matmul_mixed(
     """
     build = _binaryK_mixed_spec
     if carrier_rounding is not _RNE:
-        _checked_carrier_rounding_call(carrier_rounding, False)
+        _checked_carrier_rounding_call(carrier_rounding)
         build = _binaryK_mixed_odd_spec
     return _gemm_mixed_nd(
         build(
@@ -3500,7 +3670,7 @@ def superfp_matmul_mixed(
     """
     build = _superfp_mixed_spec
     if carrier_rounding is not _RNE:
-        _checked_carrier_rounding_call(carrier_rounding, False)
+        _checked_carrier_rounding_call(carrier_rounding)
         build = _superfp_mixed_odd_spec
     return _gemm_mixed_nd(
         build(
@@ -3680,7 +3850,7 @@ def binaryK_matmul_fma_mixed(
     """
     build = _binaryK_fma_mixed_spec
     if carrier_rounding is not _RNE:
-        _checked_carrier_rounding_call(carrier_rounding, False)
+        _checked_carrier_rounding_call(carrier_rounding)
         build = _binaryK_fma_mixed_odd_spec
     return _gemm_mixed_nd(
         build(
@@ -3853,7 +4023,7 @@ def superfp_matmul_fma_mixed(
     """
     build = _superfp_fma_mixed_spec
     if carrier_rounding is not _RNE:
-        _checked_carrier_rounding_call(carrier_rounding, False)
+        _checked_carrier_rounding_call(carrier_rounding)
         build = _superfp_fma_mixed_odd_spec
     return _gemm_mixed_nd(
         build(
@@ -4205,9 +4375,10 @@ def binaryK_superfp_matmul(
             ``torch.float32`` refuses float64 operands. Default: ``None``,
             the operands' own carrier.
         carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
-            both formats: ``RoundMode.RO`` runs the odd cross-family op, NAIVE
-            only, and the multiply and the accumulate format are each held
-            to the bound. Default: ``RoundMode.RNE``
+            both formats: ``RoundMode.RO`` runs the odd cross-family op, its
+            ``*_accumulated_odd`` twin under ``KAHAN``, ``BLOCK`` and ``TREE``,
+            and the multiply, the accumulate and the outer format are each
+            held to the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -4298,36 +4469,62 @@ def binaryK_superfp_matmul(
             outer_saturation_mode=outer_saturation_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_man_bits is not None
-                or outer_exp_bits is not None
-                or outer_normal_binades is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _binaryK_superfp_odd_spec(
-            mul_K=mul_K,
-            mul_P=mul_P,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            acc_man_bits=acc_man_bits,
-            acc_exp_bits=acc_exp_bits,
-            acc_normal_binades=acc_normal_binades,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            subnormals_mode=subnormals_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_man_bits is not None
+            or outer_exp_bits is not None
+            or outer_normal_binades is not None
+            or outer_bias is not None
+        ):
+            spec = _binaryK_superfp_accumulated_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_man_bits=outer_man_bits,
+                outer_exp_bits=outer_exp_bits,
+                outer_normal_binades=outer_normal_binades,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+            )
+        else:
+            spec = _binaryK_superfp_odd_spec(
+                mul_K=mul_K,
+                mul_P=mul_P,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_man_bits=acc_man_bits,
+                acc_exp_bits=acc_exp_bits,
+                acc_normal_binades=acc_normal_binades,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                subnormals_mode=subnormals_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
 
@@ -4433,9 +4630,10 @@ def superfp_binaryK_matmul(
             ``torch.float32`` refuses float64 operands. Default: ``None``,
             the operands' own carrier.
         carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
-            both formats: ``RoundMode.RO`` runs the odd cross-family op, NAIVE
-            only, and the multiply and the accumulate format are each held
-            to the bound. Default: ``RoundMode.RNE``
+            both formats: ``RoundMode.RO`` runs the odd cross-family op, its
+            ``*_accumulated_odd`` twin under ``KAHAN``, ``BLOCK`` and ``TREE``,
+            and the multiply, the accumulate and the outer format are each
+            held to the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -4520,33 +4718,59 @@ def superfp_binaryK_matmul(
             outer_subnormals_mode=outer_subnormals_mode,
         )
     else:
-        _checked_carrier_rounding_call(
-            carrier_rounding,
-            (
-                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
-                or block_size is not None
-                or outer_K is not None
-                or outer_P is not None
-                or outer_bias is not None
-            ),
-        )
-        spec = _superfp_binaryK_odd_spec(
-            mul_man_bits=mul_man_bits,
-            mul_exp_bits=mul_exp_bits,
-            mul_normal_binades=mul_normal_binades,
-            mul_bias=mul_bias,
-            mul_is_signed=mul_is_signed,
-            mul_prng_bits=mul_prng_bits,
-            acc_K=acc_K,
-            acc_P=acc_P,
-            acc_bias=acc_bias,
-            acc_is_signed=acc_is_signed,
-            acc_prng_bits=acc_prng_bits,
-            accumulate_algorithm=accumulate_algorithm,
-            rounding_mode=rounding_mode,
-            saturation_mode=saturation_mode,
-            acc_saturation_mode=acc_saturation_mode,
-            acc_subnormals_mode=acc_subnormals_mode,
-            carrier=carrier,
-        )
+        _checked_carrier_rounding_call(carrier_rounding)
+        if (
+            accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+            or block_size is not None
+            or outer_K is not None
+            or outer_P is not None
+            or outer_bias is not None
+        ):
+            spec = _superfp_binaryK_accumulated_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+                block_size=block_size,
+                outer_K=outer_K,
+                outer_P=outer_P,
+                outer_bias=outer_bias,
+                outer_is_signed=outer_is_signed,
+                outer_prng_bits=outer_prng_bits,
+                outer_saturation_mode=outer_saturation_mode,
+                outer_subnormals_mode=outer_subnormals_mode,
+            )
+        else:
+            spec = _superfp_binaryK_odd_spec(
+                mul_man_bits=mul_man_bits,
+                mul_exp_bits=mul_exp_bits,
+                mul_normal_binades=mul_normal_binades,
+                mul_bias=mul_bias,
+                mul_is_signed=mul_is_signed,
+                mul_prng_bits=mul_prng_bits,
+                acc_K=acc_K,
+                acc_P=acc_P,
+                acc_bias=acc_bias,
+                acc_is_signed=acc_is_signed,
+                acc_prng_bits=acc_prng_bits,
+                accumulate_algorithm=accumulate_algorithm,
+                rounding_mode=rounding_mode,
+                saturation_mode=saturation_mode,
+                acc_saturation_mode=acc_saturation_mode,
+                acc_subnormals_mode=acc_subnormals_mode,
+                carrier=carrier,
+            )
     return _gemm_nd(spec, a, b, trans_a, trans_b)

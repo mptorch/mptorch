@@ -75,4 +75,10 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("custom_conv_superfp_fma_mixed_odd", superfp_conv_fma_mixed_odd_cuda);
     MPT_CUDA_IMPL("custom_conv_binaryK_superfp_odd", binaryK_superfp_conv_odd_cuda);
     MPT_CUDA_IMPL("custom_conv_superfp_binaryK_odd", superfp_binaryK_conv_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_accumulated_odd", binaryK_matmul_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_accumulated_odd", superfp_matmul_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_fma_accumulated_odd", binaryK_matmul_fma_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_fma_accumulated_odd", superfp_matmul_fma_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_superfp_accumulated_odd", binaryK_superfp_matmul_accumulated_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_binaryK_accumulated_odd", superfp_binaryK_matmul_accumulated_odd_cuda);
 }

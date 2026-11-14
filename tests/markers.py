@@ -57,6 +57,39 @@ HAS_ODD = _odd_works()
 # build without its kernels.
 requires_odd = pytest.mark.skipif(not HAS_ODD, reason="Built with MPTORCH_NO_ODD=1.")
 
+
+def _odd_accumulated_works() -> bool:
+    """Whether this build has the odd step's kernels under KAHAN, BLOCK and
+    TREE: they are built only with ``MPTORCH_ODD_ACCUMULATED=1`` (setup.py),
+    and without them the calls raise, naming the flag."""
+    if not HAS_ODD:
+        return False
+    from mptorch import AccumulateAlgorithm, RoundMode, SaturationMode, SubnormalsMode
+
+    x = torch.ones(1, 1)
+    kahan, rne = AccumulateAlgorithm.KAHAN.value, RoundMode.RNE.value
+    sat, sub = SaturationMode.SAT_NONE.value, SubnormalsMode.SUBNORMALS.value
+    fused = (True, 8, 4, 7, True, kahan, rne, sat, sub, 0)  # fma_quant ... fma_prng_bits
+    no_outer = (0, False, 0, 0, 0, True, 0, 0, 0)  # KAHAN's tail
+    try:
+        torch.ops.mptorch.custom_matmul_binaryK_fma_accumulated_odd(
+            x, x, False, False, *fused, *no_outer
+        )
+    except RuntimeError as e:
+        if "MPTORCH_ODD_ACCUMULATED" in str(e):
+            return False
+        raise
+    return True
+
+
+HAS_ODD_ACCUMULATED = _odd_accumulated_works()
+
+# Skips a test of the odd step under KAHAN, BLOCK or TREE in a build without
+# those kernels.
+requires_odd_accumulated = pytest.mark.skipif(
+    not HAS_ODD_ACCUMULATED, reason="Built without MPTORCH_ODD_ACCUMULATED=1."
+)
+
 _cuda = pytest.param("cuda", marks=requires_cuda)
 _mps = pytest.param("mps", marks=requires_mps)
 

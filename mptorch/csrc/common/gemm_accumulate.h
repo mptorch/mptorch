@@ -113,6 +113,34 @@ struct is_fused_mac<FusedMac<Adder>>
     static constexpr MPTORCH_CONSTANT bool value = true;
 };
 
+// Whether a Mac's carrier operations round to odd (carrier_rounding=
+// RoundMode.RO): false here, true for the odd macs, which
+// common/carrier_odd_accumulate.h says. The algorithms below then take, at
+// each carrier operation a format rounds, its odd twin (odd_sum, odd_diff,
+// odd_fold, defined in that header and found by argument-dependent lookup).
+// The choice is an `if constexpr` in front of the plain statement, which
+// every other Mac compiles exactly as before, and not a function each Mac
+// calls: such hooks, inlined, moved 162 device functions and 22 host objects
+// of the existing kernels when they were tried (their arguments are
+// evaluated in another order than the expression's operands, and the
+// operand order and register allocation followed), while a discarded branch
+// compiles to nothing.
+template <class Mac>
+struct carrier_rounds_to_odd
+{
+    static constexpr MPTORCH_CONSTANT bool value = false;
+};
+
+// The Mac an accumulator drives, given the one its base Args built: that Mac,
+// except where common/carrier_odd_accumulate.h maps an odd split mac to one
+// whose multiply rounds the product to odd, as TREE's product and KAHAN's
+// term take it. A type, so that no statement below changes for it.
+template <class Mac>
+struct accumulate_mac
+{
+    using type = Mac;
+};
+
 // ---------------------------------------------------------------------------
 // Per-output-element state. Plain aggregates, zero-initialized, each naming
 // the field a finished reduction is read from.
@@ -213,6 +241,14 @@ struct KahanAccumulator
                                              int /*pos*/)
     {
         const value_t y = mac_term(cfg.mac, a, b, st.comp, rng);
+        if constexpr (carrier_rounds_to_odd<Mac>::value)
+        {
+            const value_t t = cfg.mac.add(odd_sum(cfg.mac, st.sum, y), rng);
+            st.comp = cfg.mac.add(
+                odd_diff(cfg.mac, cfg.mac.add(odd_diff(cfg.mac, t, st.sum), rng), y), rng);
+            st.sum = t;
+            return;
+        }
         const value_t t = cfg.mac.add(st.sum + y, rng);
         st.comp = cfg.mac.add(cfg.mac.add(t - st.sum, rng) - y, rng);
         st.sum = t;
@@ -286,6 +322,13 @@ struct BlockAccumulator
                                              MPTORCH_THREAD state_type &st,
                                              MPTORCH_THREAD PhiloxEngine &rng)
     {
+        if constexpr (carrier_rounds_to_odd<Mac>::value)
+        {
+            const value_t x = odd_fold(cfg.mac, cfg.outer_quant, st.tot, st.blk);
+            st.tot = cfg.outer_quant ? cfg.outer(x, rng) : x;
+            st.blk = value_t(0);
+            return;
+        }
         const value_t x = st.tot + st.blk;
         st.tot = cfg.outer_quant ? cfg.outer(x, rng) : x;
         st.blk = value_t(0);
@@ -376,6 +419,12 @@ struct TreeAccumulator
                                              MPTORCH_THREAD state_type &st,
                                              MPTORCH_THREAD PhiloxEngine &rng, value_t root)
     {
+        if constexpr (carrier_rounds_to_odd<Mac>::value)
+        {
+            const value_t x = odd_fold(cfg.mac, cfg.outer_quant, st.tot, root);
+            st.tot = cfg.outer_quant ? cfg.outer(x, rng) : x;
+            return;
+        }
         const value_t x = st.tot + root;
         st.tot = cfg.outer_quant ? cfg.outer(x, rng) : x;
     }
@@ -394,6 +443,11 @@ struct TreeAccumulator
             return true;
         if ((i >> l) & 1)
         {
+            if constexpr (carrier_rounds_to_odd<Mac>::value)
+            {
+                v = cfg.mac.add(odd_sum(cfg.mac, slot, v), rng);
+                return true;
+            }
             v = cfg.mac.add(slot + v, rng);
             return true;
         }
@@ -409,6 +463,12 @@ struct TreeAccumulator
     {
         if (!occupied)
             return;
+        if constexpr (carrier_rounds_to_odd<Mac>::value)
+        {
+            v = any ? cfg.mac.add(odd_sum(cfg.mac, slot, v), rng) : slot;
+            any = true;
+            return;
+        }
         v = any ? cfg.mac.add(slot + v, rng) : slot;
         any = true;
     }
@@ -618,7 +678,7 @@ namespace mptorch::gemm
       template <class Naive>
       void operator()(const MPTORCH_THREAD Naive &naive) const
       {
-        using Mac = typename Naive::mac_type;
+        using Mac = typename accumulate_mac<typename Naive::mac_type>::type;
         if constexpr (ALG == AccumulateAlgorithm::KAHAN)
         {
           f(KahanAccumulator<Mac>{naive.mac});
