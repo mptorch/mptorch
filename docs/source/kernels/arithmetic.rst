@@ -231,14 +231,17 @@ ratio, or the tile's for a convolution over a format the tiles take.
 
 Under ``KAHAN``, ``BLOCK`` and ``TREE`` (binary8p4 products, binary16p11
 sums, blocks of 16 folded into binary16p11;
-``carrier_double_rounding.py bench-accumulated``):
+``carrier_double_rounding.py bench-accumulated``, on the same machine and on
+an Apple M3 Pro):
 
 ============================== ===================== =====================
 time against the nearest step  binary32              binary64
 ============================== ===================== =====================
 CUDA (a GeForce)               1.04-1.20x            1.3-1.5x
-CPU, one thread                1.7-2.8x              1.65-2.5x
-CPU, sixteen threads           1.2-2.4x              1.5-2.7x
+Ryzen, one thread              1.7-2.8x              1.65-2.5x
+Ryzen, sixteen threads         1.2-2.4x              1.5-2.7x
+M3 Pro, one thread             1.8-2.85x             1.5-2.2x
+M3 Pro, eleven threads         1.8-2.8x              1.4-2.3x
 ============================== ===================== =====================
 
 The CPU has no vector tiles for these algorithms, default or odd, and
