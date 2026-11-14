@@ -3,9 +3,8 @@
 // in their place.
 //
 // The tiles are the shipped file, compiled in here, so this checks the code
-// the extension runs: on AVX-512 the directed pair by embedded rounding, on
-// AVX2 the directed pair under MXCSR's rounding mode, on NEON (and on x86
-// under MPTORCH_CPU_SIMD=eft) the binary32 error-free transforms, each
+// the extension runs: the directed pair and its parity select, by AVX-512's
+// embedded rounding or under AVX2's MXCSR or NEON's FPCR rounding mode, each
 // followed by cast_binaryK_rne_fast. Each word goes through the three tiles
 // once, against products that are never trivial:
 //
@@ -15,11 +14,8 @@
 //
 // with a_i, b_j and s_l fixed spreads over the exponent range (zeros, signs,
 // subnormals and values near the top included), and through the fused tile
-// once more against moderate a_i and b_j: a pass of the transforms with a
-// lane they cannot hold exactly runs again on the binary64 primitives, which
-// the spreads' tiny and huge products make of nearly every fused call, so
-// these are the calls that take the transforms (every word below 2^125 in
-// magnitude). Then the special cases of the odd step (zero signs, the largest
+// once more against moderate a_i and b_j, the products a training run makes,
+// which the spreads mostly miss. Then the special cases of the odd step (zero signs, the largest
 // finite value, subnormal parity, sums past the carrier, infinities) run
 // through each tile as single lanes. Each result must be the scalar
 // expression's word for word, on the scalar kernel's own cast
@@ -43,7 +39,6 @@
 //       mptorch/csrc/cpu/gemm_odd_tile.cpp -o /tmp/cpu_odd_tile_sweep
 //   /tmp/cpu_odd_tile_sweep                         # the widest ISA the CPU has
 //   MPTORCH_CPU_SIMD=avx2 /tmp/cpu_odd_tile_sweep   # the AVX2 tiles on an AVX-512 CPU
-//   MPTORCH_CPU_SIMD=eft /tmp/cpu_odd_tile_sweep    # NEON's body (the transforms) on x86
 //
 // About 25-30 s per format on 16 threads, the whole tiles included. MPTORCH_CPU_SIMD=0 leaves the tiles
 // null, and the program then says it has nothing to check.

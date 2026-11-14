@@ -30,6 +30,11 @@
 // the per-row loop setup was ~2% (perf). In its own pass each cast is a
 // short chain and its lanes are independent.
 //
+// NEON keeps the row loop below (tile_rows) for the product-only and fused
+// tiles, the loop every tile ran before: with a cast chain that short the
+// passes' store and reload per lane cost the M3 Pro's tiles 2-4%, while its
+// split gained 1.08-1.17x.
+//
 // Measured (dev/benchmarks/timing/cpu_gemm_ab.cpp, Ryzen 9 7940HS at 4.8 GHz,
 // against the row loop; ns per mac at 256^3 on one thread): split 8p4/16p11
 // 0.48 -> 0.39 with AVX-512 and 0.70 -> 0.53 with AVX2, and 1.37-1.51x
@@ -37,6 +42,8 @@
 // on sixteen threads. The fused and product-only tiles: 1.01-1.07x on whole
 // tiles, 1.09-1.18x on ragged ones with AVX-512 (1.04-1.10x with AVX2). Against
 // the scalar kernel after eafa9aa's sign-test reorder the split was 7.5 ns.
+// On an M3 Pro (NEON, one thread, 256^3): split 0.70 -> 0.65; at 1024^3 on
+// eleven threads 1.15-1.17x.
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize("no-trapping-math")
@@ -110,7 +117,37 @@ namespace mptorch::gemm_cpu
       }
     }
 
+    // The loop every tile ran until 2026-11-14, which NEON's product-only and
+    // fused tiles keep (above): K outside the rows, each row one loop doing
+    // the step's every operation.
     template <int KIND>
+    [[gnu::always_inline]] inline void tile_rows(const float *__restrict__ a_pack,
+                                                 const float *__restrict__ b_pack,
+                                                 float *__restrict__ sums, int64_t ti, int64_t tk,
+                                                 int64_t tj, const BinaryKParams &pm,
+                                                 const BinaryKParams &pa)
+    {
+      for (int64_t k = 0; k < tk; ++k)
+        for (int64_t i = 0; i < ti; ++i)
+        {
+          const float a = a_pack[i * tk + k];
+          const float *__restrict__ b = b_pack + k * tj;
+          float *__restrict__ s = sums + i * tj;
+#pragma omp simd
+          for (int64_t j = 0; j < tj; ++j)
+          {
+            if constexpr (KIND == 1)
+              s[j] = cast_binaryK_rne_fast(s[j] + cast_binaryK_rne_fast(a * b[j], pm), pa);
+            else if constexpr (KIND == 2)
+              s[j] = s[j] + cast_binaryK_rne_fast(a * b[j], pm);
+            else
+              s[j] = cast_binaryK_rne_fast(std::fma(a, b[j], s[j]), pa);
+          }
+        }
+    }
+
+    // ROWS: the row loop in place of the passes.
+    template <int KIND, bool ROWS = false>
     [[gnu::always_inline]] inline bool tile_body(const float *__restrict__ a_pack,
                                                  const float *__restrict__ b_pack,
                                                  float *__restrict__ sums, int64_t ti, int64_t tk,
@@ -121,7 +158,9 @@ namespace mptorch::gemm_cpu
       const int64_t n = ti * tj;
       alignas(64) float saved[RNE_TILE_MAX];
       std::memcpy(saved, sums, static_cast<size_t>(n) * sizeof(float));
-      if (ti == 32 && tj == 32 && tk == 32)
+      if constexpr (ROWS)
+        tile_rows<KIND>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
+      else if (ti == 32 && tj == 32 && tk == 32)
         tile_steps<KIND, 32, 32, 32>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
       else
         tile_steps<KIND, 0, 0, 0>(a_pack, b_pack, sums, ti, tk, tj, pm, pa);
@@ -143,7 +182,8 @@ namespace mptorch::gemm_cpu
       return true;
     }
 
-#define MPTORCH_RNE_TILES(SUFFIX, TARGET)                                                          \
+// ROWS: whether the product-only and fused tiles run the row loop.
+#define MPTORCH_RNE_TILES(SUFFIX, TARGET, ROWS)                                                    \
   TARGET bool split_##SUFFIX(const float *a, const float *b, float *s, int64_t ti, int64_t tk,     \
                              int64_t tj, const BinaryKParams &pm, const BinaryKParams &pa)         \
   {                                                                                                \
@@ -152,19 +192,20 @@ namespace mptorch::gemm_cpu
   TARGET bool mul_only_##SUFFIX(const float *a, const float *b, float *s, int64_t ti, int64_t tk,  \
                                 int64_t tj, const BinaryKParams &pm, const BinaryKParams &pa)      \
   {                                                                                                \
-    return tile_body<2>(a, b, s, ti, tk, tj, pm, pa);                                              \
+    return tile_body<2, ROWS>(a, b, s, ti, tk, tj, pm, pa);                                        \
   }                                                                                                \
   TARGET bool fused_##SUFFIX(const float *a, const float *b, float *s, int64_t ti, int64_t tk,     \
                              int64_t tj, const BinaryKParams &pm, const BinaryKParams &pa)         \
   {                                                                                                \
-    return tile_body<3>(a, b, s, ti, tk, tj, pm, pa);                                              \
+    return tile_body<3, ROWS>(a, b, s, ti, tk, tj, pm, pa);                                        \
   }
 
 #if defined(__x86_64__)
-    MPTORCH_RNE_TILES(avx512, __attribute__((target("avx512f,avx512vl,avx512dq,avx512bw,fma"))))
-    MPTORCH_RNE_TILES(avx2, __attribute__((target("avx2,fma"))))
+    MPTORCH_RNE_TILES(avx512, __attribute__((target("avx512f,avx512vl,avx512dq,avx512bw,fma"))),
+                      false)
+    MPTORCH_RNE_TILES(avx2, __attribute__((target("avx2,fma"))), false)
 #elif defined(__aarch64__)
-    MPTORCH_RNE_TILES(neon, )
+    MPTORCH_RNE_TILES(neon, , true)
 #endif
 #undef MPTORCH_RNE_TILES
 
