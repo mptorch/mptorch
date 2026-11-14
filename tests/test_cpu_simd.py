@@ -4,7 +4,9 @@
 vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
 it, and ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
 (``carrier_rounding=RoundMode.RO``); ``MPTORCH_CPU_SIMD``, read when the
-extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
+extension loads, picks the scalar loop (``0``), caps the ISA (``avx2``), or
+runs the odd tiles' binary32 error-free transforms, NEON's body, on x86's AVX2
+(``eft``).
 So each case here runs in an interpreter per setting, and their results must
 agree bit for bit, NaNs included. The cases are the tiles'
 (split, product only, fused, conv), their edges (ragged tiles, batches,
@@ -143,10 +145,11 @@ def _words(t: torch.Tensor) -> torch.Tensor:
 
 
 def test_the_vector_tiles_return_the_scalar_kernels_words(tmp_path):
-    """The scalar loop, the widest tile the CPU has, and AVX2 at most (the
-    same as the widest on a CPU without AVX-512, and on arm64)."""
+    """The scalar loop, the widest tile the CPU has, AVX2 at most (the same as
+    the widest on a CPU without AVX-512, and on arm64), and the odd tiles'
+    transforms (on arm64 the widest again)."""
     scalar = _run(tmp_path, "0")
-    for simd in (None, "avx2"):
+    for simd in (None, "avx2", "eft"):
         vector = _run(tmp_path, simd)
         assert scalar.keys() == vector.keys()
         differ = [k for k in scalar if not torch.equal(_words(scalar[k]), _words(vector[k]))]

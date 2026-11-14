@@ -228,10 +228,11 @@ sum and an exact correction in binary32, and in binary64 an exact product
 split, two sums and a fix of the last bit. The vector tiles take the cases the
 default op runs in vector code (binaryK in binary32 under ``RNE``, one format
 per slot: :doc:`calling`, "Performance notes") and run a whole tile's step at
-once: with AVX-512 through its embedded directed rounding, as the GPU does, at
-about the default tile's cost; with AVX2 or NEON through the binary64
-transforms, at 3-5x it. Before them the odd step of those cases ran the scalar
-loop, 15-22x the default tile.
+once: with AVX-512 through its embedded directed rounding and with AVX2 under
+the processor's rounding mode, set once for each pass over the tile, as the
+GPU does, at 1.05-1.2x the default tile's cost; with NEON through error-free
+transforms in binary32, at binary32's vector width. Before them the odd step
+of those cases ran the scalar loop, 15-22x the default tile.
 
 Summing differently: KAHAN, BLOCK and TREE
 ------------------------------------------

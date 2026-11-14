@@ -13,7 +13,18 @@
 // path for every format here; the program says so if one does not). A block
 // whose tile ends with a NaN is handed back (gemm_rne_tile.h): it must then be
 // as it was, and each of its lanes is run alone, to match the scalar step or
-// be handed back with a NaN the scalar step makes too. Built with the
+// be handed back with a NaN the scalar step makes too.
+//
+// Those calls are one K-step each, which the tiles run with their sizes at
+// run time. A whole tile (32 x 32, a K-block of 32) runs a copy with them
+// fixed, so a second mode runs whole tiles: a sample of the words (one in 64,
+// by an odd multiplier, the NaNs made finite) as the sums entering a K-block
+// of 32 steps, its operands moderate values in most blocks, small values,
+// zeros and subnormals in some, and spreads over the whole range with
+// infinities in others (operand(), below), through all three tiles. Each block runs whole, and again as 32
+// one-step calls, and both must be the scalar steps' result word for word, a
+// handed-back block or step taking the scalar steps as the kernel's loop
+// does; the program prints how many blocks ran whole. Built with the
 // extension's host flags:
 //
 //   g++ -O3 -std=c++20 -fopenmp -ffp-contract=off -DMPTORCH_FAST_CAST=1 \
@@ -22,7 +33,7 @@
 //   /tmp/cpu_rne_tile_sweep                         # the widest ISA the CPU has
 //   MPTORCH_CPU_SIMD=avx2 /tmp/cpu_rne_tile_sweep   # the AVX2 tiles on an AVX-512 CPU
 //
-// About 5 s per format on 16 threads. MPTORCH_CPU_SIMD=0 leaves the tiles
+// About 5 s per format on 16 threads, and as long again for the whole tiles. MPTORCH_CPU_SIMD=0 leaves the tiles
 // null, and the program then says it has nothing to check.
 
 #include "cpu/gemm_rne_tile.h"
@@ -31,6 +42,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 using mptorch::gemm_cpu::rne_tiles;
@@ -148,6 +160,119 @@ namespace
     }
     return bad;
   }
+
+  // The operands of a whole tile's K-block, by the block's kind:
+  //   0  moderate values, |x| in [2^-6, 2): every product is below 4 and so
+  //      finite in every format here, and such a block makes no NaN from a
+  //      finite sum and runs whole;
+  //   1  small ones, zeros and subnormals: |x| in [2^-80, 1), products that
+  //      underflow, and still no NaN;
+  //   2  a spread over the whole range, zeros, subnormals, values near the
+  //      top and infinities, which is mostly handed back.
+  float operand(uint64_t &st, int kind)
+  {
+    st = st * 6364136223846793005ull + 1442695040888963407ull;
+    const uint32_t r = static_cast<uint32_t>(st >> 32);
+    const float m = 1.0f + float(r & 0x7FFFFF) * 0x1p-23f;
+    const float sign = (r >> 31) ? -1.0f : 1.0f;
+    if (kind == 0)
+      return sign * std::ldexp(m, int((r >> 23) % 6) - 6);
+    switch ((r >> 23) % 16)
+    {
+    case 0:
+      return 0.0f;
+    case 1:
+      return sign * std::ldexp(1.0f, -149) * float(1 + (r & 7)); // subnormals
+    case 2:
+      return kind == 1 ? sign * 0x1p-126f : sign * std::numeric_limits<float>::max() * 0.5f;
+    case 3:
+      return kind == 1 ? -0.0f : sign * std::numeric_limits<float>::infinity();
+    default:
+      return kind == 1 ? sign * std::ldexp(m, -int((r >> 8) % 80) - 1)
+                       : sign * std::ldexp(m, int((r >> 8) % 250) - 125);
+    }
+  }
+
+  // The scalar kernel's steps, the tile's kind by kind.
+  float want_step(int kind, float a, float b, float s, const BinaryKParams &p)
+  {
+    auto cast = [&](float v) { return cast_binaryK_nearest_even(v, true, SubnormalsMode::SUBNORMALS, p); };
+    if (kind == 1)
+      return cast(s + cast(a * b));
+    if (kind == 2)
+      return s + cast(a * b);
+    return cast(std::fma(a, b, s));
+  }
+
+  // Mismatches over whole tiles for one format, the header's second mode.
+  uint64_t whole_tiles(const BinaryKParams &p, uint64_t &ran, uint64_t &blocks)
+  {
+    constexpr int64_t T = 32, LANES = T * T, SAMPLE = 64;
+    const mptorch::gemm_cpu::RneTileFn tiles[] = {rne_tiles.split, rne_tiles.mul_only,
+                                                  rne_tiles.fused};
+    uint64_t bad = 0, kept = 0;
+    const int64_t chunks = (int64_t(1) << 32) / (LANES * SAMPLE);
+#pragma omp parallel for reduction(+ : bad, kept) schedule(dynamic, 16)
+    for (int64_t chunk = 0; chunk < chunks; ++chunk)
+    {
+      alignas(64) float a[LANES], b[LANES], x[LANES], whole[LANES], steps[LANES], want[LANES];
+      alignas(64) float a_k[T];
+      uint64_t st = 0x9E3779B97F4A7C15ull ^ static_cast<uint64_t>(chunk);
+      const int kind_of_block = chunk % 8 < 6 ? 0 : chunk % 8 == 6 ? 1 : 2;
+      for (int64_t l = 0; l < LANES; ++l)
+      {
+        a[l] = operand(st, kind_of_block); // a[i * T + k]
+        b[l] = operand(st, kind_of_block); // b[k * T + j]
+        // a NaN word would hand every block back: the first mode has those
+        const uint32_t w = static_cast<uint32_t>((chunk * LANES + l) * 0x9E3779B1u);
+        x[l] = bits_float((w & 0x7FFFFFFFu) > 0x7F800000u ? w & ~0x00800000u : w);
+      }
+      for (int kind = 1; kind <= 3; ++kind)
+      {
+        const auto tile = tiles[kind - 1];
+        // the scalar steps
+        std::memcpy(want, x, sizeof want);
+        for (int64_t k = 0; k < T; ++k)
+          for (int64_t l = 0; l < LANES; ++l)
+            want[l] = want_step(kind, a[(l / T) * T + k], b[k * T + l % T], want[l], p);
+        // whole, or handed back to the scalar steps
+        std::memcpy(whole, x, sizeof whole);
+        const bool whole_ran = tile(a, b, whole, T, T, T, p, p);
+        kept += whole_ran;
+        if (!whole_ran)
+        {
+          for (int64_t l = 0; l < LANES; ++l)
+            bad += float_bits(whole[l]) != float_bits(x[l]);
+          std::memcpy(whole, want, sizeof whole);
+          bool nan = false;
+          for (int64_t l = 0; l < LANES; ++l)
+            nan |= std::isnan(want[l]);
+          bad += !nan; // handed back with no NaN at the block's end
+        }
+        // one K-step a call, each handed back to the scalar step
+        std::memcpy(steps, x, sizeof steps);
+        for (int64_t k = 0; k < T; ++k)
+        {
+          for (int64_t i = 0; i < T; ++i)
+            a_k[i] = a[i * T + k];
+          if (!tile(a_k, b + k * T, steps, T, 1, T, p, p))
+            for (int64_t l = 0; l < LANES; ++l)
+              steps[l] = want_step(kind, a[(l / T) * T + k], b[k * T + l % T], steps[l], p);
+        }
+        // A NaN's payload is the scalar loop's (a sum of two NaNs returns one
+        // by operand order, which the compiler may commute in it too): a
+        // block whose sums end with a NaN is handed back, so a block the tile
+        // kept has none, and NaN = NaN is all a handed-back one can check.
+        auto same = [](float u, float v)
+        { return float_bits(u) == float_bits(v) || (std::isnan(u) && std::isnan(v)); };
+        for (int64_t l = 0; l < LANES; ++l)
+          bad += !same(whole[l], want[l]) + !same(steps[l], want[l]);
+      }
+    }
+    ran = kept;
+    blocks = 3 * chunks;
+    return bad;
+  }
 } // namespace
 
 int main()
@@ -169,7 +294,8 @@ int main()
       {22, 7, 63, SaturationMode::SAT_FINITE, "P = 23, 7 exponent bits"},
       {5, 6, 31, SaturationMode::SAT_NONE, "P = 6, 6 exponent bits"},
   };
-  std::printf("isa %s, every binary32 word through the fused and split tiles\n", rne_tiles.isa);
+  std::printf("isa %s, every binary32 word through the fused and split tiles, and whole tiles\n",
+              rne_tiles.isa);
   uint64_t total = 0;
   int checked = 0;
   for (const Format &f : formats)
@@ -181,8 +307,10 @@ int main()
       std::printf("  %-36s the fast gate is off: not the tile's case, skipped\n", f.name);
       continue;
     }
-    const uint64_t bad = sweep(p);
-    std::printf("  %-36s %llu mismatches\n", f.name, (unsigned long long)bad);
+    uint64_t ran = 0, blocks = 0;
+    const uint64_t bad = sweep(p) + whole_tiles(p, ran, blocks);
+    std::printf("  %-36s %llu mismatches (whole tiles: %llu of %llu blocks ran whole)\n", f.name,
+                (unsigned long long)bad, (unsigned long long)ran, (unsigned long long)blocks);
     total += bad;
     ++checked;
   }

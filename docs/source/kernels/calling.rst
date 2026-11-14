@@ -327,13 +327,14 @@ Performance notes
   signed, keep their subnormals, not saturate with ``SAT_PROPAGATE``, and
   have a precision from 2 to 23 bits and a range well inside binary32's (in
   practice at most seven exponent bits). The results are the scalar loop's,
-  word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-10x the scalar loop
-  on one thread (a split step 3.5 to 0.49 ns) and 8-12x on sixteen; on an M3
+  word for word. On a Ryzen 9 7940HS (AVX-512) that is 8-11x the scalar loop
+  on one thread (a split step 3.5 to 0.40 ns) and 8-13x on sixteen; on an M3
   Pro (NEON) about 4x at every thread count (0.69 ns a split step on one).
   The odd carrier step (``carrier_rounding=RoundMode.RO``) has vector tiles
-  for the same cases: with AVX-512 it runs at 0.9-1.2x the default tile on
-  one thread, through the directed roundings the instruction set has, and
-  with AVX2 or NEON at about 3-5x, through binary64 error-free transforms.
+  for the same cases: with AVX-512 it runs at 1.05-1.1x the default tile on
+  one thread, through the directed roundings the instruction set has, with
+  AVX2 at 1.1-1.2x, through the same roundings under the processor's
+  rounding mode, and with NEON through error-free transforms in binary32.
   Every other mode, format and accumulator runs the scalar loop, palettes
   included, and so does any call under the environment variable
   ``MPTORCH_CPU_SIMD=0``, read when mptorch loads.

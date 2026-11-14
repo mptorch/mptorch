@@ -26,8 +26,13 @@
 // -DMPTORCH_AB_ODD adds the odd carrier step's GEMMs (carrier_rounding=
 // RoundMode.RO; OddArgs over the same Args, named "odd ..."), for a tree
 // with cpu/custom_matmul_odd_kernel.h; link $tree/cpu/gemm_odd_tile.cpp too,
-// whose vector tiles MPTORCH_CPU_SIMD=0 turns off as it does the RNE ones.
-// Leave it off for an A/B of the default kernels against a tree without it.
+// whose vector tiles MPTORCH_CPU_SIMD=0 turns off as it does the RNE ones
+// (and MPTORCH_CPU_SIMD=eft runs on x86 with NEON's body, the binary32
+// transforms). Leave it off for an A/B of the default kernels against a tree
+// without it. On arm64, a second binary with gemm_odd_tile.cpp compiled
+// under -DMPTORCH_ODD_NEON_FPCR runs NEON's odd tiles as the directed pair
+// under FPCR's rounding mode instead of the transforms: the two binaries,
+// alternated, are that choice's A/B (its "odd ..." rows; the hashes agree).
 //
 // Run each with `--threads N --reps R [--n SIZE] [--only SUBSTRING]`,
 // alternating the binaries; --only runs the cases whose name contains it (for
