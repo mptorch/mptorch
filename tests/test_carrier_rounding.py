@@ -35,20 +35,38 @@ from mptorch import AccumulateAlgorithm, BinaryK, RoundMode, SaturationMode, Sup
 from mptorch.quant import (
     FusedMac,
     Palette,
+    QConv2d,
     QLinear,
+    QMatmul,
     SplitMac,
     binaryK_gemm_formats_fma,
     binaryK_matmul,
     binaryK_matmul_fma,
+    binaryK_matmul_fma_mixed,
+    binaryK_matmul_mixed,
     binaryK_quantize,
+    binaryK_superfp_matmul,
     conv_formats,
+    matmul_formats,
     qmm,
     superfp_matmul,
     superfp_matmul_fma,
     superfp_quantize,
 )
+from mptorch.quant.mac import spec_for_mac
 
-from .markers import available_devices, float64_devices, requires_cuda, requires_mps
+from .markers import (
+    available_devices,
+    float64_devices,
+    requires_cuda,
+    requires_mps,
+    requires_odd,
+)
+
+# Every test here runs an odd op, or the default op beside one; a build with
+# MPTORCH_NO_ODD=1 has none of their kernels (test_fake_kernels.py holds its
+# ops to raising, naming the flag).
+pytestmark = requires_odd
 
 R = RoundMode
 DETERMINISTIC = (R.RNE, R.RNA, R.RU, R.RD, R.RZ, R.RO)
@@ -362,6 +380,17 @@ def test_the_odd_ops_have_no_mps_kernel():
         odd_op(a, a, a, FMA)
     with pytest.raises(RuntimeError, match="no MPS kernel"):
         binaryK_matmul_fma(a, a, fma_K=8, fma_P=4, carrier_rounding=R.RO)
+    idx = torch.zeros(2, 2, dtype=torch.int32, device="mps")
+    with pytest.raises(RuntimeError, match="no MPS kernel"):
+        binaryK_matmul_mixed(a, a, idx, mul_K=[8, 8], mul_P=[4, 3], carrier_rounding=R.RO)
+    with pytest.raises(RuntimeError, match="no MPS kernel"):
+        binaryK_superfp_matmul(
+            a, a, mul_K=8, mul_P=4, acc_man_bits=3, acc_exp_bits=4, acc_normal_binades=8,
+            acc_bias=7, carrier_rounding=R.RO,
+        )  # fmt: skip
+    layer = QConv2d(1, 1, 1, formats=conv_formats(FusedMac(BinaryK(8, 4), carrier_rounding=R.RO)))
+    with pytest.raises(RuntimeError, match="no MPS kernel"):
+        layer.to("mps")(torch.ones(1, 1, 2, 2, device="mps"))
 
 
 # --- the GEMMs ----------------------------------------------------------------
@@ -399,10 +428,14 @@ def _ro53(values: list[Fraction]) -> torch.Tensor:
     return torch.tensor([float(_ro(v, torch.float64)) for v in values], dtype=torch.float64)
 
 
-def _reference(a: torch.Tensor, b: torch.Tensor, mac: str, fmt, mode: RoundMode) -> torch.Tensor:
+def _reference(
+    a: torch.Tensor, b: torch.Tensor, mac: str, fmt, mode: RoundMode, acc=None
+) -> torch.Tensor:
     """Each step's exact value, rounded to odd at 53 bits and then to the
     format by the binary64 quantizer: the format's rounding of the exact
-    value, for a format inside binary64's bound."""
+    value, for a format inside binary64's bound. A split mac's sums are
+    rounded to ``acc`` when it is given (a cross-family mac), else to
+    ``fmt``."""
     A = [[Fraction(v) for v in row] for row in a.double().tolist()]
     B = [[Fraction(v) for v in row] for row in b.double().tolist()]
     M, K, N = len(A), len(B), len(B[0])
@@ -414,7 +447,7 @@ def _reference(a: torch.Tensor, b: torch.Tensor, mac: str, fmt, mode: RoundMode)
         else:
             qp = _quantize64(_ro53(prods), fmt, mode).tolist()
             sums = [t + Fraction(v) for t, v in zip(s, qp, strict=True)]
-            q = _quantize64(_ro53(sums), fmt, mode)
+            q = _quantize64(_ro53(sums), fmt if acc is None else acc, mode)
         s = [Fraction(v) for v in q.tolist()]
     return torch.tensor([float(v) for v in s], dtype=torch.float64).reshape(M, N)
 
@@ -619,12 +652,45 @@ def test_sr_holds_precision_and_random_bits_together():
             BinaryK(8, 4), accumulate_algorithm=AccumulateAlgorithm.KAHAN, carrier_rounding=R.RO
         ),
         lambda: SplitMac(
-            Palette([BinaryK(8, 4), BinaryK(8, 3)]), BinaryK(8, 4), carrier_rounding=R.RO
+            BinaryK(8, 4),
+            SuperFP(3, 4, 8, 7),
+            accumulate_algorithm=AccumulateAlgorithm.TREE,
+            block_size=4,
+            carrier_rounding=R.RO,
         ),
-        lambda: SplitMac(BinaryK(8, 4), SuperFP(3, 4, 8, 7), carrier_rounding=R.RO),
         lambda: FusedMac(None, carrier_rounding=R.RO),
         lambda: FusedMac(BinaryK(8, 4), carrier_rounding=R.RD),
-        lambda: conv_formats(FusedMac(BinaryK(8, 4), carrier_rounding=R.RO)),
+        lambda: binaryK_superfp_matmul(
+            torch.ones(2, 2),
+            torch.ones(2, 2),
+            mul_K=8,
+            mul_P=4,
+            acc_man_bits=3,
+            acc_exp_bits=4,
+            acc_normal_binades=8,
+            acc_bias=7,
+            block_size=4,
+            accumulate_algorithm=AccumulateAlgorithm.BLOCK,
+            carrier_rounding=R.RO,
+        ),
+        lambda: binaryK_matmul_mixed(
+            torch.ones(2, 2),
+            torch.ones(2, 2),
+            torch.zeros(2, 2, dtype=torch.int32),
+            mul_K=[8, 8],
+            mul_P=[4, 3],
+            accumulate_algorithm=AccumulateAlgorithm.KAHAN,
+            carrier_rounding=R.RO,
+        ),
+        lambda: binaryK_matmul_fma_mixed(
+            torch.ones(2, 2),
+            torch.ones(2, 2),
+            torch.zeros(2, 2, dtype=torch.int32),
+            fma_K=[8, 8],
+            fma_P=[4, 3],
+            fma_quant=False,
+            carrier_rounding=R.RO,
+        ),
         lambda: binaryK_matmul_fma(
             torch.ones(2, 2),
             torch.ones(2, 2),
@@ -645,11 +711,12 @@ def test_sr_holds_precision_and_random_bits_together():
     ],
     ids=[
         "kahan",
-        "palette",
-        "cross-family",
+        "cross-family TREE",
         "unrounded fma",
         "not RNE or RO",
-        "conv",
+        "flat cross-family BLOCK",
+        "flat palette KAHAN",
+        "flat palette fma_quant=False",
         "flat BLOCK",
         "fma_quant=False",
     ],
@@ -680,3 +747,286 @@ def test_a_qlinear_runs_the_odd_step_in_every_pass(device):
     out.sum().backward()
     g = torch.ones_like(out)
     assert x.grad is not None and torch.equal(x.grad, qmm(g, layer.weight.detach(), mac))
+
+
+# --- the conv passes, the cross-family macs and the palettes ------------------
+#
+# Each is an existing op's twin with the carrier steps rounded to odd: the
+# cross-family GEMMs are held to the exact reference with the accumulate
+# format in the other family, the palette GEMMs entry by entry to the
+# single-format odd GEMMs, and every conv pass to the odd GEMM over the
+# unfolded operands (tests/test_qconv_gemm.py's references, which run the
+# spec they are given).
+
+CROSS = [(BK, SF), (SF, BK)]
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("pair", CROSS, ids=["binaryK_superfp", "superfp_binaryK"])
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_odd_cross_family_gemm_rounds_each_exact_step(device, dtype, pair, mode):
+    mul, acc = pair
+    a, b = _gemm_operands(dtype, seed=zlib.crc32(f"cross{mul}{mode.name}".encode()))
+    want = _reference(a, b, "split", mul, mode, acc=acc).to(dtype)
+    mac = SplitMac(mul, acc, rounding=mode, carrier_rounding=R.RO)
+    assert torch.equal(qmm(a.to(device), b.to(device), mac).cpu(), want)
+
+
+# Two entries per palette, both inside every deterministic mode's bound.
+PALETTE_ENTRIES = {
+    "binaryK": [BK, BinaryK(22, 15)],
+    "superfp": [SF, SuperFP(man_bits=12, exp_bits=6, normal_binades=40, bias=31)],
+}
+
+
+def _odd_mac(kind: str, fmt, mode: RoundMode) -> FusedMac | SplitMac:
+    if kind == "fused":
+        return FusedMac(fmt, rounding=mode, carrier_rounding=R.RO)
+    acc = None if kind == "split unrounded sum" else fmt
+    return SplitMac(fmt, acc, rounding=mode, carrier_rounding=R.RO)
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("family", list(PALETTE_ENTRIES))
+@pytest.mark.parametrize("kind", ["fused", "split", "split unrounded sum"])
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_each_odd_palette_entry_is_its_formats_odd_gemm(device, dtype, family, kind, mode):
+    entries = PALETTE_ENTRIES[family]
+    a, b = _gemm_operands(dtype, seed=zlib.crc32(f"pal{family}{kind}{mode.name}".encode()))
+    a, b = a.to(device), b.to(device)
+    M, N = a.shape[0], b.shape[1]
+    idx = (torch.arange(M * N, device=device) % len(entries)).to(torch.int32).view(M, N)
+    got = qmm(a, b, _odd_mac(kind, Palette(entries), mode), prec_idx=idx)
+    for i, fmt in enumerate(entries):
+        want = qmm(a, b, _odd_mac(kind, fmt, mode))
+        assert torch.equal(got[idx == i], want[idx == i])
+
+
+def test_a_palette_entry_outside_the_bound_raises():
+    a = torch.ones(2, 2)
+    idx = torch.zeros(2, 2, dtype=torch.int32)
+    kw: dict[str, Any] = dict(rounding_mode=R.RNE, carrier_rounding=R.RO)
+    binaryK_matmul_mixed(a, a, idx, mul_K=[28, 28], mul_P=[22, 21], **kw)
+    with pytest.raises(ValueError, match="multiply \\(entry 1\\) format's P is 23"):
+        binaryK_matmul_mixed(a, a, idx, mul_K=[28, 28], mul_P=[22, 23], **kw)
+    # binary64 holds it, and the accumulate entries are held as well
+    binaryK_matmul_mixed(a.double(), a.double(), idx, mul_K=[28, 28], mul_P=[22, 23], **kw)
+    with pytest.raises(ValueError, match="accumulate \\(entry 0\\)"):
+        binaryK_matmul_mixed(
+            a, a, idx, mul_K=[8, 8], mul_P=[4, 3], acc_K=[30, 30], acc_P=[23, 4], **kw
+        )
+
+
+def test_a_cross_family_format_outside_the_bound_raises():
+    a = torch.ones(2, 2)
+    kw: dict[str, Any] = dict(mul_K=8, mul_P=4, acc_exp_bits=6, acc_normal_binades=40)
+    kw |= dict(acc_bias=31, rounding_mode=R.RNE, carrier_rounding=R.RO)
+    binaryK_superfp_matmul(a, a, acc_man_bits=21, **kw)  # P = 22
+    with pytest.raises(ValueError, match="accumulate format's P is 23"):
+        binaryK_superfp_matmul(a, a, acc_man_bits=22, **kw)
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_the_mac_tier_and_the_flat_tier_run_the_same_odd_palette(device):
+    a, b = _gemm_operands(torch.float32, seed=11)
+    a, b = a.to(device), b.to(device)
+    idx = (torch.arange(30, device=device) % 2).to(torch.int32).view(6, 5)
+    mac = SplitMac(Palette(PALETTE_ENTRIES["binaryK"]), None, rounding=R.RD, carrier_rounding=R.RO)
+    flat = binaryK_matmul_mixed(
+        a, b, idx, mul_K=[28, 22], mul_P=[22, 15], accumulate_quant=False,
+        rounding_mode=R.RD, carrier_rounding=R.RO,
+    )  # fmt: skip
+    assert torch.equal(qmm(a, b, mac, prec_idx=idx), flat)
+
+
+# SR is not compared: the CPU and CUDA kernels draw from different generators.
+@requires_cuda
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_cpu_and_cuda_odd_palette_and_cross_gemms_agree_word_for_word(dtype, mode):
+    torch.manual_seed(6)
+    a = torch.randn(33, 70, dtype=dtype) * torch.pow(2.0, torch.randint(-8, 9, (33, 70)))
+    b = torch.randn(70, 17, dtype=dtype)
+    idx = torch.randint(0, 2, (33, 17), dtype=torch.int32)
+    word = torch.int32 if dtype is torch.float32 else torch.int64
+    bk = Palette([BinaryK(16, 11), BinaryK(16, 9)])
+    sf = Palette([SuperFP(9, 5, 16, 15), SuperFP(7, 5, 16, 15)])
+    for mac, kw in (
+        (FusedMac(bk, rounding=mode, carrier_rounding=R.RO), {"prec_idx": idx}),
+        (SplitMac(bk, bk, rounding=mode, carrier_rounding=R.RO), {"prec_idx": idx}),
+        (SplitMac(sf, None, rounding=mode, carrier_rounding=R.RO), {"prec_idx": idx}),
+        (FusedMac(sf, rounding=mode, carrier_rounding=R.RO), {"prec_idx": idx}),
+        (
+            SplitMac(BinaryK(16, 11), SuperFP(9, 5, 16, 15), rounding=mode, carrier_rounding=R.RO),
+            {},
+        ),
+        (
+            SplitMac(SuperFP(9, 5, 16, 15), BinaryK(16, 11), rounding=mode, carrier_rounding=R.RO),
+            {},
+        ),
+    ):
+        cpu = qmm(a, b, mac, **kw)
+        cuda = qmm(a.cuda(), b.cuda(), mac, **{k: v.cuda() for k, v in kw.items()}).cpu()
+        assert torch.equal(cpu.view(word), cuda.view(word)), mac
+
+
+# --- conv ------------------------------------------------------------------------
+
+B12 = BinaryK(16, 11)
+S12 = SuperFP(9, 5, 16, 15)
+
+
+def _odd_conv_macs(mode: RoundMode) -> dict[str, FusedMac | SplitMac]:
+    return {
+        "bk_split": SplitMac(BinaryK(12, 7), B12, rounding=mode, carrier_rounding=R.RO),
+        "bk_split_noacc": SplitMac(BinaryK(12, 7), None, rounding=mode, carrier_rounding=R.RO),
+        "bk_fused": FusedMac(B12, rounding=mode, carrier_rounding=R.RO),
+        "sf_split": SplitMac(SuperFP(5, 5, 16, 15), S12, rounding=mode, carrier_rounding=R.RO),
+        "sf_fused": FusedMac(S12, rounding=mode, carrier_rounding=R.RO),
+        "bk_sf_split": SplitMac(BinaryK(12, 7), S12, rounding=mode, carrier_rounding=R.RO),
+        "sf_bk_split": SplitMac(SuperFP(5, 5, 16, 15), B12, rounding=mode, carrier_rounding=R.RO),
+    }
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("mode", (*DETERMINISTIC, R.SR), ids=lambda m: m.name)
+@pytest.mark.parametrize("which", list(_odd_conv_macs(R.RNE)))
+def test_every_odd_conv_pass_is_the_odd_gemm_over_the_unfold(device, mode, which):
+    from .test_qconv_gemm import _check_three_passes
+
+    mac = _odd_conv_macs(mode)[which]
+    assert str(spec_for_mac(mac).op).endswith("_odd.default")
+    _check_three_passes(mac, device, stride=(2, 1), padding=(1, 0))
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("which", ["bk_split", "sf_fused", "bk_sf_split"])
+def test_the_odd_conv_ops_compute_in_binary64(device, which):
+    from .test_qconv_gemm import _check_three_passes
+
+    mac = _odd_conv_macs(R.RU)[which]
+    _check_three_passes(mac, device, stride=2, padding=1, dtype=torch.float64)
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize(
+    "geometry", ["1d_strided", "2d_all", "2d_groups", "2d_depthwise", "3d_all"]
+)
+def test_the_odd_conv_ops_hold_over_the_geometries(device, geometry):
+    from .test_qconv_gemm import GEOMETRIES, _check_three_passes
+
+    size, kernel, stride, padding, dilation, groups, C, Cout = GEOMETRIES[geometry]
+    for mac in (
+        _odd_conv_macs(R.RU)["bk_split"],
+        _odd_conv_macs(R.RD)["sf_fused"],
+        _odd_conv_macs(R.RZ)["sf_bk_split"],
+    ):
+        _check_three_passes(
+            mac, device, C=C, Cout=Cout, size=size, kernel=kernel, stride=stride,
+            padding=padding, dilation=dilation, groups=groups,
+        )  # fmt: skip
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("mode", [R.RU, R.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("stride", [1, 2])
+@pytest.mark.parametrize("kind", ["split", "fused"])
+def test_the_odd_palette_conv_passes(device, mode, stride, kind):
+    from .test_qconv_gemm import _check_three_passes, _out
+
+    pal = Palette([B12, BinaryK(16, 8)])
+    mac = _odd_mac(kind, pal, mode)
+    B, C, Cout, groups, size, kernel = 2, 4, 6, 2, (7, 6), (3, 3)
+    out = _out(size, kernel, (stride,) * 2, (1, 1), (1, 1))
+    g = torch.Generator().manual_seed(3)
+    maps = (
+        torch.randint(0, 2, (Cout, out[0] * out[1]), generator=g).to(device),
+        torch.randint(0, 2, (C, size[0] * size[1]), generator=g).to(device),
+        torch.randint(0, 2, (Cout, C // groups * 9), generator=g).to(device),
+    )
+    _check_three_passes(
+        mac, device, B=B, C=C, Cout=Cout, size=size, kernel=kernel, stride=stride, padding=1,
+        groups=groups, maps=maps,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_odd_strided_igrad_is_the_zero_inserted_sum_under_naive(device, mode):
+    """The input gradient's residue classes leave out the products of the
+    zeros a stride inserts. The odd step keeps a zero term exact
+    (fma_odd(0, b, s) = s, add_odd(s, 0) = s), so the equality R-4 states
+    for the nearest step holds for it too."""
+    from .test_qconv_gemm import _hooks, _strided_operands, ref_igrad_zero_inserted
+
+    x, w, dy, geo, (size, s, p, d, groups) = _strided_operands("2d_s2", device)
+    for mac in _odd_conv_macs(mode).values():
+        _, igrad, _ = _hooks(conv_formats(mac))
+        dx = igrad(dy, w, input_size=x.shape, **geo)
+        ref = ref_igrad_zero_inserted(spec_for_mac(mac), dy, w, size, s, p, d, groups)
+        assert torch.equal(dx, ref)
+
+
+@requires_cuda
+@pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
+def test_the_cpu_and_cuda_odd_conv_passes_agree_word_for_word(mode):
+    from .test_qconv_gemm import _check_three_passes
+
+    g = torch.Generator().manual_seed(4)
+    palette_maps = tuple(torch.randint(0, 2, n, generator=g) for n in ((5, 1), (3, 1), (5, 1)))
+    none: tuple[torch.Tensor | None, ...] = (None, None, None)
+    cases: list[tuple[FusedMac | SplitMac, tuple[torch.Tensor | None, ...]]] = [
+        (m, none) for m in _odd_conv_macs(mode).values()
+    ]
+    cases.append((_odd_mac("fused", Palette([B12, BinaryK(16, 8)]), mode), palette_maps))
+    for mac, maps in cases:
+        cpu = _check_three_passes(mac, "cpu", stride=2, padding=1, maps=maps)
+        cuda_maps = tuple(None if m is None else m.cuda() for m in maps)
+        cuda = _check_three_passes(mac, "cuda", stride=2, padding=1, maps=cuda_maps)
+        for c, d in zip(cpu, cuda, strict=True):
+            assert torch.equal(c.view(torch.int32), d.cpu().view(torch.int32)), mac
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_a_qconv2d_runs_the_odd_step_in_every_pass(device):
+    from .test_qconv_gemm import ref_fwd, ref_igrad, ref_wgrad
+
+    torch.manual_seed(9)
+    mac = FusedMac(B12, rounding=R.RU, carrier_rounding=R.RO)
+    layer = QConv2d(3, 4, 3, stride=2, padding=1, bias=False, formats=conv_formats(mac))
+    layer = layer.to(device)
+    x = torch.randn(2, 3, 9, 8, device=device, requires_grad=True)
+    y = layer(x)
+    spec = spec_for_mac(mac)
+    w = layer.weight.detach()
+    geo = ((2, 2), (1, 1), (1, 1), 1)
+    with torch.no_grad():
+        assert torch.equal(y, ref_fwd(spec, x, w, *geo, tuple(y.shape[2:])))
+    dy = torch.randn_like(y)
+    y.backward(dy)
+    assert x.grad is not None and layer.weight.grad is not None
+    assert torch.equal(x.grad, ref_igrad(spec, dy, w, (9, 8), *geo))
+    assert torch.equal(layer.weight.grad, ref_wgrad(spec, dy, x.detach(), (3, 3), *geo))
+
+
+@pytest.mark.parametrize("device", float64_devices)
+def test_a_palette_qmatmul_runs_the_odd_step(device):
+    torch.manual_seed(10)
+    a = torch.randn(6, 9, device=device, requires_grad=True)
+    b = torch.randn(9, 5, device=device)
+    maps = {
+        "prec_idx": torch.randint(0, 2, (6, 5), dtype=torch.int32, device=device),
+        "agrad_prec_idx": torch.randint(0, 2, (6, 9), dtype=torch.int32, device=device),
+        "bgrad_prec_idx": torch.randint(0, 2, (9, 5), dtype=torch.int32, device=device),
+    }
+    mac = FusedMac(Palette([B12, BinaryK(16, 8)]), rounding=R.RD, carrier_rounding=R.RO)
+    layer = QMatmul(formats=matmul_formats(mac, **maps))
+    out = layer(a, b)
+    with torch.no_grad():
+        assert torch.equal(out, qmm(a, b, mac, prec_idx=maps["prec_idx"]))
+    g = torch.ones_like(out)
+    out.backward(g)
+    assert a.grad is not None
+    assert torch.equal(a.grad, qmm(g, b.T, mac, prec_idx=maps["agrad_prec_idx"]))

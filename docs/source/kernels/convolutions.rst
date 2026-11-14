@@ -121,8 +121,10 @@ are fixed for the call, so each division is a multiply-high and a shift by
 constants computed once on the host. Nothing is divided per element.
 
 The arithmetic between the loads is the matrix product's, unchanged. Every
-format, rounding mode and accumulate algorithm therefore applies, and each
-pass is **bit for bit the GEMM over the explicit matrices**.
+format, rounding mode and accumulate algorithm therefore applies, and so does
+the odd carrier step under ``NAIVE`` (``carrier_rounding=RoundMode.RO``;
+:doc:`arithmetic`, "What the carrier rounds"), and each pass is **bit for bit
+the GEMM over the explicit matrices**.
 ``tests/test_qconv_gemm.py`` builds those matrices and checks this with
 ``torch.equal``, stochastic rounding included. The difference is in memory:
 a pass allocates its result and nothing else.
@@ -189,7 +191,8 @@ a deterministic rounding, a plain running sum is not moved by a zero term:
 the product of a weight and an inserted zero rounds to zero, and
 :math:`Q(s_{t-1} + 0) = s_{t-1}` because the running sum is already a value
 of the format. So for ``NAIVE`` and every rounding mode except ``SR``, the
-result is bit for bit the zero-inserted one. (One exception: a weight of
+result is bit for bit the zero-inserted one, with the odd carrier step too,
+which leaves a zero term exact. (One exception: a weight of
 :math:`\pm\infty` or NaN no longer turns the positions it does not reach
 into NaN, as :math:`\infty \cdot 0` did.)
 

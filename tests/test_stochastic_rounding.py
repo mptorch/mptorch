@@ -53,7 +53,7 @@ from mptorch.quant import (
     qmatmul,
     superfp_quantize,
 )
-from tests.markers import available_devices, float64_devices
+from tests.markers import HAS_ODD, available_devices, float64_devices, requires_odd
 
 # gfloat 0.5's round_float inverts a bool with ~, which Python 3.13 deprecates
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:gfloat")
@@ -363,7 +363,7 @@ def _paths():
                 qmatmul(a.to(d), b.to(d), m, prec_idx=None if p is None else p.to(d))
                 for m, p in calls
             ]
-            if d != "mps":  # the odd carrier step has no MPS kernel
+            if d != "mps" and HAS_ODD:  # the odd carrier step has no MPS kernel
                 odd = SplitMac(BK, BK_ACC, rounding=mode, carrier_rounding=R.RO)
                 out.append(qmatmul(a.to(d), b.to(d), odd))
             return out
@@ -460,6 +460,7 @@ def test_raw_ops_refuse_prng_bits_past_a_byte(mode):
         torch.ops.mptorch.binaryK_quant(x.to("meta"), 8, 4, 7, 300, True, mode.value, 0, 0)
 
 
+@requires_odd
 def test_odd_carrier_bounds_per_variant():
     """The odd carrier step (``carrier_rounding=RO``) holds A for
     P + prng_bits <= 23 in binary32 and B and C for P + prng_bits <= 22."""

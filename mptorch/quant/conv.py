@@ -1,9 +1,10 @@
 """The convolutions in custom arithmetic: :func:`conv_formats`.
 
 A convolution's three passes, the forward and the two gradients, are GEMMs
-whose operands are gathers of the convolution's tensors. The eight
-``custom_conv_*`` ops run each pass in the arithmetic of the GEMM op it is
-named after, with the gather in the kernel's tile load
+whose operands are gathers of the convolution's tensors. The
+``custom_conv_*`` ops (twenty: single-format, palette and cross-family, each
+with its odd twin of ``carrier_rounding=RoundMode.RO``) run each pass in the
+arithmetic of the GEMM op it is named after, with the gather in the kernel's tile load
 (``mptorch/csrc/common/gemm_gather.h``), so no ``unfold`` buffer is ever
 built: the forward of a 3x3 convolution would otherwise materialize nine times
 its input. Every format, accumulate algorithm and rounding mode of the GEMM
@@ -26,7 +27,7 @@ from typing import Any
 
 import torch
 
-from mptorch.number import Number, RoundMode
+from mptorch.number import Number
 
 from .mac import FusedMac, Mac, SplitMac, spec_for_mac
 from .modules.format import QAffineFormats
@@ -77,12 +78,27 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed").default,
                 (),
             )
+            # The odd ops (carrier_rounding=RoundMode.RO), NAIVE only: the
+            # single-format one on its twin's accumulated schema, with the
+            # tail, and the palette one on its twin's.
+            table[getattr(ops, f"custom_matmul_{family}{mac}_odd").default] = (
+                getattr(ops, f"custom_conv_{family}{mac}_odd").default,
+                _NAIVE_TAIL[family],
+            )
+            table[getattr(ops, f"custom_matmul_{family}{mac}_mixed_odd").default] = (
+                getattr(ops, f"custom_conv_{family}{mac}_mixed_odd").default,
+                (),
+            )
     # The cross-family ops, named multiply family first, whose outer format
     # (and so NAIVE's tail) is the accumulate family's.
     for mul, acc in (("binaryK", "superfp"), ("superfp", "binaryK")):
         conv = getattr(ops, f"custom_conv_{mul}_{acc}").default
         table[getattr(ops, f"custom_matmul_{mul}_{acc}").default] = (conv, _NAIVE_TAIL[acc])
         table[getattr(ops, f"custom_matmul_{mul}_{acc}_accumulated").default] = (conv, ())
+        table[getattr(ops, f"custom_matmul_{mul}_{acc}_odd").default] = (
+            getattr(ops, f"custom_conv_{mul}_{acc}_odd").default,
+            _NAIVE_TAIL[acc],
+        )
     return table
 
 
@@ -332,7 +348,9 @@ def conv_formats(
             ``accumulate_algorithm`` applies, and a ``SplitMac`` may round
             its products and its sums in formats of two families, as for a
             GEMM. A palette selects the per-output-element ops, which need
-            one map per pass.
+            one map per pass. A mac with ``carrier_rounding=RoundMode.RO``
+            runs the odd conv ops in every pass, ``NAIVE`` only, as its GEMM
+            would.
         prec_idx (Tensor, optional): the forward's palette map, indexed like
             the output with its spatial dimensions flattened: ``[Cout, OUT]``
             with ``OUT`` the number of output positions, ``[Cout, 1]`` (one
@@ -400,12 +418,6 @@ def conv_formats(
         mac = SplitMac(mac, mac)
     if not isinstance(mac, SplitMac | FusedMac):
         raise TypeError(f"mac must be a SplitMac, a FusedMac or a Number, got {type(mac).__name__}")
-    if mac.carrier_rounding is not RoundMode.RNE:
-        raise ValueError(
-            "carrier_rounding=RoundMode.RO has no conv kernels: the odd step is in the NAIVE "
-            "GEMMs only, which QLinear and QMatmul run; a QConv*d keeps "
-            "carrier_rounding=RoundMode.RNE"
-        )
     spec = spec_for_mac(mac)
     maps = (prec_idx, igrad_prec_idx, wgrad_prec_idx)
     if spec.mixed and prec_idx is None:

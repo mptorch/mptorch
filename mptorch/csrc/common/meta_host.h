@@ -725,3 +725,26 @@ namespace mptorch::meta
   }
 
 } // namespace mptorch::meta
+
+namespace mptorch::meta
+{
+  // run_custom_conv_odd (carrier_odd_conv_host.h).
+  template <class Base, class Widths, class Common>
+  Tensor meta_custom_conv_odd(const char *op_name, const g::OddArgs<Base> &args,
+                              const g::AccumulateTail<Widths, Common> &tail, const Tensor &a,
+                              const Tensor &b, int64_t conv_pass, c10::IntArrayRef out_size,
+                              c10::IntArrayRef stride, c10::IntArrayRef padding,
+                              c10::IntArrayRef dilation, int64_t groups,
+                              int64_t accumulate_algorithm, int64_t round_mode)
+  {
+    TORCH_CHECK(mptorch::is_accumulate_algorithm(accumulate_algorithm), op_name, ": ",
+                accumulate_algorithm, " is not an AccumulateAlgorithm");
+    TORCH_CHECK(tail.block_size >= 0 && tail.block_size <= (int64_t(1) << 30), op_name,
+                ": block_size ", tail.block_size, " is out of range");
+    g::check_naive_only(op_name, accumulate_algorithm);
+    TORCH_CHECK(tail.block_size == 0 && !tail.outer_quant, op_name,
+                ": AccumulateAlgorithm.NAIVE takes no block_size and no outer format");
+    return meta_custom_conv(op_name, args, a, b, nullptr, conv_pass, out_size, stride, padding,
+                            dilation, groups, round_mode);
+  }
+} // namespace mptorch::meta

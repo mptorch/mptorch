@@ -342,4 +342,110 @@ TORCH_LIBRARY(mptorch, m)
   // every draw. Its draws are inputs, so it is not nondeterministic_seeded.
   m.def("_stochastic_cast(Tensor x, Tensor draws, int family, int[] format, "
         "int stochastic_mode) -> Tensor", plain);
+  // Round to odd, phase X: the conv passes, the cross-family macs and the
+  // palettes, each on its twin's schema (common/carrier_odd_gemm_host.h,
+  // carrier_odd_conv_host.h). NAIVE only, like N's four.
+  m.def("custom_matmul_binaryK_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, "
+        "bool trans_b, int[] mul_K, int[] mul_P, int[] mul_bias, bool mul_is_signed, bool "
+        "accumulate_quant, int[] acc_K, int[] acc_P, int[] acc_bias, bool acc_is_signed, int "
+        "accumulate_algorithm, int round_mode, int mul_saturation_mode, int "
+        "mul_subnormals_mode, int acc_saturation_mode, int acc_subnormals_mode, int "
+        "mul_prng_bits, int acc_prng_bits) -> Tensor", seeded);
+  m.def("custom_matmul_superfp_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, "
+        "bool trans_b, int[] mul_man_bits, int[] mul_exp_bits, int[] mul_normal_binades, "
+        "int[] mul_bias, bool mul_is_signed, bool accumulate_quant, int[] acc_man_bits, int[] "
+        "acc_exp_bits, int[] acc_normal_binades, int[] acc_bias, bool acc_is_signed, int "
+        "accumulate_algorithm, int round_mode, int mul_saturation_mode, int "
+        "acc_saturation_mode, int mul_prng_bits, int acc_prng_bits) -> Tensor", seeded);
+  m.def("custom_matmul_binaryK_fma_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, bool "
+        "trans_a, bool trans_b, bool fma_quant, int[] fma_K, int[] fma_P, int[] fma_bias, "
+        "bool fma_is_signed, int accumulate_algorithm, int round_mode, int "
+        "fma_saturation_mode, int fma_subnormals_mode, int fma_prng_bits) -> Tensor", seeded);
+  m.def("custom_matmul_superfp_fma_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, bool "
+        "trans_a, bool trans_b, bool fma_quant, int[] fma_man_bits, int[] fma_exp_bits, int[] "
+        "fma_normal_binades, int[] fma_bias, bool fma_is_signed, int accumulate_algorithm, "
+        "int round_mode, int fma_saturation_mode, int fma_prng_bits) -> Tensor", seeded);
+  m.def("custom_matmul_binaryK_superfp_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_K, int mul_P, int mul_bias, bool mul_is_signed, int acc_man_bits, int "
+        "acc_exp_bits, int acc_normal_binades, int acc_bias, bool acc_is_signed, int "
+        "accumulate_algorithm, int round_mode, int mul_saturation_mode, int "
+        "mul_subnormals_mode, int acc_saturation_mode, int mul_prng_bits, int acc_prng_bits) "
+        "-> Tensor", seeded);
+  m.def("custom_matmul_superfp_binaryK_odd(Tensor a, Tensor b, bool trans_a, bool trans_b, "
+        "int mul_man_bits, int mul_exp_bits, int mul_normal_binades, int mul_bias, bool "
+        "mul_is_signed, int acc_K, int acc_P, int acc_bias, bool acc_is_signed, int "
+        "accumulate_algorithm, int round_mode, int mul_saturation_mode, int "
+        "acc_saturation_mode, int acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits) "
+        "-> Tensor", seeded);
+  m.def("custom_conv_binaryK_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] "
+        "stride, int[] padding, int[] dilation, int groups, int mul_K, int mul_P, int "
+        "mul_bias, bool mul_is_signed, bool accumulate_quant, int acc_K, int acc_P, int "
+        "acc_bias, bool acc_is_signed, int accumulate_algorithm, int round_mode, int "
+        "mul_saturation_mode, int mul_subnormals_mode, int acc_saturation_mode, int "
+        "acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits, int block_size, bool "
+        "outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, int "
+        "outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_superfp_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] "
+        "stride, int[] padding, int[] dilation, int groups, int mul_man_bits, int "
+        "mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, bool "
+        "accumulate_quant, int acc_man_bits, int acc_exp_bits, int acc_normal_binades, int "
+        "acc_bias, bool acc_is_signed, int accumulate_algorithm, int round_mode, int "
+        "mul_saturation_mode, int acc_saturation_mode, int mul_prng_bits, int acc_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, int "
+        "outer_normal_binades, int outer_bias, bool outer_is_signed, int "
+        "outer_saturation_mode, int outer_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_binaryK_fma_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] "
+        "stride, int[] padding, int[] dilation, int groups, bool fma_quant, int fma_K, int "
+        "fma_P, int fma_bias, bool fma_is_signed, int accumulate_algorithm, int round_mode, "
+        "int fma_saturation_mode, int fma_subnormals_mode, int fma_prng_bits, int block_size, "
+        "bool outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, "
+        "int outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_superfp_fma_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, int[] "
+        "stride, int[] padding, int[] dilation, int groups, bool fma_quant, int fma_man_bits, "
+        "int fma_exp_bits, int fma_normal_binades, int fma_bias, bool fma_is_signed, int "
+        "accumulate_algorithm, int round_mode, int fma_saturation_mode, int fma_prng_bits, "
+        "int block_size, bool outer_quant, int outer_man_bits, int outer_exp_bits, int "
+        "outer_normal_binades, int outer_bias, bool outer_is_signed, int "
+        "outer_saturation_mode, int outer_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_binaryK_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, int conv_pass, "
+        "int[] out_size, int[] stride, int[] padding, int[] dilation, int groups, int[] "
+        "mul_K, int[] mul_P, int[] mul_bias, bool mul_is_signed, bool accumulate_quant, int[] "
+        "acc_K, int[] acc_P, int[] acc_bias, bool acc_is_signed, int accumulate_algorithm, "
+        "int round_mode, int mul_saturation_mode, int mul_subnormals_mode, int "
+        "acc_saturation_mode, int acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits) "
+        "-> Tensor", seeded);
+  m.def("custom_conv_superfp_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, int conv_pass, "
+        "int[] out_size, int[] stride, int[] padding, int[] dilation, int groups, int[] "
+        "mul_man_bits, int[] mul_exp_bits, int[] mul_normal_binades, int[] mul_bias, bool "
+        "mul_is_signed, bool accumulate_quant, int[] acc_man_bits, int[] acc_exp_bits, int[] "
+        "acc_normal_binades, int[] acc_bias, bool acc_is_signed, int accumulate_algorithm, "
+        "int round_mode, int mul_saturation_mode, int acc_saturation_mode, int mul_prng_bits, "
+        "int acc_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_binaryK_fma_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, int "
+        "conv_pass, int[] out_size, int[] stride, int[] padding, int[] dilation, int groups, "
+        "bool fma_quant, int[] fma_K, int[] fma_P, int[] fma_bias, bool fma_is_signed, int "
+        "accumulate_algorithm, int round_mode, int fma_saturation_mode, int "
+        "fma_subnormals_mode, int fma_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_superfp_fma_mixed_odd(Tensor a, Tensor b, Tensor prec_idx, int "
+        "conv_pass, int[] out_size, int[] stride, int[] padding, int[] dilation, int groups, "
+        "bool fma_quant, int[] fma_man_bits, int[] fma_exp_bits, int[] fma_normal_binades, "
+        "int[] fma_bias, bool fma_is_signed, int accumulate_algorithm, int round_mode, int "
+        "fma_saturation_mode, int fma_prng_bits) -> Tensor", seeded);
+  m.def("custom_conv_binaryK_superfp_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, int mul_K, int mul_P, int "
+        "mul_bias, bool mul_is_signed, int acc_man_bits, int acc_exp_bits, int "
+        "acc_normal_binades, int acc_bias, bool acc_is_signed, int accumulate_algorithm, int "
+        "round_mode, int mul_saturation_mode, int mul_subnormals_mode, int "
+        "acc_saturation_mode, int mul_prng_bits, int acc_prng_bits, int block_size, bool "
+        "outer_quant, int outer_man_bits, int outer_exp_bits, int outer_normal_binades, int "
+        "outer_bias, bool outer_is_signed, int outer_saturation_mode, int outer_prng_bits) -> "
+        "Tensor", seeded);
+  m.def("custom_conv_superfp_binaryK_odd(Tensor a, Tensor b, int conv_pass, int[] out_size, "
+        "int[] stride, int[] padding, int[] dilation, int groups, int mul_man_bits, int "
+        "mul_exp_bits, int mul_normal_binades, int mul_bias, bool mul_is_signed, int acc_K, "
+        "int acc_P, int acc_bias, bool acc_is_signed, int accumulate_algorithm, int "
+        "round_mode, int mul_saturation_mode, int acc_saturation_mode, int "
+        "acc_subnormals_mode, int mul_prng_bits, int acc_prng_bits, int block_size, bool "
+        "outer_quant, int outer_K, int outer_P, int outer_bias, bool outer_is_signed, int "
+        "outer_saturation_mode, int outer_subnormals_mode, int outer_prng_bits) -> Tensor", seeded);
 }

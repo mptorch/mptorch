@@ -15,6 +15,9 @@ Environment switches, all read at build time:
     Use the serial distutils backend instead of ninja.
 ``MPTORCH_NO_FP64=1``
     Leave out the float64 GEMM kernels for a faster iteration build.
+``MPTORCH_NO_ODD=1``
+    Leave out the kernels of the carrier step rounded to odd
+    (``carrier_rounding=RoundMode.RO``); the odd ops stay registered and raise.
 ``USE_MPS=0``
     On macOS, build without the Metal kernels of the MPS backend.
 ``MPTORCH_COMPRESS_FATBIN=0``
@@ -483,6 +486,22 @@ def get_extensions():
         extra_compile_args["cxx"].append("-DMPTORCH_NO_FP64=1")
         extra_compile_args["nvcc"].append("-DMPTORCH_NO_FP64=1")
 
+    # The ops of the carrier step rounded to odd (carrier_rounding=RoundMode.RO;
+    # common/carrier_odd.h) are opt-in, and their kernels are units of their own:
+    # the instantiation files, whose stems end in _odd or _odd_f64, the CPU's
+    # vector tiles (cpu/gemm_odd_tile.cpp) and the CUDA kernel of the test op
+    # _carrier_odd. MPTORCH_NO_ODD=1 leaves those out. Every file that holds an
+    # entry point stays, and the define makes each odd entry point and Meta
+    # kernel raise, naming this flag, before it instantiates a driver, so no
+    # symbol of a left-out unit is referenced. A file kept under this flag must
+    # not have a stem ending in _odd.
+    no_odd = os.getenv("MPTORCH_NO_ODD", "0") == "1"
+    if no_odd:
+        print("MPTORCH_NO_ODD=1: building without the kernels of the odd carrier step.")
+        extra_compile_args["cxx"].append("-DMPTORCH_NO_ODD=1")
+        extra_compile_args["nvcc"].append("-DMPTORCH_NO_ODD=1")
+    odd_units = {"gemm_odd_tile.cpp", "carrier_odd_kernel.cu"}
+
     # nvcc stores each .cu file's device code in .nv_fatbin twice: as a native
     # image for the architecture it was built for, and as PTX for any newer
     # one. By default only the PTX is compressed, and the native images are
@@ -527,12 +546,17 @@ def get_extensions():
 
         Sorted so the ninja build file, and with it the incremental rebuild, is
         stable across runs. Relative because setuptools rejects absolute source
-        paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``.
+        paths. The ``*_f64`` files are dropped under ``MPTORCH_NO_FP64=1``, and
+        the odd kernels' units under ``MPTORCH_NO_ODD=1``.
         """
         return sorted(
             str(p.relative_to(root))
             for p in directory.glob(pattern)
             if not (no_fp64 and p.stem.endswith("_f64"))
+            and not (
+                no_odd
+                and (p.stem.endswith("_odd") or p.stem.endswith("_odd_f64") or p.name in odd_units)
+            )
         )
 
     # Sources are globbed, so a new kernel file only needs to land in the right

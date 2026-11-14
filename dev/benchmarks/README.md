@@ -44,6 +44,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 | `gemm_cast_superfp_arith.cu` | the same for superfp; the device and the host spell it differently | `coarse` on the GPU, `spot` and `coarse` on the host |
 | `gemm_cast_sr_arith.cu` | SR's magnitude-compare clip against the integer clip and the reference | `spot` |
 | `cpu_rne_tile_sweep.cpp` | every binary32 word through the CPU's vector RNE tiles (`cpu/gemm_rne_tile.cpp`, compiled in) against the scalar step | ~5 s per format on 16 threads; again with `MPTORCH_CPU_SIMD=avx2` |
+| `cpu_odd_tile_sweep.cpp` | every binary32 word through the CPU's vector tiles of the odd carrier step (`cpu/gemm_odd_tile.cpp`, compiled in: AVX-512's directed pair, AVX2's and NEON's vectorized 2Sum), fused, split and product-only, against spreads of products, plus the odd step's special cases, against the scalar step | ~20 s per format on 16 threads (~4 min); again with `MPTORCH_CPU_SIMD=avx2` |
 | `narrow_float64_sweep.py` | the `narrow_float64` op against the hardware conversion and the tests' torch spelling | `short` (seconds), `sweep` (2^32 words on CUDA) |
 | `elementwise_sr_stats.py` | eleven statistical properties of the elementwise SR path (exact values survive, RD-or-RU, rates, position bias, correlation, seeding, CPU vs CUDA) | no argument, then `--dtype float64`; seconds |
 | `reference_casts.h` | the independent reference: every cast in the `(man_bits, exp_bits, bias, ...)` spelling, deriving its constants inline, apart from the shipped casts, which read them from a struct built once | included by the sweeps |
@@ -68,7 +69,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 
 | tool | measures | run |
 |---|---|---|
-| `cpu_gemm_ab.cpp` | the shipped CPU GEMM kernel outside torch, built against two header trees (`git archive <commit> mptorch/csrc`) with the extension's host flags; `MPTORCH_CPU_SIMD=0` keeps the scalar loop | `--threads N --reps R [--n SIZE] [--only NAME]`, the two binaries alternated |
+| `cpu_gemm_ab.cpp` | the shipped CPU GEMM kernel outside torch, built against two header trees (`git archive <commit> mptorch/csrc`) with the extension's host flags; `MPTORCH_CPU_SIMD=0` keeps the scalar loop; `-DMPTORCH_AB_ODD` (with `cpu/gemm_odd_tile.cpp` linked) adds the odd carrier step's GEMMs | `--threads N --reps R [--n SIZE] [--only NAME]`, the two binaries alternated |
 | `gemm_sr_ab.cu` | the shipped CUDA GEMM under SR, against two header trees | the two binaries alternated |
 | `gemm_f64_unroll.cu` | the shipped binary64 GEMM kernels at other K-loop unrolls (`MPTORCH_GEMM_F64_UNROLL`) | one build per factor |
 | `benchmark_qmatmul.py` | the batched GEMM against a loop of 2D calls, and the accumulators against NAIVE | `--device cuda`, `--n` |
@@ -99,7 +100,7 @@ These come on top of what every change runs: the suite, and ruff, ty and pre-com
 | a cast (`cast_binaryK.h`, `cast_superfp.h`, `cast_fixedpoint.h`, `stochastic.h`, `bit_helper.h`) | `cast_all_modes_sweep` `short` and `short-host`, `cast_double_sweep short`, and the `gemm_cast_*_arith` program whose fast path it reaches, in its gate mode; `format_limits.py` if a range moves |
 | GEMM, conv or block kernels, policies or drivers | `binary_identity.py so` against the build before; `stacked_before_after.py capture`/`compare`, with `--block` for anything that reaches `block_decode.h` or the pack kernels |
 | layers, their autograd Functions, `_saved.py` | `layer_output_capture.py` on cpu and cuda |
-| the CPU's vector tiles | `cpu_rne_tile_sweep.cpp` at each ISA; `cpu_gemm_ab.cpp` for the cost |
+| the CPU's vector tiles | `cpu_rne_tile_sweep.cpp` and `cpu_odd_tile_sweep.cpp` at each ISA; `cpu_gemm_ab.cpp` for the cost |
 | the float64 narrowing | `narrow_float64_sweep.py short` |
 | the elementwise SR path | `elementwise_sr_stats.py`, both dtypes; `cast_all_modes_sweep sr-mean` |
 | a bound in `mptorch/number.py` | `format_limits.py sweep --audit`, and with `--carrier binary64` |

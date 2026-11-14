@@ -16,8 +16,12 @@ round the exact value. This script measures both sides of that:
     carrier itself is.
 ``bench``
     Time per mac step of each default op and its odd twin, alternated round
-    by round (min of ``--rounds``): the CPU at one and five threads, CUDA in
-    binary32 (1024^3) and binary64 (512^3).
+    by round (min of ``--rounds``): the CPU at ``--cpu-threads`` (one and
+    sixteen), CUDA in binary32 (1024^3) and binary64 (512^3). Then, in
+    binary32, the odd ops of the palettes, the cross-family macs and the conv
+    passes against their defaults, through the public API (a two-entry
+    palette per row, binaryK products summed in a superfp format, and a 3x3
+    QConv2d forward whose GEMM has the same K and N as the square GEMM's).
 
 Both call the ops through the specs the Python layer builds, so they run as
 soon as the C++ ops exist.
@@ -118,9 +122,60 @@ def _time(fn: Callable[[], Any], device: str) -> float:
     return time.perf_counter() - t
 
 
+def _extra_cases(dev: str, n: int):
+    """The palette, cross-family and conv rows: (name, default, odd) callables."""
+    from mptorch import BinaryK
+    from mptorch.quant import (
+        QConv2d,
+        SplitMac,
+        binaryK_matmul_mixed,
+        binaryK_superfp_matmul,
+        conv_formats,
+    )
+
+    a, b = torch.randn(n, n, device=dev), torch.randn(n, n, device=dev)
+    idx = (torch.arange(n, device=dev) % 2).to(torch.int32).view(n, 1)
+    # a 3x3 conv with C * 9 = n inputs per output and B * HW = n positions
+    C = max(1, n // 9)
+    side = max(1, int(round((n / 4) ** 0.5)))
+    x = torch.randn(4, C, side, side, device=dev)
+    out = []
+    for mode in (R.RNE, R.RU):
+        pal = dict(mul_K=[8, 8], mul_P=[4, 3], acc_K=16, acc_P=11, rounding_mode=mode)
+        cross = dict(
+            mul_K=8, mul_P=4, acc_man_bits=7, acc_exp_bits=5, acc_normal_binades=16,
+            acc_bias=15, rounding_mode=mode,
+        )  # fmt: skip
+        out.append((
+            f"palette split binary8p4|8p3 / 16p11 {mode.name}",
+            partial(binaryK_matmul_mixed, a, b, idx, **pal),
+            partial(binaryK_matmul_mixed, a, b, idx, **pal, carrier_rounding=R.RO),
+        ))  # fmt: skip
+        out.append((
+            f"cross split binary8p4 / superfp(7, 5) {mode.name}",
+            partial(binaryK_superfp_matmul, a, b, **cross),
+            partial(binaryK_superfp_matmul, a, b, **cross, carrier_rounding=R.RO),
+        ))  # fmt: skip
+        layers = []
+        for cr in (R.RNE, R.RO):
+            mac = SplitMac(BinaryK(8, 4), BinaryK(16, 11), rounding=mode, carrier_rounding=cr)
+            layers.append(QConv2d(C, n, 3, padding=1, formats=conv_formats(mac)).to(dev))
+
+        def fwd(layer):
+            with torch.no_grad():
+                return layer(x)
+
+        out.append((
+            f"conv split binary8p4 / 16p11 {mode.name}",
+            partial(fwd, layers[0]),
+            partial(fwd, layers[1]),
+        ))  # fmt: skip
+    return out
+
+
 def bench(args: argparse.Namespace) -> None:
     cases = []
-    for thr in (1, 5):
+    for thr in args.cpu_threads:
         cases.append(("cpu", thr, torch.float32, args.cpu_n))
         cases.append(("cpu", thr, torch.float64, args.cpu_n))
     if torch.cuda.is_available():
@@ -164,6 +219,31 @@ def bench(args: argparse.Namespace) -> None:
                         f"{t0:.2f} {unit} | {tail}",
                         flush=True,
                     )
+    print()
+    print("| device | op | default | odd | odd / default |")
+    print("|---|---|---|---|---|")
+    extra = [("cpu", thr, args.cpu_n) for thr in args.cpu_threads]
+    if torch.cuda.is_available():
+        extra.append(("cuda", 0, 1024))
+    for dev, thr, n in extra:
+        if thr:
+            torch.set_num_threads(thr)
+        torch.manual_seed(0)
+        unit, scale = ("ns", 1e9) if dev == "cpu" else ("ps", 1e12)
+        per = scale * thr if thr else scale
+        for name, plain, twin in _extra_cases(dev, n):
+            plain()
+            twin()
+            ts, to = [], []
+            for _ in range(args.rounds):
+                ts.append(_time(plain, dev))
+                to.append(_time(twin, dev))
+            t0, t1 = min(ts) / n**3 * per, min(to) / n**3 * per
+            where = f"{dev} {thr} thr" if thr else dev
+            print(
+                f"| {where} | {name} | {t0:.2f} {unit} | {t1:.2f} {unit} | {t1 / t0:.2f} |",
+                flush=True,
+            )
     print("(CPU times are per step per thread: wall time × threads / n³.)")
 
 
@@ -177,6 +257,7 @@ def main() -> None:
     b = sub.add_parser("bench")
     b.add_argument("--rounds", type=int, default=3)
     b.add_argument("--cpu-n", type=int, default=256)
+    b.add_argument("--cpu-threads", type=lambda v: [int(t) for t in v.split(",")], default=[1, 16])
     args = p.parse_args()
     {"rates": rates, "bench": bench}[args.cmd](args)
 

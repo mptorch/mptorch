@@ -23,6 +23,12 @@
 // eafa9aa, linked in as above) also takes MPTORCH_CPU_SIMD=0, which keeps the
 // scalar loop: one binary run both ways is the tiles' A/B.
 //
+// -DMPTORCH_AB_ODD adds the odd carrier step's GEMMs (carrier_rounding=
+// RoundMode.RO; OddArgs over the same Args, named "odd ..."), for a tree
+// with cpu/custom_matmul_odd_kernel.h; link $tree/cpu/gemm_odd_tile.cpp too,
+// whose vector tiles MPTORCH_CPU_SIMD=0 turns off as it does the RNE ones.
+// Leave it off for an A/B of the default kernels against a tree without it.
+//
 // Run each with `--threads N --reps R [--n SIZE] [--only SUBSTRING]`,
 // alternating the binaries; --only runs the cases whose name contains it (for
 // `perf stat` on one of them).
@@ -32,7 +38,11 @@
 // Binary16p11 x Binary16p11, fused Binary16p11, SAT_NONE and SUBNORMALS, on
 // N(0, 1) inputs, in RNE, RU and SR (8 random bits).
 
+#if defined(MPTORCH_AB_ODD)
+#include "cpu/custom_matmul_odd_kernel.h"
+#else
 #include "cpu/custom_matmul_kernel.h"
+#endif
 
 #include <ATen/Parallel.h>
 
@@ -147,6 +157,14 @@ int main(int argc, char **argv)
     f.fma_c = {true, SaturationMode::SAT_NONE, SubnormalsMode::SUBNORMALS, pb};
     std::snprintf(name, sizeof name, "fused 16p11 %s", mode);
     run(name, s, f, reps);
+#if defined(MPTORCH_AB_ODD)
+    std::snprintf(name, sizeof name, "odd split 8p4/16p11 %s", mode);
+    run(name, s, OddArgs<BinaryKSplitArgs>{split(b8p4, b16p11, pb)}, reps);
+    std::snprintf(name, sizeof name, "odd split 16p11/carrier %s", mode);
+    run(name, s, OddArgs<BinaryKSplitArgs>{mul_only}, reps);
+    std::snprintf(name, sizeof name, "odd fused 16p11 %s", mode);
+    run(name, s, OddArgs<BinaryKFusedArgs>{f}, reps);
+#endif
   }
 
   return 0;

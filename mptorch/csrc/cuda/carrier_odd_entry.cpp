@@ -12,6 +12,9 @@ using at::Tensor;
 
 Tensor carrier_odd_cuda(Tensor a, Tensor b, Tensor c, int64_t op)
 {
+#if defined(MPTORCH_NO_ODD)
+  mptorch::gemm::odd_unavailable("_carrier_odd");
+#else
   mptorch::gemm::check_carrier_odd(a, b, c, op);
   Tensor a_c = a.contiguous(), b_c = b.contiguous(), c_c = c.contiguous();
   Tensor o = at::empty_like(a_c);
@@ -28,4 +31,5 @@ Tensor carrier_odd_cuda(Tensor a, Tensor b, Tensor c, int64_t op)
                                       c_c.data_ptr<double>(), o.data_ptr<double>(), n, op,
                                       stream);
   return o;
+#endif
 }

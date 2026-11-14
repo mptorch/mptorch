@@ -111,7 +111,8 @@ each rounding in its own format, and the result holds the accumulate format's
 values. Such a mac holds one format per slot (the palette kernels are
 single-family), and its sum is always rounded (with ``acc=None`` the mac has
 one family again). Every algorithm of the next section applies, with an
-``outer`` format of the accumulate's family, in either carrier.
+``outer`` format of the accumulate's family, in either carrier, and so does
+the odd carrier step (`What the carrier rounds`_) under ``NAIVE``.
 
 .. literalinclude:: ../../snippets/gemm_cross_family.py
    :language: python
@@ -187,35 +188,50 @@ Two results change beyond the corrected neighbours:
 - With ``acc=None`` only the product is rounded to odd: no format rounds the
   sum after it, so it stays the carrier's nearest add.
 
-The odd step is implemented for the ``NAIVE`` single-format GEMMs of one
-family, split and fused, on CPU and CUDA tensors in both carriers. The
-``custom_matmul_*_odd`` ops are separate, so the default ones are what they
-were. ``KAHAN``, ``BLOCK`` and ``TREE`` rely on error-free transforms rounded
-to nearest, and refuse it. So do palettes, the cross-family macs, the
-convolutions (:func:`~mptorch.quant.conv_formats`) and an Apple GPU. On the
-CPU it assumes the default floating-point environment; a flush-to-zero mode
-(``torch.set_flush_denormal(True)``) breaks it in subnormal ranges, as it does
-the carrier arithmetic everywhere else.
+The odd step is implemented for every ``NAIVE`` reduction: the single-format
+GEMMs, the palettes (:class:`~mptorch.quant.Palette`, each entry held to the
+bound) and the cross-family macs (both formats held to it), split and fused,
+and the three passes of a convolution over any of them
+(:func:`~mptorch.quant.conv_formats`; :doc:`convolutions`), on CPU and CUDA
+tensors in both carriers. The ``custom_matmul_*_odd`` and
+``custom_conv_*_odd`` ops are separate, so the default ones are what they
+were, and a build with ``MPTORCH_NO_ODD=1`` leaves their kernels out (the ops
+then raise, naming the flag). ``KAHAN``, ``BLOCK`` and ``TREE`` rely on
+error-free transforms rounded to nearest, and refuse it. So does an Apple
+GPU. On the CPU it assumes the default floating-point environment; a
+flush-to-zero mode (``torch.set_flush_denormal(True)``) breaks it in
+subnormal ranges, as it does the carrier arithmetic everywhere else.
 
 It costs time, mostly on the CPU (``carrier_double_rounding.py bench``,
 measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU):
 
-============================= ===================== =====================
-time against the nearest step fused                 split
-============================= ===================== =====================
-CUDA, binary32                1.06-1.16x            1.05-1.16x
-CUDA, binary64 (GeForce)      1.2x (SR) - 2.1x (RU) 1.2x (SR) - 1.5x
-CPU, binary32                 1.4-2.4x              1.6-2.1x
-CPU, binary64                 1.5-2.6x              1.1-1.7x
-============================= ===================== =====================
+============================== ===================== =====================
+time against the nearest step  fused                 split
+============================== ===================== =====================
+CUDA, binary32                 1.05-1.16x            1.05-1.14x
+CUDA, binary64 (GeForce)       1.1x (SR) - 2.0x (RU) 1.1x (SR) - 1.5x
+CPU, binary32, vector tiles    1.2x                  0.9-1.0x
+CPU, binary32, scalar loop     1.3-1.9x              1.4-2.4x
+CPU, binary64                  1.4-2.7x              1.2-2.1x
+============================== ===================== =====================
+
+The palettes, the cross-family macs and the convolutions cost what the GEMM
+of their step costs: 1.04-1.14x on CUDA, and on the CPU the scalar loop's
+ratio, or the tile's for a convolution over a format the tiles take.
 
 On a GPU, binary32 rounds to odd with two FMAs in the hardware's directed
 modes and a select. The binary64 kernels of a consumer GPU are limited by its
 FP64 rate, which the second FMA and the directed modes' own FP64 compares
-share. The CPU has no directed rounding to call, so each step is a sequence
-of error-free transforms on the sum's dependency chain: a binary64 sum and an
-exact correction in binary32, and in binary64 an exact product split, two
-sums and a fix of the last bit.
+share. The CPU's scalar loop has no directed rounding to call, so each step is
+a sequence of error-free transforms on the sum's dependency chain: a binary64
+sum and an exact correction in binary32, and in binary64 an exact product
+split, two sums and a fix of the last bit. The vector tiles take the cases the
+default op runs in vector code (binaryK in binary32 under ``RNE``, one format
+per slot: :doc:`calling`, "Performance notes") and run a whole tile's step at
+once: with AVX-512 through its embedded directed rounding, as the GPU does, at
+about the default tile's cost; with AVX2 or NEON through the binary64
+transforms, at 3-5x it. Before them the odd step of those cases ran the scalar
+loop, 15-22x the default tile.
 
 Summing differently: KAHAN, BLOCK and TREE
 ------------------------------------------

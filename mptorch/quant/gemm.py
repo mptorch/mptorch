@@ -53,12 +53,14 @@ from .ops import (
     _binaryK_fma_odd_spec,
     _binaryK_odd_spec,
     _binaryK_superfp_accumulated_spec,
+    _binaryK_superfp_odd_spec,
     _checked_carrier_rounding_call,
     _gemm_mixed_nd,
     _gemm_nd,
     _run_gemm,
     _superfp_accumulated_spec,
     _superfp_binaryK_accumulated_spec,
+    _superfp_binaryK_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_odd_spec,
     _superfp_odd_spec,
@@ -787,6 +789,7 @@ def binaryK_superfp_gemm_formats(
     outer_prng_bits: int = 0,
     outer_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
     """Cross-family analog of :func:`binaryK_gemm_formats`: binaryK products, superfp sums.
 
@@ -796,6 +799,8 @@ def binaryK_superfp_gemm_formats(
     sums to the superfp ``acc_*`` format, which is required (an unrounded sum
     is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With
     ``BLOCK`` or ``TREE`` the outer format is a superfp one.
+    ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
+    every pass, as for :func:`mptorch.quant.ops.binaryK_superfp_matmul`; ``NAIVE`` only.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -813,6 +818,38 @@ def binaryK_superfp_gemm_formats(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
+    if carrier_rounding is not RoundMode.RNE:
+        _checked_carrier_rounding_call(
+            carrier_rounding,
+            (
+                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+                or block_size is not None
+                or outer_man_bits is not None
+                or outer_exp_bits is not None
+                or outer_normal_binades is not None
+                or outer_bias is not None
+            ),
+        )
+        odd_spec = _binaryK_superfp_odd_spec(
+            mul_K=mul_K,
+            mul_P=mul_P,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            acc_man_bits=acc_man_bits,
+            acc_exp_bits=acc_exp_bits,
+            acc_normal_binades=acc_normal_binades,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            carrier=carrier,
+        )
+        return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _binaryK_superfp_accumulated_spec(
         mul_K=mul_K,
         mul_P=mul_P,
@@ -870,6 +907,7 @@ def superfp_binaryK_gemm_formats(
     outer_saturation_mode: SaturationMode | None = None,
     outer_subnormals_mode: SubnormalsMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
     """Cross-family analog of :func:`superfp_gemm_formats`: superfp products, binaryK sums.
 
@@ -879,6 +917,8 @@ def superfp_binaryK_gemm_formats(
     sums to the binaryK ``acc_*`` format, which is required (an unrounded sum
     is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With
     ``BLOCK`` or ``TREE`` the outer format is a binaryK one.
+    ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
+    every pass, as for :func:`mptorch.quant.ops.superfp_binaryK_matmul`; ``NAIVE`` only.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
@@ -897,6 +937,37 @@ def superfp_binaryK_gemm_formats(
         >>> layer(torch.randn(32, 256)).shape
         torch.Size([32, 64])
     """
+    if carrier_rounding is not RoundMode.RNE:
+        _checked_carrier_rounding_call(
+            carrier_rounding,
+            (
+                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+                or block_size is not None
+                or outer_K is not None
+                or outer_P is not None
+                or outer_bias is not None
+            ),
+        )
+        odd_spec = _superfp_binaryK_odd_spec(
+            mul_man_bits=mul_man_bits,
+            mul_exp_bits=mul_exp_bits,
+            mul_normal_binades=mul_normal_binades,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            acc_K=acc_K,
+            acc_P=acc_P,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            acc_subnormals_mode=acc_subnormals_mode,
+            carrier=carrier,
+        )
+        return _gemm_formats(partial(_run_gemm, odd_spec))
     spec = _superfp_binaryK_accumulated_spec(
         mul_man_bits=mul_man_bits,
         mul_exp_bits=mul_exp_bits,

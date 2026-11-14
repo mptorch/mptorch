@@ -59,4 +59,20 @@ TORCH_LIBRARY_IMPL(mptorch, CUDA, m)
     MPT_CUDA_IMPL("custom_matmul_superfp_fma_odd", superfp_matmul_fma_odd_cuda);
     MPT_CUDA_IMPL("_carrier_odd", carrier_odd_cuda);
     MPT_CUDA_IMPL("_stochastic_cast", stochastic_cast_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_mixed_odd", binaryK_matmul_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_mixed_odd", superfp_matmul_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_fma_mixed_odd", binaryK_matmul_fma_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_fma_mixed_odd", superfp_matmul_fma_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_binaryK_superfp_odd", binaryK_superfp_matmul_odd_cuda);
+    MPT_CUDA_IMPL("custom_matmul_superfp_binaryK_odd", superfp_binaryK_matmul_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_odd", binaryK_conv_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_odd", superfp_conv_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_fma_odd", binaryK_conv_fma_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_fma_odd", superfp_conv_fma_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_mixed_odd", binaryK_conv_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_mixed_odd", superfp_conv_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_fma_mixed_odd", binaryK_conv_fma_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_fma_mixed_odd", superfp_conv_fma_mixed_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_binaryK_superfp_odd", binaryK_superfp_conv_odd_cuda);
+    MPT_CUDA_IMPL("custom_conv_superfp_binaryK_odd", superfp_binaryK_conv_odd_cuda);
 }

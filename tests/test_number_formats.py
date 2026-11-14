@@ -54,16 +54,24 @@ from mptorch.quant.mac import spec_for_mac
 from mptorch.quant.ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
+    _binaryK_fma_mixed_odd_spec,
     _binaryK_fma_mixed_spec,
     _binaryK_fma_odd_spec,
     _binaryK_fma_spec,
+    _binaryK_mixed_odd_spec,
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
     _binaryK_spec,
+    _binaryK_superfp_odd_spec,
+    _binaryK_superfp_spec,
     _superfp_accumulated_spec,
+    _superfp_binaryK_odd_spec,
+    _superfp_binaryK_spec,
+    _superfp_fma_mixed_odd_spec,
     _superfp_fma_mixed_spec,
     _superfp_fma_odd_spec,
     _superfp_fma_spec,
+    _superfp_mixed_odd_spec,
     _superfp_mixed_spec,
     _superfp_odd_spec,
     _superfp_spec,
@@ -183,6 +191,72 @@ def test_odd_macs_resolve_to_flat_specs(rm):
     assert spec.op is torch.ops.mptorch.custom_matmul_binaryK_fma_odd.default
     assert spec.args == plain.args  # the twin's schema, argument for argument
     assert FusedMac(BinaryK(8, 4), **odd) != FusedMac(BinaryK(8, 4), rounding=rm)  # memo key
+
+
+@pytest.mark.parametrize("rm", [RoundMode.RNE, RoundMode.RU, RoundMode.SR])
+def test_odd_palette_and_cross_family_macs_resolve_to_flat_specs(rm):
+    """The palette and cross-family macs under ``carrier_rounding=RoundMode.RO``
+    resolve to their ``*_odd`` builders' specs, on the twins' schemas."""
+    odd: dict[str, Any] = dict(rounding=rm, carrier_rounding=RoundMode.RO)
+    bk = Palette([BinaryK(8, 4), BinaryK(8, 3)])
+    sf = Palette([SuperFP(3, 4, 8, 7), SuperFP(2, 4, 8, 7)])
+    sfp: dict[str, Any] = dict(man_bits=[3, 2], exp_bits=[4, 4], normal_binades=[8, 8], bias=[7, 7])
+    bk_flat: dict[str, Any] = dict(mul_K=[8, 8], mul_P=[4, 3], acc_K=16, acc_P=11)
+    pairs = [
+        (
+            SplitMac(bk, BinaryK(16, 11), **odd),
+            _binaryK_mixed_odd_spec(**bk_flat, rounding_mode=rm),
+            _binaryK_mixed_spec(**bk_flat, rounding_mode=rm),
+        ),
+        (
+            SplitMac(sf, None, **odd),
+            _superfp_mixed_odd_spec(
+                **{f"mul_{k}": v for k, v in sfp.items()}, accumulate_quant=False, rounding_mode=rm
+            ),
+            _superfp_mixed_spec(
+                **{f"mul_{k}": v for k, v in sfp.items()}, accumulate_quant=False, rounding_mode=rm
+            ),
+        ),
+        (
+            FusedMac(bk, **odd),
+            _binaryK_fma_mixed_odd_spec(fma_K=[8, 8], fma_P=[4, 3], rounding_mode=rm),
+            _binaryK_fma_mixed_spec(fma_K=[8, 8], fma_P=[4, 3], rounding_mode=rm),
+        ),
+        (
+            FusedMac(sf, **odd),
+            _superfp_fma_mixed_odd_spec(
+                **{f"fma_{k}": v for k, v in sfp.items()}, rounding_mode=rm
+            ),
+            _superfp_fma_mixed_spec(**{f"fma_{k}": v for k, v in sfp.items()}, rounding_mode=rm),
+        ),
+        (
+            SplitMac(BinaryK(8, 4), SuperFP(3, 4, 8, 7), **odd),
+            _binaryK_superfp_odd_spec(
+                mul_K=8, mul_P=4, acc_man_bits=3, acc_exp_bits=4, acc_normal_binades=8,
+                acc_bias=7, rounding_mode=rm,
+            ),
+            _binaryK_superfp_spec(
+                mul_K=8, mul_P=4, acc_man_bits=3, acc_exp_bits=4, acc_normal_binades=8,
+                acc_bias=7, rounding_mode=rm,
+            ),
+        ),
+        (
+            SplitMac(SuperFP(3, 4, 8, 7), BinaryK(16, 11), **odd),
+            _superfp_binaryK_odd_spec(
+                mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=8, mul_bias=7, acc_K=16,
+                acc_P=11, rounding_mode=rm,
+            ),
+            _superfp_binaryK_spec(
+                mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=8, mul_bias=7, acc_K=16,
+                acc_P=11, rounding_mode=rm,
+            ),
+        ),
+    ]  # fmt: skip
+    for mac, want, plain in pairs:
+        spec = spec_for_mac(mac)
+        assert spec == want
+        assert str(spec.op) == str(plain.op).replace(".default", "_odd.default")
+        assert spec.args == plain.args and spec.mixed == plain.mixed
 
 
 def test_fused_mac_without_a_format_is_the_unrounded_step():

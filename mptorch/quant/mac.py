@@ -66,24 +66,30 @@ from .block import (
 from .ops import (
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_spec,
+    _binaryK_fma_mixed_odd_spec,
     _binaryK_fma_mixed_spec,
     _binaryK_fma_odd_spec,
     _binaryK_fma_spec,
+    _binaryK_mixed_odd_spec,
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
     _binaryK_spec,
     _binaryK_superfp_accumulated_spec,
+    _binaryK_superfp_odd_spec,
     _binaryK_superfp_spec,
     _checked_block_size,
     _checked_carrier,
     _GemmSpec,
     _superfp_accumulated_spec,
     _superfp_binaryK_accumulated_spec,
+    _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
     _superfp_fma_accumulated_spec,
+    _superfp_fma_mixed_odd_spec,
     _superfp_fma_mixed_spec,
     _superfp_fma_odd_spec,
     _superfp_fma_spec,
+    _superfp_mixed_odd_spec,
     _superfp_mixed_spec,
     _superfp_odd_spec,
     _superfp_spec,
@@ -605,11 +611,11 @@ def _checked_carrier_rounding(
 ) -> None:
     """Validate a mac's ``carrier_rounding``: ``RNE`` (the default) or ``RO``.
 
-    ``RO`` selects the ``custom_matmul_*_odd`` ops, whose carrier steps round
-    to odd so that the format's cast rounds the exact value. They exist for
-    the NAIVE single-format, single-family GEMMs only, and their step must be
-    rounded by a format afterwards. Each refusal says so here rather than at
-    the call.
+    ``RO`` selects the ``custom_matmul_*_odd`` and ``custom_conv_*_odd`` ops,
+    whose carrier steps round to odd so that the format's cast rounds the
+    exact value. They exist for NAIVE reductions only, single-format,
+    palette and cross-family alike, and their step must be rounded by a
+    format afterwards. Each refusal says so here rather than at the call.
     """
     mode = mac.carrier_rounding
     if not isinstance(mode, RoundMode) or mode not in (RoundMode.RNE, RoundMode.RO):
@@ -626,22 +632,11 @@ def _checked_carrier_rounding(
             f"as KAHAN, BLOCK and TREE rely on error-free transforms rounded to nearest: use "
             f"NAIVE, or {where} (the default)"
         )
-    if any(_varies(slot) for slot in slots):
-        raise ValueError(
-            "carrier_rounding=RoundMode.RO has no palette ops, as the odd step is implemented "
-            f"for one format per slot only: give each slot one format, or {where}"
-        )
     if slots[0] is None:
         raise ValueError(
             "carrier_rounding=RoundMode.RO needs a format to round the fused step: a carrier "
             "step rounded to odd is only correct when a format rounds it again, and "
             "FusedMac(None) is the carrier's own nearest FMA"
-        )
-    present = [slot for slot in slots if slot is not None]
-    if len({type(slot[0]) for slot in present}) > 1:
-        raise ValueError(
-            "carrier_rounding=RoundMode.RO has no cross-family ops, as the odd step is "
-            f"implemented for one family per mac only: use one family in both slots, or {where}"
         )
 
 
@@ -982,11 +977,14 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         fields["saturation_mode"] = fma_0.saturation
         if isinstance(fma_0, BinaryK):
             fields["subnormals_mode"] = fma_0.subnormals
+        odd = mac.carrier_rounding is RoundMode.RO  # NAIVE (`_checked_carrier_rounding`)
         if _varies(fma):
-            build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
+            if odd:
+                build = _binaryK_fma_mixed_odd_spec if binaryK else _superfp_fma_mixed_odd_spec
+            else:
+                build = _binaryK_fma_mixed_spec if binaryK else _superfp_fma_mixed_spec
             return build(**fields)
-        if mac.carrier_rounding is RoundMode.RO:
-            # NAIVE, one format (`_checked_carrier_rounding`)
+        if odd:
             build = _binaryK_fma_odd_spec if binaryK else _superfp_fma_odd_spec
             return build(**fields)
         if naive:
@@ -1013,11 +1011,14 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
         if isinstance(acc_0, BinaryK):
             fields["acc_subnormals_mode"] = acc_0.subnormals
     binaryK = isinstance(mul_0, BinaryK)
+    odd = mac.carrier_rounding is RoundMode.RO  # NAIVE (`_checked_carrier_rounding`)
     if acc is not None and type(acc[0]) is not type(mul_0):
         # Cross-family: one format per slot (`SplitMac.__post_init__`), and
         # the accumulate format is always rounded, so the ops take no flag.
         del fields["accumulate_quant"]
-        if naive:
+        if odd:
+            build = _binaryK_superfp_odd_spec if binaryK else _superfp_binaryK_odd_spec
+        elif naive:
             build = _binaryK_superfp_spec if binaryK else _superfp_binaryK_spec
         else:
             build = (
@@ -1025,10 +1026,12 @@ def spec_for_mac(mac: Mac) -> _GemmSpec:
             )
         return build(**fields)
     if n > 1:
-        build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
+        if odd:
+            build = _binaryK_mixed_odd_spec if binaryK else _superfp_mixed_odd_spec
+        else:
+            build = _binaryK_mixed_spec if binaryK else _superfp_mixed_spec
         return build(**fields)
-    if mac.carrier_rounding is RoundMode.RO:
-        # NAIVE, one format per slot, one family (`_checked_carrier_rounding`)
+    if odd:
         build = _binaryK_odd_spec if binaryK else _superfp_odd_spec
         return build(**fields)
     if naive:

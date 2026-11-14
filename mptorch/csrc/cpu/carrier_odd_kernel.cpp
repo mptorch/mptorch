@@ -9,6 +9,7 @@
 
 using at::Tensor;
 
+#if !defined(MPTORCH_NO_ODD)
 namespace
 {
   template <class T>
@@ -20,9 +21,13 @@ namespace
                                                             : odd::mul(a[i], b[i]);
   }
 } // namespace
+#endif
 
 Tensor carrier_odd_cpu(Tensor a, Tensor b, Tensor c, int64_t op)
 {
+#if defined(MPTORCH_NO_ODD)
+  mptorch::gemm::odd_unavailable("_carrier_odd");
+#else
   mptorch::gemm::check_carrier_odd(a, b, c, op);
   Tensor a_c = a.contiguous(), b_c = b.contiguous(), c_c = c.contiguous();
   Tensor o = at::empty_like(a_c);
@@ -33,4 +38,5 @@ Tensor carrier_odd_cpu(Tensor a, Tensor b, Tensor c, int64_t op)
     run(a_c.data_ptr<double>(), b_c.data_ptr<double>(), c_c.data_ptr<double>(),
         o.data_ptr<double>(), o.numel(), op);
   return o;
+#endif
 }

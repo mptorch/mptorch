@@ -148,6 +148,22 @@ TORCH_LIBRARY_IMPL(mptorch, Autograd, m)
   m.impl("custom_matmul_superfp_fma_odd", kernel());
   m.impl("_carrier_odd", kernel());
   m.impl("_stochastic_cast", kernel());
+  m.impl("custom_matmul_binaryK_mixed_odd", kernel());
+  m.impl("custom_matmul_superfp_mixed_odd", kernel());
+  m.impl("custom_matmul_binaryK_fma_mixed_odd", kernel());
+  m.impl("custom_matmul_superfp_fma_mixed_odd", kernel());
+  m.impl("custom_matmul_binaryK_superfp_odd", kernel());
+  m.impl("custom_matmul_superfp_binaryK_odd", kernel());
+  m.impl("custom_conv_binaryK_odd", kernel());
+  m.impl("custom_conv_superfp_odd", kernel());
+  m.impl("custom_conv_binaryK_fma_odd", kernel());
+  m.impl("custom_conv_superfp_fma_odd", kernel());
+  m.impl("custom_conv_binaryK_mixed_odd", kernel());
+  m.impl("custom_conv_superfp_mixed_odd", kernel());
+  m.impl("custom_conv_binaryK_fma_mixed_odd", kernel());
+  m.impl("custom_conv_superfp_fma_mixed_odd", kernel());
+  m.impl("custom_conv_binaryK_superfp_odd", kernel());
+  m.impl("custom_conv_superfp_binaryK_odd", kernel());
 }
 
 // The four in-place quantizers also need the ADInplaceOrView key, which is

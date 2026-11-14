@@ -2,13 +2,14 @@
 
 ``cpu/gemm_rne_tile.cpp`` runs a binaryK RNE GEMM's packed tiles through a
 vector loop over the shipped ``cast_binaryK_rne_fast`` when its formats admit
-it, and ``MPTORCH_CPU_SIMD``, read when the extension loads, picks the scalar
-loop (``0``) or caps the ISA (``avx2``). So each case here runs in an
-interpreter per setting, and their results must agree bit for bit, NaNs
-included. The cases are the tile's
-(split, product only, fused, conv), its edges (ragged tiles, batches,
+it, and ``cpu/gemm_odd_tile.cpp`` does the same for the odd carrier step
+(``carrier_rounding=RoundMode.RO``); ``MPTORCH_CPU_SIMD``, read when the
+extension loads, picks the scalar loop (``0``) or caps the ISA (``avx2``).
+So each case here runs in an interpreter per setting, and their results must
+agree bit for bit, NaNs included. The cases are the tiles'
+(split, product only, fused, conv), their edges (ragged tiles, batches,
 transposes, zeros, binary32 subnormals, overflow, infinities, NaNs, float16
-and bfloat16 operands), and formats it hands back to the scalar loop
+and bfloat16 operands), and formats they hand back to the scalar loop
 (unsigned, NORMALS, SAT_PROPAGATE), which must agree trivially.
 """
 
@@ -39,6 +40,15 @@ _CASES = textwrap.dedent(
             flat[(i * 37) % flat.numel()] = v
         return a.to(dtype), b.to(dtype)
 
+    def has_odd():  # a build with MPTORCH_NO_ODD=1 has no odd kernels to compare
+        x = torch.ones(1)
+        try:
+            torch.ops.mptorch._carrier_odd(x, x, x, 0)
+        except RuntimeError:
+            return False
+        return True
+
+    ODD = has_odd()
     out = {}
     shapes = [(64, 64, 64), (37, 70, 45), (5, 33, 9)]
     formats = [(8, 4, 16, 11), (16, 11, 16, 11), (12, 7, 16, 8), (6, 3, 10, 6), (24, 16, 24, 16)]
@@ -60,6 +70,18 @@ _CASES = textwrap.dedent(
                     a, b, mul_K=mk, mul_P=mp, accumulate_quant=False
                 )
                 out["fused-" + key] = binaryK_matmul_fma(a, b, fma_K=ak, fma_P=ap)
+                # the odd carrier step's tiles
+                odd = dict(carrier_rounding=RoundMode.RO)
+                if not ODD:
+                    continue
+                out["odd-split-" + key] = binaryK_matmul(a, b, **kw, **odd)
+                out["odd-split-sat-" + key] = binaryK_matmul(
+                    a, b, **kw, saturation_mode=SaturationMode.SAT_FINITE, **odd
+                )
+                out["odd-mul-only-" + key] = binaryK_matmul(
+                    a, b, mul_K=mk, mul_P=mp, accumulate_quant=False, **odd
+                )
+                out["odd-fused-" + key] = binaryK_matmul_fma(a, b, fma_K=ak, fma_P=ap, **odd)
             # the scalar loop's formats, which must agree trivially
             out[f"unsigned-{dtype}-{s}"] = binaryK_matmul(
                 a.abs(), b.abs(), mul_K=8, mul_P=4, acc_K=16, acc_P=8, mul_is_signed=False,
@@ -83,10 +105,17 @@ _CASES = textwrap.dedent(
     split_mac = SplitMac(BinaryK(8, 4), BinaryK(16, 11))
     conv = QConv2d(3, 5, 3, padding=1, formats=conv_formats(split_mac))
     fconv = QConv2d(3, 5, 3, stride=2, formats=conv_formats(FusedMac(BinaryK(16, 11))))
+    odd_split = SplitMac(BinaryK(8, 4), BinaryK(16, 11), carrier_rounding=RoundMode.RO)
+    odd_fused = FusedMac(BinaryK(16, 11), carrier_rounding=RoundMode.RO)
+    oconv = QConv2d(3, 5, 3, padding=1, formats=conv_formats(odd_split))
+    ofconv = QConv2d(3, 5, 3, stride=2, formats=conv_formats(odd_fused))
     x = torch.randn(2, 3, 11, 13, generator=g)
     with torch.no_grad():
         out["conv-split"] = conv(x)
         out["conv-fused"] = fconv(x)
+        if ODD:
+            out["odd-conv-split"] = oconv(x)
+            out["odd-conv-fused"] = ofconv(x)
     torch.save(out, sys.argv[1])
     """
 )

@@ -66,8 +66,10 @@ for f in cast_all_modes_sweep cast_double_sweep gemm_cast_float_arith gemm_cast_
 done
 check sweeps/old_sr_casts.h $CXX $HOST -fsyntax-only -x c++ "$B/sweeps/old_sr_casts.h" || FAILED=1
 check sweeps/cpu_rne_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_rne_tile_sweep.cpp" || FAILED=1
+check sweeps/cpu_odd_tile_sweep.cpp $CXX $HOST -fsyntax-only "$B/sweeps/cpu_odd_tile_sweep.cpp" || FAILED=1
 if [ -n "$TI" ]; then
     check timing/cpu_gemm_ab.cpp $CXX $HOST $TI -fsyntax-only "$B/timing/cpu_gemm_ab.cpp" || FAILED=1
+    check "timing/cpu_gemm_ab.cpp -DMPTORCH_AB_ODD" $CXX $HOST $TI -DMPTORCH_AB_ODD -fsyntax-only "$B/timing/cpu_gemm_ab.cpp" || FAILED=1
 else
     echo "SKIP  timing/cpu_gemm_ab.cpp (no torch to take headers from)"
 fi

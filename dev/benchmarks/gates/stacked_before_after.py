@@ -185,6 +185,64 @@ def cpu_gemm_cases(dtype=torch.float32):
     return out
 
 
+def conv_cases(dev, batch, channels, size):
+    """A 3x3 QConv2d forward through conv_formats, under no_grad: the default conv ops."""
+    from mptorch.number import BinaryK
+    from mptorch.quant import FusedMac, QConv2d, SplitMac, conv_formats
+
+    x = torch.randn(batch, channels, size, size, device=dev)
+    BK8 = BinaryK(8, 4, prng_bits=8)
+    out = {}
+    for name, mac in (
+        ("binaryK split RNE", SplitMac(BinaryK(8, 4), BinaryK(8, 4))),
+        ("binaryK split SR", SplitMac(BK8, BK8, rounding=SR)),
+        ("binaryK fma RNE", FusedMac(BinaryK(8, 4))),
+    ):
+        q = QConv2d(channels, channels, 3, padding=1, formats=conv_formats(mac)).to(dev)
+
+        def fwd(q=q):
+            with torch.no_grad():
+                return q(x)
+
+        out[f"conv2d {name}"] = fwd
+    return out
+
+
+def cross_cases(dev, n):
+    """The cross-family split GEMMs, a binaryK multiply with a superfp accumulate and back."""
+    from mptorch.quant import binaryK_superfp_matmul, superfp_binaryK_matmul
+
+    a, b = torch.randn(n, n, device=dev), torch.randn(n, n, device=dev)
+    bs: dict[str, Any] = dict(
+        mul_K=8, mul_P=4, acc_man_bits=3, acc_exp_bits=4, acc_normal_binades=1, acc_bias=7
+    )
+    sb: dict[str, Any] = dict(
+        mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=7, acc_K=8, acc_P=4
+    )
+    sr: dict[str, Any] = dict(rounding_mode=SR, mul_prng_bits=8, acc_prng_bits=8)
+    return {
+        "binaryK_superfp RNE": lambda: binaryK_superfp_matmul(a, b, **bs, rounding_mode=RNE),
+        "binaryK_superfp SR": lambda: binaryK_superfp_matmul(a, b, **bs, **sr),
+        "superfp_binaryK RNE": lambda: superfp_binaryK_matmul(a, b, **sb, rounding_mode=RNE),
+    }
+
+
+def block_cases(dev, n):
+    """The block GEMM over operands packed once, outside the timed call."""
+    from mptorch.number import MXFP8_E4M3, NVFP4, BinaryK
+    from mptorch.quant import block_matmul, block_pack
+
+    a, b = torch.randn(n, n, device=dev), torch.randn(n, n, device=dev)
+    out = {}
+    for tag, fmt in (("MXFP8_E4M3", MXFP8_E4M3), ("NVFP4", NVFP4)):
+        pa, pb = block_pack(a, fmt), block_pack(b, fmt, axis=-2)
+        out[f"block {tag} split RNE"] = functools.partial(block_matmul, pa, pb, acc=BinaryK(8, 4))
+        out[f"block {tag} fused RNE"] = functools.partial(
+            block_matmul, pa, pb, acc=BinaryK(8, 4), fused=True
+        )
+    return out
+
+
 def elem_cases(dev, nelem):
     out = {}
     for dt, tag in ((torch.float32, "f32"), (torch.bfloat16, "bf16")):
@@ -213,6 +271,12 @@ def run_timing(args):
         "cpu_gemm": (lambda: cpu_gemm_cases(dtype), False),
         "gpu_elem": (lambda: elem_cases("cuda", 33_554_432), True),
         "cpu_elem": (lambda: elem_cases("cpu", 4_194_304), False),
+        "gpu_conv": (lambda: conv_cases("cuda", 8, 64, 32), True),
+        "cpu_conv": (lambda: conv_cases("cpu", 2, 32, 16), False),
+        "gpu_cross": (lambda: cross_cases("cuda", args.n), True),
+        "cpu_cross": (lambda: cross_cases("cpu", 256), False),
+        "gpu_block": (lambda: block_cases("cuda", args.n), True),
+        "cpu_block": (lambda: block_cases("cpu", 256), False),
     }
     build, cuda = groups[args.group]
     res = {name: timed(fn, args.reps, args.warmup, cuda) for name, fn in build().items()}
@@ -538,7 +602,19 @@ def main():
     t.add_argument(
         "--group",
         required=True,
-        choices=["gpu_gemm", "gpu_mixed", "cpu_gemm", "gpu_elem", "cpu_elem"],
+        choices=[
+            "gpu_gemm",
+            "gpu_mixed",
+            "cpu_gemm",
+            "gpu_elem",
+            "cpu_elem",
+            "gpu_conv",
+            "cpu_conv",
+            "gpu_cross",
+            "cpu_cross",
+            "gpu_block",
+            "cpu_block",
+        ],
     )
     t.add_argument("--reps", type=int, default=7)
     t.add_argument("--warmup", type=int, default=2)

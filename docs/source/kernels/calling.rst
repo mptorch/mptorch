@@ -326,9 +326,14 @@ Performance notes
   practice at most seven exponent bits). The results are the scalar loop's,
   word for word. On a Ryzen 9 7940HS (AVX-512) that is 7-9x the scalar loop
   on one thread (a split step 7.8 to 1.1 ns) and 7-11x on sixteen; on an M3
-  Pro (NEON) about 4x at every thread count (0.69 ns a split step on one). Every other mode,
-  format and accumulator runs the scalar loop, and so does any call under
-  the environment variable ``MPTORCH_CPU_SIMD=0``, read when mptorch loads.
+  Pro (NEON) about 4x at every thread count (0.69 ns a split step on one).
+  The odd carrier step (``carrier_rounding=RoundMode.RO``) has vector tiles
+  for the same cases: with AVX-512 it runs at 1.0-1.2x the default tile on
+  one thread, through the directed roundings the instruction set has, and
+  with AVX2 or NEON at about 3-5x, through binary64 error-free transforms.
+  Every other mode, format and accumulator runs the scalar loop, palettes
+  included, and so does any call under the environment variable
+  ``MPTORCH_CPU_SIMD=0``, read when mptorch loads.
 - **Block products and convolutions cost what their matrix products cost.**
   Decoding a block operand adds 5-18% to the flat product on the decoded
   operands (:doc:`block`, "How the kernel decodes"). A convolution's

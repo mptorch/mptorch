@@ -151,8 +151,12 @@ Tensor &block_quantize_meta_(Tensor &x, c10::IntArrayRef fmt, double elem_max, d
 
 Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op)
 {
+#if defined(MPTORCH_NO_ODD)
+  mptorch::gemm::odd_unavailable("_carrier_odd");
+#else
   sym_check_carrier_odd(a, b, c, op);
   return at::empty_like(a.contiguous());
+#endif
 }
 
 // _stochastic_cast (common/stochastic_cast_host.h): check_tensors' checks on
@@ -221,4 +225,20 @@ TORCH_LIBRARY_IMPL(mptorch, Meta, m)
   m.impl("custom_matmul_superfp_fma_odd", TORCH_FN(superfp_matmul_fma_odd_meta));
   m.impl("_carrier_odd", TORCH_FN(carrier_odd_meta));
   m.impl("_stochastic_cast", TORCH_FN(stochastic_cast_meta));
+  m.impl("custom_matmul_binaryK_mixed_odd", TORCH_FN(binaryK_matmul_mixed_odd_meta));
+  m.impl("custom_matmul_superfp_mixed_odd", TORCH_FN(superfp_matmul_mixed_odd_meta));
+  m.impl("custom_matmul_binaryK_fma_mixed_odd", TORCH_FN(binaryK_matmul_fma_mixed_odd_meta));
+  m.impl("custom_matmul_superfp_fma_mixed_odd", TORCH_FN(superfp_matmul_fma_mixed_odd_meta));
+  m.impl("custom_matmul_binaryK_superfp_odd", TORCH_FN(binaryK_superfp_matmul_odd_meta));
+  m.impl("custom_matmul_superfp_binaryK_odd", TORCH_FN(superfp_binaryK_matmul_odd_meta));
+  m.impl("custom_conv_binaryK_odd", TORCH_FN(binaryK_conv_odd_meta));
+  m.impl("custom_conv_superfp_odd", TORCH_FN(superfp_conv_odd_meta));
+  m.impl("custom_conv_binaryK_fma_odd", TORCH_FN(binaryK_conv_fma_odd_meta));
+  m.impl("custom_conv_superfp_fma_odd", TORCH_FN(superfp_conv_fma_odd_meta));
+  m.impl("custom_conv_binaryK_mixed_odd", TORCH_FN(binaryK_conv_mixed_odd_meta));
+  m.impl("custom_conv_superfp_mixed_odd", TORCH_FN(superfp_conv_mixed_odd_meta));
+  m.impl("custom_conv_binaryK_fma_mixed_odd", TORCH_FN(binaryK_conv_fma_mixed_odd_meta));
+  m.impl("custom_conv_superfp_fma_mixed_odd", TORCH_FN(superfp_conv_fma_mixed_odd_meta));
+  m.impl("custom_conv_binaryK_superfp_odd", TORCH_FN(binaryK_superfp_conv_odd_meta));
+  m.impl("custom_conv_superfp_binaryK_odd", TORCH_FN(superfp_binaryK_conv_odd_meta));
 }

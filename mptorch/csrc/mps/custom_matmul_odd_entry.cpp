@@ -53,3 +53,139 @@ Tensor stochastic_cast_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, int64_t)
 {
   TORCH_CHECK(false, "_stochastic_cast: a test-only op with no MPS kernel; run it on a CPU or CUDA tensor");
 }
+
+Tensor binaryK_matmul_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, c10::IntArrayRef,
+                                    c10::IntArrayRef, c10::IntArrayRef, bool, bool,
+                                    c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
+                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                    int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_mixed_odd");
+}
+
+Tensor superfp_matmul_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, c10::IntArrayRef,
+                                    c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
+                                    bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
+                                    c10::IntArrayRef, bool, int64_t, int64_t, int64_t, int64_t,
+                                    int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_mixed_odd");
+}
+
+Tensor binaryK_matmul_fma_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, bool, c10::IntArrayRef,
+                                        c10::IntArrayRef, c10::IntArrayRef, bool, int64_t, int64_t,
+                                        int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_fma_mixed_odd");
+}
+
+Tensor superfp_matmul_fma_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, bool, c10::IntArrayRef,
+                                        c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
+                                        int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_fma_mixed_odd");
+}
+
+Tensor binaryK_superfp_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool,
+                                      int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t,
+                                      int64_t, int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_binaryK_superfp_odd");
+}
+
+Tensor superfp_binaryK_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t,
+                                      int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t,
+                                      int64_t, int64_t, int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_matmul_superfp_binaryK_odd");
+}
+
+Tensor binaryK_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                            c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t, int64_t,
+                            bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t,
+                            int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
+                            int64_t, int64_t, bool, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_binaryK_odd");
+}
+
+Tensor superfp_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                            c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t, int64_t,
+                            int64_t, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
+                            int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
+                            int64_t, int64_t, int64_t, bool, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_superfp_odd");
+}
+
+Tensor binaryK_conv_fma_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                                c10::IntArrayRef, c10::IntArrayRef, int64_t, bool, int64_t, int64_t,
+                                int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_binaryK_fma_odd");
+}
+
+Tensor superfp_conv_fma_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                                c10::IntArrayRef, c10::IntArrayRef, int64_t, bool, int64_t, int64_t,
+                                int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_superfp_fma_odd");
+}
+
+Tensor binaryK_conv_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
+                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
+                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool, bool,
+                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
+                                  int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                  int64_t)
+{
+  no_metal_kernel("custom_conv_binaryK_mixed_odd");
+}
+
+Tensor superfp_conv_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
+                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
+                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
+                                  c10::IntArrayRef, bool, bool, c10::IntArrayRef, c10::IntArrayRef,
+                                  c10::IntArrayRef, c10::IntArrayRef, bool, int64_t, int64_t,
+                                  int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_superfp_mixed_odd");
+}
+
+Tensor binaryK_conv_fma_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
+                                      c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
+                                      bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
+                                      bool, int64_t, int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_binaryK_fma_mixed_odd");
+}
+
+Tensor superfp_conv_fma_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
+                                      c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
+                                      bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
+                                      c10::IntArrayRef, bool, int64_t, int64_t, int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_superfp_fma_mixed_odd");
+}
+
+Tensor binaryK_superfp_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                                    c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t,
+                                    int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool,
+                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                    int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool,
+                                    int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_binaryK_superfp_odd");
+}
+
+Tensor superfp_binaryK_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
+                                    c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t,
+                                    int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool,
+                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                                    int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t,
+                                    int64_t, int64_t)
+{
+  no_metal_kernel("custom_conv_superfp_binaryK_odd");
+}

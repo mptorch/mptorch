@@ -9,7 +9,7 @@ meta device, ``FakeTensorMode``, ``torch.export`` and ``torch.compile`` run in
 the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
-  public-API calls on the CPU reaches all 44, recorded by a dispatch mode.
+  public-API calls on the CPU reaches all 60, recorded by a dispatch mode.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against
@@ -61,7 +61,7 @@ from mptorch.quant import (
     superfp_quantize,
     superfp_quantize_,
 )
-from tests.markers import requires_cuda
+from tests.markers import HAS_ODD, requires_cuda
 
 # Dynamo says once per function that it traces through the format checks'
 # lru_cache; the checks are pure, so the cache only saves time.
@@ -102,6 +102,12 @@ MACS = {
     "superfp_odd": SplitMac(SFP, SFP, rounding=SR, carrier_rounding=R.RO),
     "binaryK_fma_odd": FusedMac(BK_ACC, rounding=SR, carrier_rounding=R.RO),
     "superfp_fma_odd": FusedMac(SFP, rounding=SR, carrier_rounding=R.RO),
+    "binaryK_mixed_odd": SplitMac(PAL, BK_ACC, rounding=SR, carrier_rounding=R.RO),
+    "superfp_mixed_odd": SplitMac(PAL_SFP, SFP, rounding=SR, carrier_rounding=R.RO),
+    "binaryK_fma_mixed_odd": FusedMac(PAL, rounding=SR, carrier_rounding=R.RO),
+    "superfp_fma_mixed_odd": FusedMac(PAL_SFP, rounding=SR, carrier_rounding=R.RO),
+    "binaryK_superfp_odd": SplitMac(BK, SFP, rounding=SR, carrier_rounding=R.RO),
+    "superfp_binaryK_odd": SplitMac(SFP, BK_ACC, rounding=SR, carrier_rounding=R.RO),
 }
 CONV_MACS = {
     k: MACS[k]
@@ -116,8 +122,29 @@ CONV_MACS = {
         "superfp_fma_mixed",
         "binaryK_superfp",
         "superfp_binaryK",
+        "binaryK_odd",
+        "superfp_odd",
+        "binaryK_fma_odd",
+        "superfp_fma_odd",
+        "binaryK_mixed_odd",
+        "superfp_mixed_odd",
+        "binaryK_fma_mixed_odd",
+        "superfp_fma_mixed_odd",
+        "binaryK_superfp_odd",
+        "superfp_binaryK_odd",
     )
 }
+
+
+def _is_odd(name: str) -> bool:
+    """An op of the carrier step rounded to odd, which a build with
+    MPTORCH_NO_ODD=1 registers and makes raise."""
+    return name.endswith("_odd") or name == "_carrier_odd"
+
+
+if not HAS_ODD:
+    MACS = {k: v for k, v in MACS.items() if not _is_odd(k)}
+    CONV_MACS = {k: v for k, v in CONV_MACS.items() if not _is_odd(k)}
 # A recorded call's tensors are what the workload passed; this many per op
 # keep the opcheck cases to a few seconds.
 CALLS_PER_OP = 3
@@ -181,7 +208,8 @@ def _workload():
     pb = block_pack(_rnd(gen, 64, 3), MXFP8_E4M3, axis=-2, rounding=SR)
     block_matmul(pa, pb, rounding=SR)
     block_matmul(pa, pb, accumulate_algorithm=A.KAHAN)
-    torch.ops.mptorch._carrier_odd(x, x, x, 0)
+    if HAS_ODD:
+        torch.ops.mptorch._carrier_odd(x, x, x, 0)
     # the test-only stochastic cast: binary8p4, StochasticB, N = 3
     torch.ops.mptorch._stochastic_cast(
         x, torch.zeros_like(x, dtype=torch.int64), 0, [8, 4, 7, 3, 1, 2, 0], 7
@@ -237,7 +265,7 @@ def _on_meta(args):
 
 def test_every_op_has_a_meta_and_an_autograd_kernel():
     names = _op_names()
-    assert len(names) == 44
+    assert len(names) == 60
     for key in ("Meta", "Autograd"):
         missing = [
             n
@@ -248,7 +276,29 @@ def test_every_op_has_a_meta_and_an_autograd_kernel():
 
 
 def test_the_workload_reaches_every_op():
-    assert sorted(_calls()) == _op_names()
+    assert sorted(_calls()) == [n for n in _op_names() if HAS_ODD or not _is_odd(n)]
+
+
+@pytest.mark.skipif(HAS_ODD, reason="the odd kernels are built")
+def test_without_the_odd_kernels_every_odd_op_raises_naming_the_flag():
+    """A build with MPTORCH_NO_ODD=1 keeps the odd ops registered, and each
+    raises the same message from its CPU and its Meta kernel. A GEMM or conv
+    odd op takes its twin's schema, so the twin's recorded call is a valid
+    call of it."""
+    odd = [n for n in _op_names() if _is_odd(n)]
+    assert len(odd) == 21
+    x = torch.ones(1)
+    for name in odd:
+        func = getattr(torch.ops.mptorch, name).default
+        if name == "_carrier_odd":
+            args: tuple = (x, x, x, 0)
+        else:
+            args = _calls()[name[: -len("_odd")]][0][1]
+        with pytest.raises(RuntimeError, match="MPTORCH_NO_ODD=1") as cpu:
+            func(*_fresh(args))
+        with pytest.raises(RuntimeError) as meta:
+            func(*_on_meta(args))
+        assert str(meta.value) == str(cpu.value), name
 
 
 def test_the_tags():
@@ -274,6 +324,8 @@ def test_the_tags():
 def test_opcheck(name):
     """The schema, the fake result against the real one, and AOTAutograd with
     symbolic shapes against eager."""
+    if not HAS_ODD and _is_odd(name):
+        pytest.skip("built with MPTORCH_NO_ODD=1")
     for func, args in _calls()[name]:
         torch.library.opcheck(
             func,
@@ -284,6 +336,8 @@ def test_opcheck(name):
 
 @pytest.mark.parametrize("name", _op_names())
 def test_the_meta_device_gives_the_cpu_layout(name):
+    if not HAS_ODD and _is_odd(name):
+        pytest.skip("built with MPTORCH_NO_ODD=1")
     for func, args in _calls()[name]:
         want = pytree.tree_leaves(func(*_fresh(args)))
         meta_args = _on_meta(args)
@@ -317,7 +371,10 @@ def test_a_meta_call_draws_nothing():
 
 
 def _with(name, call=0, **changes):
-    """Recorded call `call` of op `name`, with arguments replaced by name."""
+    """Recorded call `call` of op `name`, with arguments replaced by name, or
+    None for an odd op in a build without its kernels."""
+    if not HAS_ODD and _is_odd(name):
+        return None
     func, args = _calls()[name][call]
     names = [a.name for a in func._schema.arguments]
     args = list(_fresh(args))
@@ -363,6 +420,14 @@ def _gemm_cases():
             "custom_matmul_superfp_binaryK_accumulated", accumulate_algorithm=0
         ),
         "odd naive only": _with("custom_matmul_superfp_odd", accumulate_algorithm=A.KAHAN.value),
+        "odd palette naive only": _with(
+            "custom_matmul_binaryK_mixed_odd", accumulate_algorithm=A.KAHAN.value
+        ),
+        "fma_quant odd palette": _with("custom_matmul_superfp_fma_mixed_odd", fma_quant=False),
+        "odd palette lengths": _with("custom_matmul_superfp_mixed_odd", mul_exp_bits=[4]),
+        "odd cross naive only": _with(
+            "custom_matmul_binaryK_superfp_odd", accumulate_algorithm=A.TREE.value
+        ),
     }
 
 
@@ -391,6 +456,13 @@ def _conv_cases():
         "palette map": _with("custom_conv_binaryK_mixed", prec_idx=torch.zeros(5, 1)),
         "fma_quant palette": _with("custom_conv_binaryK_fma_mixed", fma_quant=False),
         "cross groups": _with("custom_conv_superfp_binaryK", groups=0),
+        "odd naive only": _with("custom_conv_binaryK_odd", accumulate_algorithm=A.KAHAN.value),
+        "odd naive block size": _with("custom_conv_superfp_odd", block_size=4),
+        "odd algorithm": _with("custom_conv_superfp_binaryK_odd", accumulate_algorithm=99),
+        "fma_quant odd": _with("custom_conv_binaryK_fma_odd", fma_quant=False),
+        "fma_quant odd palette": _with("custom_conv_superfp_fma_mixed_odd", fma_quant=False),
+        "odd palette map": _with("custom_conv_binaryK_mixed_odd", prec_idx=torch.zeros(5, 1)),
+        "odd cross groups": _with("custom_conv_binaryK_superfp_odd", groups=0),
     }
 
 
@@ -456,13 +528,16 @@ _GEMM_IDS = [
     "accumulated naive", "kahan block size", "block block size", "block size range", "fused tree",
     "palette lengths", "prec_idx rank", "prec_idx form", "prec_idx batch", "palette naive only",
     "fma_quant palette", "fma_quant odd", "cross inner", "cross accumulated naive",
-    "odd naive only",
+    "odd naive only", "odd palette naive only", "fma_quant odd palette", "odd palette lengths",
+    "odd cross naive only",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
     "out_size", "round mode", "algorithm", "naive block size", "kahan block size", "dtypes",
     "igrad channels", "wgrad samples", "palette naive only", "palette lengths", "palette map",
-    "fma_quant palette", "cross groups",
+    "fma_quant palette", "cross groups", "odd naive only", "odd naive block size",
+    "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
+    "odd cross groups",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
@@ -488,7 +563,10 @@ def test_a_meta_call_raises_the_cpu_message(case):
     _, key = case.split(": ", 1)
     group = case.split(":")[0]
     table = {"gemm": _gemm_cases, "conv": _conv_cases, "block": _block_cases, "other": _other_cases}
-    func, args = table[group]()[key]
+    entry = table[group]()[key]
+    if entry is None:
+        pytest.skip("built with MPTORCH_NO_ODD=1")
+    func, args = entry
     with pytest.raises(RuntimeError) as cpu:
         func(*args)
     with pytest.raises(RuntimeError) as meta:

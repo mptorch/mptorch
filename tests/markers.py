@@ -34,6 +34,29 @@ requires_cuda = pytest.mark.skipif(
 # The same for an Apple GPU (the MPS backend, csrc/mps/).
 requires_mps = pytest.mark.skipif(not HAS_MPS, reason="No working MPS device found.")
 
+
+def _odd_works() -> bool:
+    """Whether this build has the kernels of the carrier step rounded to odd:
+    a build with ``MPTORCH_NO_ODD=1`` (setup.py) registers the odd ops and
+    makes every one of them raise, naming the flag."""
+    import mptorch  # noqa: F401  (registers the ops)
+
+    x = torch.ones(1)
+    try:
+        torch.ops.mptorch._carrier_odd(x, x, x, 0)
+    except RuntimeError as e:
+        if "MPTORCH_NO_ODD" in str(e):
+            return False
+        raise
+    return True
+
+
+HAS_ODD = _odd_works()
+
+# Skips a test of the odd carrier step (carrier_rounding=RoundMode.RO) in a
+# build without its kernels.
+requires_odd = pytest.mark.skipif(not HAS_ODD, reason="Built with MPTORCH_NO_ODD=1.")
+
 _cuda = pytest.param("cuda", marks=requires_cuda)
 _mps = pytest.param("mps", marks=requires_mps)
 

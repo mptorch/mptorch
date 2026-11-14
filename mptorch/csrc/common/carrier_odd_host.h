@@ -22,6 +22,20 @@ namespace mptorch::gemm
                 "odd is only correct when a format rounds it again; use the plain fused op");
   }
 
+#if defined(MPTORCH_NO_ODD)
+  // A build with MPTORCH_NO_ODD=1 (setup.py) compiles no odd kernel. Every odd
+  // op stays registered and raises here, naming the flag, from its entry
+  // point and from its Meta kernel, before anything instantiates a driver, so
+  // the units the flag leaves out are never referenced.
+  [[noreturn]] inline void odd_unavailable(const char *op_name)
+  {
+    TORCH_CHECK(false, op_name,
+                ": this build has no kernels for the carrier step rounded to odd (it was built "
+                "with MPTORCH_NO_ODD=1); keep carrier_rounding=RoundMode.RNE, or rebuild without "
+                "it");
+  }
+#endif
+
   template <class Backend>
   at::Tensor run_binaryK_split_odd(at::Tensor a, at::Tensor b, bool trans_a, bool trans_b,
                                    int64_t mul_K, int64_t mul_P, int64_t mul_bias,
@@ -32,6 +46,9 @@ namespace mptorch::gemm
                                    int64_t acc_saturation_mode, int64_t acc_subnormals_mode,
                                    int64_t mul_prng_bits, int64_t acc_prng_bits)
   {
+#if defined(MPTORCH_NO_ODD)
+    odd_unavailable("custom_matmul_binaryK_odd");
+#else
     return run_custom_matmul<Backend>(
         "custom_matmul_binaryK_odd",
         OddArgs<BinaryKSplitArgs>{pack_binaryK_split(
@@ -39,6 +56,7 @@ namespace mptorch::gemm
             acc_is_signed, mul_saturation_mode, mul_subnormals_mode, acc_saturation_mode,
             acc_subnormals_mode, mul_prng_bits, acc_prng_bits)},
         a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
+#endif
   }
 
   template <class Backend>
@@ -53,6 +71,9 @@ namespace mptorch::gemm
                                    int64_t acc_saturation_mode, int64_t mul_prng_bits,
                                    int64_t acc_prng_bits)
   {
+#if defined(MPTORCH_NO_ODD)
+    odd_unavailable("custom_matmul_superfp_odd");
+#else
     return run_custom_matmul<Backend>(
         "custom_matmul_superfp_odd",
         OddArgs<SuperfpSplitArgs>{pack_superfp_split(
@@ -61,6 +82,7 @@ namespace mptorch::gemm
             acc_is_signed, mul_saturation_mode, acc_saturation_mode, mul_prng_bits,
             acc_prng_bits)},
         a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
+#endif
   }
 
   template <class Backend>
@@ -71,6 +93,9 @@ namespace mptorch::gemm
                                    int64_t fma_saturation_mode, int64_t fma_subnormals_mode,
                                    int64_t fma_prng_bits)
   {
+#if defined(MPTORCH_NO_ODD)
+    odd_unavailable("custom_matmul_binaryK_fma_odd");
+#else
     constexpr const char *op = "custom_matmul_binaryK_fma_odd";
     check_fma_quant(fma_quant, op);
     return run_custom_matmul<Backend>(
@@ -79,6 +104,7 @@ namespace mptorch::gemm
                                                      fma_is_signed, fma_saturation_mode,
                                                      fma_subnormals_mode, fma_prng_bits)},
         a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
+#endif
   }
 
   template <class Backend>
@@ -89,6 +115,9 @@ namespace mptorch::gemm
                                    int64_t round_mode, int64_t fma_saturation_mode,
                                    int64_t fma_prng_bits)
   {
+#if defined(MPTORCH_NO_ODD)
+    odd_unavailable("custom_matmul_superfp_fma_odd");
+#else
     constexpr const char *op = "custom_matmul_superfp_fma_odd";
     check_fma_quant(fma_quant, op);
     return run_custom_matmul<Backend>(
@@ -98,6 +127,7 @@ namespace mptorch::gemm
                                                      fma_is_signed, fma_saturation_mode,
                                                      fma_prng_bits)},
         a, b, trans_a, trans_b, accumulate_algorithm, round_mode);
+#endif
   }
 
   // _carrier_odd's checks: three tensors of one float32 or float64 dtype,

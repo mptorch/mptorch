@@ -1,5 +1,4 @@
-#include "custom_matmul_kernel.h"
-#include "../common/carrier_odd.h"
+#include "custom_matmul_odd_kernel.h"
 
 // binaryK formats, fused mac, carrier step rounded to odd, in binary32: the
 // kernels behind custom_matmul_binaryK_fma_odd (carrier_rounding=RoundMode.RO,

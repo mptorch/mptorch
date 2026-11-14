@@ -857,6 +857,94 @@ def _superfp_fma_odd_spec(
     )
 
 
+def _palette_slots(name: str, Ps: Sequence[int], prng_bits: int) -> list[tuple[str, int, int]]:
+    """``_odd_findings``' slots for a palette: one per entry, named by its index."""
+    return [(f"{name} (entry {i})", P, prng_bits) for i, P in enumerate(Ps)]
+
+
+def _binaryK_mixed_odd_spec(
+    *, accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE, **formats: Any
+) -> _GemmSpec:
+    """:func:`_binaryK_mixed_spec` with the carrier step rounded to odd, every entry bounded."""
+    _checked_naive(accumulate_algorithm)
+    spec = _binaryK_mixed_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    a = spec.args  # mul_P [1], accumulate_quant [4], acc_P [6], round_mode [10], prng [15], [16]
+    slots = _palette_slots("multiply", a[1], a[15])
+    if a[4]:
+        slots += _palette_slots("accumulate", a[6], a[16])
+    op = torch.ops.mptorch.custom_matmul_binaryK_mixed_odd.default
+    return _odd(spec, op, slots, RoundMode(a[10]))
+
+
+def _superfp_mixed_odd_spec(
+    *, accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE, **formats: Any
+) -> _GemmSpec:
+    """:func:`_superfp_mixed_spec` with the carrier step rounded to odd, every entry bounded."""
+    _checked_naive(accumulate_algorithm)
+    spec = _superfp_mixed_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    # mul_man_bits [0], accumulate_quant [5], acc_man_bits [6], round_mode [12], prng [15], [16]
+    a = spec.args
+    slots = _palette_slots("multiply", [m + 1 for m in a[0]], a[15])
+    if a[5]:
+        slots += _palette_slots("accumulate", [m + 1 for m in a[6]], a[16])
+    op = torch.ops.mptorch.custom_matmul_superfp_mixed_odd.default
+    return _odd(spec, op, slots, RoundMode(a[12]))
+
+
+def _binaryK_fma_mixed_odd_spec(
+    *,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    fma_quant: bool = True,
+    **formats: Any,
+) -> _GemmSpec:
+    """:func:`_binaryK_fma_mixed_spec` with the carrier step rounded to odd."""
+    _checked_naive(accumulate_algorithm)
+    _checked_fma_quant(fma_quant)
+    spec = _binaryK_fma_mixed_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    a = spec.args  # fma_P [2], round_mode [6], fma_prng_bits [9]
+    op = torch.ops.mptorch.custom_matmul_binaryK_fma_mixed_odd.default
+    return _odd(spec, op, _palette_slots("fused", a[2], a[9]), RoundMode(a[6]))
+
+
+def _superfp_fma_mixed_odd_spec(
+    *,
+    accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE,
+    fma_quant: bool = True,
+    **formats: Any,
+) -> _GemmSpec:
+    """:func:`_superfp_fma_mixed_spec` with the carrier step rounded to odd."""
+    _checked_naive(accumulate_algorithm)
+    _checked_fma_quant(fma_quant)
+    spec = _superfp_fma_mixed_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    a = spec.args  # fma_man_bits [1], round_mode [7], fma_prng_bits [9]
+    op = torch.ops.mptorch.custom_matmul_superfp_fma_mixed_odd.default
+    return _odd(spec, op, _palette_slots("fused", [m + 1 for m in a[1]], a[9]), RoundMode(a[7]))
+
+
+def _binaryK_superfp_odd_spec(
+    *, accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE, **formats: Any
+) -> _GemmSpec:
+    """:func:`_binaryK_superfp_spec` with the carrier step rounded to odd."""
+    _checked_naive(accumulate_algorithm)
+    spec = _binaryK_superfp_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    a = spec.args  # mul_P [1], acc_man_bits [4], round_mode [10], prng [14], [15]
+    slots = [("multiply", a[1], a[14]), ("accumulate", a[4] + 1, a[15])]
+    op = torch.ops.mptorch.custom_matmul_binaryK_superfp_odd.default
+    return _odd(spec, op, slots, RoundMode(a[10]))
+
+
+def _superfp_binaryK_odd_spec(
+    *, accumulate_algorithm: AccumulateAlgorithm = AccumulateAlgorithm.NAIVE, **formats: Any
+) -> _GemmSpec:
+    """:func:`_superfp_binaryK_spec` with the carrier step rounded to odd."""
+    _checked_naive(accumulate_algorithm)
+    spec = _superfp_binaryK_spec(accumulate_algorithm=accumulate_algorithm, **formats)
+    a = spec.args  # mul_man_bits [0], acc_P [6], round_mode [10], prng [14], [15]
+    slots = [("multiply", a[0] + 1, a[14]), ("accumulate", a[6], a[15])]
+    op = torch.ops.mptorch.custom_matmul_superfp_binaryK_odd.default
+    return _odd(spec, op, slots, RoundMode(a[10]))
+
+
 def _checked_carrier_rounding_call(carrier_rounding: RoundMode, accumulated: bool) -> None:
     """A flat wrapper's ``carrier_rounding`` other than RNE: RO, with no accumulation."""
     if carrier_rounding is not RoundMode.RO:
@@ -3058,6 +3146,7 @@ def binaryK_matmul_mixed(
     acc_saturation_mode: SaturationMode | None = None,
     acc_subnormals_mode: SubnormalsMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized GEMM whose binaryK format varies per output element.
 
@@ -3131,6 +3220,10 @@ def binaryK_matmul_mixed(
             formats' bottom of range. Default: ``None``, ``subnormals_mode``.
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
             Default: ``None``, the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            every palette entry: ``RoundMode.RO`` runs the palette's odd op,
+            and each entry's ``P`` (``P + prng_bits`` under ``SR``) is held to
+            the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -3162,8 +3255,12 @@ def binaryK_matmul_mixed(
     Three output elements use the ``P=4`` entry and are exact. The last uses
     the ``P=3`` entry, whose two mantissa bits round the sum 22 to 24.
     """
+    build = _binaryK_mixed_spec
+    if carrier_rounding is not _RNE:
+        _checked_carrier_rounding_call(carrier_rounding, False)
+        build = _binaryK_mixed_odd_spec
     return _gemm_mixed_nd(
-        _binaryK_mixed_spec(
+        build(
             mul_K=mul_K,
             mul_P=mul_P,
             mul_bias=mul_bias,
@@ -3306,6 +3403,7 @@ def superfp_matmul_mixed(
     saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     acc_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized GEMM whose superfp format varies per output element.
 
@@ -3365,6 +3463,10 @@ def superfp_matmul_mixed(
             formats' overflow behavior. Default: ``None``, ``saturation_mode``.
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
             Default: ``None``, the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            every palette entry: ``RoundMode.RO`` runs the palette's odd op,
+            and each entry's ``P`` (``P + prng_bits`` under ``SR``) is held to
+            the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -3396,8 +3498,12 @@ def superfp_matmul_mixed(
         tensor([[ 7., 10.],
                 [15., 24.]])
     """
+    build = _superfp_mixed_spec
+    if carrier_rounding is not _RNE:
+        _checked_carrier_rounding_call(carrier_rounding, False)
+        build = _superfp_mixed_odd_spec
     return _gemm_mixed_nd(
-        _superfp_mixed_spec(
+        build(
             mul_man_bits=mul_man_bits,
             mul_exp_bits=mul_exp_bits,
             mul_normal_binades=mul_normal_binades,
@@ -3493,6 +3599,7 @@ def binaryK_matmul_fma_mixed(
     saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     subnormals_mode: SubnormalsMode = SubnormalsMode.SUBNORMALS,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized fused-multiply-add GEMM whose binaryK format varies per element.
 
@@ -3539,6 +3646,10 @@ def binaryK_matmul_fma_mixed(
             Default: ``SubnormalsMode.SUBNORMALS``
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
             Default: ``None``, the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            every palette entry: ``RoundMode.RO`` runs the palette's odd op,
+            and each entry's ``P`` (``P + prng_bits`` under ``SR``) is held to
+            the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -3567,8 +3678,12 @@ def binaryK_matmul_fma_mixed(
         tensor([[ 7., 10.],
                 [15., 24.]])
     """
+    build = _binaryK_fma_mixed_spec
+    if carrier_rounding is not _RNE:
+        _checked_carrier_rounding_call(carrier_rounding, False)
+        build = _binaryK_fma_mixed_odd_spec
     return _gemm_mixed_nd(
-        _binaryK_fma_mixed_spec(
+        build(
             fma_K=fma_K,
             fma_P=fma_P,
             fma_bias=fma_bias,
@@ -3659,6 +3774,7 @@ def superfp_matmul_fma_mixed(
     rounding_mode: RoundMode = RoundMode.RNE,
     saturation_mode: SaturationMode = SaturationMode.SAT_NONE,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized fused-multiply-add GEMM whose superfp format varies per element.
 
@@ -3700,6 +3816,10 @@ def superfp_matmul_fma_mixed(
             Default: ``SaturationMode.SAT_NONE``
         carrier (torch.dtype, optional): as for :func:`binaryK_matmul`.
             Default: ``None``, the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            every palette entry: ``RoundMode.RO`` runs the palette's odd op,
+            and each entry's ``P`` (``P + prng_bits`` under ``SR``) is held to
+            the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -3731,8 +3851,12 @@ def superfp_matmul_fma_mixed(
         tensor([[ 7., 10.],
                 [15., 24.]])
     """
+    build = _superfp_fma_mixed_spec
+    if carrier_rounding is not _RNE:
+        _checked_carrier_rounding_call(carrier_rounding, False)
+        build = _superfp_fma_mixed_odd_spec
     return _gemm_mixed_nd(
-        _superfp_fma_mixed_spec(
+        build(
             fma_man_bits=fma_man_bits,
             fma_exp_bits=fma_exp_bits,
             fma_normal_binades=fma_normal_binades,
@@ -4002,6 +4126,7 @@ def binaryK_superfp_matmul(
     outer_prng_bits: int = 0,
     outer_saturation_mode: SaturationMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized GEMM whose products are binaryK and whose sums are superfp.
 
@@ -4079,6 +4204,10 @@ def binaryK_superfp_matmul(
             narrows the result back to their dtype with one rounding.
             ``torch.float32`` refuses float64 operands. Default: ``None``,
             the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            both formats: ``RoundMode.RO`` runs the odd cross-family op, NAIVE
+            only, and the multiply and the accumulate format are each held
+            to the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -4119,6 +4248,7 @@ def binaryK_superfp_matmul(
         and outer_exp_bits is None
         and outer_normal_binades is None
         and outer_bias is None
+        and carrier_rounding is _RNE
     ):
         spec = _binaryK_superfp_spec(
             mul_K=mul_K,
@@ -4139,7 +4269,7 @@ def binaryK_superfp_matmul(
             acc_saturation_mode=acc_saturation_mode,
             carrier=carrier,
         )
-    else:
+    elif carrier_rounding is _RNE:
         spec = _binaryK_superfp_accumulated_spec(
             mul_K=mul_K,
             mul_P=mul_P,
@@ -4166,6 +4296,37 @@ def binaryK_superfp_matmul(
             outer_is_signed=outer_is_signed,
             outer_prng_bits=outer_prng_bits,
             outer_saturation_mode=outer_saturation_mode,
+        )
+    else:
+        _checked_carrier_rounding_call(
+            carrier_rounding,
+            (
+                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+                or block_size is not None
+                or outer_man_bits is not None
+                or outer_exp_bits is not None
+                or outer_normal_binades is not None
+                or outer_bias is not None
+            ),
+        )
+        spec = _binaryK_superfp_odd_spec(
+            mul_K=mul_K,
+            mul_P=mul_P,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            acc_man_bits=acc_man_bits,
+            acc_exp_bits=acc_exp_bits,
+            acc_normal_binades=acc_normal_binades,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            subnormals_mode=subnormals_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            carrier=carrier,
         )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
 
@@ -4201,6 +4362,7 @@ def superfp_binaryK_matmul(
     outer_saturation_mode: SaturationMode | None = None,
     outer_subnormals_mode: SubnormalsMode | None = None,
     carrier: torch.dtype | None = None,
+    carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> torch.Tensor:
     """Quantized GEMM whose products are superfp and whose sums are binaryK.
 
@@ -4270,6 +4432,10 @@ def superfp_binaryK_matmul(
             narrows the result back to their dtype with one rounding.
             ``torch.float32`` refuses float64 operands. Default: ``None``,
             the operands' own carrier.
+        carrier_rounding (RoundMode): as for :func:`binaryK_matmul`, over
+            both formats: ``RoundMode.RO`` runs the odd cross-family op, NAIVE
+            only, and the multiply and the accumulate format are each held
+            to the bound. Default: ``RoundMode.RNE``
 
     Returns:
         Tensor: the product, in the operands' dtype, with the shape
@@ -4304,6 +4470,7 @@ def superfp_binaryK_matmul(
         and outer_K is None
         and outer_P is None
         and outer_bias is None
+        and carrier_rounding is _RNE
     ):
         spec = _superfp_binaryK_spec(
             mul_man_bits=mul_man_bits,
@@ -4324,7 +4491,7 @@ def superfp_binaryK_matmul(
             acc_subnormals_mode=acc_subnormals_mode,
             carrier=carrier,
         )
-    else:
+    elif carrier_rounding is _RNE:
         spec = _superfp_binaryK_accumulated_spec(
             mul_man_bits=mul_man_bits,
             mul_exp_bits=mul_exp_bits,
@@ -4351,5 +4518,35 @@ def superfp_binaryK_matmul(
             outer_prng_bits=outer_prng_bits,
             outer_saturation_mode=outer_saturation_mode,
             outer_subnormals_mode=outer_subnormals_mode,
+        )
+    else:
+        _checked_carrier_rounding_call(
+            carrier_rounding,
+            (
+                accumulate_algorithm is not AccumulateAlgorithm.NAIVE
+                or block_size is not None
+                or outer_K is not None
+                or outer_P is not None
+                or outer_bias is not None
+            ),
+        )
+        spec = _superfp_binaryK_odd_spec(
+            mul_man_bits=mul_man_bits,
+            mul_exp_bits=mul_exp_bits,
+            mul_normal_binades=mul_normal_binades,
+            mul_bias=mul_bias,
+            mul_is_signed=mul_is_signed,
+            mul_prng_bits=mul_prng_bits,
+            acc_K=acc_K,
+            acc_P=acc_P,
+            acc_bias=acc_bias,
+            acc_is_signed=acc_is_signed,
+            acc_prng_bits=acc_prng_bits,
+            accumulate_algorithm=accumulate_algorithm,
+            rounding_mode=rounding_mode,
+            saturation_mode=saturation_mode,
+            acc_saturation_mode=acc_saturation_mode,
+            acc_subnormals_mode=acc_subnormals_mode,
+            carrier=carrier,
         )
     return _gemm_nd(spec, a, b, trans_a, trans_b)
