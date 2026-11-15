@@ -1930,7 +1930,11 @@ GEMM computes *between* its roundings, not the roundings themselves:
   and decoding. They round every input exactly, subnormal ones included, in
   every mode. A decoded block value can itself be a subnormal (an E8M0 scale
   reaches :math:`2^{-127}`), and it is the CPU's, in a float32 and in a
-  bfloat16 result.
+  bfloat16 result. The odd carrier step (``carrier_rounding=RoundMode.RO``)
+  is not affected either. Its kernels compute every carrier operation
+  exactly on the GPU too, the sums a format does not round included, so an
+  odd op returns the CPU's words in every mode
+  (:doc:`kernels/arithmetic`, "What the carrier rounds").
 * **NaN payloads.** A NaN that reaches a product or a sum comes out of the
   GPU's float unit as its canonical NaN, where the CPU keeps the operand's
   payload. The casts pass a NaN through unchanged on every device, so a

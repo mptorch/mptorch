@@ -87,7 +87,7 @@ were taken out of this folder on 2026-11-12 for this reason.
 
 | tool | does | run |
 |---|---|---|
-| `mps_backend.py` | `bench`: every op on MPS against the CPU op, results checked; `sweep`: the quantizers over all 2^32 binary32 words against the CPU (~6 min on an M3 Pro); `control`: the sweep's negative control | on a Mac |
+| `mps_backend.py` | `bench`: every op on MPS against the CPU op, results checked; `sweep`: the quantizers over all 2^32 binary32 words against the CPU (~6 min on an M3 Pro); `control`: the sweep's negative control; `odd-probe`: what the odd carrier step's Metal primitives assume of the GPU (`metal::fma`, the flush of operands and results); `odd-sweep [SEED]`: those primitives (`_carrier_odd`) against the CPU's over 25 regimes x 2^24 triples (~18 s, must be zero); `bench-odd`: each odd op against its default twin on MPS | on a Mac |
 | `check_native.sh` | compiles every native tool here against the working tree (host syntax checks, then nvcc at `-O0`) | no argument; ~1 min |
 
 ## Which tools a change needs
@@ -105,6 +105,7 @@ These come on top of what every change runs: the suite, and ruff, ty and pre-com
 | the elementwise SR path | `elementwise_sr_stats.py`, both dtypes; `cast_all_modes_sweep sr-mean` |
 | a bound in `mptorch/number.py` | `format_limits.py sweep --audit`, and with `--carrier binary64` |
 | MPS code, or a header the Metal prelude includes | on the Mac: the suite, `mps_backend.py sweep` and `bench` |
+| The odd carrier step's headers (`common/carrier_odd*.h`) | on the Mac: the suite and `mps_backend.py odd-sweep` (the Metal side); on Linux: `gates/binary_identity.py so` (their host and CUDA text) |
 | a cost you are going to claim | the matching `timing/` tool, alternated as below |
 
 Run longer grids once, when a piece of work is finished, trimmed to under 20 minutes.

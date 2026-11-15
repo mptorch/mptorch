@@ -894,7 +894,7 @@ def _odd_check(device, kind, fmts, mode, dtype, Ks=(17, 40)):
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("family", list(ODD_FAMILIES))
 @pytest.mark.parametrize("kind", ["split", "split_exact_sum", "fused"])
 @pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
@@ -912,7 +912,7 @@ def test_the_odd_accumulators_in_binary64(device, family, kind, mode):
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(
     "pair", [("binaryK", "superfp"), ("superfp", "binaryK")], ids=["bk_sf", "sf_bk"]
 )
@@ -926,7 +926,7 @@ def test_the_odd_cross_family_accumulators(device, pair, mode):
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
 @pytest.mark.parametrize("mode", [RoundMode.RNE, RoundMode.RU], ids=lambda m: m.name)
 def test_the_default_step_double_rounds_where_the_odd_one_does_not(device, algorithm, mode):
@@ -971,7 +971,7 @@ def test_the_cpu_and_cuda_odd_accumulators_agree_word_for_word(dtype, mode):
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("algorithm", [KAHAN, BLOCK, TREE], ids=lambda a: a.name)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=str)
 def test_odd_sr_is_seeded_and_bracketed(device, algorithm, dtype):

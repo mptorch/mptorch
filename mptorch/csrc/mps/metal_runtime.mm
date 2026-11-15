@@ -27,11 +27,28 @@ namespace mptorch_mps
       switch (s)
       {
       case KernelSource::Gemm:
+      case KernelSource::GemmOdd:
         return metal_sources::gemm;
       case KernelSource::Quantize:
         return metal_sources::quantize;
+      case KernelSource::CarrierOdd:
+        return metal_sources::carrier_odd;
       default:
         return metal_sources::block;
+      }
+    }
+
+    // What comes between the prelude and the tail: the odd headers for the
+    // odd carrier step's kernels, nothing for the others.
+    const char *kernel_head(KernelSource s)
+    {
+      switch (s)
+      {
+      case KernelSource::GemmOdd:
+      case KernelSource::CarrierOdd:
+        return metal_sources::odd;
+      default:
+        return "";
       }
     }
 
@@ -40,9 +57,12 @@ namespace mptorch_mps
       switch (s)
       {
       case KernelSource::Gemm:
+      case KernelSource::GemmOdd:
         return "mpt_gemm";
       case KernelSource::Quantize:
         return "mpt_quantize";
+      case KernelSource::CarrierOdd:
+        return "mpt_carrier_odd";
       case KernelSource::BlockPack:
         return "mpt_block_pack";
       case KernelSource::BlockPackTile:
@@ -58,7 +78,7 @@ namespace mptorch_mps
     id<MTLComputePipelineState> compile(KernelSource source, const std::string &tail,
                                         std::string &error)
     {
-      const std::string text = std::string(metal_sources::prelude) +
+      const std::string text = std::string(metal_sources::prelude) + kernel_head(source) +
                                "#line 1 \"<instantiation>\"\n" + tail +
                                kernel_source(source);
       @autoreleasepool

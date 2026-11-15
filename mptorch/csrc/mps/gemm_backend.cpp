@@ -1,4 +1,6 @@
 #include "gemm_backend.h"
+#include "../common/carrier_odd_accumulate.h"
+#include "../common/carrier_odd_mixed.h"
 #include "../cpu/utils.h" // draw_cpu_seed
 #include "launch_params.h"
 #include "metal_runtime.h"
@@ -159,6 +161,76 @@ namespace mptorch::gemm_mps
       w.set(at + "acc_c", a.acc_c);
     }
 
+    // The palette Args (one list per field, n_fmt slots of it written).
+    void write(ArgsWriter &w, const std::string &at, const BinaryKSplitMixedArgs &a)
+    {
+      static_assert(sizeof(BinaryKSplitMixedArgs) == 232, "write every BinaryKSplitMixedArgs field");
+      w.set(at + "n_fmt", int64_t{a.n_fmt});
+      w.set_slots(at + "mul", a.mul, a.n_fmt);
+      w.set(at + "mul_c", a.mul_c);
+      w.set(at + "accumulate_quant", a.accumulate_quant);
+      w.set_slots(at + "acc", a.acc, a.n_fmt);
+      w.set(at + "acc_c", a.acc_c);
+    }
+
+    void write(ArgsWriter &w, const std::string &at, const SuperfpSplitMixedArgs &a)
+    {
+      static_assert(sizeof(SuperfpSplitMixedArgs) == 288, "write every SuperfpSplitMixedArgs field");
+      w.set(at + "n_fmt", int64_t{a.n_fmt});
+      w.set_slots(at + "mul", a.mul, a.n_fmt);
+      w.set(at + "mul_c", a.mul_c);
+      w.set(at + "accumulate_quant", a.accumulate_quant);
+      w.set_slots(at + "acc", a.acc, a.n_fmt);
+      w.set(at + "acc_c", a.acc_c);
+    }
+
+    void write(ArgsWriter &w, const std::string &at, const BinaryKFusedMixedArgs &a)
+    {
+      static_assert(sizeof(BinaryKFusedMixedArgs) == 116, "write every BinaryKFusedMixedArgs field");
+      w.set(at + "n_fmt", int64_t{a.n_fmt});
+      w.set_slots(at + "fma", a.fma, a.n_fmt);
+      w.set(at + "fma_c", a.fma_c);
+    }
+
+    void write(ArgsWriter &w, const std::string &at, const SuperfpFusedMixedArgs &a)
+    {
+      static_assert(sizeof(SuperfpFusedMixedArgs) == 144, "write every SuperfpFusedMixedArgs field");
+      w.set(at + "n_fmt", int64_t{a.n_fmt});
+      w.set_slots(at + "fma", a.fma, a.n_fmt);
+      w.set(at + "fma_c", a.fma_c);
+    }
+
+    // The odd carrier step's Args (common/carrier_odd.h, carrier_odd_mixed.h):
+    // a wrapper of the op's Args, which is all it holds, and a palette's own
+    // copy of n_fmt.
+    template <class Base>
+    void write(ArgsWriter &w, const std::string &at, const OddArgs<Base> &a)
+    {
+      static_assert(sizeof(OddArgs<Base>) == sizeof(Base), "write every OddArgs field");
+      write(w, at + "base.", a.base);
+    }
+
+    template <class Base>
+    void write(ArgsWriter &w, const std::string &at, const OddPaletteArgs<Base> &a)
+    {
+      static_assert(sizeof(OddPaletteArgs<Base>) == sizeof(Base) + sizeof(int),
+                    "write every OddPaletteArgs field");
+      write(w, at + "base.", a.base);
+      w.set(at + "n_fmt", int64_t{a.n_fmt});
+    }
+
+    // The Metal name of an Args type the odd ops wrap.
+    const char *name_of(const BinaryKSplitArgs &) { return "BinaryKSplitArgs"; }
+    const char *name_of(const BinaryKFusedArgs &) { return "BinaryKFusedArgs"; }
+    const char *name_of(const SuperfpSplitArgs &) { return "SuperfpSplitArgs"; }
+    const char *name_of(const SuperfpFusedArgs &) { return "SuperfpFusedArgs"; }
+    const char *name_of(const BinaryKSuperfpArgs &) { return "BinaryKSuperfpArgs"; }
+    const char *name_of(const SuperfpBinaryKArgs &) { return "SuperfpBinaryKArgs"; }
+    const char *name_of(const BinaryKSplitMixedArgs &) { return "BinaryKSplitMixedArgs"; }
+    const char *name_of(const BinaryKFusedMixedArgs &) { return "BinaryKFusedMixedArgs"; }
+    const char *name_of(const SuperfpSplitMixedArgs &) { return "SuperfpSplitMixedArgs"; }
+    const char *name_of(const SuperfpFusedMixedArgs &) { return "SuperfpFusedMixedArgs"; }
+
     // An AccumulateArgs: its base's fields, then the accumulation's.
     template <class Base>
     std::string accumulated_source(const char *base, const AccumulateArgs<Base> &a)
@@ -190,14 +262,8 @@ namespace mptorch::gemm_mps
 
   std::string MpsBackend::args_source(const BinaryKSplitMixedArgs &a)
   {
-    static_assert(sizeof(BinaryKSplitMixedArgs) == 232, "write every BinaryKSplitMixedArgs field");
     ArgsWriter w("BinaryKSplitMixedArgs");
-    w.set("n_fmt", int64_t{a.n_fmt});
-    w.set_slots("mul", a.mul, a.n_fmt);
-    w.set("mul_c", a.mul_c);
-    w.set("accumulate_quant", a.accumulate_quant);
-    w.set_slots("acc", a.acc, a.n_fmt);
-    w.set("acc_c", a.acc_c);
+    write(w, "", a);
     return w.str();
   }
 
@@ -210,11 +276,8 @@ namespace mptorch::gemm_mps
 
   std::string MpsBackend::args_source(const BinaryKFusedMixedArgs &a)
   {
-    static_assert(sizeof(BinaryKFusedMixedArgs) == 116, "write every BinaryKFusedMixedArgs field");
     ArgsWriter w("BinaryKFusedMixedArgs");
-    w.set("n_fmt", int64_t{a.n_fmt});
-    w.set_slots("fma", a.fma, a.n_fmt);
-    w.set("fma_c", a.fma_c);
+    write(w, "", a);
     return w.str();
   }
 
@@ -227,14 +290,8 @@ namespace mptorch::gemm_mps
 
   std::string MpsBackend::args_source(const SuperfpSplitMixedArgs &a)
   {
-    static_assert(sizeof(SuperfpSplitMixedArgs) == 288, "write every SuperfpSplitMixedArgs field");
     ArgsWriter w("SuperfpSplitMixedArgs");
-    w.set("n_fmt", int64_t{a.n_fmt});
-    w.set_slots("mul", a.mul, a.n_fmt);
-    w.set("mul_c", a.mul_c);
-    w.set("accumulate_quant", a.accumulate_quant);
-    w.set_slots("acc", a.acc, a.n_fmt);
-    w.set("acc_c", a.acc_c);
+    write(w, "", a);
     return w.str();
   }
 
@@ -247,11 +304,8 @@ namespace mptorch::gemm_mps
 
   std::string MpsBackend::args_source(const SuperfpFusedMixedArgs &a)
   {
-    static_assert(sizeof(SuperfpFusedMixedArgs) == 144, "write every SuperfpFusedMixedArgs field");
     ArgsWriter w("SuperfpFusedMixedArgs");
-    w.set("n_fmt", int64_t{a.n_fmt});
-    w.set_slots("fma", a.fma, a.n_fmt);
-    w.set("fma_c", a.fma_c);
+    write(w, "", a);
     return w.str();
   }
 
@@ -310,6 +364,48 @@ namespace mptorch::gemm_mps
   {
     return accumulated_source("BlockSplitArgs", a);
   }
+
+  // The odd carrier step's Args, for the sixteen the odd ops build: N's four,
+  // X's two cross-family and four palette ones, and Y's six accumulated ones.
+  template <class Base>
+  std::string MpsBackend::args_source(const OddArgs<Base> &a)
+  {
+    ArgsWriter w((std::string("OddArgs<mptorch::gemm::") + name_of(a.base) + ">").c_str());
+    write(w, "", a);
+    return w.str();
+  }
+
+  template <class Base>
+  std::string MpsBackend::args_source(const OddPaletteArgs<Base> &a)
+  {
+    ArgsWriter w((std::string("OddPaletteArgs<mptorch::gemm::") + name_of(a.base) + ">").c_str());
+    write(w, "", a);
+    return w.str();
+  }
+
+  template <class Base>
+  std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<Base>> &a)
+  {
+    return accumulated_source(
+        (std::string("OddArgs<mptorch::gemm::") + name_of(a.base.base) + ">").c_str(), a);
+  }
+
+  template std::string MpsBackend::args_source(const OddArgs<BinaryKSplitArgs> &);
+  template std::string MpsBackend::args_source(const OddArgs<BinaryKFusedArgs> &);
+  template std::string MpsBackend::args_source(const OddArgs<SuperfpSplitArgs> &);
+  template std::string MpsBackend::args_source(const OddArgs<SuperfpFusedArgs> &);
+  template std::string MpsBackend::args_source(const OddArgs<BinaryKSuperfpArgs> &);
+  template std::string MpsBackend::args_source(const OddArgs<SuperfpBinaryKArgs> &);
+  template std::string MpsBackend::args_source(const OddPaletteArgs<BinaryKSplitMixedArgs> &);
+  template std::string MpsBackend::args_source(const OddPaletteArgs<BinaryKFusedMixedArgs> &);
+  template std::string MpsBackend::args_source(const OddPaletteArgs<SuperfpSplitMixedArgs> &);
+  template std::string MpsBackend::args_source(const OddPaletteArgs<SuperfpFusedMixedArgs> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<BinaryKSplitArgs>> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<BinaryKFusedArgs>> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<SuperfpSplitArgs>> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<SuperfpFusedArgs>> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<BinaryKSuperfpArgs>> &);
+  template std::string MpsBackend::args_source(const AccumulateArgs<OddArgs<SuperfpBinaryKArgs>> &);
 
   std::string MpsBackend::accumulate_line(AccumulateAlgorithm alg)
   {
@@ -374,8 +470,8 @@ namespace mptorch::gemm_mps
     // buffers 0 to 4 (gemm.metal binds a map on every op and reads it on the
     // mixed ones only; the others bind C there, which is never read), and
     // the variant's buffers after them.
-    void launch_gemm(const GemmShape &s, const std::string &tail, const MpsBackend::LaunchContext &ctx,
-                     std::vector<mptorch_mps::KernelArg> extra)
+    void launch_gemm(const GemmShape &s, const std::string &tail, mptorch_mps::KernelSource source,
+                     const MpsBackend::LaunchContext &ctx, std::vector<mptorch_mps::KernelArg> extra)
     {
       TORCH_INTERNAL_ASSERT(ctx.a && ctx.b && ctx.c, "mptorch: the MPS GEMM was not bound its tensors");
       check_extents(s);
@@ -384,7 +480,7 @@ namespace mptorch::gemm_mps
       std::vector<mptorch_mps::KernelArg> args{*ctx.a, *ctx.b, *ctx.c, mptorch_mps::KernelArg::params(g), idx};
       args.insert(args.end(), extra.begin(), extra.end());
       constexpr uint64_t tile = mptorch_mps::GEMM_TILE;
-      mptorch_mps::launch_groups(mptorch_mps::KernelSource::Gemm, tail_head(s, *ctx.c) + tail, args,
+      mptorch_mps::launch_groups(source, tail_head(s, *ctx.c) + tail, args,
                                  (static_cast<uint64_t>(s.N) + tile - 1) / tile,
                                  (static_cast<uint64_t>(s.M) + tile - 1) / tile,
                                  static_cast<uint64_t>(s.batch), tile, tile);
@@ -414,17 +510,25 @@ namespace mptorch::gemm_mps
 
   } // namespace
 
-  void MpsBackend::launch_source(const GemmShape &s, const std::string &args, const LaunchContext &ctx)
+  // The kernel an Args compiles to: gemm.metal, after the odd headers for
+  // the odd carrier step's (metal_runtime.h).
+  static mptorch_mps::KernelSource gemm_source(bool odd)
   {
-    launch_gemm(s, args, ctx, {});
+    return odd ? mptorch_mps::KernelSource::GemmOdd : mptorch_mps::KernelSource::Gemm;
+  }
+
+  void MpsBackend::launch_source(const GemmShape &s, const std::string &args, bool odd,
+                                 const LaunchContext &ctx)
+  {
+    launch_gemm(s, args, gemm_source(odd), ctx, {});
   }
 
   void MpsBackend::launch_conv(const GemmShape &s, const std::string &args, const ConvGeom &geom,
-                               const LaunchContext &ctx)
+                               bool odd, const LaunchContext &ctx)
   {
     const std::string tail = args + "#define MPT_GATHERED 1\n#define MPT_CONV_PASS mptorch::gemm::ConvPass::" +
                              conv_pass_name(geom.pass) + "\n";
-    launch_gemm(s, tail, ctx, {mptorch_mps::KernelArg::params(geom)});
+    launch_gemm(s, tail, gemm_source(odd), ctx, {mptorch_mps::KernelArg::params(geom)});
   }
 
   void MpsBackend::launch_block(const GemmShape &s, const std::string &args, const BlockOperand &a,
@@ -432,7 +536,7 @@ namespace mptorch::gemm_mps
   {
     TORCH_INTERNAL_ASSERT(ctx.scales_a && ctx.scales_b, "mptorch: the MPS block GEMM was not bound its scales");
     const mptorch_mps::BlockGemmLaunch bl{a.scale_stride, b.scale_stride};
-    launch_gemm(s, args + "#define MPT_BLOCKED 1\n", ctx,
+    launch_gemm(s, args + "#define MPT_BLOCKED 1\n", mptorch_mps::KernelSource::Gemm, ctx,
                 {mptorch_mps::KernelArg::params(a.p), mptorch_mps::KernelArg::params(b.p), *ctx.scales_a,
                  *ctx.scales_b, mptorch_mps::KernelArg::params(bl)});
   }

@@ -292,10 +292,14 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
     machine that runs them (there is no offline ``metal`` compiler without
     Xcode's), and that compiler has no include path: a library is one string.
     Each root below (``prelude.metal``, ``gemm.metal``, ``quantize.metal``,
-    ``block.metal``)
+    ``block.metal``, ``odd.metal``, ``carrier_odd.metal``)
     is therefore flattened here, its quoted ``#include``\\ s replaced by the
     files they name, recursively and once each, with ``#line`` directives so a
-    compile error names the header and line it is in. The shared headers
+    compile error names the header and line it is in. ``odd.metal``, which the
+    odd carrier step's kernels compile between the prelude and their
+    instantiation (``metal_runtime.mm``), is flattened against the headers the
+    prelude already holds, so that none is inlined twice: the walk is textual,
+    and ``#pragma once`` is dropped from it. The shared headers
     under ``csrc/common`` are what the prelude includes, so the kernels are
     compiled from the same casts the CPU and CUDA backends are, and a change
     to one of them reaches the GPU at the next build.
@@ -328,9 +332,13 @@ def embed_metal_sources(mps_dir: Path, header: Path) -> None:
                 out.append("" if line.strip() == "#pragma once" else line)
 
     strings = []
-    for root in ("prelude", "gemm", "quantize", "block"):
+    prelude_seen: set[Path] = set()
+    for root in ("prelude", "gemm", "quantize", "block", "odd", "carrier_odd"):
         lines: list[str] = []
-        flatten(mps_dir / f"{root}.metal", set(), lines)
+        seen = set(prelude_seen) if root == "odd" else set()
+        flatten(mps_dir / f"{root}.metal", seen, lines)
+        if root == "prelude":
+            prelude_seen = seen
         text = "\n".join(lines) + "\n"
         assert f"){delimiter}" not in text, f"{root}.metal contains the raw-string delimiter"
         strings.append(

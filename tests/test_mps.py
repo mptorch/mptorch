@@ -74,7 +74,7 @@ from mptorch.quant.ops import (
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
 )
-from tests.markers import requires_mps
+from tests.markers import requires_mps, requires_odd, requires_odd_accumulated
 
 pytestmark = requires_mps
 
@@ -635,17 +635,23 @@ CONV_MACS = {
     "binaryK_fma": lambda rm, **kw: FusedMac(_CB12, rounding=rm, **kw),
     "superfp": lambda rm, **kw: SplitMac(_CS8, _CS12, rounding=rm, **kw),
     "superfp_fma": lambda rm, **kw: FusedMac(_CS12, rounding=rm, **kw),
-    "binaryK_mixed": lambda rm: SplitMac(
-        [_CB8, BinaryK(8, 5, prng_bits=8)], [_CB12, BinaryK(12, 8, prng_bits=8)], rounding=rm
+    "binaryK_mixed": lambda rm, **kw: SplitMac(
+        [_CB8, BinaryK(8, 5, prng_bits=8)],
+        [_CB12, BinaryK(12, 8, prng_bits=8)],
+        rounding=rm,
+        **kw,
     ),
-    "binaryK_fma_mixed": lambda rm: FusedMac([_CB12, BinaryK(10, 6, prng_bits=8)], rounding=rm),
-    "superfp_mixed": lambda rm: SplitMac(
+    "binaryK_fma_mixed": lambda rm, **kw: FusedMac(
+        [_CB12, BinaryK(10, 6, prng_bits=8)], rounding=rm, **kw
+    ),
+    "superfp_mixed": lambda rm, **kw: SplitMac(
         [_CS8, SuperFP(2, 4, 8, 7, prng_bits=8)],
         [_CS12, SuperFP(4, 5, 16, 15, prng_bits=8)],
         rounding=rm,
+        **kw,
     ),
-    "superfp_fma_mixed": lambda rm: FusedMac(
-        [_CS12, SuperFP(4, 5, 16, 15, prng_bits=8)], rounding=rm
+    "superfp_fma_mixed": lambda rm, **kw: FusedMac(
+        [_CS12, SuperFP(4, 5, 16, 15, prng_bits=8)], rounding=rm, **kw
     ),
     "binaryK_superfp": lambda rm, **kw: SplitMac(_CB8, _CS12, rounding=rm, **kw),
     "superfp_binaryK": lambda rm, **kw: SplitMac(_CS8, _CB12, rounding=rm, **kw),
@@ -1043,3 +1049,272 @@ def test_block_gemm_products_flush():
     got = block_matmul(pa.to("mps"), pb.to("mps"), acc=acc, rounding=RoundMode.RU).cpu()
     assert ref.item() == 2.0**-10  # binary8p4's smallest subnormal
     assert got.item() == 0.0
+
+
+# --------------------------------------------------------------------------
+# The odd carrier step (carrier_rounding=RoundMode.RO; phase Z)
+# --------------------------------------------------------------------------
+#
+# Every odd op is the default op's kernel with its Args wrapped
+# (common/carrier_odd.h), and on the GPU its carrier operations are
+# common/carrier_odd_metal.h's: binary32 error-free transforms on operands a
+# word test admits, every other input rescaled on the word first, and the
+# operations no format rounds next (an unquantized sum, KAHAN's identity
+# differences, a fold with no outer format) flush-proof nearest ones. So an
+# odd op's result is the CPU's word for word, NaN payloads aside, including
+# where the default op's arithmetic flushes (the last test).
+
+RO = RoundMode.RO
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("op", list(GEMMS))
+def test_odd_gemm_every_mode(op, rounding_mode):
+    """N's four GEMMs and X's four palettes."""
+    a, b, prec = _operands(37, 70, 29)
+    ref, got = _on_both(
+        lambda x, y, p: GEMMS[op](x, y, p, rounding_mode, carrier_rounding=RO), a, b, prec
+    )
+    _assert_same_words(ref, got)
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RU, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("op", ["binaryK", "superfp", "binaryK_mixed", "superfp_mixed"])
+def test_odd_gemm_unquantized_sum(op, rounding_mode):
+    """accumulate_quant=False: only the product is odd, and the sum is the
+    carrier's nearest add (on the GPU, flush-proof)."""
+    a, b, prec = _operands(19, 41, 23)
+    ref, got = _on_both(
+        lambda x, y, p: GEMMS[op](
+            x, y, p, rounding_mode, accumulate_quant=False, carrier_rounding=RO
+        ),
+        a,
+        b,
+        prec,
+    )
+    _assert_same_words(ref, got)
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RU, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        ((17, 33), (33, 15)),  # partial tiles, a partial last K-step
+        ((1, 48), (48, 1)),  # three whole K-steps into one element
+        ((5, 13, 7), (5, 7, 9)),  # batched
+        ((3, 17, 33), (33, 18)),  # a shared weight
+        ((3, 0), (0, 4)),  # K = 0
+    ],
+    ids=str,
+)
+@pytest.mark.parametrize("trans", [(False, False), (True, True)], ids=str)
+def test_odd_gemm_shapes(shapes, trans, rounding_mode):
+    sa, sb = shapes
+    ta, tb = trans
+    g = torch.Generator().manual_seed(3)
+    a = torch.randn(*sa, generator=g)
+    b = torch.randn(*sb, generator=g)
+    if ta:
+        a = a.transpose(-1, -2).contiguous()
+    if tb:
+        b = b.transpose(-1, -2).contiguous()
+    ref, got = _on_both(
+        lambda x, y: binaryK_matmul(
+            x, y, trans_a=ta, trans_b=tb, rounding_mode=rounding_mode, carrier_rounding=RO, **_B
+        ),
+        a,
+        b,
+    )
+    _assert_same_words(ref, got)
+
+
+@requires_odd
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=str)
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma", "binaryK_mixed"])
+def test_odd_gemm_narrow_dtypes(op, dtype):
+    a, b, prec = _operands(21, 33, 17, dtype)
+    ref, got = _on_both(
+        lambda x, y, p: GEMMS[op](x, y, p, RoundMode.RD, carrier_rounding=RO), a, b, prec
+    )
+    _assert_same_words(ref, got)
+
+
+@requires_odd
+@pytest.mark.parametrize("layout", ["rows", "batched", "on_cpu"])
+def test_odd_gemm_palette_maps(layout):
+    g = torch.Generator().manual_seed(3)
+    a = torch.randn(4, 11, 19, generator=g)
+    b = torch.randn(19, 13, generator=g)
+    p = {
+        "rows": torch.randint(0, 3, (11, 1), generator=g, dtype=torch.int32),
+        "batched": torch.randint(0, 3, (4, 11, 13), generator=g, dtype=torch.int32),
+        "on_cpu": torch.randint(0, 3, (11, 13), generator=g, dtype=torch.int32),
+    }[layout]
+    kw: dict[str, Any] = dict(rounding_mode=RoundMode.SR, carrier_rounding=RO, **_BM)
+    torch.manual_seed(5)
+    ref = binaryK_matmul_mixed(a, b, p, **kw)
+    torch.manual_seed(5)
+    got = binaryK_matmul_mixed(
+        a.to("mps"), b.to("mps"), p if layout == "on_cpu" else p.to("mps"), **kw
+    )
+    _assert_same_words(ref, got)
+
+
+@requires_odd
+def test_odd_gemm_special_operands():
+    """Infinities, NaNs and products past the top: the primitives' cold path
+    answers them from the words, as IEEE and the CPU do."""
+    a, b, _ = _operands(9, 17, 11)
+    a[0, 3] = math.inf
+    a[1, 5] = -math.inf
+    a[2].view(torch.int32)[7] = 0x7FC01234
+    b[4, 2] = 1e30
+    b[6] = -3e38
+    for op in ["binaryK", "binaryK_fma", "superfp", "superfp_fma"]:
+        ref, got = _on_both(
+            lambda x, y, op=op: GEMMS[op](x, y, None, RoundMode.RU, carrier_rounding=RO), a, b
+        )
+        _assert_same_words(ref, got, nan_payloads=False)
+        assert ref.isnan().any()
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", MODES, ids=lambda m: m.name)
+@pytest.mark.parametrize("op", ["binaryK_superfp", "superfp_binaryK"])
+def test_odd_cross_family_gemm_every_mode(op, rounding_mode):
+    fn, _ = ACC_GEMMS[op]
+    a, b, _ = _operands(37, 70, 29)
+    ref, got = _on_both(lambda x, y: fn(x, y, rounding_mode, carrier_rounding=RO), a, b)
+    _assert_same_words(ref, got)
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundMode.RNE, RoundMode.RU, RoundMode.RO, RoundMode.SR], ids=lambda m: m.name
+)
+@pytest.mark.parametrize("acc", list(ACCUMULATIONS))
+@pytest.mark.parametrize("op", list(ACC_GEMMS))
+def test_odd_accumulated_gemm(op, acc, rounding_mode):
+    """Y's six ops under KAHAN, BLOCK and TREE, the outer format's folds
+    included."""
+    fn, outer = ACC_GEMMS[op]
+    kw = dict(ACCUMULATIONS[acc])
+    if kw["accumulate_algorithm"] is TREE and "fma" in op:
+        pytest.skip("TREE sums products pairwise; a fused mac has none")
+    if kw["accumulate_algorithm"] is not KAHAN:
+        kw.update(outer)
+    a, b, _ = _operands(37, 70, 29)
+    ref, got = _on_both(lambda x, y: fn(x, y, rounding_mode, carrier_rounding=RO, **kw), a, b)
+    _assert_same_words(ref, got)
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("acc", ["kahan", "block4", "tree8"])
+@pytest.mark.parametrize("op", ["binaryK", "superfp"])
+def test_odd_accumulated_unquantized(op, acc):
+    """Over an identity adder the algorithms' sums and KAHAN's differences
+    stay the carrier's nearest operations, and with no outer format so do
+    BLOCK's and TREE's folds: on the GPU each is flush-proof."""
+    fn, _ = ACC_GEMMS[op]
+    a, b, _ = _operands(37, 70, 29)
+    ref, got = _on_both(
+        lambda x, y: fn(
+            x, y, RoundMode.RU, accumulate_quant=False, carrier_rounding=RO, **ACCUMULATIONS[acc]
+        ),
+        a,
+        b,
+    )
+    _assert_same_words(ref, got)
+
+
+def _odd_conv_check(op, geometry, rounding_mode, **kw):
+    mac = CONV_MACS[op](rounding_mode, carrier_rounding=RO, **kw)
+    palette = "mixed" in op
+    for ref, got in zip(
+        _conv_passes(mac, geometry, "cpu", palette),
+        _conv_passes(mac, geometry, "mps", palette),
+        strict=True,
+    ):
+        assert torch.equal(got.view(torch.int32), ref.view(torch.int32))
+
+
+@requires_odd
+@pytest.mark.parametrize("geometry", list(CONV_GEOMETRIES))
+@pytest.mark.parametrize("op", list(CONV_MACS))
+def test_odd_conv_passes(op, geometry):
+    """X's ten odd conv ops, every pass, over every geometry, under RU."""
+    _odd_conv_check(op, geometry, RoundMode.RU)
+
+
+@requires_odd
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RNE, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("op", list(CONV_MACS))
+def test_odd_conv_modes(op, rounding_mode):
+    _odd_conv_check(op, "2d", rounding_mode)
+
+
+@requires_odd_accumulated
+@pytest.mark.parametrize("rounding_mode", [RoundMode.RU, RoundMode.SR], ids=lambda m: m.name)
+@pytest.mark.parametrize("acc", ["kahan", "block4", "tree8"])
+@pytest.mark.parametrize("op", ["binaryK", "superfp_fma", "binaryK_superfp"])
+def test_odd_conv_accumulated(op, acc, rounding_mode):
+    kw = dict(ACCUMULATIONS[acc])
+    if kw["accumulate_algorithm"] is TREE and "fma" in op:
+        pytest.skip("TREE sums products pairwise; a fused mac has none")
+    _odd_conv_check(op, "2d", rounding_mode, **kw)
+
+
+@requires_odd
+def test_the_odd_step_does_not_flush():
+    """The inverse of test_subnormal_products_flush: where the default op's
+    arithmetic flushes a binary32 subnormal, the odd step's does not, and the
+    GPU gives the CPU's words.
+
+    A product of 2^-140 is a subnormal, which the odd product keeps and the
+    multiply format's cast (handed it as formed, not times 1) rounds up to
+    binary8p4's smallest value under RU; a fused step's is the same. A
+    subnormal operand times a large one is a normal product. And an
+    unquantized sum (accumulate_quant=False), plain or under KAHAN, of two
+    format values 2^-137 apart is that subnormal difference, exact."""
+    tiny = torch.full((1, 1), 2.0**-70)
+    for fn in (
+        lambda x, y: binaryK_matmul(
+            x, y, mul_K=8, mul_P=4, rounding_mode=RoundMode.RU, carrier_rounding=RO
+        ),
+        lambda x, y: binaryK_matmul_fma(
+            x, y, fma_K=8, fma_P=4, rounding_mode=RoundMode.RU, carrier_rounding=RO
+        ),
+    ):
+        ref, got = _on_both(fn, tiny, tiny)
+        assert ref.item() == 2.0**-10
+        _assert_same_words(ref, got)
+
+    sub = torch.tensor([[2.0**-140, -(2.0**-145)]])
+    big = torch.tensor([[2.0**100], [3.0 * 2.0**110]])
+    ref, got = _on_both(
+        lambda x, y: binaryK_matmul(x, y, mul_K=16, mul_P=8, rounding_mode=RoundMode.RD,
+                                    carrier_rounding=RO),
+        sub,
+        big,
+    )  # fmt: skip
+    assert ref.item() != 0.0
+    _assert_same_words(ref, got)
+
+    # A NORMALS floor at 2^-126 and 12 bits of precision hold both terms.
+    fmt: dict[str, Any] = dict(
+        mul_K=16, mul_P=12, mul_bias=127, subnormals_mode=SubnormalsMode.NORMALS,
+        accumulate_quant=False, rounding_mode=RoundMode.RNE, carrier_rounding=RO,
+    )  # fmt: skip
+    a = torch.tensor([[2.0**-126 * (1 + 2.0**-11), -(2.0**-126)]])
+    one = torch.ones(2, 1)
+    for extra in ({}, dict(accumulate_algorithm=KAHAN)):
+        ref, got = _on_both(lambda x, y, extra=extra: binaryK_matmul(x, y, **fmt, **extra), a, one)
+        assert ref.item() == 2.0**-137
+        _assert_same_words(ref, got)
+    # the default op's sum is the GPU's flushed one
+    default = dict(fmt, carrier_rounding=RoundMode.RNE)
+    ref, got = _on_both(lambda x, y: binaryK_matmul(x, y, **default), a, one)
+    assert ref.item() == 2.0**-137 and got.item() == 0.0

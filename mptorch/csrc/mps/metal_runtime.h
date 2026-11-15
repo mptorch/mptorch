@@ -8,7 +8,9 @@
 // parameters (launch_params.h), and hands over the tensors.
 //
 // A kernel's source is prelude.metal, then the tail, then gemm.metal,
-// quantize.metal or block.metal. The tail holds everything that is a constant of the
+// quantize.metal or block.metal (the odd carrier step's kernels put odd.metal
+// between the prelude and the tail, and end in gemm.metal or
+// carrier_odd.metal). The tail holds everything that is a constant of the
 // instantiation: the storage dtype, the rounding mode and the format, which
 // the kernel builds its cast constants from so that they fold (gemm.metal
 // says why). Each distinct tail is one compile, 20-300 ms the first time a
@@ -25,6 +27,10 @@ namespace mptorch_mps
 {
 
   // Which kernel source follows the tail, and so which kernel is launched.
+  // The odd carrier step's two (phase Z) also put odd.metal, the odd
+  // headers, between the prelude and the tail; the others' sources are what
+  // they were. New sources go at the end: the cache key starts with the
+  // source's number.
   enum class KernelSource
   {
     Gemm,          // gemm.metal's mpt_gemm
@@ -32,6 +38,8 @@ namespace mptorch_mps
     BlockPack,     // block.metal's mpt_block_pack
     BlockPackTile, // block.metal's mpt_block_pack_tile
     BlockUnpack,   // block.metal's mpt_block_unpack
+    GemmOdd,       // gemm.metal's mpt_gemm, after odd.metal: an odd Args
+    CarrierOdd,    // carrier_odd.metal's mpt_carrier_odd, after odd.metal
   };
 
   // One argument of a launch, in buffer-index order: an MPS tensor, bound as

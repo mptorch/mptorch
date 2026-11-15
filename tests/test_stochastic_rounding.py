@@ -363,7 +363,7 @@ def _paths():
                 qmatmul(a.to(d), b.to(d), m, prec_idx=None if p is None else p.to(d))
                 for m, p in calls
             ]
-            if d != "mps" and HAS_ODD:  # the odd carrier step has no MPS kernel
+            if HAS_ODD:
                 odd = SplitMac(BK, BK_ACC, rounding=mode, carrier_rounding=R.RO)
                 out.append(qmatmul(a.to(d), b.to(d), odd))
             return out

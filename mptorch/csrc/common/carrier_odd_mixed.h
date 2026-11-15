@@ -7,14 +7,17 @@
 //
 // A header of its own, next to carrier_odd.h rather than in it, so that the
 // objects that include carrier_odd.h (the single-format odd ops') stay what
-// they were; only the palette ops' units include this one.
+// they were; only the palette ops' units include this one. The MPS backend
+// compiles it as Metal too (mps/odd.metal, phase Z), where the kernel builds
+// one element's slot at a time: there OddPaletteArgs has with_slot in place
+// of with_palette.
 
 #include "carrier_odd.h"
 #include "gemm_args.h"
 
-#include <type_traits>
-
 #if !defined(__METAL_VERSION__)
+#include <type_traits>
+#endif
 
 namespace mptorch::gemm
 {
@@ -39,12 +42,13 @@ namespace mptorch::gemm
   {
     static_assert(Base::mixed, "OddPaletteArgs wraps a palette Args; OddArgs wraps the others");
 
-    static constexpr bool mixed = true;
-    static constexpr uint64_t draws_per_k_step = Base::draws_per_k_step;
+    static constexpr MPTORCH_CONSTANT bool mixed = true;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = Base::draws_per_k_step;
 
     Base base{};
     int n_fmt = 0;
 
+#if !defined(__METAL_VERSION__)
     template <class T, class F>
     struct PaletteBuilder
     {
@@ -90,8 +94,21 @@ namespace mptorch::gemm
     {
       base.template with_palette<T, RM>(PaletteBuilder<T, F>{f});
     }
+#else
+    // The MPS kernel builds one element's Mac from its slot (the base's
+    // with_slot, mps/gemm.metal says why) rather than a palette of them, and
+    // OddArgs' Builder makes that Mac its odd twin, as it does a
+    // single-format op's: the base hands it the NaiveAccumulator its slot's
+    // widths build.
+    template <class T, RoundMode RM, class F>
+    void with_slot(int32_t idx, MPTORCH_THREAD F &&f) const
+    {
+      base.template with_slot<T, RM>(idx, typename OddArgs<Base>::template Builder<T, F>{f});
+    }
+#endif
   };
 
+#if !defined(__METAL_VERSION__)
   template <class Base>
   OddPaletteArgs<Base> odd_palette(const Base &base)
   {
@@ -100,7 +117,6 @@ namespace mptorch::gemm
     args.n_fmt = base.n_fmt;
     return args;
   }
+#endif
 
 } // namespace mptorch::gemm
-
-#endif // !__METAL_VERSION__

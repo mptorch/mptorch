@@ -39,15 +39,17 @@
 //
 // Only phase Y's units include this header, and the odd entry and Meta units
 // that name their ops: everything here is a template that only Y's kernel
-// units instantiate. It also holds AccumulateFamily<OddArgs<B>>, without which
+// units instantiate. The MPS backend compiles it as Metal too (mps/odd.metal,
+// phase Z): there the plain nearest operations of the identity arms and of a
+// fold with no outer format are carrier_odd_metal.h's flush-proof add_rn and
+// sub_rn, and the odd product is cast as it is formed, each behind
+// __METAL_VERSION__ with the host and CUDA statement verbatim beside it. It also holds AccumulateFamily<OddArgs<B>>, without which
 // AccumulateArgs<OddArgs<B>> does not compile, so no unit can instantiate an
 // odd accumulator without these specializations in view; without them the
 // algorithms would take an odd mac's plain carrier operations, silently.
 
 #include "carrier_odd.h"
 #include "gemm_accumulate.h"
-
-#if !defined(__METAL_VERSION__)
 
 namespace mptorch::gemm
 {
@@ -60,9 +62,13 @@ namespace mptorch::gemm
     using value_t = T;
     Multiplier inner{};
 
-    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE T operator()(T a, T b, MPTORCH_THREAD PhiloxEngine &rng) const
     {
+#if defined(__METAL_VERSION__)
+      return odd::cast_product(inner, odd::mul(a, b), rng);
+#else
       return inner(odd::mul(a, b), T(1), rng);
+#endif
     }
   };
 
@@ -76,16 +82,20 @@ namespace mptorch::gemm
     Adder add{};
 
     AccumulatedSplitMacOdd() = default;
-    CUDA_HOST_DEVICE_INLINE AccumulatedSplitMacOdd(const SplitMacOdd<Multiplier, Adder> &m)
+    CUDA_HOST_DEVICE_INLINE AccumulatedSplitMacOdd(const MPTORCH_THREAD SplitMacOdd<Multiplier, Adder> &m)
         : mul{m.mul}, add(m.add)
     {
     }
 
-    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, MPTORCH_THREAD PhiloxEngine &rng) const
     {
       const value_t p = mul(a, b, rng);
       if constexpr (is_identity_adder<Adder>::value)
+#if defined(__METAL_VERSION__)
+        return odd::add_rn(acc, p);
+#else
         return acc + p;
+#endif
       else
         return add(odd::add(acc, p), rng);
     }
@@ -93,30 +103,38 @@ namespace mptorch::gemm
 
   // The CUDA kernels take the accumulator, mac included, as a __global__
   // parameter, so the odd mac is the plain one's size and trivially copyable.
+#if !defined(__METAL_VERSION__)
   template <class Multiplier, class Adder>
   inline constexpr bool accumulated_mac_fits_v =
       sizeof(AccumulatedSplitMacOdd<Multiplier, Adder>) == sizeof(SplitMac<Multiplier, Adder>) &&
       std::is_trivially_copyable_v<AccumulatedSplitMacOdd<Multiplier, Adder>>;
+#endif
 
   // KAHAN's term: the product less the compensation, rounded to the
   // accumulate format.
   template <class Multiplier, class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  mac_term(const AccumulatedSplitMacOdd<Multiplier, Adder> &m, typename Adder::value_t a,
-           typename Adder::value_t b, typename Adder::value_t c, PhiloxEngine &rng)
+  mac_term(const MPTORCH_THREAD AccumulatedSplitMacOdd<Multiplier, Adder> &m, typename Adder::value_t a,
+           typename Adder::value_t b, typename Adder::value_t c, MPTORCH_THREAD PhiloxEngine &rng)
   {
+#if !defined(__METAL_VERSION__)
     static_assert(accumulated_mac_fits_v<Multiplier, Adder>);
+#endif
     const typename Adder::value_t p = m.mul(a, b, rng);
     if constexpr (is_identity_adder<Adder>::value)
+#if defined(__METAL_VERSION__)
+      return m.add(odd::sub_rn(p, c), rng);
+#else
       return m.add(p - c, rng);
+#endif
     else
       return m.add(odd::add(p, -c), rng);
   }
 
   template <class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  mac_term(const FusedMacOdd<Adder> &m, typename Adder::value_t a, typename Adder::value_t b,
-           typename Adder::value_t c, PhiloxEngine &rng)
+  mac_term(const MPTORCH_THREAD FusedMacOdd<Adder> &m, typename Adder::value_t a, typename Adder::value_t b,
+           typename Adder::value_t c, MPTORCH_THREAD PhiloxEngine &rng)
   {
     return m.add(odd::fma(a, b, -c), rng);
   }
@@ -127,18 +145,22 @@ namespace mptorch::gemm
   // fma_quant = false).
   template <class Multiplier, class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_sum(const AccumulatedSplitMacOdd<Multiplier, Adder> &, typename Adder::value_t x,
+  odd_sum(const MPTORCH_THREAD AccumulatedSplitMacOdd<Multiplier, Adder> &, typename Adder::value_t x,
           typename Adder::value_t y)
   {
     if constexpr (is_identity_adder<Adder>::value)
+#if defined(__METAL_VERSION__)
+      return odd::add_rn(x, y);
+#else
       return x + y;
+#endif
     else
       return odd::add(x, y);
   }
 
   template <class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_sum(const FusedMacOdd<Adder> &, typename Adder::value_t x, typename Adder::value_t y)
+  odd_sum(const MPTORCH_THREAD FusedMacOdd<Adder> &, typename Adder::value_t x, typename Adder::value_t y)
   {
     static_assert(!is_identity_adder<Adder>::value, "an odd fused step is always rounded again");
     return odd::add(x, y);
@@ -146,18 +168,22 @@ namespace mptorch::gemm
 
   template <class Multiplier, class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_diff(const AccumulatedSplitMacOdd<Multiplier, Adder> &, typename Adder::value_t x,
+  odd_diff(const MPTORCH_THREAD AccumulatedSplitMacOdd<Multiplier, Adder> &, typename Adder::value_t x,
            typename Adder::value_t y)
   {
     if constexpr (is_identity_adder<Adder>::value)
+#if defined(__METAL_VERSION__)
+      return odd::sub_rn(x, y);
+#else
       return x - y;
+#endif
     else
       return odd::add(x, -y);
   }
 
   template <class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_diff(const FusedMacOdd<Adder> &, typename Adder::value_t x, typename Adder::value_t y)
+  odd_diff(const MPTORCH_THREAD FusedMacOdd<Adder> &, typename Adder::value_t x, typename Adder::value_t y)
   {
     static_assert(!is_identity_adder<Adder>::value, "an odd fused step is always rounded again");
     return odd::add(x, -y);
@@ -167,28 +193,47 @@ namespace mptorch::gemm
   // format rounds it, the carrier's nearest sum otherwise.
   template <class Multiplier, class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_fold(const AccumulatedSplitMacOdd<Multiplier, Adder> &, bool outer_quant,
+  odd_fold(const MPTORCH_THREAD AccumulatedSplitMacOdd<Multiplier, Adder> &, bool outer_quant,
            typename Adder::value_t x, typename Adder::value_t y)
   {
+#if defined(__METAL_VERSION__)
+    return outer_quant ? odd::add(x, y) : odd::add_rn(x, y);
+#else
     return outer_quant ? odd::add(x, y) : x + y;
+#endif
   }
 
   template <class Adder>
   CUDA_HOST_DEVICE_INLINE typename Adder::value_t
-  odd_fold(const FusedMacOdd<Adder> &, bool outer_quant, typename Adder::value_t x,
+  odd_fold(const MPTORCH_THREAD FusedMacOdd<Adder> &, bool outer_quant, typename Adder::value_t x,
            typename Adder::value_t y)
   {
+#if defined(__METAL_VERSION__)
+    return outer_quant ? odd::add(x, y) : odd::add_rn(x, y);
+#else
     return outer_quant ? odd::add(x, y) : x + y;
+#endif
   }
 
   // An odd op's accumulation is its twin's: the outer format's family and
   // whether there is a product to build a tree of. With it, AccumulateArgs
   // wraps the odd Args, and its with_accumulator hands the algorithms the
   // odd mac OddArgs builds (accumulate_mac's, below).
+#if defined(__METAL_VERSION__)
+  // The same, spelled out: Metal has no derived classes.
+  template <class Base>
+  struct AccumulateFamily<OddArgs<Base>>
+  {
+    using Widths = typename AccumulateFamily<Base>::Widths;
+    using Common = typename AccumulateFamily<Base>::Common;
+    static constexpr MPTORCH_CONSTANT bool has_product = AccumulateFamily<Base>::has_product;
+  };
+#else
   template <class Base>
   struct AccumulateFamily<OddArgs<Base>> : AccumulateFamily<Base>
   {
   };
+#endif
 } // namespace mptorch::gemm
 
 template <class Multiplier, class Adder>
@@ -200,13 +245,13 @@ struct accumulate_mac<mptorch::gemm::SplitMacOdd<Multiplier, Adder>>
 template <class Multiplier, class Adder>
 struct carrier_rounds_to_odd<mptorch::gemm::AccumulatedSplitMacOdd<Multiplier, Adder>>
 {
-  static constexpr bool value = true;
+  static constexpr MPTORCH_CONSTANT bool value = true;
 };
 
 template <class Adder>
 struct carrier_rounds_to_odd<mptorch::gemm::FusedMacOdd<Adder>>
 {
-  static constexpr bool value = true;
+  static constexpr MPTORCH_CONSTANT bool value = true;
 };
 
 // BLOCK's unroll factor treats an odd fused mac as the fused mac it rounds
@@ -214,7 +259,5 @@ struct carrier_rounds_to_odd<mptorch::gemm::FusedMacOdd<Adder>>
 template <class Adder>
 struct is_fused_mac<mptorch::gemm::FusedMacOdd<Adder>>
 {
-  static constexpr bool value = true;
+  static constexpr MPTORCH_CONSTANT bool value = true;
 };
-
-#endif // !__METAL_VERSION__

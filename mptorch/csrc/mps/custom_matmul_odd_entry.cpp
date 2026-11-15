@@ -1,49 +1,196 @@
-// The custom_matmul_*_odd ops and _carrier_odd on an Apple GPU: not yet.
-// Metal has no directed rounding and flushes binary32 subnormals, so the odd
-// step would be error-free transforms with integer paths for tiny
-// magnitudes, which a13760a, the commit that added the odd ops, left for
-// later, choosing to raise on MPS. The ops are registered here all the same,
-// so that an MPS tensor gets this message rather than a dispatch error that
-// names nothing, and CI's check that every schema has an MPS kernel holds.
+// The MPS entry points of the custom_matmul_*_odd ops
+// (carrier_rounding=RoundMode.RO, phase Z): the text of their CPU twins
+// (cpu/custom_matmul_odd_entry.cpp) with the backend swapped. The bodies are
+// common/carrier_odd_host.h's (N's four) and carrier_odd_gemm_host.h's (X's
+// palette and cross-family six, Y's six *_accumulated_odd ones), shared with
+// the other backends, so the flags (MPTORCH_NO_ODD, MPTORCH_ODD_ACCUMULATED)
+// govern these ops as they do the CPU's, which is what the MPS tests hold
+// them to. The kernels are mps/gemm.metal's, compiled after mps/odd.metal
+// with the odd Args written into the instantiation (mps/gemm_backend.cpp).
 
+#include "../common/carrier_odd_gemm_host.h"
 #include "../quant_ops.h"
-#include <c10/util/Exception.h>
+#include "gemm_backend.h"
 
 using at::Tensor;
 
 namespace
 {
-  [[noreturn]] void no_metal_kernel(const char *op_name)
-  {
-    TORCH_CHECK(false, op_name,
-                ": the carrier step rounded to odd has no MPS kernel: Metal has no directed rounding, "
-                "and the error-free-transform version is not written yet; run it on a CPU or CUDA tensor");
-  }
-} // namespace
-
-Tensor binaryK_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_odd");
+  using Backend = mptorch::gemm_mps::MpsBackend;
 }
 
-Tensor superfp_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t)
+Tensor binaryK_matmul_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
-  no_metal_kernel("custom_matmul_superfp_odd");
+  return mptorch::gemm::run_binaryK_split_odd<Backend>(a, b, trans_a, trans_b, mul_K, mul_P, mul_bias, mul_is_signed, accumulate_quant, acc_K, acc_P, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, mul_subnormals_mode, acc_saturation_mode, acc_subnormals_mode, mul_prng_bits, acc_prng_bits);
 }
 
-Tensor binaryK_matmul_fma_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t)
+Tensor superfp_matmul_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits)
 {
-  no_metal_kernel("custom_matmul_binaryK_fma_odd");
+  return mptorch::gemm::run_superfp_split_odd<Backend>(a, b, trans_a, trans_b, mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, accumulate_quant, acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, acc_saturation_mode, mul_prng_bits, acc_prng_bits);
 }
 
-Tensor superfp_matmul_fma_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t)
+Tensor binaryK_matmul_fma_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias, bool fma_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t fma_saturation_mode, int64_t fma_subnormals_mode, int64_t fma_prng_bits)
 {
-  no_metal_kernel("custom_matmul_superfp_fma_odd");
+  return mptorch::gemm::run_binaryK_fused_odd<Backend>(a, b, trans_a, trans_b, fma_quant, fma_K, fma_P, fma_bias, fma_is_signed, accumulate_algorithm, round_mode, fma_saturation_mode, fma_subnormals_mode, fma_prng_bits);
 }
 
-Tensor carrier_odd_mps(Tensor, Tensor, Tensor, int64_t)
+Tensor superfp_matmul_fma_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits, int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t fma_saturation_mode, int64_t fma_prng_bits)
 {
-  no_metal_kernel("_carrier_odd");
+  return mptorch::gemm::run_superfp_fused_odd<Backend>(a, b, trans_a, trans_b, fma_quant, fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias, fma_is_signed, accumulate_algorithm, round_mode, fma_saturation_mode, fma_prng_bits);
+}
+
+Tensor binaryK_matmul_mixed_odd_mps(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
+                                    c10::IntArrayRef mul_bias, bool mul_is_signed,
+                                    bool accumulate_quant, c10::IntArrayRef acc_K,
+                                    c10::IntArrayRef acc_P, c10::IntArrayRef acc_bias,
+                                    bool acc_is_signed, int64_t accumulate_algorithm,
+                                    int64_t round_mode, int64_t mul_saturation_mode,
+                                    int64_t mul_subnormals_mode, int64_t acc_saturation_mode,
+                                    int64_t acc_subnormals_mode, int64_t mul_prng_bits,
+                                    int64_t acc_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_matmul_mixed_odd<Backend>(a, b, prec_idx, trans_a, trans_b,
+                                                              mul_K, mul_P, mul_bias, mul_is_signed,
+                                                              accumulate_quant, acc_K, acc_P,
+                                                              acc_bias, acc_is_signed,
+                                                              accumulate_algorithm, round_mode,
+                                                              mul_saturation_mode,
+                                                              mul_subnormals_mode,
+                                                              acc_saturation_mode,
+                                                              acc_subnormals_mode, mul_prng_bits,
+                                                              acc_prng_bits);
+}
+
+Tensor superfp_matmul_mixed_odd_mps(Tensor a, Tensor b, Tensor prec_idx, bool trans_a, bool trans_b,
+                                    c10::IntArrayRef mul_man_bits, c10::IntArrayRef mul_exp_bits,
+                                    c10::IntArrayRef mul_normal_binades, c10::IntArrayRef mul_bias,
+                                    bool mul_is_signed, bool accumulate_quant,
+                                    c10::IntArrayRef acc_man_bits, c10::IntArrayRef acc_exp_bits,
+                                    c10::IntArrayRef acc_normal_binades, c10::IntArrayRef acc_bias,
+                                    bool acc_is_signed, int64_t accumulate_algorithm,
+                                    int64_t round_mode, int64_t mul_saturation_mode,
+                                    int64_t acc_saturation_mode, int64_t mul_prng_bits,
+                                    int64_t acc_prng_bits)
+{
+  return mptorch::gemm::run_superfp_matmul_mixed_odd<Backend>(a, b, prec_idx, trans_a, trans_b,
+                                                              mul_man_bits, mul_exp_bits,
+                                                              mul_normal_binades, mul_bias,
+                                                              mul_is_signed, accumulate_quant,
+                                                              acc_man_bits, acc_exp_bits,
+                                                              acc_normal_binades, acc_bias,
+                                                              acc_is_signed, accumulate_algorithm,
+                                                              round_mode, mul_saturation_mode,
+                                                              acc_saturation_mode, mul_prng_bits,
+                                                              acc_prng_bits);
+}
+
+Tensor binaryK_matmul_fma_mixed_odd_mps(Tensor a, Tensor b, Tensor prec_idx, bool trans_a,
+                                        bool trans_b, bool fma_quant, c10::IntArrayRef fma_K,
+                                        c10::IntArrayRef fma_P, c10::IntArrayRef fma_bias,
+                                        bool fma_is_signed, int64_t accumulate_algorithm,
+                                        int64_t round_mode, int64_t fma_saturation_mode,
+                                        int64_t fma_subnormals_mode, int64_t fma_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_matmul_fma_mixed_odd<Backend>(a, b, prec_idx, trans_a, trans_b,
+                                                                  fma_quant, fma_K, fma_P, fma_bias,
+                                                                  fma_is_signed,
+                                                                  accumulate_algorithm, round_mode,
+                                                                  fma_saturation_mode,
+                                                                  fma_subnormals_mode,
+                                                                  fma_prng_bits);
+}
+
+Tensor superfp_matmul_fma_mixed_odd_mps(Tensor a, Tensor b, Tensor prec_idx, bool trans_a,
+                                        bool trans_b, bool fma_quant, c10::IntArrayRef fma_man_bits,
+                                        c10::IntArrayRef fma_exp_bits,
+                                        c10::IntArrayRef fma_normal_binades,
+                                        c10::IntArrayRef fma_bias, bool fma_is_signed,
+                                        int64_t accumulate_algorithm, int64_t round_mode,
+                                        int64_t fma_saturation_mode, int64_t fma_prng_bits)
+{
+  return mptorch::gemm::run_superfp_matmul_fma_mixed_odd<Backend>(a, b, prec_idx, trans_a, trans_b,
+                                                                  fma_quant, fma_man_bits,
+                                                                  fma_exp_bits, fma_normal_binades,
+                                                                  fma_bias, fma_is_signed,
+                                                                  accumulate_algorithm, round_mode,
+                                                                  fma_saturation_mode,
+                                                                  fma_prng_bits);
+}
+
+Tensor binaryK_superfp_matmul_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K,
+                                      int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
+                                      int64_t acc_man_bits, int64_t acc_exp_bits,
+                                      int64_t acc_normal_binades, int64_t acc_bias,
+                                      bool acc_is_signed, int64_t accumulate_algorithm,
+                                      int64_t round_mode, int64_t mul_saturation_mode,
+                                      int64_t mul_subnormals_mode, int64_t acc_saturation_mode,
+                                      int64_t mul_prng_bits, int64_t acc_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_superfp_matmul_odd<Backend>(a, b, trans_a, trans_b, mul_K,
+                                                                mul_P, mul_bias, mul_is_signed,
+                                                                acc_man_bits, acc_exp_bits,
+                                                                acc_normal_binades, acc_bias,
+                                                                acc_is_signed, accumulate_algorithm,
+                                                                round_mode, mul_saturation_mode,
+                                                                mul_subnormals_mode,
+                                                                acc_saturation_mode, mul_prng_bits,
+                                                                acc_prng_bits);
+}
+
+Tensor superfp_binaryK_matmul_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b,
+                                      int64_t mul_man_bits, int64_t mul_exp_bits,
+                                      int64_t mul_normal_binades, int64_t mul_bias,
+                                      bool mul_is_signed, int64_t acc_K, int64_t acc_P,
+                                      int64_t acc_bias, bool acc_is_signed,
+                                      int64_t accumulate_algorithm, int64_t round_mode,
+                                      int64_t mul_saturation_mode, int64_t acc_saturation_mode,
+                                      int64_t acc_subnormals_mode, int64_t mul_prng_bits,
+                                      int64_t acc_prng_bits)
+{
+  return mptorch::gemm::run_superfp_binaryK_matmul_odd<Backend>(a, b, trans_a, trans_b,
+                                                                mul_man_bits, mul_exp_bits,
+                                                                mul_normal_binades, mul_bias,
+                                                                mul_is_signed, acc_K, acc_P,
+                                                                acc_bias, acc_is_signed,
+                                                                accumulate_algorithm, round_mode,
+                                                                mul_saturation_mode,
+                                                                acc_saturation_mode,
+                                                                acc_subnormals_mode, mul_prng_bits,
+                                                                acc_prng_bits);
+}
+
+// Phase Y: the *_accumulated_odd ops (KAHAN, BLOCK and TREE), whose kernels
+// MPTORCH_ODD_ACCUMULATED=1 builds.
+
+Tensor binaryK_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_split_accumulated_odd<Backend>(a, b, trans_a, trans_b, mul_K, mul_P, mul_bias, mul_is_signed, accumulate_quant, acc_K, acc_P, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, mul_subnormals_mode, acc_saturation_mode, acc_subnormals_mode, mul_prng_bits, acc_prng_bits, block_size, outer_quant, outer_K, outer_P, outer_bias, outer_is_signed, outer_saturation_mode, outer_subnormals_mode, outer_prng_bits);
+}
+
+Tensor superfp_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades, int64_t mul_bias, bool mul_is_signed, bool accumulate_quant, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_man_bits, int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_superfp_split_accumulated_odd<Backend>(a, b, trans_a, trans_b, mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, accumulate_quant, acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, acc_saturation_mode, mul_prng_bits, acc_prng_bits, block_size, outer_quant, outer_man_bits, outer_exp_bits, outer_normal_binades, outer_bias, outer_is_signed, outer_saturation_mode, outer_prng_bits);
+}
+
+Tensor binaryK_matmul_fma_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, bool fma_quant, int64_t fma_K, int64_t fma_P, int64_t fma_bias, bool fma_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t fma_saturation_mode, int64_t fma_subnormals_mode, int64_t fma_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_fused_accumulated_odd<Backend>(a, b, trans_a, trans_b, fma_quant, fma_K, fma_P, fma_bias, fma_is_signed, accumulate_algorithm, round_mode, fma_saturation_mode, fma_subnormals_mode, fma_prng_bits, block_size, outer_quant, outer_K, outer_P, outer_bias, outer_is_signed, outer_saturation_mode, outer_subnormals_mode, outer_prng_bits);
+}
+
+Tensor superfp_matmul_fma_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, bool fma_quant, int64_t fma_man_bits, int64_t fma_exp_bits, int64_t fma_normal_binades, int64_t fma_bias, bool fma_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t fma_saturation_mode, int64_t fma_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_man_bits, int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_superfp_fused_accumulated_odd<Backend>(a, b, trans_a, trans_b, fma_quant, fma_man_bits, fma_exp_bits, fma_normal_binades, fma_bias, fma_is_signed, accumulate_algorithm, round_mode, fma_saturation_mode, fma_prng_bits, block_size, outer_quant, outer_man_bits, outer_exp_bits, outer_normal_binades, outer_bias, outer_is_signed, outer_saturation_mode, outer_prng_bits);
+}
+
+Tensor binaryK_superfp_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed, int64_t acc_man_bits, int64_t acc_exp_bits, int64_t acc_normal_binades, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t mul_subnormals_mode, int64_t acc_saturation_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_man_bits, int64_t outer_exp_bits, int64_t outer_normal_binades, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_binaryK_superfp_matmul_accumulated_odd<Backend>(a, b, trans_a, trans_b, mul_K, mul_P, mul_bias, mul_is_signed, acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, mul_subnormals_mode, acc_saturation_mode, mul_prng_bits, acc_prng_bits, block_size, outer_quant, outer_man_bits, outer_exp_bits, outer_normal_binades, outer_bias, outer_is_signed, outer_saturation_mode, outer_prng_bits);
+}
+
+Tensor superfp_binaryK_matmul_accumulated_odd_mps(Tensor a, Tensor b, bool trans_a, bool trans_b, int64_t mul_man_bits, int64_t mul_exp_bits, int64_t mul_normal_binades, int64_t mul_bias, bool mul_is_signed, int64_t acc_K, int64_t acc_P, int64_t acc_bias, bool acc_is_signed, int64_t accumulate_algorithm, int64_t round_mode, int64_t mul_saturation_mode, int64_t acc_saturation_mode, int64_t acc_subnormals_mode, int64_t mul_prng_bits, int64_t acc_prng_bits, int64_t block_size, bool outer_quant, int64_t outer_K, int64_t outer_P, int64_t outer_bias, bool outer_is_signed, int64_t outer_saturation_mode, int64_t outer_subnormals_mode, int64_t outer_prng_bits)
+{
+  return mptorch::gemm::run_superfp_binaryK_matmul_accumulated_odd<Backend>(a, b, trans_a, trans_b, mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias, mul_is_signed, acc_K, acc_P, acc_bias, acc_is_signed, accumulate_algorithm, round_mode, mul_saturation_mode, acc_saturation_mode, acc_subnormals_mode, mul_prng_bits, acc_prng_bits, block_size, outer_quant, outer_K, outer_P, outer_bias, outer_is_signed, outer_saturation_mode, outer_subnormals_mode, outer_prng_bits);
 }
 
 // _stochastic_cast (common/stochastic_cast_host.h) is test-only, and has no
@@ -52,170 +199,4 @@ Tensor carrier_odd_mps(Tensor, Tensor, Tensor, int64_t)
 Tensor stochastic_cast_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, int64_t)
 {
   TORCH_CHECK(false, "_stochastic_cast: a test-only op with no MPS kernel; run it on a CPU or CUDA tensor");
-}
-
-Tensor binaryK_matmul_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, c10::IntArrayRef,
-                                    c10::IntArrayRef, c10::IntArrayRef, bool, bool,
-                                    c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
-                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                    int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_mixed_odd");
-}
-
-Tensor superfp_matmul_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, c10::IntArrayRef,
-                                    c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
-                                    bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
-                                    c10::IntArrayRef, bool, int64_t, int64_t, int64_t, int64_t,
-                                    int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_mixed_odd");
-}
-
-Tensor binaryK_matmul_fma_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, bool, c10::IntArrayRef,
-                                        c10::IntArrayRef, c10::IntArrayRef, bool, int64_t, int64_t,
-                                        int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_fma_mixed_odd");
-}
-
-Tensor superfp_matmul_fma_mixed_odd_mps(Tensor, Tensor, Tensor, bool, bool, bool, c10::IntArrayRef,
-                                        c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
-                                        int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_fma_mixed_odd");
-}
-
-Tensor binaryK_superfp_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool,
-                                      int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t,
-                                      int64_t, int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_superfp_odd");
-}
-
-Tensor superfp_binaryK_matmul_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t,
-                                      int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t,
-                                      int64_t, int64_t, int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_binaryK_odd");
-}
-
-Tensor binaryK_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                            c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t, int64_t,
-                            bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t,
-                            int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
-                            int64_t, int64_t, bool, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_binaryK_odd");
-}
-
-Tensor superfp_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                            c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t, int64_t,
-                            int64_t, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
-                            int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t,
-                            int64_t, int64_t, int64_t, bool, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_superfp_odd");
-}
-
-Tensor binaryK_conv_fma_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                                c10::IntArrayRef, c10::IntArrayRef, int64_t, bool, int64_t, int64_t,
-                                int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_binaryK_fma_odd");
-}
-
-Tensor superfp_conv_fma_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                                c10::IntArrayRef, c10::IntArrayRef, int64_t, bool, int64_t, int64_t,
-                                int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_superfp_fma_odd");
-}
-
-Tensor binaryK_conv_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
-                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
-                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool, bool,
-                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, bool,
-                                  int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                  int64_t)
-{
-  no_metal_kernel("custom_conv_binaryK_mixed_odd");
-}
-
-Tensor superfp_conv_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
-                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
-                                  c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
-                                  c10::IntArrayRef, bool, bool, c10::IntArrayRef, c10::IntArrayRef,
-                                  c10::IntArrayRef, c10::IntArrayRef, bool, int64_t, int64_t,
-                                  int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_superfp_mixed_odd");
-}
-
-Tensor binaryK_conv_fma_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
-                                      c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
-                                      bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
-                                      bool, int64_t, int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_binaryK_fma_mixed_odd");
-}
-
-Tensor superfp_conv_fma_mixed_odd_mps(Tensor, Tensor, Tensor, int64_t, c10::IntArrayRef,
-                                      c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef, int64_t,
-                                      bool, c10::IntArrayRef, c10::IntArrayRef, c10::IntArrayRef,
-                                      c10::IntArrayRef, bool, int64_t, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_superfp_fma_mixed_odd");
-}
-
-Tensor binaryK_superfp_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                                    c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t,
-                                    int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool,
-                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                    int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool,
-                                    int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_binaryK_superfp_odd");
-}
-
-Tensor superfp_binaryK_conv_odd_mps(Tensor, Tensor, int64_t, c10::IntArrayRef, c10::IntArrayRef,
-                                    c10::IntArrayRef, c10::IntArrayRef, int64_t, int64_t, int64_t,
-                                    int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool,
-                                    int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                                    int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t,
-                                    int64_t, int64_t)
-{
-  no_metal_kernel("custom_conv_superfp_binaryK_odd");
-}
-
-Tensor binaryK_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_accumulated_odd");
-}
-
-Tensor superfp_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_accumulated_odd");
-}
-
-Tensor binaryK_matmul_fma_accumulated_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_fma_accumulated_odd");
-}
-
-Tensor superfp_matmul_fma_accumulated_odd_mps(Tensor, Tensor, bool, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_fma_accumulated_odd");
-}
-
-Tensor binaryK_superfp_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_binaryK_superfp_accumulated_odd");
-}
-
-Tensor superfp_binaryK_matmul_accumulated_odd_mps(Tensor, Tensor, bool, bool, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t, bool, int64_t, int64_t, int64_t)
-{
-  no_metal_kernel("custom_matmul_superfp_binaryK_accumulated_odd");
 }

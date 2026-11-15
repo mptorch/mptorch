@@ -193,7 +193,7 @@ GEMMs, the palettes (:class:`~mptorch.quant.Palette`, each entry held to the
 bound) and the cross-family macs (both formats held to it), split and fused,
 and the three passes of a convolution over any of them
 (:func:`~mptorch.quant.conv_formats`; :doc:`convolutions`), on CPU and CUDA
-tensors in both carriers. ``KAHAN``, ``BLOCK`` and ``TREE`` (below) take it
+tensors in both carriers and on Apple GPU tensors in binary32. ``KAHAN``, ``BLOCK`` and ``TREE`` (below) take it
 too, over a single format or a cross-family mac, GEMM and convolution alike
 (a palette sums with ``NAIVE`` only). They round to odd every carrier
 operation that a format rounds next: ``KAHAN``'s term, sum and both
@@ -207,13 +207,14 @@ without it such a call raises, naming the flag. The ``custom_matmul_*_odd``,
 ``custom_matmul_*_accumulated_odd`` and ``custom_conv_*_odd`` ops are
 separate, so the default ones are what they were, and a build with
 ``MPTORCH_NO_ODD=1`` leaves all their kernels out (the ops then raise, naming
-the flag). An Apple GPU refuses the odd step. On the CPU it assumes the
+the flag). On the CPU it assumes the
 default floating-point environment; a flush-to-zero mode
 (``torch.set_flush_denormal(True)``) breaks it in subnormal ranges, as it
 does the carrier arithmetic everywhere else.
 
 It costs time, mostly on the CPU (``carrier_double_rounding.py bench``,
-measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU):
+measured on a Ryzen 9 7940HS and an RTX 4060 laptop GPU, and
+``mps_backend.py bench-odd`` on an M3 Pro at 1024^3):
 
 ============================== ===================== =====================
 time against the nearest step  fused                 split
@@ -223,6 +224,7 @@ CUDA, binary64 (GeForce)       1.1x (SR) - 2.0x (RU) 1.1x (SR) - 1.5x
 CPU, binary32, vector tiles    1.2x                  0.9-1.0x
 CPU, binary32, scalar loop     1.2-1.8x              1.4-2.4x
 CPU, binary64                  1.4-2.7x              1.2-2.1x
+Apple GPU, binary32            1.9-3.1x              0.75-2.4x
 ============================== ===================== =====================
 
 The palettes, the cross-family macs and the convolutions cost what the GEMM
@@ -232,7 +234,8 @@ ratio, or the tile's for a convolution over a format the tiles take.
 Under ``KAHAN``, ``BLOCK`` and ``TREE`` (binary8p4 products, binary16p11
 sums, blocks of 16 folded into binary16p11;
 ``carrier_double_rounding.py bench-accumulated``, on the same machine and on
-an Apple M3 Pro):
+an Apple M3 Pro, whose GPU row is ``mps_backend.py bench-odd``'s, ``KAHAN``
+only):
 
 ============================== ===================== =====================
 time against the nearest step  binary32              binary64
@@ -242,6 +245,7 @@ Ryzen, one thread              1.7-2.8x              1.65-2.5x
 Ryzen, sixteen threads         1.2-2.4x              1.5-2.7x
 M3 Pro, one thread             1.8-2.85x             1.5-2.2x
 M3 Pro, eleven threads         1.8-2.8x              1.4-2.3x
+Apple GPU (``KAHAN``)          1.2-2.8x              (no binary64)
 ============================== ===================== =====================
 
 The CPU has no vector tiles for these algorithms, default or odd, and
@@ -264,6 +268,19 @@ once, as the GPU does: with AVX-512 through its embedded directed rounding,
 and with AVX2 and NEON under the processor's rounding mode, set once for each
 pass over the tile, at 1.05-1.4x the default tile's cost. Before them the odd
 step of those cases ran the scalar loop, 15-22x the default tile.
+
+An Apple GPU has neither directed rounding nor binary64, and its float unit
+flushes binary32 subnormals (:ref:`apple-gpu`). There binary32 rounds to odd
+with error-free transforms in binary32: the product's error by an FMA, two
+exact sums and a fast one, then the last bit set on the word. A test of the
+operands' words sends every input that could make an intermediate a
+subnormal, or overflow, to a path that scales it exactly by a power of two on
+the words, runs the same transforms, and scales the result back. The sums
+that no format rounds next stay the carrier's nearest operations, computed
+exactly on the words where a subnormal is involved, so an odd op's result is
+the CPU's word for word. The step costs most under ``RNE``, whose casts cost
+least: 2.4x for a split mac and 3.1x for a fused one, against 1.2x for a split
+mac under ``SR``.
 
 Summing differently: KAHAN, BLOCK and TREE
 ------------------------------------------

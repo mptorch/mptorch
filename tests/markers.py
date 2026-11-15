@@ -108,6 +108,10 @@ float64_devices = ["cpu", _cuda]
 # parameter, so its ids and signature match the multi-backend tests.
 cuda_devices = [_cuda]
 
+# The devices that are not the CPU, for a test that holds a device's result
+# to the CPU's word for word.
+accelerator_devices = [_cuda, _mps]
+
 
 def has_float64(device: str) -> bool:
     """Whether `device` has float64 tensors, for a test that loops over both

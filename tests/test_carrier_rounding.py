@@ -56,8 +56,11 @@ from mptorch.quant import (
 from mptorch.quant.mac import spec_for_mac
 
 from .markers import (
+    HAS_ODD_ACCUMULATED,
+    accelerator_devices,
     available_devices,
     float64_devices,
+    has_float64,
     requires_cuda,
     requires_mps,
     requires_odd,
@@ -144,7 +147,7 @@ def test_the_default_step_rounds_in_the_carrier_first(device, gap, dtype, kept, 
     assert got == (_correct(exact, mode) if kept else ONE)
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("gap, dtype, kept", WITNESSES)
 @pytest.mark.parametrize("sign", [1, -1], ids=["above", "below"])
 @pytest.mark.parametrize("kind", KINDS)
@@ -292,7 +295,7 @@ VECTORS = [
 ]
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(
     "a, b, c, op, dtype, want", VECTORS, ids=[f"v{i}" for i in range(len(VECTORS))]
 )
@@ -321,6 +324,10 @@ def _operands(regime: str, n: int, dtype: torch.dtype, rng: random.Random):
             ab = a * b if wide else struct.unpack("<f", struct.pack("<f", a * b))[0]
             c = -ab + rng.choice((0, 1, -1, 3)) * math.ulp(ab) * (1 if wide else 2**29)
             c = c if wide else struct.unpack("<f", struct.pack("<f", c))[0]
+        elif regime == "subnormal":  # subnormal operands, the other factor any size
+            lo, hi = (-1074, -1023) if wide else (-149, -127)
+            a, b = value(lo, hi), value(*((0, 1000) if wide else (0, 120)))
+            c = value(lo, hi) * rng.choice((0, 1))
         elif regime == "tiny":  # products at and below the carrier's subnormals
             lo, hi = (-560, -470) if wide else (-80, -60)
             a, b = value(lo, hi), value(lo, hi)
@@ -333,35 +340,45 @@ def _operands(regime: str, n: int, dtype: torch.dtype, rng: random.Random):
     return out
 
 
+REGIMES = ["normal", "cancel", "subnormal", "tiny", "huge"]
+
+
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
-@pytest.mark.parametrize("regime", ["normal", "cancel", "tiny", "huge"])
+@pytest.mark.parametrize("regime", REGIMES)
 @pytest.mark.parametrize("op", [FMA, ADD, MUL], ids=["fma", "add", "mul"])
-def test_the_host_primitives_match_the_exact_reference(dtype, regime, op):
+def test_the_primitives_match_the_exact_reference(device, dtype, regime, op):
+    """On every backend: the host's binary64 and error-free transforms, CUDA's
+    directed pair and the Apple GPU's binary32 transforms and rescaled cold
+    path (common/carrier_odd_metal.h, which the GPU's flush of subnormals
+    makes a different algorithm)."""
     rng = random.Random(f"{dtype}{regime}{op}")
     triples = _operands(regime, 400, dtype, rng)
     a, b, c = (list(t) for t in zip(*triples, strict=True))
-    got = _call(a, b, c, op, dtype, "cpu")
+    got = _call(a, b, c, op, dtype, device)
     for i, (x, y, z) in enumerate(triples):
         want = _expected(x, y, z, op, dtype)
         assert got[i] == want, (x, y, z, hex(got[i]), want and hex(want))
 
 
-@requires_cuda
+@pytest.mark.parametrize("device", accelerator_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
-@pytest.mark.parametrize("regime", ["normal", "cancel", "tiny", "huge"])
+@pytest.mark.parametrize("regime", REGIMES)
 @pytest.mark.parametrize("op", [FMA, ADD, MUL], ids=["fma", "add", "mul"])
-def test_the_cpu_and_cuda_primitives_agree_word_for_word(dtype, regime, op):
+def test_a_devices_primitives_agree_with_the_cpus_word_for_word(device, dtype, regime, op):
+    """A NaN with any NaN: its payload is the backend's."""
     rng = random.Random(f"cuda{dtype}{regime}{op}")
     triples = _operands(regime, 4000, dtype, rng)
-    specials = [math.inf, -math.inf, 0.0, -0.0, 1.0, -1.0]
+    tiny = 2.0**-149 if dtype is torch.float32 else 5e-324
+    specials = [math.inf, -math.inf, 0.0, -0.0, 1.0, -1.0, tiny, -tiny]
     triples += [(x, y, z) for x in specials for y in specials for z in specials]
     a, b, c = (list(t) for t in zip(*triples, strict=True))
-    cpu, cuda = _call(a, b, c, op, dtype, "cpu"), _call(a, b, c, op, dtype, "cuda")
+    cpu, dev = _call(a, b, c, op, dtype, "cpu"), _call(a, b, c, op, dtype, device)
     nan = [math.isnan(_value(w, dtype)) for w in cpu]
     assert [w for w, n in zip(cpu, nan, strict=True) if not n] == [
-        w for w, n in zip(cuda, nan, strict=True) if not n
+        w for w, n in zip(dev, nan, strict=True) if not n
     ]
-    assert nan == [math.isnan(_value(w, dtype)) for w in cuda]
+    assert nan == [math.isnan(_value(w, dtype)) for w in dev]
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
@@ -375,23 +392,50 @@ def test_a_nan_passes_through_the_host_primitives_whole(dtype, op):
 
 
 @requires_mps
-def test_the_odd_ops_have_no_mps_kernel():
+def test_what_the_odd_ops_refuse_on_mps():
+    """Every odd op runs on an Apple GPU (phase Z), and refuses there what the
+    CPU's refuses: binary64, which MPS has no tensors for (the widening fails),
+    and, in a build without MPTORCH_ODD_ACCUMULATED, KAHAN, BLOCK and TREE,
+    naming the flag as the CPU's does, since both share the entry points'
+    bodies."""
     a = torch.ones(2, 2, device="mps")
-    with pytest.raises(RuntimeError, match="no MPS kernel"):
-        odd_op(a, a, a, FMA)
-    with pytest.raises(RuntimeError, match="no MPS kernel"):
-        binaryK_matmul_fma(a, a, fma_K=8, fma_P=4, carrier_rounding=R.RO)
-    idx = torch.zeros(2, 2, dtype=torch.int32, device="mps")
-    with pytest.raises(RuntimeError, match="no MPS kernel"):
-        binaryK_matmul_mixed(a, a, idx, mul_K=[8, 8], mul_P=[4, 3], carrier_rounding=R.RO)
-    with pytest.raises(RuntimeError, match="no MPS kernel"):
-        binaryK_superfp_matmul(
-            a, a, mul_K=8, mul_P=4, acc_man_bits=3, acc_exp_bits=4, acc_normal_binades=8,
-            acc_bias=7, carrier_rounding=R.RO,
+    with pytest.raises(TypeError, match="float64"):
+        binaryK_matmul_fma(a, a, fma_K=8, fma_P=4, carrier=torch.float64, carrier_rounding=R.RO)
+
+    def kahan(device):
+        x = torch.ones(2, 2, device=device)
+        return binaryK_matmul_fma(
+            x, x, fma_K=12, fma_P=7, carrier_rounding=R.RO,
+            accumulate_algorithm=AccumulateAlgorithm.KAHAN,
         )  # fmt: skip
-    layer = QConv2d(1, 1, 1, formats=conv_formats(FusedMac(BinaryK(8, 4), carrier_rounding=R.RO)))
-    with pytest.raises(RuntimeError, match="no MPS kernel"):
-        layer.to("mps")(torch.ones(1, 1, 2, 2, device="mps"))
+
+    if HAS_ODD_ACCUMULATED:
+        assert torch.equal(kahan("mps").cpu(), kahan("cpu"))
+    else:
+        for device in ("cpu", "mps"):
+            with pytest.raises(RuntimeError, match="MPTORCH_ODD_ACCUMULATED"):
+                kahan(device)
+
+
+@requires_mps
+@pytest.mark.parametrize("mode", [R.RNE, R.RD, R.SR], ids=lambda m: m.name)
+def test_mps_is_the_cpu(mode):
+    """A QLinear's three passes with the odd step, on an Apple GPU and on the
+    CPU, word for word, SR included (both draw from the CPU generator)."""
+    torch.manual_seed(3)
+    x = torch.randn(5, 16)
+    out = {}
+    for device in ("cpu", "mps"):
+        torch.manual_seed(4)
+        formats = binaryK_gemm_formats_fma(12, 7, rounding_mode=mode, carrier_rounding=R.RO)
+        layer = QLinear(16, 8, formats=formats).to(device)
+        xd = x.to(device).detach().requires_grad_()
+        y = layer(xd)
+        y.sum().backward()
+        assert xd.grad is not None and layer.weight.grad is not None
+        out[device] = [t.detach().cpu() for t in (y, xd.grad, layer.weight.grad)]
+    for ref, got in zip(out["cpu"], out["mps"], strict=True):
+        assert torch.equal(got.view(torch.int32), ref.view(torch.int32))
 
 
 # --- the GEMMs ----------------------------------------------------------------
@@ -437,8 +481,8 @@ def _reference(
     value, for a format inside binary64's bound. A split mac's sums are
     rounded to ``acc`` when it is given (a cross-family mac), else to
     ``fmt``."""
-    A = [[Fraction(v) for v in row] for row in a.double().tolist()]
-    B = [[Fraction(v) for v in row] for row in b.double().tolist()]
+    A = [[Fraction(v) for v in row] for row in a.cpu().double().tolist()]
+    B = [[Fraction(v) for v in row] for row in b.cpu().double().tolist()]
     M, K, N = len(A), len(B), len(B[0])
     s = [Fraction(0)] * (M * N)
     for k in range(K):
@@ -478,7 +522,7 @@ def _gemm_operands(dtype: torch.dtype, seed: int):
     return a, b
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
 @pytest.mark.parametrize("mac", ["fused", "split"])
 @pytest.mark.parametrize("fmt", [BK, SF], ids=["binaryK", "superfp"])
@@ -512,7 +556,7 @@ def test_the_cpu_and_cuda_odd_gemms_agree_word_for_word(dtype, mac, mode):
     )
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
 def test_an_unrounded_sum_stays_the_carriers_nearest_add(device, dtype):
     """``SplitMac(mul, None)``: only the product is rounded to odd, then
@@ -522,7 +566,7 @@ def test_an_unrounded_sum_stays_the_carriers_nearest_add(device, dtype):
     b = torch.randn(9, 3, dtype=dtype, device=device)
     fmt = BinaryK(12, 7)
     got = qmm(a, b, SplitMac(fmt, None, rounding=R.RU, carrier_rounding=R.RO))
-    A, B = a.double().cpu().tolist(), b.double().cpu().tolist()
+    A, B = a.cpu().double().tolist(), b.cpu().double().tolist()
     exact = [
         Fraction(A[i][k]) * Fraction(B[k][j]) for i in range(4) for k in range(9) for j in range(3)
     ]
@@ -533,7 +577,7 @@ def test_an_unrounded_sum_stays_the_carriers_nearest_add(device, dtype):
     assert torch.equal(got.cpu(), want)
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
 @pytest.mark.parametrize("mac", ["fused", "split"])
 def test_exact_cancellation_is_an_unsigned_zero(device, dtype, mac):
@@ -544,7 +588,7 @@ def test_exact_cancellation_is_an_unsigned_zero(device, dtype, mac):
         assert out.item() == 0 and not math.copysign(1, out.item()) < 0
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mac", ["fused", "split"])
 def test_infinities_and_nans_pass_through(device, mac):
     a = torch.tensor([[math.inf, 1.0], [math.nan, 1.0]], device=device)
@@ -553,7 +597,7 @@ def test_infinities_and_nans_pass_through(device, mac):
     assert out[0, 0].item() == math.inf and math.isnan(out[1, 0].item())
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(
     "saturation, default, odd",
     [
@@ -582,7 +626,7 @@ def test_a_finite_sum_past_the_carrier_saturates_as_a_finite_value(
     assert qmm(a, b, FusedMac(fmt, carrier_rounding=R.RO)).item() == words[odd]
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype, g", [(torch.float32, 30), (torch.float64, 61)], ids=["b32", "b64"])
 def test_stochastic_rounding_sees_the_bits_the_nearest_carrier_drops(device, dtype, g):
     """The exact sum 1 + 2^-7 - 2^-g is just below binary16p8's 1 + 2^-7. The
@@ -773,7 +817,7 @@ def test_the_op_refuses_an_unrounded_fused_step():
         )
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 def test_a_qlinear_runs_the_odd_step_in_every_pass(device):
     torch.manual_seed(3)
     formats = binaryK_gemm_formats_fma(12, 7, rounding_mode=R.RU, carrier_rounding=R.RO)
@@ -800,7 +844,7 @@ def test_a_qlinear_runs_the_odd_step_in_every_pass(device):
 CROSS = [(BK, SF), (SF, BK)]
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
 @pytest.mark.parametrize("pair", CROSS, ids=["binaryK_superfp", "superfp_binaryK"])
 @pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
@@ -826,7 +870,7 @@ def _odd_mac(kind: str, fmt, mode: RoundMode) -> FusedMac | SplitMac:
     return SplitMac(fmt, acc, rounding=mode, carrier_rounding=R.RO)
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["b32", "b64"])
 @pytest.mark.parametrize("family", list(PALETTE_ENTRIES))
 @pytest.mark.parametrize("kind", ["fused", "split", "split unrounded sum"])
@@ -867,7 +911,7 @@ def test_a_cross_family_format_outside_the_bound_raises():
         binaryK_superfp_matmul(a, a, acc_man_bits=22, **kw)
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 def test_the_mac_tier_and_the_flat_tier_run_the_same_odd_palette(device):
     a, b = _gemm_operands(torch.float32, seed=11)
     a, b = a.to(device), b.to(device)
@@ -929,7 +973,7 @@ def _odd_conv_macs(mode: RoundMode) -> dict[str, FusedMac | SplitMac]:
     }
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", (*DETERMINISTIC, R.SR), ids=lambda m: m.name)
 @pytest.mark.parametrize("which", list(_odd_conv_macs(R.RNE)))
 def test_every_odd_conv_pass_is_the_odd_gemm_over_the_unfold(device, mode, which):
@@ -949,7 +993,7 @@ def test_the_odd_conv_ops_compute_in_binary64(device, which):
     _check_three_passes(mac, device, stride=2, padding=1, dtype=torch.float64)
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize(
     "geometry", ["1d_strided", "2d_all", "2d_groups", "2d_depthwise", "3d_all"]
 )
@@ -968,7 +1012,7 @@ def test_the_odd_conv_ops_hold_over_the_geometries(device, geometry):
         )  # fmt: skip
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", [R.RU, R.SR], ids=lambda m: m.name)
 @pytest.mark.parametrize("stride", [1, 2])
 @pytest.mark.parametrize("kind", ["split", "fused"])
@@ -991,7 +1035,7 @@ def test_the_odd_palette_conv_passes(device, mode, stride, kind):
     )  # fmt: skip
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", DETERMINISTIC, ids=lambda m: m.name)
 def test_the_odd_strided_igrad_is_the_zero_inserted_sum_under_naive(device, mode):
     """The input gradient's residue classes leave out the products of the
@@ -1054,7 +1098,7 @@ def _odd_accumulated_conv_macs(mode: RoundMode) -> dict[str, FusedMac | SplitMac
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("mode", (*DETERMINISTIC, R.SR), ids=lambda m: m.name)
 @pytest.mark.parametrize("which", list(_odd_accumulated_conv_macs(R.RNE)))
 def test_every_odd_accumulated_conv_pass_is_the_odd_gemm_over_the_unfold(device, mode, which):
@@ -1068,7 +1112,7 @@ def test_every_odd_accumulated_conv_pass_is_the_odd_gemm_over_the_unfold(device,
 
 
 @requires_odd_accumulated
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 @pytest.mark.parametrize("geometry", ["1d_strided", "2d_groups", "3d_all"])
 def test_the_odd_accumulated_conv_ops_hold_over_the_geometries(device, geometry):
     from .test_qconv_gemm import GEOMETRIES, _check_three_passes
@@ -1083,8 +1127,9 @@ def test_the_odd_accumulated_conv_ops_hold_over_the_geometries(device, geometry)
             _odd_accumulated_conv_macs(mode)[which], device, C=C, Cout=Cout, size=size,
             kernel=kernel, stride=stride, padding=padding, dilation=dilation, groups=groups,
         )  # fmt: skip
-    mac = _odd_accumulated_conv_macs(R.RU)["bk_split_kahan"]
-    _check_three_passes(mac, device, stride=2, padding=1, dtype=torch.float64)
+    if has_float64(device):
+        mac = _odd_accumulated_conv_macs(R.RU)["bk_split_kahan"]
+        _check_three_passes(mac, device, stride=2, padding=1, dtype=torch.float64)
 
 
 @requires_odd_accumulated
@@ -1100,7 +1145,7 @@ def test_the_cpu_and_cuda_odd_accumulated_conv_passes_agree_word_for_word(mode):
             assert torch.equal(c.view(torch.int32), d.cpu().view(torch.int32)), mac
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 def test_a_qconv2d_runs_the_odd_step_in_every_pass(device):
     from .test_qconv_gemm import ref_fwd, ref_igrad, ref_wgrad
 
@@ -1122,7 +1167,7 @@ def test_a_qconv2d_runs_the_odd_step_in_every_pass(device):
     assert torch.equal(layer.weight.grad, ref_wgrad(spec, dy, x.detach(), (3, 3), *geo))
 
 
-@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("device", available_devices)
 def test_a_palette_qmatmul_runs_the_odd_step(device):
     torch.manual_seed(10)
     a = torch.randn(6, 9, device=device, requires_grad=True)

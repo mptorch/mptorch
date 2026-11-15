@@ -21,6 +21,12 @@
 //
 // binary32 only: MPS has no float64 tensors, so there is no binary64 kernel
 // to pick and no MPTORCH_NO_FP64 to honour.
+//
+// The odd carrier step's Args (phase Z: OddArgs, OddPaletteArgs, and an
+// AccumulateArgs over an OddArgs) are the same kernel compiled after
+// mps/odd.metal, the headers that define them, which is the one thing
+// uses_odd_kernel decides; their args_source are templates, instantiated in
+// gemm_backend.cpp for the sixteen the odd ops build.
 
 #include "../common/gemm_accumulate.h"
 #include "../common/gemm_args.h"
@@ -31,8 +37,38 @@
 #include <cstdint>
 #include <string>
 
+namespace mptorch::gemm
+{
+  template <class Base>
+  struct OddArgs;
+  template <class Base>
+  struct OddPaletteArgs;
+} // namespace mptorch::gemm
+
 namespace mptorch::gemm_mps
 {
+
+  // Whether an Args is the odd carrier step's, whose kernel is compiled after
+  // mps/odd.metal (metal_runtime.h's GemmOdd).
+  template <class Args>
+  struct uses_odd_kernel
+  {
+    static constexpr bool value = false;
+  };
+  template <class Base>
+  struct uses_odd_kernel<mptorch::gemm::OddArgs<Base>>
+  {
+    static constexpr bool value = true;
+  };
+  template <class Base>
+  struct uses_odd_kernel<mptorch::gemm::OddPaletteArgs<Base>>
+  {
+    static constexpr bool value = true;
+  };
+  template <class Base>
+  struct uses_odd_kernel<mptorch::gemm::AccumulateArgs<Base>> : uses_odd_kernel<Base>
+  {
+  };
 
   struct MpsBackend
   {
@@ -82,7 +118,7 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s, const Args &args,
                        const LaunchContext &ctx)
     {
-      launch_source(s, variant_source(args), ctx);
+      launch_source(s, variant_source(args), uses_odd_kernel<Args>::value, ctx);
     }
 
     // KAHAN, BLOCK and TREE: the AccumulateArgs, and the algorithm, which
@@ -91,7 +127,7 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s,
                        const mptorch::gemm::AccumulateArgs<Base> &args, const LaunchContext &ctx)
     {
-      launch_source(s, variant_source(args), ctx);
+      launch_source(s, variant_source(args), uses_odd_kernel<Base>::value, ctx);
     }
 
     // The conv ops: the Args of the mac each runs, gathered through the
@@ -100,7 +136,7 @@ namespace mptorch::gemm_mps
     static void launch(const mptorch::gemm::GemmShape &s, const mptorch::gemm::ConvArgs<Inner> &args,
                        const LaunchContext &ctx)
     {
-      launch_conv(s, variant_source(args.inner), args.geom, ctx);
+      launch_conv(s, variant_source(args.inner), args.geom, uses_odd_kernel<Inner>::value, ctx);
     }
 
     // The block GEMM: the Args of its mac, over two packed operands. MPS has
@@ -134,6 +170,12 @@ namespace mptorch::gemm_mps
     static std::string args_source(const mptorch::gemm::AccumulateArgs<mptorch::gemm::BinaryKSuperfpArgs> &a);
     static std::string args_source(const mptorch::gemm::AccumulateArgs<mptorch::gemm::SuperfpBinaryKArgs> &a);
     static std::string args_source(const mptorch::gemm::AccumulateArgs<mptorch::gemm::BlockSplitArgs> &a);
+    template <class Base>
+    static std::string args_source(const mptorch::gemm::OddArgs<Base> &a);
+    template <class Base>
+    static std::string args_source(const mptorch::gemm::OddPaletteArgs<Base> &a);
+    template <class Base>
+    static std::string args_source(const mptorch::gemm::AccumulateArgs<mptorch::gemm::OddArgs<Base>> &a);
 
   private:
     // The instantiation's lines for an Args: its mpt_args(), and for an
@@ -152,10 +194,10 @@ namespace mptorch::gemm_mps
 
     static std::string accumulate_line(AccumulateAlgorithm alg);
 
-    static void launch_source(const mptorch::gemm::GemmShape &s, const std::string &args,
+    static void launch_source(const mptorch::gemm::GemmShape &s, const std::string &args, bool odd,
                               const LaunchContext &ctx);
     static void launch_conv(const mptorch::gemm::GemmShape &s, const std::string &args,
-                            const mptorch::gemm::ConvGeom &geom, const LaunchContext &ctx);
+                            const mptorch::gemm::ConvGeom &geom, bool odd, const LaunchContext &ctx);
     static void launch_block(const mptorch::gemm::GemmShape &s, const std::string &args,
                              const mptorch::gemm::BlockOperand &a, const mptorch::gemm::BlockOperand &b,
                              const LaunchContext &ctx);

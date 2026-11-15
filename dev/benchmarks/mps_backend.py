@@ -4,6 +4,9 @@
     python3 dev/benchmarks/mps_backend.py bench-beyond  # the ops past the NAIVE GEMMs only
     python3 dev/benchmarks/mps_backend.py sweep     # the quantizers over all 2^32 binary32 words
     python3 dev/benchmarks/mps_backend.py control   # the sweep can see a contracted split
+    python3 dev/benchmarks/mps_backend.py odd-probe  # what the odd step's Metal primitives assume
+    python3 dev/benchmarks/mps_backend.py odd-sweep [SEED]  # those primitives against the CPU's
+    python3 dev/benchmarks/mps_backend.py bench-odd  # the odd ops against their default twins
 
 ``sweep`` runs ``binaryK_quantize``, ``superfp_quantize`` and
 ``fixedpoint_quantize`` on an MPS tensor and on a CPU one over every binary32
@@ -81,8 +84,10 @@ read 12.2 / 8.7 / 29.8 / 17.1 ms for binaryK / binaryK_fma / binaryK_mixed
 
 import dataclasses
 import re
+import struct
 import sys
 import time
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +294,335 @@ def control():
         print(f"{name}: {bad} mismatches (must be nonzero)")
 
 
+def _rn32(x: Fraction) -> int:
+    """The binary32 word of x rounded to nearest even, subnormals included
+    (gradual underflow), infinity past the top."""
+    if x == 0:
+        return 0
+    sign, ax = (0x80000000 if x < 0 else 0), abs(x)
+    e = ax.numerator.bit_length() - ax.denominator.bit_length()
+    if Fraction(2) ** e > ax:
+        e -= 1
+    q = Fraction(2) ** max(e - 23, -149)
+    k, rest = divmod(ax, q)
+    k = int(k)
+    if rest * 2 > q or (rest * 2 == q and k & 1):
+        k += 1
+    value = k * q
+    if value >= Fraction(2) ** 128:
+        return sign | 0x7F800000
+    return sign | struct.unpack("<I", struct.pack("<f", float(value)))[0]
+
+
+def _words32(t: torch.Tensor) -> list[int]:
+    return t.cpu().contiguous().view(torch.int32).tolist()
+
+
+def odd_probe():
+    """What phase Z's Metal primitives may assume of the GPU
+    (common/carrier_odd_metal.h).
+
+    1. metal::fma is one rounding to nearest even: equal to the exact
+       a*b + c rounded once, wherever no operand is a binary32 subnormal and
+       the exact result is not below 2^-126. The flush is decided before
+       rounding: 2^-126 (1 - 2^-24), which rounds to 2^-126, comes back 0
+       (found 2026-11-15, M3 Pro, macOS 26).
+    2. Whether a subnormal x * 1.0f folds to x or flushes to zero, through
+       BinaryKMultiplierT's own call under RU, as SplitMacOdd hands it an odd
+       product (carrier_odd_metal.h's cast helper is there either way).
+    3. Whether -x flushes a subnormal, and the sign of a flushed result.
+    4. Whether the Metal compiler takes a noinline attribute.
+    """
+    head = (
+        "#include <metal_stdlib>\n"
+        "#pragma METAL fp math_mode(safe)\n"
+        "#pragma METAL fp contract(off)\n"
+    )
+    plain = torch.mps.compile_shader(
+        head
+        + """
+inline float times(float a, float b) { return a * b; }
+kernel void probe_fma(device const float *a [[buffer(0)]], device const float *b [[buffer(1)]],
+                      device const float *c [[buffer(2)]], device uint *o [[buffer(3)]],
+                      uint i [[thread_position_in_grid]])
+{
+    o[i] = as_type<uint>(metal::fma(a[i], b[i], c[i]));
+}
+kernel void probe_ops(device const float *x [[buffer(0)]], device uint *o [[buffer(1)]],
+                      uint i [[thread_position_in_grid]])
+{
+    const float v = x[i];
+    o[4 * i + 0] = as_type<uint>(times(v, 1.0f));
+    o[4 * i + 1] = as_type<uint>(-v);
+    o[4 * i + 2] = as_type<uint>(v * 0.5f);
+    o[4 * i + 3] = as_type<uint>(v);
+}
+"""
+    )
+
+    # 1. metal::fma against the exact sum rounded once.
+    def is_sub(w: int) -> bool:
+        return (w & 0x7F800000) == 0 and (w & 0x007FFFFF) != 0
+
+    g = torch.Generator().manual_seed(0)
+    n = 1 << 14
+    exps = torch.randint(-60, 60, (3, n), generator=g)
+    vals = torch.randn(3, n, generator=g, dtype=torch.float64) * torch.pow(2.0, exps.double())
+    a, b, c = (v.float() for v in vals)
+    # the binary32 review vectors' operands too, and some products that land
+    # in or near the subnormal range
+    extra = [
+        (1, 1, 2**-30),
+        (1, 1, -(2**-30)),
+        (1 + 2**-12, 1 + 2**-12, -(2**-11)),
+        (2**-50, 2**-50, 1),
+        (2**-75, 2**-75, 0),
+        (2**-63 * (1 - 2**-24), 2**-63, 0),
+        (2**-60, 2**-60, 2**-110),
+        (2**-63, 2**-64, 0),
+        (2**64, 2**64, -3.4028234663852886e38),
+    ]
+    a = torch.cat([a, torch.tensor([e[0] for e in extra], dtype=torch.float32)])
+    b = torch.cat([b, torch.tensor([e[1] for e in extra], dtype=torch.float32)])
+    c = torch.cat([c, torch.tensor([e[2] for e in extra], dtype=torch.float32)])
+    got = torch.empty(a.numel(), dtype=torch.int32, device="mps")
+    plain.probe_fma(a.to("mps"), b.to("mps"), c.to("mps"), got, threads=(a.numel(), 1, 1))
+    torch.mps.synchronize()
+    clean_bad = flushed = flushed_other = 0
+    for wa, wb, wc, x, y, z, w in zip(
+        _words32(a),
+        _words32(b),
+        _words32(c),
+        a.tolist(),
+        b.tolist(),
+        c.tolist(),
+        _words32(got),
+        strict=True,
+    ):
+        want = _rn32(Fraction(x) * Fraction(y) + Fraction(z))
+        mask = lambda v: v & 0xFFFFFFFF  # noqa: E731
+        exact = Fraction(x) * Fraction(y) + Fraction(z)
+        tiny = 0 < abs(exact) < Fraction(2) ** -126
+        sub = any(is_sub(mask(v)) for v in (wa, wb, wc)) or tiny
+        if not sub:
+            if mask(w) != want:
+                clean_bad += 1
+                print(f"   differs: fma({x!r}, {y!r}, {z!r}) = {mask(w):#010x}, RN {want:#010x}")
+        elif mask(w) != want:
+            flushed += 1
+        else:
+            flushed_other += 1
+    print(f"1. metal::fma: {clean_bad} of the cases without subnormals differ from RN(a*b + c)")
+    print(
+        f"   (cases with a subnormal operand or a result below 2^-126: {flushed} differ, "
+        f"{flushed_other} agree)"
+    )
+
+    # 2-3. x * 1.0f, -x and a flushed result, on subnormals of both signs.
+    sub = torch.tensor([1, 0x00400000, 0x007FFFFF, 0x80000001, 0x80400000]).to(torch.int32)
+    out = torch.empty(4 * sub.numel(), dtype=torch.int32, device="mps")
+    plain.probe_ops(sub.view(torch.float32).to("mps"), out, threads=(sub.numel(), 1, 1))
+    torch.mps.synchronize()
+    rows = torch.tensor(_words32(out)).view(-1, 4).tolist()
+    for w, (times1, neg, half, copy) in zip(sub.tolist(), rows, strict=True):
+        print(
+            f"2-3. x = {w & 0xFFFFFFFF:#010x}: x*1 {times1 & 0xFFFFFFFF:#010x}, "
+            f"-x {neg & 0xFFFFFFFF:#010x}, x*0.5 {half & 0xFFFFFFFF:#010x}, "
+            f"copy {copy & 0xFFFFFFFF:#010x}"
+        )
+
+    lines: list[str] = []
+    flatten(CSRC / "mps" / "prelude.metal", set(), lines)
+    policy = torch.mps.compile_shader(
+        "\n".join(lines)
+        + """
+kernel void probe_mul1(device const float *x [[buffer(0)]], device uint *o [[buffer(1)]],
+                       uint i [[thread_position_in_grid]])
+{
+    const BinaryKMultiplierT<float, RoundMode::RU> m(3, 4, 8, true, SaturationMode::SAT_NONE,
+                                                     SubnormalsMode::SUBNORMALS, 0);
+    PhiloxEngine rng;
+    o[i] = as_type<uint>(m(x[i], 1.0f, rng));
+}
+"""
+    )
+    x = torch.tensor([2.0**-140, 2.0**-149, 2.0**-127], dtype=torch.float32)
+    out = torch.empty(x.numel(), dtype=torch.int32, device="mps")
+    policy.probe_mul1(x.to("mps"), out, threads=(x.numel(), 1, 1))
+    torch.mps.synchronize()
+    print(
+        "2. BinaryKMultiplierT<RU>(x, 1) for binary8p4, x subnormal: "
+        + ", ".join(f"{v:#010x}" for v in _words32(out))
+        + " (0x3a800000 = 2^-10 if x * 1 folds, 0 if it flushes)"
+    )
+
+    # 4. noinline spellings.
+    for spelling in ("__attribute__((noinline))", "[[clang::noinline]]", "[[gnu::noinline]]"):
+        src = (
+            head
+            + spelling
+            + " float cold(float v) { return v * 3.0f; }\n"
+            + "kernel void probe_call(device float *o [[buffer(0)]],\n"
+            + "                       uint i [[thread_position_in_grid]])"
+            + " { o[i] = cold(o[i]); }\n"
+        )
+        try:
+            torch.mps.compile_shader(src)
+            print(f"4. {spelling}: accepted")
+        except RuntimeError as e:
+            print(f"4. {spelling}: refused ({str(e).splitlines()[0][:120]})")
+
+
+def _floats(g: torch.Generator, n: int, e_lo: int, e_hi: int) -> torch.Tensor:
+    """n binary32 values of random sign and mantissa whose unbiased exponent
+    is uniform in [e_lo, e_hi]; -127 gives a subnormal (or a zero, for a
+    zero mantissa) and 128 an infinity or a NaN."""
+    sign = torch.randint(0, 2, (n,), generator=g) << 31
+    field = torch.randint(e_lo + 127, e_hi + 128, (n,), generator=g)
+    mant = torch.randint(0, 1 << 23, (n,), generator=g)
+    return _as_float(sign | (field << 23) | mant)
+
+
+def _as_float(w: torch.Tensor) -> torch.Tensor:
+    """int64 words in [0, 2^32) as binary32 values."""
+    return (w - ((w >> 31) << 32)).to(torch.int32).view(torch.float32)
+
+
+def _words(g: torch.Generator, n: int) -> torch.Tensor:
+    return _as_float(torch.randint(0, 1 << 32, (n,), generator=g))
+
+
+def _pick(g: torch.Generator, *options: torch.Tensor) -> torch.Tensor:
+    """Each element from one of `options`, chosen uniformly."""
+    k = torch.randint(0, len(options), options[0].shape, generator=g)
+    out = options[0].clone()
+    for i, o in enumerate(options[1:], 1):
+        out[k == i] = o[k == i]
+    return out
+
+
+def _zeros(g: torch.Generator, n: int) -> torch.Tensor:
+    return _as_float(torch.randint(0, 2, (n,), generator=g) << 31)
+
+
+def _jitter(g: torch.Generator, x: torch.Tensor, ulps: int) -> torch.Tensor:
+    """x moved by up to `ulps` units in the last place, on the word."""
+    w = x.view(torch.int32).to(torch.int64) & 0xFFFFFFFF
+    d = torch.randint(-ulps, ulps + 1, x.shape, generator=g)
+    return _as_float((w + d) & 0xFFFFFFFF)
+
+
+def _odd_regimes(g: torch.Generator, n: int):
+    """(op, regime, a, b, c) for odd-sweep: each primitive's operands in the
+    regimes its gate and its cold path tell apart (common/carrier_odd_metal.h)."""
+    F = lambda lo, hi: _floats(g, n, lo, hi)  # noqa: E731
+    sub = lambda: F(-127, -127)  # noqa: E731
+    for op, name in ((0, "fma"), (1, "add"), (2, "mul")):
+        yield op, f"{name} words", _words(g, n), _words(g, n), _words(g, n)
+        yield op, f"{name} normal", F(-20, 20), F(-20, 20), F(-40, 40)
+        yield (
+            op,
+            f"{name} subnormal",
+            _pick(g, sub(), F(-30, 30), F(100, 127)),
+            _pick(g, sub(), F(-30, 30), F(100, 127)),
+            _pick(g, sub(), F(-30, 30)),
+        )
+        yield (
+            op,
+            f"{name} zeros",
+            _pick(g, _zeros(g, n), sub(), F(-140, 127)),
+            _pick(g, _zeros(g, n), sub(), F(-140, 127)),
+            _pick(g, _zeros(g, n), sub(), F(-140, 127)),
+        )
+    # fma
+    a, b = F(-20, 20), F(-20, 20)
+    yield 0, "fma cancel", a, b, _jitter(g, -(a.double() * b.double()).float(), 4)
+    yield (
+        0,
+        "fma tiny product",
+        F(-90, -30),
+        F(-90, -30),
+        _pick(g, _zeros(g, n), sub(), F(-126, -60), F(-30, 30)),
+    )
+    a, b = F(55, 70), F(55, 70)
+    yield (
+        0,
+        "fma huge",
+        a,
+        b,
+        _pick(
+            g, F(100, 127), _jitter(g, -(a.double() * b.double()).clamp(-3.4e38, 3.4e38).float(), 4)
+        ),
+    )
+    ea = torch.randint(-50, -27, (n,), generator=g)
+    eb = torch.randint(-80, -75, (n,), generator=g) - ea
+    a = F(0, 0) * torch.pow(2.0, ea.float())
+    b = F(0, 0) * torch.pow(2.0, eb.float())
+    yield 0, "fma gate edges", a, b, _pick(g, _zeros(g, n), F(-102, -98), F(123, 127))
+    a, b = F(-20, 20), F(-20, 20)
+    shift = _pick(
+        g,
+        torch.randint(54, 67, (n,), generator=g).float(),
+        -torch.randint(54, 67, (n,), generator=g).float(),
+    )
+    e_ab = torch.floor(torch.log2((a.double() * b.double()).abs())).float()
+    c = F(0, 0) * torch.pow(2.0, (e_ab + shift).clamp(-125, 126))
+    yield 0, "fma far terms", a, b, c
+    # add
+    a = F(-20, 20)
+    yield 1, "add cancel", a, _jitter(g, -a, 4), a
+    yield 1, "add tiny", _pick(g, sub(), F(-126, -90)), _pick(g, sub(), F(-126, -90), F(-30, 30)), a
+    yield 1, "add huge", F(120, 127), _pick(g, F(120, 127), _jitter(g, -F(120, 127), 4)), a
+    yield (
+        1,
+        "add gate edges",
+        _pick(g, F(-105, -101), F(123, 127)),
+        _pick(g, F(-105, -101), F(123, 127), F(-20, 20)),
+        a,
+    )
+    e = torch.randint(-60, 60, (n,), generator=g).float()
+    gap = torch.randint(54, 67, (n,), generator=g).float()
+    yield 1, "add far terms", F(0, 0) * torch.pow(2.0, e), F(0, 0) * torch.pow(2.0, e - gap), a
+    # mul
+    yield 2, "mul tiny", F(-90, -30), F(-90, -30), a
+    yield 2, "mul huge", F(55, 70), F(55, 70), a
+    ea = torch.randint(-50, -27, (n,), generator=g)
+    eb = torch.randint(-80, -75, (n,), generator=g) - ea
+    yield (
+        2,
+        "mul gate edges",
+        F(0, 0) * torch.pow(2.0, ea.float()),
+        F(0, 0) * torch.pow(2.0, eb.float()),
+        a,
+    )
+
+
+def odd_sweep():
+    """_carrier_odd on MPS (common/carrier_odd_metal.h) against the CPU's
+    (common/carrier_odd.h's host binary32 primitives) over 2^24 operand
+    triples per regime and primitive: every word must agree, a NaN with any
+    NaN. The regimes are the gate's and the cold path's: subnormal, zero and
+    non-finite operands, cancellation, tiny products, huge terms, the gate's
+    bounds, and terms 54 to 66 binades apart, either side of the cold path's
+    stand-ins at 60."""
+    odd_op = torch.ops.mptorch._carrier_odd.default
+    n = 1 << 24
+    g = torch.Generator().manual_seed(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
+    total = 0
+    t0 = time.perf_counter()
+    for op, name, a, b, c in _odd_regimes(g, n):
+        ref = odd_op(a, b, c, op)
+        got = odd_op(a.to("mps"), b.to("mps"), c.to("mps"), op).cpu()
+        same = (ref.view(torch.int32) == got.view(torch.int32)) | (ref.isnan() & got.isnan())
+        bad = int((~same).sum())
+        total += bad
+        print(f"{name:<20} {bad} mismatches", flush=True)
+        for i in (~same).nonzero().flatten()[:4].tolist():
+            w = [int(t[i].view(torch.int32)) & 0xFFFFFFFF for t in (a, b, c, ref, got)]
+            print("    a b c {:08x} {:08x} {:08x}  cpu {:08x}  mps {:08x}".format(*w))
+    print(f"{total} mismatches in all ({time.perf_counter() - t0:.0f} s)")
+
+
 def best_of(repeats: int, fn, *args) -> float:
     """The fastest of `repeats` calls, in milliseconds, synchronized."""
     times = []
@@ -383,6 +717,115 @@ def _row(label, fn, args_cpu, args_mps, repeats_cpu=1):
     cpu = best_of(repeats_cpu, fn, *args_cpu)
     mps = best_of(5, fn, *args_mps)
     print(f"{label:44} {cpu:8.1f} / {mps:7.2f} ms{'' if same else '  DIFFER'}", flush=True)
+
+
+def _ms(fn, *args) -> float:
+    fn(*args)  # compiles the instantiation
+    return best_of(5, fn, *args)
+
+
+def bench_odd():
+    """The odd carrier step on the GPU (carrier_rounding=RoundMode.RO,
+    common/carrier_odd_metal.h): each odd op against its default twin on MPS,
+    in ms, with the ratio, at 512^3 and 1024^3; DIFFER where the odd op's
+    result at 512^3 is not the CPU's word for word."""
+    print("odd carrier step on MPS: default / odd ms, ratio")
+    RO = RoundMode.RO
+    sr: dict[str, Any] = dict(mul_prng_bits=8, acc_prng_bits=8)
+    kahan = dict(accumulate_algorithm=AccumulateAlgorithm.KAHAN)
+    rows: list[tuple[str, Any]] = []
+    for rm in (RoundMode.RNE, RoundMode.RU, RoundMode.SR):
+        kw: dict[str, Any] = dict(rounding_mode=rm)
+        s = dict(kw, **sr) if rm is RoundMode.SR else kw
+        rows += [
+            (
+                f"binaryK {rm.name}",
+                lambda a, b, cr, s=s: binaryK_matmul(
+                    a, b, mul_K=8, mul_P=4, acc_K=12, acc_P=6, carrier_rounding=cr, **s
+                ),
+            ),
+            (
+                f"superfp {rm.name}",
+                lambda a, b, cr, s=s: superfp_matmul(
+                    a, b, mul_man_bits=3, mul_exp_bits=4, mul_normal_binades=1, mul_bias=7,
+                    acc_man_bits=5, acc_exp_bits=5, acc_normal_binades=2, acc_bias=15,
+                    carrier_rounding=cr, **s,
+                ),
+            ),
+            (
+                f"binaryK_fma {rm.name}",
+                lambda a, b, cr, kw=kw: binaryK_matmul_fma(
+                    a, b, fma_K=10, fma_P=5, carrier_rounding=cr, **kw
+                ),
+            ),
+            (
+                f"superfp_fma {rm.name}",
+                lambda a, b, cr, kw=kw: superfp_matmul_fma(
+                    a, b, fma_man_bits=4, fma_exp_bits=5, fma_normal_binades=1, fma_bias=15,
+                    carrier_rounding=cr, **kw,
+                ),
+            ),
+        ]  # fmt: skip
+    for rm in (RoundMode.RNE, RoundMode.SR):
+        s = dict(kahan, rounding_mode=rm, **(sr if rm is RoundMode.SR else {}))
+        rows.append(
+            (
+                f"binaryK KAHAN {rm.name}",
+                lambda a, b, cr, s=s: binaryK_matmul(
+                    a, b, mul_K=8, mul_P=4, acc_K=12, acc_P=6, carrier_rounding=cr, **s
+                ),
+            )
+        )
+    rows.append(
+        (
+            "binaryK unquantized sum RU",
+            lambda a, b, cr: binaryK_matmul(
+                a, b, mul_K=8, mul_P=4, accumulate_quant=False, rounding_mode=RoundMode.RU,
+                carrier_rounding=cr,
+            ),
+        )
+    )  # fmt: skip
+    for n in (512, 1024):
+        a, b = torch.randn(n, n), torch.randn(n, n)
+        am, bm = a.to("mps"), b.to("mps")
+        p = torch.randint(0, 3, (n, n), dtype=torch.int32)
+        pm = p.to("mps")
+        palette = (
+            "binaryK_mixed RNE",
+            lambda x, y, cr, q: binaryK_matmul_mixed(
+                x, y, q, mul_K=[8, 8, 6], mul_P=[4, 3, 3], acc_K=[12, 10, 8], acc_P=[6, 5, 4],
+                carrier_rounding=cr,
+            ),
+        )  # fmt: skip
+        for label, fn in rows + [palette]:
+            extra = (pm,) if fn is palette[1] else ()
+            base = _ms(fn, am, bm, RoundMode.RNE, *extra)
+            odd = _ms(fn, am, bm, RO, *extra)
+            same = ""
+            if n == 512:
+                torch.manual_seed(0)
+                ref = fn(a, b, RO, *((p,) if extra else ()))
+                torch.manual_seed(0)
+                got = fn(am, bm, RO, *extra)
+                same = (
+                    ""
+                    if torch.equal(ref.view(torch.int32), got.cpu().view(torch.int32))
+                    else ("  DIFFER")
+                )
+            print(f"{label + f' {n}^3':36} {base:7.2f} / {odd:7.2f} ms  {odd / base:4.2f}x{same}",
+                  flush=True)  # fmt: skip
+    # A convolution layer's forward pass, the conv ops' gathered GEMM.
+    g = torch.Generator().manual_seed(0)
+    x = torch.randn(8, 64, 32, 32, generator=g).to("mps")
+    w = torch.randn(64, 64, 3, 3, generator=g).to("mps")
+    geo: dict[str, Any] = dict(stride=(1, 1), padding=(1, 1), dilation=(1, 1), groups=1, nd=2)
+    times = []
+    for cr in (RoundMode.RNE, RO):
+        fwd = conv_formats(SplitMac(BinaryK(8, 4), BinaryK(12, 6), carrier_rounding=cr)).fwd_math
+        assert fwd
+        times.append(_ms(lambda u, v, fwd=fwd: fwd(u, v, None, **geo), x, w))
+    print(f"{'conv 3x3 [8,64,32,32] fwd':36} {times[0]:7.2f} / {times[1]:7.2f} ms  "
+          f"{times[1] / times[0]:4.2f}x")  # fmt: skip
 
 
 def bench_beyond_naive():
@@ -495,6 +938,12 @@ def bench_beyond_naive():
 if __name__ == "__main__":
     if not torch.backends.mps.is_available():
         raise SystemExit("No MPS device found.")
-    {"bench": bench, "bench-beyond": bench_beyond_naive, "sweep": sweep, "control": control}[
-        sys.argv[1] if len(sys.argv) > 1 else "bench"
-    ]()
+    {
+        "bench": bench,
+        "bench-beyond": bench_beyond_naive,
+        "sweep": sweep,
+        "control": control,
+        "odd-probe": odd_probe,
+        "odd-sweep": odd_sweep,
+        "bench-odd": bench_odd,
+    }[sys.argv[1] if len(sys.argv) > 1 else "bench"]()

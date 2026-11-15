@@ -16,7 +16,11 @@
 // This header is what the custom_matmul_*_odd ops add: the three primitives
 // in both carriers, the two macs that use them, and the Args that builds the
 // macs from an existing op's. No translation unit that existed before a13760a
-// includes it, so the existing kernels are the bytes they were.
+// includes it, so the existing kernels are the bytes they were. The MPS
+// backend compiles it as Metal too (mps/odd.metal, phase Z), with binary32
+// primitives of its own (carrier_odd_metal.h) and Metal arms where the GPU's
+// flush of subnormals would reach a plain operation; each arm sits behind
+// __METAL_VERSION__ with the host and CUDA statement verbatim beside it.
 //
 // What every primitive returns, the same on every backend, since the CPU and
 // CUDA kernels must agree word for word:
@@ -68,12 +72,17 @@
 #else
 #define MPTORCH_NO_CONTRACT
 #endif
+#else
+#include "carrier_odd_metal.h"
+#endif
 
 namespace mptorch::gemm
 {
   namespace odd
   {
-#if defined(__CUDA_ARCH__)
+#if defined(__METAL_VERSION__)
+    // An Apple GPU's: carrier_odd_metal.h, included above.
+#elif defined(__CUDA_ARCH__)
     // Two directed operations and a select on the parity of RD's word. RD
     // and RU are the same value when x is exact, and adjacent words when it
     // is not (RD = Omega with RU = inf on overflow, RD = +0 with RU = the
@@ -397,6 +406,19 @@ namespace mptorch::gemm
   // The macs.
   // ----------------------------------------------------------------------
 
+#if defined(__METAL_VERSION__)
+  // Metal has no derived classes, so no std::true_type to derive from.
+  template <class Adder>
+  struct is_identity_adder
+  {
+    static constexpr MPTORCH_CONSTANT bool value = false;
+  };
+  template <class T>
+  struct is_identity_adder<IdentityAdder<T>>
+  {
+    static constexpr MPTORCH_CONSTANT bool value = true;
+  };
+#else
   template <class Adder>
   struct is_identity_adder : std::false_type
   {
@@ -405,6 +427,7 @@ namespace mptorch::gemm
   struct is_identity_adder<IdentityAdder<T>> : std::true_type
   {
   };
+#endif
 
   // FusedMac's step with the FMA rounded to odd, so the format's cast rounds
   // a*b + acc itself. Only over a real Adder: a fused step no format rounds
@@ -415,7 +438,7 @@ namespace mptorch::gemm
     using value_t = typename Adder::value_t;
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, MPTORCH_THREAD PhiloxEngine &rng) const
     {
       return add(odd::fma(a, b, acc), rng);
     }
@@ -434,13 +457,23 @@ namespace mptorch::gemm
     Multiplier mul{};
     Adder add{};
 
-    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, PhiloxEngine &rng) const
+    CUDA_HOST_DEVICE_INLINE value_t step(value_t a, value_t b, value_t acc, MPTORCH_THREAD PhiloxEngine &rng) const
     {
+#if defined(__METAL_VERSION__)
+      // The product cast as it is formed, and the unrounded sum the
+      // flush-proof nearest add (carrier_odd_metal.h).
+      const value_t p = odd::cast_product(mul, odd::mul(a, b), rng);
+      if constexpr (is_identity_adder<Adder>::value)
+        return odd::add_rn(acc, p);
+      else
+        return add(odd::add(acc, p), rng);
+#else
       const value_t p = mul(odd::mul(a, b), value_t(1), rng);
       if constexpr (is_identity_adder<Adder>::value)
         return acc + p;
       else
         return add(odd::add(acc, p), rng);
+#endif
     }
   };
 
@@ -453,18 +486,18 @@ namespace mptorch::gemm
   template <class Base>
   struct OddArgs
   {
-    static constexpr bool mixed = false;
-    static constexpr uint64_t draws_per_k_step = Base::draws_per_k_step;
+    static constexpr MPTORCH_CONSTANT bool mixed = false;
+    static constexpr MPTORCH_CONSTANT uint64_t draws_per_k_step = Base::draws_per_k_step;
 
     Base base{};
 
     template <class T, class F>
     struct Builder
     {
-      F &f;
+      MPTORCH_THREAD F &f;
 
       template <class Adder>
-      void operator()(const NaiveAccumulator<FusedMac<Adder>> &naive) const
+      void operator()(const MPTORCH_THREAD NaiveAccumulator<FusedMac<Adder>> &naive) const
       {
         if constexpr (!is_identity_adder<Adder>::value)
         {
@@ -474,7 +507,7 @@ namespace mptorch::gemm
       }
 
       template <class Multiplier, class Adder>
-      void operator()(const NaiveAccumulator<SplitMac<Multiplier, Adder>> &naive) const
+      void operator()(const MPTORCH_THREAD NaiveAccumulator<SplitMac<Multiplier, Adder>> &naive) const
       {
         using Mac = SplitMacOdd<Multiplier, Adder>;
         f(NaiveAccumulator<Mac>{Mac{naive.mac.mul, naive.mac.add}, T(0)});
@@ -482,7 +515,7 @@ namespace mptorch::gemm
     };
 
     template <class T, RoundMode RM, class F>
-    void with_accumulator(F &&f) const
+    void with_accumulator(MPTORCH_THREAD F &&f) const
     {
       base.template with_accumulator<T, RM>(Builder<T, F>{f});
     }
@@ -491,4 +524,3 @@ namespace mptorch::gemm
 } // namespace mptorch::gemm
 
 #undef MPTORCH_NO_CONTRACT
-#endif // !__METAL_VERSION__
