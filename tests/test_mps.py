@@ -1315,6 +1315,6 @@ def test_the_odd_step_does_not_flush():
         assert ref.item() == 2.0**-137
         _assert_same_words(ref, got)
     # the default op's sum is the GPU's flushed one
-    default = dict(fmt, carrier_rounding=RoundMode.RNE)
+    default: dict[str, Any] = dict(fmt, carrier_rounding=RoundMode.RNE)
     ref, got = _on_both(lambda x, y: binaryK_matmul(x, y, **default), a, one)
     assert ref.item() == 2.0**-137 and got.item() == 0.0

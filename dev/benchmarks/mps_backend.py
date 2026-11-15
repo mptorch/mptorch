@@ -767,7 +767,7 @@ def bench_odd():
             ),
         ]  # fmt: skip
     for rm in (RoundMode.RNE, RoundMode.SR):
-        s = dict(kahan, rounding_mode=rm, **(sr if rm is RoundMode.SR else {}))
+        s: dict[str, Any] = dict(kahan, rounding_mode=rm, **(sr if rm is RoundMode.SR else {}))
         rows.append(
             (
                 f"binaryK KAHAN {rm.name}",
