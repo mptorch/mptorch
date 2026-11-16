@@ -9,8 +9,8 @@ second costs one more quantize pass and saves the copy, and that is a whole
 saving wherever the raw operand is alive anyway: a weight always is, as the
 layer's parameter, and an input is when the op that made it keeps its own
 output for its backward (ReLU, softmax, sigmoid) or when it is the data
-batch. Each Function says what a ``None`` flag means for it
-(``_RECOMPUTE_DEFAULT``).
+batch. Each Function's module says what a ``None`` flag means for it
+(``_LINEAR_RECOMPUTE_DEFAULT`` and its two siblings).
 
 A quantizer is run again only if it is known to depend on its input and the
 random generator alone -- mptorch's ``Quant`` (not in place), ``BlockQuant``
@@ -30,6 +30,12 @@ CUDA op runs on that device, ``csrc/cuda/device_guard.h``), and its CPU and
 MPS kernels from the CPU generator (``csrc/cpu/utils.h``, and
 ``draw_cpu_seed`` on MPS); a caller's callable gets the CPU generator and its
 tensor's device's.
+
+Under ``torch.compile`` such a replay keeps the quantized copy instead:
+Dynamo cannot trace reading or setting a generator's state, so the replay
+would break the graph, and what the copy holds is what the replay would
+return. A recompute that needs no generator state (a deterministic ``Quant``)
+traces, and runs as in eager.
 """
 
 from collections.abc import Callable
@@ -114,7 +120,11 @@ def quantize_operand(
         recompute = flag is not None or known is not None
     state = None
     if recompute and (known is None or known.rounding.is_stochastic):
-        state = _capture(cast(torch.Tensor, x), known is None)  # not a BlockPacked, above
+        if torch.compiler.is_compiling():
+            # a replay under compile keeps the copy (the module docstring)
+            recompute = False
+        else:
+            state = _capture(cast(torch.Tensor, x), known is None)  # not a BlockPacked, above
     q_x = q(x)
     if not needed:
         return q_x, None, None

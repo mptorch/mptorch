@@ -6,7 +6,8 @@ op outputs; it runs no layer, so nothing there can see a change in
 ``CustomArithLinear`` / ``CustomArithConvNd`` -- which gradient quantizers
 backward calls, what forward saves for it, how the bias is added. This runs
 QLinear and QConv{1,2,3}d over a matrix of format configurations,
-``requires_grad`` patterns and bias settings, and dumps every produced tensor
+``requires_grad`` patterns and bias settings, and QMatmul and the
+straight-through Quantizer over their own, and dumps every produced tensor
 plus the generator state at the end of the step.
 
 The generator state is captured on purpose. It is what proves that a
@@ -42,11 +43,15 @@ from mptorch.quant import (
     QConv2d,
     QConv3d,
     QLinear,
+    QMatmul,
+    QMatmulFormats,
     Quant,
+    Quantizer,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_quantize,
     conv_formats,
+    matmul_formats,
     superfp_quantize,
 )
 
@@ -78,6 +83,16 @@ LINEAR_FORMATS += ["q_rne", "q_sr", "q_sr_gemm"]
 # b16a3aa has 162 fewer tensors on the CPU.
 CONV_FORMATS = ["identity", "bk_rne", "sfp_rne", "bk_sr", "bk_conv", "bk_sr_conv"]
 CONV_FORMATS += ["q_rne", "q_sr", "q_sr_conv"]
+# QMatmul and the straight-through Quantizer, the two autograd Functions the
+# rows above do not reach; added after 018103e, so a capture taken before has
+# none of the mm/ and qz/ entries. QMatmul's (a, b) requires_grad patterns,
+# the all-True one first; a Quantizer's input always requires one.
+MATMUL_PATTERNS = [(True, True), (True, False), (False, True)]
+MATMUL_FORMATS = ["identity", "bk_sr", "q_rne", "q_sr_gemm"]
+QUANTIZER_FORMATS = ["q_rne", "q_sr"]
+# The patterns in which every gradient path is requested: a difference there is
+# never the documented exception (`compare`).
+FULL_PATTERNS = {str(PATTERNS[0]), str(MATMUL_PATTERNS[0]), str((True,))}
 
 
 def _bk(K, P, rm=RoundMode.RNE, prng=0):
@@ -158,6 +173,40 @@ def make_formats(name):
     raise ValueError(name)
 
 
+MATMUL_QUANT_FIELDS = ("a_quant", "b_quant", "agrad_quant", "bgrad_quant")
+
+
+def make_matmul_formats(name):
+    def slots(formats, q):
+        for field in MATMUL_QUANT_FIELDS:
+            setattr(formats, field, q)
+        return formats
+
+    if name == "identity":
+        return QMatmulFormats()
+    if name == "bk_sr":
+        return slots(QMatmulFormats(), _bk(8, 4, RoundMode.SR, prng=8))
+    if name == "q_rne":
+        return slots(matmul_formats(SplitMac(BinaryK(8, 4), BinaryK(10, 5))), Quant(BinaryK(8, 4)))
+    if name == "q_sr_gemm":
+        mac = SplitMac(
+            BinaryK(8, 4, prng_bits=8), BinaryK(10, 5, prng_bits=8), rounding=RoundMode.SR
+        )
+        return slots(matmul_formats(mac), Quant(BinaryK(8, 4, prng_bits=8), RoundMode.SR))
+    raise ValueError(name)
+
+
+def make_quantizer(name):
+    if name == "q_rne":
+        return Quantizer(BinaryK(8, 4), BinaryK(8, 5))
+    if name == "q_sr":
+        return Quantizer(
+            Quant(BinaryK(8, 4, prng_bits=8), RoundMode.SR),
+            Quant(BinaryK(8, 5, prng_bits=8), RoundMode.SR),
+        )
+    raise ValueError(name)
+
+
 def capture(device, out_path):
     # cuDNN's conv backward-data picks a nondeterministic algorithm at these
     # shapes; without this the baseline does not reproduce against itself.
@@ -193,6 +242,25 @@ def capture(device, out_path):
         if device == "cuda":
             res[tag + "/crng"] = torch.cuda.get_rng_state().clone()
 
+    def run_operands(tag, module, operands, rg):
+        """`run` for a module whose gradients are its operands' (QMatmul's
+        two, a Quantizer's one): no parameters."""
+        operands = [t.detach().clone().requires_grad_(r) for t, r in zip(operands, rg, strict=True)]
+        torch.manual_seed(4321)
+        if device == "cuda":
+            torch.cuda.manual_seed_all(4321)
+        out = module(*operands)
+        res[tag + "/out"] = out.detach().cpu().clone()
+        if out.requires_grad:
+            g = torch.arange(out.numel(), device=out.device, dtype=out.dtype).reshape(out.shape)
+            out.backward((g % 17) / 16.0 - 0.5)
+            for i, t in enumerate(operands):
+                if t.grad is not None:
+                    res[f"{tag}/g{i}"] = t.grad.detach().cpu().clone()
+        res[tag + "/rng"] = torch.get_rng_state().clone()
+        if device == "cuda":
+            res[tag + "/crng"] = torch.cuda.get_rng_state().clone()
+
     torch.manual_seed(1234)
     for use_bias in (True, False):
         b = int(use_bias)
@@ -224,6 +292,22 @@ def capture(device, out_path):
                         rg,
                     )
 
+    # A plain product, a broadcast batch, and a 1D operand (promoted, then
+    # squeezed back in backward).
+    for fname in MATMUL_FORMATS:
+        for rg in MATMUL_PATTERNS:
+            for a_shape, b_shape in (((5, 12), (12, 7)), ((3, 5, 12), (12, 7)), ((12,), (12, 7))):
+                torch.manual_seed(7)
+                mm = QMatmul(make_matmul_formats(fname)).to(device)
+                a = torch.randn(*a_shape, device=device)
+                b_op = torch.randn(*b_shape, device=device)
+                run_operands(f"mm/{fname}/{rg}/{a_shape}", mm, [a, b_op], rg)
+
+    for fname in QUANTIZER_FORMATS:
+        torch.manual_seed(7)
+        x = torch.randn(4, 33, device=device)
+        run_operands(f"qz/{fname}/{(True,)}", make_quantizer(fname).to(device), [x], (True,))
+
     torch.save(res, out_path)
     print(f"{len(res)} tensors -> {out_path}")
 
@@ -251,7 +335,7 @@ def compare(before_path, after_path):
         parts = k.split("/")
         fmt, kind = parts[1], parts[-1]
         rg = next(p for p in parts if p.startswith("("))
-        if "sr" not in fmt or rg == "(True, True, True)":
+        if "sr" not in fmt or rg in FULL_PATTERNS:
             unexpected.append(k)
         buckets[(fmt, kind)] += 1
 

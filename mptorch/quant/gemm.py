@@ -34,6 +34,7 @@ from dataclasses import replace
 from functools import partial
 
 import torch
+import torch.nn.functional as F
 
 from mptorch.number import (
     AccumulateAlgorithm,
@@ -45,7 +46,15 @@ from mptorch.number import (
 )
 
 from .block import BlockPacked, _block_gemm_spec, _run_block_gemm, _stored_as
-from .mac import BlockMac, BlockQuant, Mac, _as_block_quant, spec_for_block_mac, spec_for_mac
+from .mac import (
+    BlockMac,
+    BlockQuant,
+    Mac,
+    Quant,
+    _as_block_quant,
+    spec_for_block_mac,
+    spec_for_mac,
+)
 from .modules.format import QAffineFormats, QMatmulFormats
 from .ops import (
     _binaryK_accumulated_odd_spec,
@@ -100,14 +109,20 @@ def _flatten_leading(x: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
     return x.reshape(-1, shape[-1]), shape
 
 
-def _gemm_formats(matmul: _Matmul2D) -> QAffineFormats:
-    """Build the three Linear math hooks over one 2D ``matmul``.
+def _gemm_formats(
+    matmul: _Matmul2D, igrad: _Matmul2D | None = None, wgrad: _Matmul2D | None = None
+) -> QAffineFormats:
+    """Build the three Linear math hooks, one resolved 2D GEMM per pass.
 
     Which operand each hook transposes, how the leading dimensions are folded
     into one row dimension and put back, and how the bias is added are the
     Linear call contract rather than the format's, so they are written here
-    once and each factory below passes only its resolved ``matmul``.
+    once and each factory below passes only its resolved ``matmul``. That
+    runs every pass unless ``igrad`` (the input gradient's) or ``wgrad`` (the
+    weight gradient's) names another.
     """
+    igrad_matmul = matmul if igrad is None else igrad
+    wgrad_matmul = matmul if wgrad is None else wgrad
 
     def fwd(
         q_input: torch.Tensor, q_weight: torch.Tensor, q_bias: torch.Tensor | None
@@ -127,15 +142,68 @@ def _gemm_formats(matmul: _Matmul2D) -> QAffineFormats:
 
     def bwd_igrad(q_igrad_output: torch.Tensor, q_weight: torch.Tensor) -> torch.Tensor:
         g_flat, g_shape = _flatten_leading(q_igrad_output)
-        out = matmul(g_flat, q_weight, False, False)
+        out = igrad_matmul(g_flat, q_weight, False, False)
         return out.reshape(*g_shape[:-1], q_weight.shape[1])
 
     def bwd_wgrad(q_wgrad_output: torch.Tensor, q_input: torch.Tensor) -> torch.Tensor:
         g_flat, _ = _flatten_leading(q_wgrad_output)
         i_flat, _ = _flatten_leading(q_input)
-        return matmul(g_flat, i_flat, True, False)
+        return wgrad_matmul(g_flat, i_flat, True, False)
 
     return QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
+
+
+def _plain_conv(
+    q_input: torch.Tensor,
+    q_weight: torch.Tensor,
+    q_bias: torch.Tensor | None,
+    *,
+    stride,
+    padding,
+    dilation,
+    groups: int,
+    nd: int,
+) -> torch.Tensor:
+    """A convolution's forward without a hook, called as a conv hook is: the
+    call ``CustomArithConvNd``'s forward makes when it has none."""
+    conv = {1: F.conv1d, 2: F.conv2d, 3: F.conv3d}[nd]
+    return conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+
+
+def _with_output[FormatsT: (QAffineFormats, QMatmulFormats)](
+    formats: FormatsT, out: Callable, plain: Callable
+) -> FormatsT:
+    """Round every forward result of ``formats`` with ``out``, after the bias.
+
+    ``formats.fwd_math``, or ``plain`` where it has none (``F.linear``,
+    :func:`_plain_conv` or ``torch.matmul``: the call the layer's Function
+    makes then), runs first, and ``out`` rounds what it returns. That happens
+    inside the Function's forward, which the backward never sees, so the
+    rounding is straight-through. The result is the hook's own fresh tensor
+    (every factory's here), so a ``Quant`` rounds it in place, except when it
+    widens to binary64 or the result is not contiguous (a channels_last
+    convolution's), which the in-place quantizers refuse. ``formats`` is
+    changed and returned.
+    """
+    run = formats.fwd_math or plain
+    in_place = (
+        replace(out, inplace=True)
+        if type(out) is Quant and not out.inplace and out.carrier is not torch.float64
+        else None
+    )
+    if in_place is None:
+
+        def fwd(*args, **kwargs):
+            return out(run(*args, **kwargs))
+
+    else:
+
+        def fwd(*args, **kwargs):
+            result = run(*args, **kwargs)
+            return in_place(result) if result.is_contiguous() else out(result)
+
+    formats.fwd_math = fwd
+    return formats
 
 
 def binaryK_gemm_formats(

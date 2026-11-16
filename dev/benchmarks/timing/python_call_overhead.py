@@ -50,7 +50,16 @@ import torch
 from torch import nn
 
 from mptorch import MXFP8_E4M3, BinaryK, SuperFP
-from mptorch.quant import BlockQuant, QAffineFormats, QLinear, Quant, SplitMac
+from mptorch.quant import (
+    BlockQuant,
+    QAffineFormats,
+    QConv2d,
+    QLinear,
+    QMatmul,
+    Quant,
+    SplitMac,
+    conv_formats,
+)
 from mptorch.quant.gemm import _gemm_formats, binaryK_gemm_formats, block_gemm_formats
 from mptorch.quant.mac import FusedMac, spec_for_mac
 from mptorch.quant.modules._saved import quantize_operand
@@ -191,14 +200,30 @@ def main() -> None:
         ("QLinear, binaryK", QLinear(64, 64, formats=binaryK_gemm_formats(mul_K=8, mul_P=4))),
     ]
 
-    def step(layer: nn.Module) -> None:
-        layer(xb).sum().backward()
+    def step(layer: nn.Module, *inputs: torch.Tensor) -> None:
+        layer(*inputs).sum().backward()
         layer.zero_grad(set_to_none=True)
 
     print(f"\n{'training step':<24}{'ms':>10}")
     for label, layer in layers:
         layer.to(args.device)
-        print(f"{label:<24}{run(lambda m=layer: step(m), iters=400) / 1e3:>10.3f}")
+        print(f"{label:<24}{run(lambda m=layer: step(m, xb), iters=400) / 1e3:>10.3f}")
+    # The conv and matmul Functions, each with no hooks and over a mac, at
+    # sizes where the call, not the arithmetic, is what is timed.
+    xc = torch.randn(1, 4, 6, 6, device=args.device, requires_grad=True)
+    ma = torch.randn(8, 16, device=args.device, requires_grad=True)
+    mb = torch.randn(16, 8, device=args.device, requires_grad=True)
+    mac = SplitMac(BK, BinaryK(16, 11))
+    others: list[tuple[str, nn.Module, tuple[torch.Tensor, ...]]] = [
+        ("nn.Conv2d", nn.Conv2d(4, 4, 3), (xc,)),
+        ("QConv2d, no hooks", QConv2d(4, 4, 3), (xc,)),
+        ("QConv2d, binaryK", QConv2d(4, 4, 3, formats=conv_formats(mac)), (xc,)),
+        ("QMatmul, no hooks", QMatmul(), (ma, mb)),
+        ("QMatmul, binaryK", QMatmul(mac), (ma, mb)),
+    ]
+    for label, layer, inputs in others:
+        layer.to(args.device)
+        print(f"{label:<24}{run(lambda m=layer, i=inputs: step(m, *i), iters=400) / 1e3:>10.3f}")
 
     # A forward alone, under no_grad: where a quantizer slot's own Python
     # (`_saved.quantize_operand`) and a block layer's weight path are not
@@ -212,6 +237,7 @@ def main() -> None:
     packed_once = block_gemm_formats(MXFP8_E4M3, MXFP8_E4M3)
     packed_once.weight_quant = BlockQuant(MXFP8_E4M3, axis=1).pack
     forwards: list[tuple[str, nn.Module]] = [
+        ("QLinear, no hooks", QLinear(32, 8)),
         ("QLinear, Quant slots", QLinear(32, 8, formats=with_slots)),
         ("block, packed once", QLinear(32, 8, formats=packed_once)),
     ]
@@ -224,6 +250,20 @@ def main() -> None:
         for label, layer in forwards:
             layer.to(args.device)
             print(f"{label:<24}{run(lambda m=layer: m(xf), iters=args.iters // 4):>10.2f}")
+        xc1 = xc.detach()
+        conv, mm = QConv2d(4, 4, 3).to(args.device), QMatmul()
+        a1, b1 = ma.detach(), mb.detach()
+        print(f"{'QConv2d, no hooks':<24}{run(lambda: conv(xc1), iters=args.iters // 4):>10.2f}")
+        print(f"{'QMatmul, no hooks':<24}{run(lambda: mm(a1, b1), iters=args.iters // 4):>10.2f}")
+
+    # What a Function's guard against torch function modes costs per enter
+    # and exit (`torch._C.DisableTorchFunction`); each layer's forward and
+    # backward enter it once each.
+    def guard() -> None:
+        with torch._C.DisableTorchFunction():
+            pass
+
+    print(f"{'DisableTorchFunction':<24}{run(guard, iters=args.iters * 5) * 1e3:>10.0f} ns")
 
     # And the slot's own Python, with the quantizer an identity: what a
     # quantized operand pays in `_saved.quantize_operand` beyond its kernel.

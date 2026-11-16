@@ -286,3 +286,42 @@ def test_binaryK_nonfinite_inputs(device, K, P, rounding_mode, saturation_mode, 
     else:
         assert q[0] == float("inf")
         assert q[1] == (0.0 if not is_signed else -float("inf"))
+
+
+# (K, P, keywords) at biases and in modes P3109's defaults do not cover.
+_TOP_FORMATS = [
+    (8, 4, {}),
+    (8, 4, {"bias": 3}),
+    (8, 1, {}),
+    (8, 2, {"bias": 40}),
+    (8, 3, {"is_signed": False}),
+    (12, 7, {"subnormals": mptorch.SubnormalsMode.NORMALS}),
+    (16, 11, {"bias": 20, "is_signed": False}),
+]
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("K,P,kwargs", _TOP_FORMATS)
+@pytest.mark.parametrize(
+    "saturation", [mptorch.SaturationMode.SAT_NONE, mptorch.SaturationMode.SAT_FINITE]
+)
+def test_max_finite_is_the_top_of_the_range(device, K, P, kwargs, saturation):
+    """``max_finite`` is a value of the format, and the one above it is not:
+    the binary64 kernel keeps ``max_finite``, and rounds a step of the top
+    binade above it, and anything larger, to infinity in the extended domain
+    and back to ``max_finite`` under ``SAT_FINITE``."""
+    fmt = mptorch.BinaryK(K, P, saturation=saturation, **kwargs)
+    top = fmt.max_finite
+    step = math.ldexp(1.0, math.frexp(top)[1] - 1 - fmt.man_bits)
+    x = torch.tensor([top, top + step, 1e300], dtype=torch.float64, device=device)
+    q = binaryK_quantize(
+        x,
+        K,
+        P,
+        bias=fmt.bias,
+        is_signed=fmt.is_signed,
+        saturation_mode=saturation,
+        subnormals_mode=fmt.subnormals,
+    ).tolist()
+    above = top if saturation is mptorch.SaturationMode.SAT_FINITE else math.inf
+    assert q == [top, above, above]

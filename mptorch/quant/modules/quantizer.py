@@ -36,14 +36,16 @@ class _StraightThrough(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, forward_quant, backward_quant):
-        ctx.backward_quant = backward_quant
-        return forward_quant(x) if forward_quant else x
+        with torch._C.DisableTorchFunction():  # opaque to modes, as CustomArithLinear's
+            ctx.backward_quant = backward_quant
+            return forward_quant(x) if forward_quant else x
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        grad = grad_outputs[0]
-        q = ctx.backward_quant
-        return (q(grad) if q else grad), None, None
+        with torch._C.DisableTorchFunction():  # as forward's
+            grad = grad_outputs[0]
+            q = ctx.backward_quant
+            return (q(grad) if q else grad), None, None
 
 
 class Quantizer(nn.Module):

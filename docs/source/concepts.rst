@@ -156,7 +156,10 @@ bits of precision, derives their ranges from the formulas above, and checks
 them against the quantizer in both domains. Each boundary value is a fixed
 point of the rounding in the domain that has it. For example,
 :math:`10^{30}` overflows to :math:`\infty` in the extended domain and to
-the largest finite value in the finite one.
+the largest finite value in the finite one. A format also gives its largest
+finite value itself, as :attr:`~mptorch.number.BinaryK.max_finite` (and
+:attr:`~mptorch.number.SuperFP.max_finite`), counted in code points as the
+quantizer counts it.
 
 .. literalinclude:: ../snippets/formats_binaryK.py
    :language: python

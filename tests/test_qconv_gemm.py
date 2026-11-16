@@ -682,6 +682,33 @@ def test_tier1_unbatched_input(device):
 
 
 @pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("nd", [1, 2, 3])
+@pytest.mark.parametrize("bias", [True, False])
+def test_tier1_unbatched_input_without_hooks(device, nd, bias):
+    """A layer with no math hooks takes an unbatched input as ``nn.Conv*d``
+    does, backward included: its default gradients run torch's on a batch of
+    one, and equal ``nn.Conv*d``'s word for word."""
+    layer_cls = {1: (QConv1d, nn.Conv1d), 2: (QConv2d, nn.Conv2d), 3: (QConv3d, nn.Conv3d)}[nd]
+    torch.manual_seed(0)
+    ref = layer_cls[1](3, 4, 3, stride=2, padding=1, bias=bias).to(device)
+    q = layer_cls[0](3, 4, 3, stride=2, padding=1, bias=bias, formats=QAffineFormats()).to(device)
+    q.load_state_dict(ref.state_dict())
+    x = torch.randn(3, *([7] * nd), device=device, requires_grad=True)
+    x2 = x.detach().clone().requires_grad_()
+    y, y2 = ref(x), q(x2)
+    assert torch.equal(y, y2)
+    g = torch.randn(y.shape, device=device)
+    y.backward(g)
+    y2.backward(g)
+    assert x.grad is not None and x2.grad is not None
+    assert torch.equal(x.grad, x2.grad)
+    for name, p in ref.named_parameters():
+        got = dict(q.named_parameters())[name].grad
+        assert p.grad is not None and got is not None
+        assert torch.equal(p.grad, got), name
+
+
+@pytest.mark.parametrize("device", devices)
 def test_tier2_close_to_torch(device):
     # A real format: close to nn.Conv2d, not equal to it.
     torch.manual_seed(0)

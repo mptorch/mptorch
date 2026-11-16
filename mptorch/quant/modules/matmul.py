@@ -56,6 +56,16 @@ def _reduce(grad: torch.Tensor, shape: tuple[int, ...], was_1d: bool, dim: int) 
     return grad.squeeze(dim) if was_1d else grad
 
 
+#: What a ``None`` recompute flag means in :class:`CustomArithMatmul`, as
+#: (a, b): both are kept. A matmul's operands are activations, and whether
+#: anything else keeps one alive depends on the model: attention's
+#: ``softmax(...) @ V`` can recompute ``a``, which softmax keeps, but not ``V``,
+#: a Linear's output that nothing keeps (``_saved``: a raw operand is kept only
+#: where it is known to be alive anyway). A module constant for
+#: ``torch.compile``'s sake, as ``linear.py``'s.
+_MATMUL_RECOMPUTE_DEFAULT = (False, False)
+
+
 class CustomArithMatmul(torch.autograd.Function):
     """``a @ b`` with per-operand quantization and custom dot-product math.
 
@@ -83,92 +93,86 @@ class CustomArithMatmul(torch.autograd.Function):
         """``b``'s gradient without a custom hook: ``a^T @ grad``."""
         return torch.matmul(q_a.transpose(-2, -1), q_grad)
 
-    #: What a ``None`` recompute flag means here, as (a, b): both are kept.
-    #: A matmul's operands are activations, and whether anything else keeps
-    #: one alive depends on the model: attention's ``softmax(...) @ V`` can
-    #: recompute ``a``, which softmax keeps, but not ``V``, a Linear's output
-    #: that nothing keeps (``_saved``: a raw operand is kept only where it is
-    #: known to be alive anyway).
-    _RECOMPUTE_DEFAULT = (False, False)
-
     @staticmethod
     def forward(ctx, a, b, formats):
-        ctx.formats = formats
-        recompute_a, recompute_b = CustomArithMatmul._RECOMPUTE_DEFAULT
+        with torch._C.DisableTorchFunction():  # opaque to modes, as CustomArithLinear's
+            ctx.formats = formats
+            recompute_a, recompute_b = _MATMUL_RECOMPUTE_DEFAULT
 
-        # Save only what backward reads, as CustomArithLinear does: q_b feeds
-        # a's gradient and q_a feeds b's, so a call that needs one gradient
-        # does not pin a quantized copy of both operands. What is saved of an
-        # operand that is read is its quantized value or the raw operand,
-        # quantized again in backward (_saved). A quantizer that returns some
-        # other structure than a tensor (a packed block format, which
-        # block_matmul_formats' square-tiled slots return) is kept as it is.
-        q_a, saved_a, ctx.replay_a = quantize_operand(
-            a,
-            formats.a_quant,
-            getattr(formats, "recompute_a", None),
-            recompute_a,
-            ctx.needs_input_grad[1],
-        )
-        q_b, saved_b, ctx.replay_b = quantize_operand(
-            b,
-            formats.b_quant,
-            getattr(formats, "recompute_b", None),
-            recompute_b,
-            ctx.needs_input_grad[0],
-        )
+            # Save only what backward reads, as CustomArithLinear does: q_b feeds
+            # a's gradient and q_a feeds b's, so a call that needs one gradient
+            # does not pin a quantized copy of both operands. What is saved of an
+            # operand that is read is its quantized value or the raw operand,
+            # quantized again in backward (_saved). A quantizer that returns some
+            # other structure than a tensor (a packed block format, which
+            # block_matmul_formats' square-tiled slots return) is kept as it is.
+            q_a, saved_a, ctx.replay_a = quantize_operand(
+                a,
+                formats.a_quant,
+                getattr(formats, "recompute_a", None),
+                recompute_a,
+                ctx.needs_input_grad[1],
+            )
+            q_b, saved_b, ctx.replay_b = quantize_operand(
+                b,
+                formats.b_quant,
+                getattr(formats, "recompute_b", None),
+                recompute_b,
+                ctx.needs_input_grad[0],
+            )
 
-        fwd_math = formats.fwd_math or CustomArithMatmul._default_fwd
-        output = fwd_math(q_a, q_b)
+            fwd_math = formats.fwd_math or CustomArithMatmul._default_fwd
+            output = fwd_math(q_a, q_b)
 
-        save(ctx, saved_a, saved_b)
-        ctx.promotion = (a.dim() == 1, b.dim() == 1)
-        ctx.shapes = (a.shape, b.shape)
-        return output
+            save(ctx, saved_a, saved_b)
+            ctx.promotion = (a.dim() == 1, b.dim() == 1)
+            ctx.shapes = (a.shape, b.shape)
+            return output
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        formats = ctx.formats
-        saved_a, saved_b = load(ctx)
-        a_1d, b_1d = ctx.promotion
-        a_shape, b_shape = ctx.shapes
-        grad_a = grad_b = None
+        with torch._C.DisableTorchFunction():  # as forward's
+            formats = ctx.formats
+            saved_a, saved_b = load(ctx)
+            a_1d, b_1d = ctx.promotion
+            a_shape, b_shape = ctx.shapes
+            grad_a = grad_b = None
 
-        grad = _restore(grad_outputs[0], a_1d, b_1d)
+            grad = _restore(grad_outputs[0], a_1d, b_1d)
 
-        # Quantize the gradient only for the paths that will consume it, and
-        # both quantizations ahead of both math calls, in this order, so a
-        # stochastic quantizer draws from the global generator in the same
-        # sequence however many gradients are requested.
-        q_agrad = (
-            (formats.agrad_quant(grad) if formats.agrad_quant else grad)
-            if ctx.needs_input_grad[0]
-            else None
-        )
-        q_bgrad = (
-            (formats.bgrad_quant(grad) if formats.bgrad_quant else grad)
-            if ctx.needs_input_grad[1]
-            else None
-        )
+            # Quantize the gradient only for the paths that will consume it, and
+            # both quantizations ahead of both math calls, in this order, so a
+            # stochastic quantizer draws from the global generator in the same
+            # sequence however many gradients are requested.
+            q_agrad = (
+                (formats.agrad_quant(grad) if formats.agrad_quant else grad)
+                if ctx.needs_input_grad[0]
+                else None
+            )
+            q_bgrad = (
+                (formats.bgrad_quant(grad) if formats.bgrad_quant else grad)
+                if ctx.needs_input_grad[1]
+                else None
+            )
 
-        if q_agrad is not None:
-            # A recomputed operand is quantized again only here, so its copy
-            # lives for this one GEMM.
-            q_b = _promote(restore(saved_b, ctx.replay_b), b_1d, -1)
-            assert q_b is not None  # saved iff a's gradient was asked for
-            agrad_math = formats.bwd_agrad_math or CustomArithMatmul._default_agrad
-            promoted = (1, *a_shape) if a_1d else tuple(a_shape)
-            grad_a = _reduce(agrad_math(q_agrad, q_b), promoted, a_1d, -2)
-            del q_b
+            if q_agrad is not None:
+                # A recomputed operand is quantized again only here, so its copy
+                # lives for this one GEMM.
+                q_b = _promote(restore(saved_b, ctx.replay_b), b_1d, -1)
+                assert q_b is not None  # saved iff a's gradient was asked for
+                agrad_math = formats.bwd_agrad_math or CustomArithMatmul._default_agrad
+                promoted = (1, *a_shape) if a_1d else tuple(a_shape)
+                grad_a = _reduce(agrad_math(q_agrad, q_b), promoted, a_1d, -2)
+                del q_b
 
-        if q_bgrad is not None:
-            q_a = _promote(restore(saved_a, ctx.replay_a), a_1d, 0)
-            assert q_a is not None  # saved iff b's gradient was asked for
-            bgrad_math = formats.bwd_bgrad_math or CustomArithMatmul._default_bgrad
-            promoted = (*b_shape, 1) if b_1d else tuple(b_shape)
-            grad_b = _reduce(bgrad_math(q_bgrad, q_a), promoted, b_1d, -1)
+            if q_bgrad is not None:
+                q_a = _promote(restore(saved_a, ctx.replay_a), a_1d, 0)
+                assert q_a is not None  # saved iff b's gradient was asked for
+                bgrad_math = formats.bwd_bgrad_math or CustomArithMatmul._default_bgrad
+                promoted = (*b_shape, 1) if b_1d else tuple(b_shape)
+                grad_b = _reduce(bgrad_math(q_bgrad, q_a), promoted, b_1d, -1)
 
-        return grad_a, grad_b, None
+            return grad_a, grad_b, None
 
 
 class QMatmul(torch.nn.Module):

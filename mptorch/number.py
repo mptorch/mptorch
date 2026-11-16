@@ -43,6 +43,7 @@ __all__ = [
     "bfp",
 ]
 
+import math
 import os
 import sys
 import warnings
@@ -495,6 +496,15 @@ def _top_of_range(
         top_code += codes
         top_field -= 1
     return top_field, top_field - bias, top_code
+
+
+def _largest_finite(exp_bits: int, man_bits: int, bias: int, reserved: int) -> float:
+    """A format's largest finite value, from `_top_of_range` in binary64,
+    which holds every format a carrier can simulate. The top binade is a
+    normal one in every such format (one with no finite normal value is
+    refused), so the value is its implicit bit plus the top code."""
+    _, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, _BINARY64)
+    return math.ldexp((1 << man_bits) + top_code, top_exp - man_bits)
 
 
 def _width_error(
@@ -1591,12 +1601,33 @@ def _library_frames() -> tuple[str, ...]:
     return tuple(os.path.join(root, "") for root in roots)
 
 
+def _warn_per_call(message: str) -> None:
+    """Warn ``message`` as a ``FormatRangeWarning`` naming the caller's line.
+
+    Under ``torch.compile`` Dynamo runs this once, while it traces, rather
+    than tracing it: ``warnings.warn`` is a builtin it does not trace, and
+    ``_library_frames`` calls ``os.path``, which it does not either, so
+    traced, the call would break the graph (and fail a ``fullgraph`` compile)
+    wherever a format warns. The attribute set below is what
+    ``torch.compiler.assume_constant_result`` sets, written directly because
+    that function imports ``torch._dynamo``, which ``import mptorch`` does
+    not otherwise pay for (0.76 s). It holds here because the result is
+    ``None`` and the one argument is a string Dynamo has as a constant;
+    marking the ``check_*`` functions instead fails on their integer
+    arguments, which Dynamo may hold as symbols.
+    """
+    warnings.warn(message, FormatRangeWarning, skip_file_prefixes=_library_frames())
+
+
+_warn_per_call._dynamo_marked_constant = True  # ty: ignore[missing-attribute]
+
+
 def _report_per_call(error: str | None, warning: str | None) -> None:
     """Raise the error if there is one, else warn, naming the caller's line."""
     if error is not None:
         raise ValueError(error)
     if warning is not None:
-        warnings.warn(warning, FormatRangeWarning, skip_file_prefixes=_library_frames())
+        _warn_per_call(warning)
 
 
 def check_binaryK_storage(
@@ -1877,6 +1908,31 @@ class BinaryK(FloatFormat):
         """Mantissa bits, as the cast counts them (the implicit bit is not one)."""
         return self.P - 1
 
+    @property
+    def max_finite(self) -> float:
+        """The largest finite value, as P3109 counts it, in code points.
+
+        In the extended domain the top code is infinity, and in an unsigned
+        format the code below it, or the top one in the finite domain, is the
+        NaN; with one or two mantissa bits those can move the value a binade
+        or two down. It is the value ``SaturationMode.SAT_FINITE`` saturates
+        to, and the one a scaled quantizer maps a tensor's largest magnitude
+        onto.
+
+        Example::
+
+            >>> from mptorch import BinaryK, SaturationMode
+            >>> BinaryK(8, 4).max_finite  # Binary8p4se: the top code is infinity
+            224.0
+            >>> BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE).max_finite
+            240.0
+        """
+        assert self.bias is not None  # set by __post_init__
+        # P3109's reserved codes, as `_binaryK_extent` counts them
+        reserved = (self.saturation is not SaturationMode.SAT_FINITE) + (not self.is_signed)
+        exp_bits = self.K - self.P + (not self.is_signed)
+        return _largest_finite(exp_bits, self.man_bits, self.bias, reserved)
+
 
 @dataclass(frozen=True)
 class SuperFP(FloatFormat):
@@ -1972,6 +2028,22 @@ class SuperFP(FloatFormat):
             carrier=torch.float64,
             warn=False,
         )
+
+    @property
+    def max_finite(self) -> float:
+        """The largest finite value: the top binade's top code, less the
+        infinity outside the finite domain (the format has no NaN).
+
+        Example::
+
+            >>> from mptorch import SaturationMode, SuperFP
+            >>> SuperFP(3, 4, 2, 7).max_finite
+            448.0
+            >>> SuperFP(3, 4, 2, 7, saturation=SaturationMode.SAT_FINITE).max_finite
+            480.0
+        """
+        reserved = int(self.saturation is not SaturationMode.SAT_FINITE)  # `_superfp_extent`
+        return _largest_finite(self.exp_bits, self.man_bits, self.bias, reserved)
 
 
 @dataclass(frozen=True)

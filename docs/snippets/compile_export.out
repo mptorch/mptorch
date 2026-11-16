@@ -3,3 +3,5 @@
 5 True
 1 graph, 0 breaks
 compiled == eager: True
+layers: 1 graph, 0 breaks
+compiled layers == eager: True

@@ -302,6 +302,20 @@ def _wgrad_hook(run: _ConvOp):
     return bwd_wgrad
 
 
+def _conv_formats(fwd: _GemmSpec, igrad: _GemmSpec, wgrad: _GemmSpec) -> QAffineFormats:
+    """The three convolution hooks, one resolved conv op per pass: the
+    forward in ``fwd``'s arithmetic, the input gradient in ``igrad``'s and
+    the weight gradient in ``wgrad``'s (single formats; a palette's passes
+    need their maps, which only :func:`conv_formats` takes). A spec named
+    twice is bound once."""
+    runs = {spec: _ConvOp(spec, None) for spec in (fwd, igrad, wgrad)}
+    return QAffineFormats(
+        fwd_math=_fwd_hook(runs[fwd]),
+        bwd_igrad_math=_igrad_hook(runs[igrad]),
+        bwd_wgrad_math=_wgrad_hook(runs[wgrad]),
+    )
+
+
 def conv_formats(
     mac: Mac | Number,
     *,
@@ -434,12 +448,7 @@ def conv_formats(
     if not spec.mixed and any(m is not None for m in maps):
         raise ValueError("prec_idx has no meaning without a palette format to select from")
     if not spec.mixed:
-        run = _ConvOp(spec, None)
-        return QAffineFormats(
-            fwd_math=_fwd_hook(run),
-            bwd_igrad_math=_igrad_hook(run),
-            bwd_wgrad_math=_wgrad_hook(run),
-        )
+        return _conv_formats(spec, spec, spec)
     return QAffineFormats(
         fwd_math=_fwd_hook(_ConvOp(spec, prec_idx)),
         bwd_igrad_math=(

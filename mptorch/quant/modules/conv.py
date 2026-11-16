@@ -21,6 +21,14 @@ import torch.nn.grad as grad
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
+#: What a ``None`` recompute flag means in :class:`CustomArithConvNd`, as
+#: (input, weight): both are quantized again in backward rather than kept. The
+#: weight is alive anyway as the layer's parameter, and a convolution's input
+#: usually is too, as the output a ReLU keeps for its own backward or as the
+#: data batch (``_saved``: a raw operand is kept only where it is alive anyway).
+#: A module constant for ``torch.compile``'s sake, as ``linear.py``'s.
+_CONV_RECOMPUTE_DEFAULT = (True, True)
+
 
 class CustomArithConvNd(torch.autograd.Function):
     """Autograd Function for a quantized convolution, 1D, 2D or 3D.
@@ -50,6 +58,19 @@ class CustomArithConvNd(torch.autograd.Function):
     ) -> torch.Tensor:
         """The input gradient without a custom hook: PyTorch's transposed
         convolution of ``grad_output`` with ``weight``, sized to ``input_size``."""
+        if len(input_size) == nd + 1:
+            # An unbatched input: torch.nn.grad's functions take a batched size
+            # and gradient, so the pass runs on a batch of one.
+            return CustomArithConvNd._default_bwd_igrad(
+                grad_output.unsqueeze(0),
+                weight,
+                (1, *input_size),
+                stride,
+                padding,
+                dilation,
+                groups,
+                nd,
+            ).squeeze(0)
         if nd == 1:
             return grad.conv1d_input(
                 input_size, weight, grad_output, stride, padding, dilation, groups
@@ -77,6 +98,18 @@ class CustomArithConvNd(torch.autograd.Function):
     ) -> torch.Tensor:
         """The weight gradient without a custom hook: PyTorch's correlation of
         ``input`` with ``grad_output``, sized to ``weight_size``."""
+        if input.dim() == nd + 1:
+            # An unbatched input, as for the input gradient: a batch of one.
+            return CustomArithConvNd._default_bwd_wgrad(
+                grad_output.unsqueeze(0),
+                input.unsqueeze(0),
+                weight_size,
+                stride,
+                padding,
+                dilation,
+                groups,
+                nd,
+            )
         if nd == 1:
             return grad.conv1d_weight(
                 input, weight_size, grad_output, stride, padding, dilation, groups
@@ -91,163 +124,158 @@ class CustomArithConvNd(torch.autograd.Function):
             )
         raise ValueError(f"Unsupported nd: {nd}")
 
-    #: What a ``None`` recompute flag means here, as (input, weight): both are
-    #: quantized again in backward rather than kept. The weight is alive
-    #: anyway as the layer's parameter, and a convolution's input usually is
-    #: too, as the output a ReLU keeps for its own backward or as the data
-    #: batch (``_saved``: a raw operand is kept only where it is alive anyway).
-    _RECOMPUTE_DEFAULT = (True, True)
-
     @staticmethod
     def forward(ctx, input, weight, bias, formats, stride, padding, dilation, groups, nd):
-        ctx.formats = formats
-        ctx.stride = stride
-        ctx.padding = padding
-        ctx.dilation = dilation
-        ctx.groups = groups
-        ctx.nd = nd
-        ctx.input_size = input.shape
-        ctx.weight_size = weight.shape
+        with torch._C.DisableTorchFunction():  # opaque to modes, as CustomArithLinear's
+            ctx.formats = formats
+            ctx.stride = stride
+            ctx.padding = padding
+            ctx.dilation = dilation
+            ctx.groups = groups
+            ctx.nd = nd
+            ctx.input_size = input.shape
+            ctx.weight_size = weight.shape
 
-        recompute_input, recompute_weight = CustomArithConvNd._RECOMPUTE_DEFAULT
-        # Save only what backward will read. q_bias is never read there, and
-        # each of the other two feeds exactly one gradient path: q_input the
-        # weight gradient, q_weight the input gradient. So a layer whose
-        # weight is frozen does not pin a quantized copy of its entire
-        # activation for the length of the backward pass, on top of the
-        # activation autograd already holds. ctx.needs_input_grad is
-        # populated before forward runs and is the same tuple backward sees.
-        # What is saved of an operand that is read is its quantized value or
-        # the raw operand, quantized again in backward (_saved).
-        q_input, saved_input, ctx.replay_input = quantize_operand(
-            input,
-            formats.input_quant,
-            getattr(formats, "recompute_input", None),
-            recompute_input,
-            ctx.needs_input_grad[1],
-        )
-        q_weight, saved_weight, ctx.replay_weight = quantize_operand(
-            weight,
-            formats.weight_quant,
-            getattr(formats, "recompute_weight", None),
-            recompute_weight,
-            ctx.needs_input_grad[0],
-        )
-        q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
-
-        if formats.fwd_math is not None:
-            output = formats.fwd_math(
-                q_input,
-                q_weight,
-                q_bias,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                nd=nd,
+            recompute_input, recompute_weight = _CONV_RECOMPUTE_DEFAULT
+            # Save only what backward will read. q_bias is never read there, and
+            # each of the other two feeds exactly one gradient path: q_input the
+            # weight gradient, q_weight the input gradient. So a layer whose
+            # weight is frozen does not pin a quantized copy of its entire
+            # activation for the length of the backward pass, on top of the
+            # activation autograd already holds. ctx.needs_input_grad is
+            # populated before forward runs and is the same tuple backward sees.
+            # What is saved of an operand that is read is its quantized value or
+            # the raw operand, quantized again in backward (_saved).
+            q_input, saved_input, ctx.replay_input = quantize_operand(
+                input,
+                formats.input_quant,
+                getattr(formats, "recompute_input", None),
+                recompute_input,
+                ctx.needs_input_grad[1],
             )
-        else:
-            if nd == 1:
-                output = F.conv1d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
-            elif nd == 2:
-                output = F.conv2d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
-            elif nd == 3:
-                output = F.conv3d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+            q_weight, saved_weight, ctx.replay_weight = quantize_operand(
+                weight,
+                formats.weight_quant,
+                getattr(formats, "recompute_weight", None),
+                recompute_weight,
+                ctx.needs_input_grad[0],
+            )
+            q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
+
+            if formats.fwd_math is not None:
+                output = formats.fwd_math(
+                    q_input,
+                    q_weight,
+                    q_bias,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                    nd=nd,
+                )
             else:
-                raise ValueError(f"Unsupported nd: {nd}")
+                if nd == 1:
+                    output = F.conv1d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                elif nd == 2:
+                    output = F.conv2d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                elif nd == 3:
+                    output = F.conv3d(q_input, q_weight, q_bias, stride, padding, dilation, groups)
+                else:
+                    raise ValueError(f"Unsupported nd: {nd}")
 
-        save(ctx, saved_input, saved_weight)
-        ctx.needs_bias_grad = bias is not None
+            save(ctx, saved_input, saved_weight)
+            ctx.needs_bias_grad = bias is not None
 
-        return output
+            return output
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        grad_output = grad_outputs[0]
-        formats = ctx.formats
-        stride = ctx.stride
-        padding = ctx.padding
-        dilation = ctx.dilation
-        groups = ctx.groups
-        nd = ctx.nd
-        input_size = ctx.input_size
-        weight_size = ctx.weight_size
+        with torch._C.DisableTorchFunction():  # as forward's
+            grad_output = grad_outputs[0]
+            formats = ctx.formats
+            stride = ctx.stride
+            padding = ctx.padding
+            dilation = ctx.dilation
+            groups = ctx.groups
+            nd = ctx.nd
+            input_size = ctx.input_size
+            weight_size = ctx.weight_size
 
-        saved_input, saved_weight = load(ctx)
+            saved_input, saved_weight = load(ctx)
 
-        grad_input = grad_weight = grad_bias = None
+            grad_input = grad_weight = grad_bias = None
 
-        # Quantize grad_output only for the paths that will consume it, so a
-        # frozen layer, or the first layer of a network, does not pay a full
-        # grad-output-sized quantize kernel and allocation for a tensor it
-        # then discards. Both quantizations run ahead of both math calls, in
-        # this order, so a stochastic quantizer draws from the global RNG in
-        # the same sequence however many gradients are requested; the *_math
-        # hooks may consume randomness of their own afterwards.
-        q_igrad_output = (
-            (formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output)
-            if ctx.needs_input_grad[0]
-            else None
-        )
-        q_wgrad_output = (
-            (formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output)
-            if ctx.needs_input_grad[1]
-            else None
-        )
-
-        if q_igrad_output is not None:
-            bwd_igrad_math = (
-                formats.bwd_igrad_math
-                if formats.bwd_igrad_math
-                else CustomArithConvNd._default_bwd_igrad
+            # Quantize grad_output only for the paths that will consume it, so a
+            # frozen layer, or the first layer of a network, does not pay a full
+            # grad-output-sized quantize kernel and allocation for a tensor it
+            # then discards. Both quantizations run ahead of both math calls, in
+            # this order, so a stochastic quantizer draws from the global RNG in
+            # the same sequence however many gradients are requested; the *_math
+            # hooks may consume randomness of their own afterwards.
+            q_igrad_output = (
+                (formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output)
+                if ctx.needs_input_grad[0]
+                else None
             )
-            # A recomputed operand is quantized again only here, so its copy
-            # lives for this one convolution.
-            grad_input = bwd_igrad_math(
-                q_igrad_output,
-                restore(saved_weight, ctx.replay_weight),
-                input_size=input_size,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                nd=nd,
+            q_wgrad_output = (
+                (formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output)
+                if ctx.needs_input_grad[1]
+                else None
             )
 
-        if q_wgrad_output is not None:
-            bwd_wgrad_math = (
-                formats.bwd_wgrad_math
-                if formats.bwd_wgrad_math
-                else CustomArithConvNd._default_bwd_wgrad
-            )
-            grad_weight = bwd_wgrad_math(
-                q_wgrad_output,
-                restore(saved_input, ctx.replay_input),
-                weight_size=weight_size,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                nd=nd,
-            )
+            if q_igrad_output is not None:
+                bwd_igrad_math = (
+                    formats.bwd_igrad_math
+                    if formats.bwd_igrad_math
+                    else CustomArithConvNd._default_bwd_igrad
+                )
+                # A recomputed operand is quantized again only here, so its copy
+                # lives for this one convolution.
+                grad_input = bwd_igrad_math(
+                    q_igrad_output,
+                    restore(saved_weight, ctx.replay_weight),
+                    input_size=input_size,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                    nd=nd,
+                )
 
-        if ctx.needs_bias_grad and ctx.needs_input_grad[2]:
-            q_bgrad_output = (
-                formats.bgrad_quant(grad_output) if formats.bgrad_quant else grad_output
-            )
+            if q_wgrad_output is not None:
+                bwd_wgrad_math = (
+                    formats.bwd_wgrad_math
+                    if formats.bwd_wgrad_math
+                    else CustomArithConvNd._default_bwd_wgrad
+                )
+                grad_weight = bwd_wgrad_math(
+                    q_wgrad_output,
+                    restore(saved_input, ctx.replay_input),
+                    weight_size=weight_size,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                    nd=nd,
+                )
 
-            # The bias gradient sums over the batch and the spatial
-            # dimensions, everything but the channel dimension 1:
-            # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4]. An
-            # unbatched input's gradient has no batch dimension, and its
-            # channels are dimension 0.
-            if q_bgrad_output.dim() == nd + 1:
-                dims_to_sum = list(range(1, nd + 1))
-            else:
-                dims_to_sum = [0] + list(range(2, nd + 2))
-            grad_bias = q_bgrad_output.sum(dim=dims_to_sum)
+            if ctx.needs_bias_grad and ctx.needs_input_grad[2]:
+                q_bgrad_output = (
+                    formats.bgrad_quant(grad_output) if formats.bgrad_quant else grad_output
+                )
 
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
+                # The bias gradient sums over the batch and the spatial
+                # dimensions, everything but the channel dimension 1:
+                # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4]. An
+                # unbatched input's gradient has no batch dimension, and its
+                # channels are dimension 0.
+                if q_bgrad_output.dim() == nd + 1:
+                    dims_to_sum = list(range(1, nd + 1))
+                else:
+                    dims_to_sum = [0] + list(range(2, nd + 2))
+                grad_bias = q_bgrad_output.sum(dim=dims_to_sum)
+
+            return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
 # The name the 2D-only version of this Function had, kept so existing imports

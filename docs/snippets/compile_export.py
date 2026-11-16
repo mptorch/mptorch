@@ -27,6 +27,8 @@ with torch.no_grad():  # the forward alone has no gradient to give
 # Dynamo traces through the format checks' lru_cache, which it says once per
 # function; the checks are pure, so their cache only saves time.
 warnings.filterwarnings("ignore", message="Dynamo detected a call to a `functools.lru_cache`")
+# Triton (which Inductor loads) says once that a default of its own changes.
+warnings.filterwarnings("ignore", message="TRITON_DEFAULT_FP_FUSION is unset")
 SR = RoundMode.SR
 
 
@@ -46,3 +48,17 @@ with torch._inductor.config.patch(fallback_random=True):
     got = compiled(a, b)
 torch.manual_seed(1)
 print("compiled == eager:", torch.equal(got, step(a, b)))
+
+# The layers compile into one graph too, fullgraph=True included: each layer's
+# autograd function traces, and so its operators are in the graph.
+mlp = torch.nn.Sequential(
+    QLinear(32, 32, formats=binaryK_gemm_formats(8, 4, acc_K=16, acc_P=11)),
+    torch.nn.ReLU(),
+    QLinear(32, 16, formats=binaryK_gemm_formats(8, 4, acc_K=16, acc_P=11)),
+)
+x = torch.randn(8, 32)
+explanation = torch._dynamo.explain(mlp)(x)
+print(f"layers: {explanation.graph_count} graph, {explanation.graph_break_count} breaks")
+compiled_mlp = torch.compile(mlp, fullgraph=True)
+with torch.no_grad():
+    print("compiled layers == eager:", torch.equal(compiled_mlp(x), mlp(x)))

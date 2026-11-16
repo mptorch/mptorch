@@ -30,19 +30,33 @@ the op's place. What is tested here:
 import copy
 import functools
 import sys
+import warnings
 
 import pytest
 import torch
 from torch import nn
+from torch._dynamo.decorators import assume_constant_result
+from torch._dynamo.exc import Unsupported
 from torch.utils import _pytree as pytree
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from mptorch import MXFP8_E4M3, AccumulateAlgorithm, BinaryK, RoundMode, SuperFP
+from mptorch import (
+    MXFP8_E4M3,
+    AccumulateAlgorithm,
+    BinaryK,
+    FormatRangeWarning,
+    RoundMode,
+    SuperFP,
+    number,
+)
 from mptorch.quant import (
     FusedMac,
     Palette,
     QConv2d,
     QLinear,
+    QMatmul,
+    Quant,
+    Quantizer,
     SplitMac,
     binaryK_gemm_formats,
     binaryK_matmul,
@@ -747,21 +761,64 @@ def _pipeline(rounding, prng_bits):
     return f
 
 
-def _mlp(rounding, prng_bits):
+def _mlp(rounding, prng_bits, slots=False):
     f = binaryK_gemm_formats(
         8, 4, mul_prng_bits=prng_bits, acc_K=16, acc_P=11, acc_prng_bits=prng_bits,
         rounding_mode=rounding,
     )  # fmt: skip
+    if slots:
+        # mptorch's own quantizer, which the weight's default recompute runs
+        # again in backward; under SR that replay keeps the copy under compile
+        f.input_quant = f.weight_quant = Quant(BinaryK(8, 4, prng_bits=prng_bits), rounding)
     torch.manual_seed(0)
     return nn.Sequential(QLinear(32, 32, formats=f), nn.ReLU(), QLinear(32, 8, formats=f))
 
 
+def _conv():
+    f = conv_formats(SplitMac(BinaryK(8, 4), BinaryK(16, 11)))
+    f.input_quant = f.weight_quant = Quant(BinaryK(8, 4))
+    torch.manual_seed(0)
+    return QConv2d(3, 4, 3, stride=2, formats=f)
+
+
+class _Matmul(nn.Module):
+    """A ``QMatmul`` whose second operand is a parameter."""
+
+    def __init__(self):
+        super().__init__()
+        torch.manual_seed(0)
+        self.mm = QMatmul(SplitMac(BinaryK(8, 4, prng_bits=8), BinaryK(16, 11), rounding=SR))
+        self.b = nn.Parameter(torch.randn(32, 8))
+
+    def forward(self, x):
+        return self.mm(x, self.b)
+
+
+def _straight_through():
+    torch.manual_seed(0)
+    f = binaryK_gemm_formats(8, 4, acc_K=16, acc_P=11)
+    return nn.Sequential(QLinear(32, 8, formats=f), Quantizer(BinaryK(8, 4), BinaryK(8, 5)))
+
+
+# Each of the four autograd Functions, and the paths through _saved: name ->
+# (model, input shape).
+COMPILE_MODELS = {
+    "linear, SR hooks": (lambda: _mlp(SR, 8), (16, 32)),
+    "linear, RNE slots": (lambda: _mlp(R.RNE, 0, slots=True), (16, 32)),
+    "linear, SR slots": (lambda: _mlp(SR, 8, slots=True), (16, 32)),
+    "conv, slots": (_conv, (2, 3, 9, 9)),
+    "matmul, SR": (_Matmul, (16, 32)),
+    "quantizer": (_straight_through, (16, 32)),
+}
+
+
 def _step(model, x, seed):
+    """The output and every parameter's gradient, by name."""
     torch.manual_seed(seed)
     model.zero_grad()
     out = model(x)
     out.square().sum().backward()
-    return [out.detach()] + [p.grad.clone() for p in model.parameters()]
+    return [("out", out.detach())] + [(n, p.grad.clone()) for n, p in model.named_parameters()]
 
 
 def test_the_flat_wrappers_trace_into_one_graph():
@@ -787,31 +844,90 @@ def test_compiled_ops_equal_eager(backend, rounding):
     assert torch.equal(got, f(a, b))
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("rounding", [R.RNE, SR])
-def test_a_compiled_model_equals_eager(backend, rounding):
-    """A compiled model's forward and gradients are eager's, bit for bit. Its
-    layers' autograd.Functions graph-break today (see the next test), so they
-    run eagerly between the compiled pieces."""
+@pytest.mark.parametrize("name", list(COMPILE_MODELS))
+def test_the_layers_trace_into_one_graph(name):
+    """Every layer's autograd.Function traces: one graph, no break. Each
+    layer used to break the graph where its Function read a class attribute
+    (Dynamo's gb4841), and a stochastic replay where it read the generator's
+    state (``_saved`` keeps the copy under compile instead)."""
+    make, shape = COMPILE_MODELS[name]
     torch._dynamo.reset()
-    model = _mlp(rounding, 8 if rounding is SR else 0)
-    compiled = torch.compile(copy.deepcopy(model), backend=backend)
-    x = torch.randn(16, 32)
+    explanation = torch._dynamo.explain(make())(torch.randn(*shape))
+    assert (explanation.graph_count, explanation.graph_break_count) == (1, 0)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", list(COMPILE_MODELS))
+def test_a_compiled_model_equals_eager(backend, name):
+    """A model compiled in one graph gives eager's forward and gradients, bit
+    for bit. Inductor compiles the plain torch arithmetic around the
+    operators as well, and its bias gradient (a sum over the batch, in the
+    order Inductor picks) can differ in the last bits, as a plain
+    ``nn.Linear``'s does; every result an mptorch operator rounds is eager's."""
+    make, shape = COMPILE_MODELS[name]
+    torch._dynamo.reset()
+    model = make()
+    compiled = torch.compile(copy.deepcopy(model), backend=backend, fullgraph=True)
+    x = torch.randn(*shape)
     with torch._inductor.config.patch(fallback_random=True):
         got = _step(compiled, x, seed=1)
     want = _step(model, x, seed=1)
-    for w, g in zip(want, got, strict=True):
-        assert torch.equal(w, g)
+    for (label, w), (_, g) in zip(want, got, strict=True):
+        if backend == "inductor" and label.endswith("bias"):
+            torch.testing.assert_close(g, w)
+        else:
+            assert torch.equal(w, g), label
 
 
-def test_compile_graph_breaks_are_recorded():
-    """Not an assertion: the graph breaks that remain in the layers (how much
-    of a model ``torch.compile`` traces into one graph), printed (``pytest -s``
-    shows them). On torch 2.14 there is one per layer:
-    Dynamo cannot read ``_RECOMPUTE_DEFAULT`` off an autograd.Function."""
+def test_a_format_warning_compiles_and_names_the_caller():
+    """A format that warns compiles in one graph and warns while the graph is
+    traced, naming the line that called the compiled model, as eager names
+    the line that called the layer; the compiled calls after it do not warn
+    again. Here the sums reach 2**127, which a float16 result cannot hold."""
     torch._dynamo.reset()
-    explanation = torch._dynamo.explain(_mlp(SR, 8))(torch.randn(4, 32))
-    print(f"\n{explanation.graph_count} graphs, {explanation.graph_break_count} breaks")
+    torch.manual_seed(0)
+    layer = QLinear(32, 8, formats=binaryK_gemm_formats(8, 4, acc_K=16, acc_P=8)).half()
+    compiled = torch.compile(layer, backend="aot_eager", fullgraph=True)
+    x = torch.randn(4, 32).half()
+    with pytest.warns(FormatRangeWarning, match="float16") as record:
+        got = compiled(x)
+    assert {w.filename for w in record if w.category is FormatRangeWarning} == {__file__}
+    with warnings.catch_warnings(record=True) as again:
+        warnings.simplefilter("always")
+        compiled(x)
+    assert not [w for w in again if w.category is FormatRangeWarning]
+    with torch.no_grad(), warnings.catch_warnings():
+        warnings.simplefilter("ignore", FormatRangeWarning)
+        assert torch.equal(got.detach(), layer(x))
+
+
+def test_a_refused_format_keeps_its_reason_under_compile():
+    """A format the call refuses raises its ValueError eagerly, and under a
+    compile that may break the graph; under ``fullgraph`` Dynamo raises
+    instead, with the ValueError's message in its own."""
+
+    def f(a, b):
+        return binaryK_matmul(a, b, mul_K=8, mul_P=4, acc_K=16, acc_P=12)
+
+    a, b = torch.randn(4, 16).half(), torch.randn(16, 16).half()
+    with pytest.raises(ValueError, match="12 bits of precision"):
+        f(a, b)
+    torch._dynamo.reset()
+    with pytest.raises(ValueError, match="12 bits of precision"):
+        torch.compile(f, backend="aot_eager")(a, b)
+    torch._dynamo.reset()
+    with pytest.raises(Unsupported, match="12 bits of precision"):
+        torch.compile(f, backend="aot_eager", fullgraph=True)(a, b)
+
+
+def test_the_warning_helper_carries_dynamos_constant_marker():
+    """``number._warn_per_call`` sets the attribute
+    ``torch.compiler.assume_constant_result`` sets, without importing
+    ``torch._dynamo``. Should torch rename it, a warning would break the
+    graph again; this says so first."""
+    marked = assume_constant_result(lambda: None)
+    assert set(vars(marked)) <= set(vars(number._warn_per_call))
+    assert all(getattr(number._warn_per_call, k) == v for k, v in vars(marked).items())
 
 
 def test_compile_takes_a_dynamic_batch_without_recompiling():

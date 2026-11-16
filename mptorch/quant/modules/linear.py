@@ -28,6 +28,17 @@ from ..ops import _CARRIER, _call_carrier
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 
+#: What a ``None`` recompute flag means in :class:`CustomArithLinear`, as
+#: (input, weight): the weight is quantized again in backward rather than kept,
+#: since the raw weight is alive anyway as the layer's parameter; the input is
+#: kept, since a Linear's input usually comes from an op that keeps its own
+#: input rather than its output (LayerNorm, GELU, SiLU), so the raw input would
+#: be alive only for this layer (``_saved``: a raw operand is kept only where it
+#: is alive anyway). A module constant, not a class attribute: Dynamo cannot
+#: read an attribute of an autograd Function inside its forward, and that read
+#: broke every layer's graph under ``torch.compile`` (gb4841, torch 2.15).
+_LINEAR_RECOMPUTE_DEFAULT = (False, True)
+
 
 class CustomArithLinear(torch.autograd.Function):
     """Autograd Function for a quantized linear layer.
@@ -56,109 +67,112 @@ class CustomArithLinear(torch.autograd.Function):
         i_flat = input.reshape(-1, input.shape[-1])
         return gO_flat.t().matmul(i_flat)
 
-    #: What a ``None`` recompute flag means here, as (input, weight): the
-    #: weight is quantized again in backward rather than kept, since the raw
-    #: weight is alive anyway as the layer's parameter; the input is kept,
-    #: since a Linear's input usually comes from an op that keeps its own
-    #: input rather than its output (LayerNorm, GELU, SiLU), so the raw input
-    #: would be alive only for this layer (``_saved``: a raw operand is kept
-    #: only where it is alive anyway).
-    _RECOMPUTE_DEFAULT = (False, True)
-
     @staticmethod
     def forward(ctx, input, weight, bias, formats):
-        ctx.formats = formats
-        recompute_input, recompute_weight = CustomArithLinear._RECOMPUTE_DEFAULT
+        # Every mptorch autograd Function runs its forward and its backward
+        # with torch function modes (and tensor subclasses' __torch_function__)
+        # disabled, so that a mode intercepting a model's calls sees this
+        # layer's call and none of the torch calls it makes in here, which it
+        # would otherwise simulate a second time. That also hides
+        # torch.set_default_device and `with torch.device(...)`, which are
+        # modes too, from factory calls in here: each names its device or wants
+        # the CPU. About 0.1 us per enter and exit.
+        with torch._C.DisableTorchFunction():
+            ctx.formats = formats
+            recompute_input, recompute_weight = _LINEAR_RECOMPUTE_DEFAULT
 
-        # Save only what backward will read. q_bias is never read there, and
-        # each of the other two feeds exactly one gradient path: q_input the
-        # weight gradient, q_weight the input gradient. So a layer whose
-        # weight is frozen does not pin a quantized copy of its entire
-        # activation for the length of the backward pass, on top of the
-        # activation autograd already holds. ctx.needs_input_grad is
-        # populated before forward runs and is the same tuple backward sees.
-        # What is saved of an operand that is read is its quantized value or
-        # the raw operand, quantized again in backward (_saved).
-        q_input, saved_input, ctx.replay_input = quantize_operand(
-            input,
-            formats.input_quant,
-            getattr(formats, "recompute_input", None),
-            recompute_input,
-            ctx.needs_input_grad[1],
-        )
-        q_weight, saved_weight, ctx.replay_weight = quantize_operand(
-            weight,
-            formats.weight_quant,
-            getattr(formats, "recompute_weight", None),
-            recompute_weight,
-            ctx.needs_input_grad[0],
-        )
-        q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
+            # Save only what backward will read. q_bias is never read there, and
+            # each of the other two feeds exactly one gradient path: q_input the
+            # weight gradient, q_weight the input gradient. So a layer whose
+            # weight is frozen does not pin a quantized copy of its entire
+            # activation for the length of the backward pass, on top of the
+            # activation autograd already holds. ctx.needs_input_grad is
+            # populated before forward runs and is the same tuple backward sees.
+            # What is saved of an operand that is read is its quantized value or
+            # the raw operand, quantized again in backward (_saved).
+            q_input, saved_input, ctx.replay_input = quantize_operand(
+                input,
+                formats.input_quant,
+                getattr(formats, "recompute_input", None),
+                recompute_input,
+                ctx.needs_input_grad[1],
+            )
+            q_weight, saved_weight, ctx.replay_weight = quantize_operand(
+                weight,
+                formats.weight_quant,
+                getattr(formats, "recompute_weight", None),
+                recompute_weight,
+                ctx.needs_input_grad[0],
+            )
+            q_bias = formats.bias_quant(bias) if formats.bias_quant and bias is not None else bias
 
-        if formats.fwd_math is not None:
-            output = formats.fwd_math(q_input, q_weight, q_bias)
-        else:
-            output = F.linear(q_input, q_weight, q_bias)
+            if formats.fwd_math is not None:
+                output = formats.fwd_math(q_input, q_weight, q_bias)
+            else:
+                output = F.linear(q_input, q_weight, q_bias)
 
-        save(ctx, saved_input, saved_weight)
-        ctx.needs_bias_grad = bias is not None
+            save(ctx, saved_input, saved_weight)
+            ctx.needs_bias_grad = bias is not None
 
-        return output
+            return output
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        grad_output = grad_outputs[0]
-        formats = ctx.formats
+        with torch._C.DisableTorchFunction():  # as forward's
+            grad_output = grad_outputs[0]
+            formats = ctx.formats
 
-        saved_input, saved_weight = load(ctx)
+            saved_input, saved_weight = load(ctx)
 
-        grad_input = grad_weight = grad_bias = None
+            grad_input = grad_weight = grad_bias = None
 
-        # Quantize grad_output only for the paths that will consume it, so a
-        # frozen layer, or the first layer of a network, does not pay a full
-        # grad-output-sized quantize kernel and allocation for a tensor it
-        # then discards. Both quantizations run ahead of both math calls, in
-        # this order, so a stochastic quantizer draws from the global RNG in
-        # the same sequence however many gradients are requested; the *_math
-        # hooks may consume randomness of their own afterwards.
-        q_igrad_output = (
-            (formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output)
-            if ctx.needs_input_grad[0]
-            else None
-        )
-        q_wgrad_output = (
-            (formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output)
-            if ctx.needs_input_grad[1]
-            else None
-        )
-
-        if q_igrad_output is not None:
-            bwd_igrad_math = (
-                formats.bwd_igrad_math
-                if formats.bwd_igrad_math
-                else CustomArithLinear._default_bwd_igrad
+            # Quantize grad_output only for the paths that will consume it, so a
+            # frozen layer, or the first layer of a network, does not pay a full
+            # grad-output-sized quantize kernel and allocation for a tensor it
+            # then discards. Both quantizations run ahead of both math calls, in
+            # this order, so a stochastic quantizer draws from the global RNG in
+            # the same sequence however many gradients are requested; the *_math
+            # hooks may consume randomness of their own afterwards.
+            q_igrad_output = (
+                (formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output)
+                if ctx.needs_input_grad[0]
+                else None
             )
-            # A recomputed operand is quantized again only here, so its copy
-            # lives for this one GEMM.
-            grad_input = bwd_igrad_math(q_igrad_output, restore(saved_weight, ctx.replay_weight))
-
-        if q_wgrad_output is not None:
-            bwd_wgrad_math = (
-                formats.bwd_wgrad_math
-                if formats.bwd_wgrad_math
-                else CustomArithLinear._default_bwd_wgrad
+            q_wgrad_output = (
+                (formats.wgrad_quant(grad_output) if formats.wgrad_quant else grad_output)
+                if ctx.needs_input_grad[1]
+                else None
             )
-            grad_weight = bwd_wgrad_math(q_wgrad_output, restore(saved_input, ctx.replay_input))
 
-        if ctx.needs_bias_grad and ctx.needs_input_grad[2]:
-            q_bgrad_output = (
-                formats.bgrad_quant(grad_output) if formats.bgrad_quant else grad_output
-            )
-            # The bias gradient is the output gradient summed over every
-            # leading (batch) dimension.
-            grad_bias = q_bgrad_output.reshape(-1, q_bgrad_output.shape[-1]).sum(0)
+            if q_igrad_output is not None:
+                bwd_igrad_math = (
+                    formats.bwd_igrad_math
+                    if formats.bwd_igrad_math
+                    else CustomArithLinear._default_bwd_igrad
+                )
+                # A recomputed operand is quantized again only here, so its copy
+                # lives for this one GEMM.
+                grad_input = bwd_igrad_math(
+                    q_igrad_output, restore(saved_weight, ctx.replay_weight)
+                )
 
-        return grad_input, grad_weight, grad_bias, None
+            if q_wgrad_output is not None:
+                bwd_wgrad_math = (
+                    formats.bwd_wgrad_math
+                    if formats.bwd_wgrad_math
+                    else CustomArithLinear._default_bwd_wgrad
+                )
+                grad_weight = bwd_wgrad_math(q_wgrad_output, restore(saved_input, ctx.replay_input))
+
+            if ctx.needs_bias_grad and ctx.needs_input_grad[2]:
+                q_bgrad_output = (
+                    formats.bgrad_quant(grad_output) if formats.bgrad_quant else grad_output
+                )
+                # The bias gradient is the output gradient summed over every
+                # leading (batch) dimension.
+                grad_bias = q_bgrad_output.reshape(-1, q_bgrad_output.shape[-1]).sum(0)
+
+            return grad_input, grad_weight, grad_bias, None
 
 
 class QLinear(nn.Linear):

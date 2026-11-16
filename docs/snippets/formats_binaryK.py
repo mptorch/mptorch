@@ -21,6 +21,8 @@ def describe(f: BinaryK) -> None:
     print(f"{f}")
     print(f"  exponent bits {exp_bits}, mantissa bits {f.man_bits}, bias {f.bias}")
     print(f"  largest finite  {max_extended:g} (extended domain), {max_finite:g} (finite domain)")
+    finite = BinaryK(f.K, f.P, bias=f.bias, saturation=SaturationMode.SAT_FINITE)
+    print(f"  max_finite      {f.max_finite:g} and {finite.max_finite:g}, read off the formats")
     print(f"  smallest normal {min_normal:g}")
     print(f"  smallest subnormal {min_subnormal:g}")
     # The quantizer agrees with the formulas: each value is a fixed point in the

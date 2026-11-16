@@ -555,3 +555,14 @@ def test_finite_domain_admits_only_sat_finite():
     )
     with pytest.raises(TypeError, match="domain must be a Domain"):
         BinaryK(8, 4, domain="finite")  # type: ignore
+
+
+@pytest.mark.parametrize("saturation_mode", list(SaturationMode))
+@pytest.mark.parametrize("signed", [True, False], ids=["signed", "unsigned"])
+def test_max_finite_is_m_hi(signed, saturation_mode):
+    """``BinaryK.max_finite`` is the transcribed M_hi of every format either
+    carrier holds, in the domain its saturation mode names."""
+    finite = _P3109[saturation_mode][0] == "finite"
+    for K, P in dict.fromkeys(_formats(signed) + _formats64(signed)):
+        fmt = BinaryK(K, P, is_signed=signed, saturation=saturation_mode)
+        assert fmt.max_finite == _max_finite(K, P, signed, finite), (K, P)

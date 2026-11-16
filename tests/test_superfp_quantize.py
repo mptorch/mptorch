@@ -26,9 +26,9 @@ from typing import Any
 import pytest
 import torch
 
-from mptorch.number import RoundMode, SaturationMode
+from mptorch.number import RoundMode, SaturationMode, SuperFP
 from mptorch.quant import superfp_quantize
-from tests.markers import available_devices
+from tests.markers import available_devices, float64_devices
 
 # The reference format: 1 sign bit, 3 exponent bits, 2 mantissa bits, 4 normal
 # binades, bias 7. Exponent fields 4 .. 7 are the normal binades, exponents -3
@@ -439,3 +439,35 @@ def test_superfp_stochastic(device):
         **CFG,
     )
     assert abs(q_sr_uf.mean().item() - test_val_uf) < tolerance * SMALLEST_SUPERNORMAL
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize(
+    "fmt",
+    [(3, 4, 2, 7, True), (0, 3, 1, 2, True), (4, 4, 1, 10, True), (2, 5, 3, 30, False)],
+    ids=str,
+)
+@pytest.mark.parametrize("saturation", [SaturationMode.SAT_NONE, SaturationMode.SAT_FINITE])
+def test_max_finite_is_the_top_of_the_range(device, fmt, saturation):
+    """``SuperFP.max_finite`` is a value of the format and the one above it is
+    not, as for binaryK: the binary64 kernel keeps it, and rounds a step of
+    the top binade above it, and anything larger, to infinity in the extended
+    domain and back to ``max_finite`` under ``SAT_FINITE``."""
+    man_bits, exp_bits, normal_binades, bias, is_signed = fmt
+    f = SuperFP(
+        man_bits, exp_bits, normal_binades, bias, is_signed=is_signed, saturation=saturation
+    )
+    top = f.max_finite
+    step = math.ldexp(1.0, math.frexp(top)[1] - 1 - man_bits)
+    x = torch.tensor([top, top + step, 1e300], dtype=torch.float64, device=device)
+    q = superfp_quantize(
+        x,
+        man_bits,
+        exp_bits,
+        normal_binades,
+        bias,
+        is_signed=is_signed,
+        saturation_mode=saturation,
+    ).tolist()
+    above = top if saturation is SaturationMode.SAT_FINITE else math.inf
+    assert q == [top, above, above]

@@ -278,9 +278,24 @@ What to expect:
   under ``torch.no_grad()``: in grad mode the operator meets a parameter that
   requires a gradient, and refuses it, as it refuses any (an operator's
   gradient is its layer's to compute).
-- **The flat functions compile into one graph.** The layers'
-  autograd functions break the graph on torch 2.14, so each layer runs
-  eagerly between the compiled pieces. The results are the same either way.
+- **The flat functions and the layers compile into one graph,**
+  ``fullgraph=True`` included. Every result an mptorch operator rounds is
+  eager's, word for word. What Inductor compiles around the operators is
+  its own, as in any model: a layer's bias gradient, a sum over the batch,
+  can differ from eager's in the last bits, as a plain ``nn.Linear``'s does.
+  A layer that keeps a raw operand to quantize it again in backward
+  (``recompute_input``, ``recompute_weight``) keeps the quantized copy
+  instead under stochastic rounding, since that replay sets the generators'
+  state, which a graph cannot do. The values are the same, and a compiled
+  graph decides what it saves anyway.
+- **Format warnings and refusals.** A ``FormatRangeWarning`` is issued while
+  the graph is traced, naming the line that called the compiled code, and
+  not again on the compiled calls after it. A format the call refuses raises
+  its ``ValueError`` when the graph is traced; under ``fullgraph=True``
+  Dynamo raises its own error instead, with the ``ValueError``'s message in
+  it. Dynamo also says once per format check that it traces through the
+  check's ``functools.lru_cache``. The checks are pure, so the notice is
+  safe to filter, as the snippet does.
 - **Stochastic rounding.** Every operator that takes a rounding mode is
   tagged ``nondeterministic_seeded``, so a compiled graph never merges two
   identical stochastic calls into one draw. Inductor may still reorder
