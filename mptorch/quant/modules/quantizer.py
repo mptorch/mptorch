@@ -1,18 +1,19 @@
-"""Straight-through quantization: one format applied forward, another backward.
+"""Straight-through quantization: one format applied in the forward pass, another in backward.
 
 The elementwise quantize ops (``binaryK_quantize``, ``superfp_quantize``,
-``fixedpoint_quantize``) are not differentiable and do not pretend to be:
-rounding to a coarse format has a derivative of zero almost everywhere, so a
-gradient through it is a modelling choice, not a fact about the op. This module
-is where that choice is made explicit, and it is the reason those ops raise on
-a ``requires_grad`` operand rather than silently dropping the gradient.
+``fixedpoint_quantize``) are not differentiable and do not pretend to be.
+Rounding to a coarse format has a derivative of zero almost everywhere, so
+any gradient through it is a modelling choice, not a property of the op.
+This module is where that choice is made explicitly. Because it exists, the
+ops can raise an error on an operand that requires grad, rather than
+silently dropping the gradient.
 
-The estimator is the standard one: the forward rounds, the backward passes the
-gradient through, optionally rounded to a *different* format. That asymmetry is
-the point (QAT typically wants a narrow forward format and a wider gradient
-format), and it is why this is a module wrapping two quantizers rather than a
-straight-through kernel registered on the op, which could only ever express the
-symmetric case.
+The estimator is the standard straight-through one: the forward pass
+rounds, and the backward pass passes the gradient through unchanged, or
+rounds it to a *different* format. That asymmetry is the point (QAT usually
+wants a narrow forward format and a wider gradient format), and it is why
+this is a module wrapping two quantizers, not a straight-through gradient
+registered on the op, which could only express the symmetric case.
 """
 
 from collections.abc import Callable
@@ -28,44 +29,45 @@ from ..mac import Quant
 class _StraightThrough(torch.autograd.Function):
     """The straight-through estimator as an autograd Function.
 
-    ``forward`` applies ``forward_quant`` (or nothing) to ``x``; ``backward``
-    applies ``backward_quant`` (or nothing) to the incoming gradient and
-    passes it through unchanged otherwise. The two quantizers are not tensors
-    and get no gradient, hence the two ``None``.
+    ``forward`` applies ``forward_quant`` to ``x``, and ``backward`` applies
+    ``backward_quant`` to the incoming gradient; a ``None`` quantizer passes
+    its tensor through unchanged. The two quantizers are not tensors and get
+    no gradient, hence the two ``None`` that ``backward`` returns.
     """
 
     @staticmethod
     def forward(ctx, x, forward_quant, backward_quant):
-        with torch._C.DisableTorchFunction():  # opaque to modes, as CustomArithLinear's
+        # hidden from torch function modes, as in CustomArithLinear
+        with torch._C.DisableTorchFunction():
             ctx.backward_quant = backward_quant
             return forward_quant(x) if forward_quant else x
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as forward's
+        with torch._C.DisableTorchFunction():  # as in forward
             grad = grad_outputs[0]
             q = ctx.backward_quant
             return (q(grad) if q else grad), None, None
 
 
 class Quantizer(nn.Module):
-    """Quantize in the forward pass, quantize (or pass through) in the backward.
+    """Quantize in the forward pass, and quantize (or pass through) in the backward pass.
 
     This is the module form of the straight-through estimator. The output is
     ``forward_quant(x)``, and the gradient that reaches ``x`` is
-    ``backward_quant(grad)``. A direction whose quantizer is ``None`` is left
-    alone. Because it is an ``nn.Module``, it can sit in any ``*_quant`` slot
-    of a ``QAffineFormats`` or ``QMatmulFormats`` and is registered with the
-    parent model. That matters as soon as the quantizer carries state of its
-    own.
+    ``backward_quant(grad)``. A pass whose quantizer is ``None`` is left
+    unchanged. Because it is an ``nn.Module``, it can sit in any ``*_quant``
+    slot of a ``QAffineFormats`` or ``QMatmulFormats`` and is registered with
+    the parent model, which matters as soon as the quantizer carries state of
+    its own.
 
     Args:
         forward_quant (Number or Callable, optional): the forward pass's
-            quantizer. A format is wrapped in a :class:`mptorch.quant.Quant`
-            with round-to-nearest-even. Any ``Tensor -> Tensor`` callable is
-            used as it is. ``None`` leaves the forward pass alone. Default:
-            ``None``
-        backward_quant (Number or Callable, optional): the backward's
+            quantizer. A format (a :class:`mptorch.Number`) is wrapped in a
+            :class:`mptorch.quant.Quant` that rounds to nearest, ties to even.
+            Any ``Tensor -> Tensor`` callable is used as it is. ``None``
+            leaves the forward pass unchanged. Default: ``None``
+        backward_quant (Number or Callable, optional): the backward pass's
             quantizer, in the same forms. Default: ``None``
 
     Shape:
@@ -77,7 +79,7 @@ class Quantizer(nn.Module):
         >>> import torch
         >>> from mptorch import BinaryK
         >>> from mptorch.quant import QAffineFormats, Quantizer
-        >>> act = Quantizer(BinaryK(8, 4), BinaryK(8, 5))   # narrow fwd, wider bwd
+        >>> act = Quantizer(BinaryK(8, 4), BinaryK(8, 5))   # narrow forward, wider backward
         >>> x = torch.tensor([0.3], requires_grad=True)
         >>> y = act(x)
         >>> y
@@ -102,7 +104,5 @@ class Quantizer(nn.Module):
             Quant(backward_quant) if isinstance(backward_quant, Number) else backward_quant
         )
 
-    # nn.Module declares forward as a writable Callable attribute, which ty
-    # reads a method override as narrowing; every direct subclass does this.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return _StraightThrough.apply(x, self.forward_quant, self.backward_quant)

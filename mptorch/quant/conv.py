@@ -1,25 +1,28 @@
-"""The convolutions in custom arithmetic: :func:`conv_formats`.
+"""Convolutions in quantized arithmetic: :func:`conv_formats`.
 
-A convolution's three passes, the forward and the two gradients, are GEMMs
-whose operands are gathers of the convolution's tensors. The
-``custom_conv_*`` ops (twenty: single-format, palette and cross-family, each
-with its odd twin of ``carrier_rounding=RoundMode.RO``) run each pass in the
-arithmetic of the GEMM op it is named after, with the gather in the kernel's tile load
-(``mptorch/csrc/common/gemm_gather.h``), so no ``unfold`` buffer is ever
-built: the forward of a 3x3 convolution would otherwise materialize nine times
-its input. Every format, accumulate algorithm and rounding mode of the GEMM
-applies. The forward and the weight gradient are bit for bit the GEMM over the
-operands ``unfold`` would have built, zeros included, in the same order; the
-input gradient is one GEMM per residue class of the stride, over only the
-kernel taps that reach the class's positions, which leaves out the zeros a
-transposed convolution inserts. ``tests/test_qconv_gemm.py`` holds all three
-to references built that way, and ``docs/source/kernels/convolutions.rst`` states the
-sums.
+Each of a convolution's three passes (the forward pass and the two
+gradients) is a GEMM whose operands are gathered from the convolution's
+tensors. The ``custom_conv_*`` ops (twenty of them: single-format, palette
+and cross-family, each with an odd twin for ``carrier_rounding=RoundMode.RO``)
+run each pass in the arithmetic of the GEMM op they are named after, and
+gather the operands while loading the kernel's tiles
+(``mptorch/csrc/common/gemm_gather.h``). No ``unfold`` buffer is ever built,
+which matters: the one for the forward pass of a 3x3 convolution would be
+nine times the size of its input. Every simulated format, accumulate
+algorithm and rounding mode that the GEMM supports works here too.
+
+The forward pass and the weight gradient are bit for bit the GEMM over the
+operands ``unfold`` would have built, zeros included, summed in the same
+order. The input gradient is one GEMM per residue class of the stride, over
+only the kernel taps that reach that class's positions, which leaves out the
+zeros a transposed convolution inserts. ``tests/test_qconv_gemm.py`` checks
+all three passes against references built that way, and
+``docs/source/kernels/convolutions.rst`` states the sums.
 
 ``conv_formats(mac)`` resolves a mac once, as ``matmul_formats`` does, and
-returns a ``QAffineFormats`` whose three math hooks are the three passes, in
-the keyword-signature contract ``CustomArithConvNd`` calls them with, so
-``QConv1d``/``QConv2d``/``QConv3d`` run them unchanged.
+returns a ``QAffineFormats`` whose three math hooks are the three passes,
+with the keyword signatures ``CustomArithConvNd`` calls them with, so
+``QConv1d``, ``QConv2d`` and ``QConv3d`` run them unchanged.
 """
 
 from functools import lru_cache
@@ -42,13 +45,14 @@ from .ops import (
 
 __all__ = ["conv_formats"]
 
-# The three passes, as the op's `conv_pass` argument.
+# The three passes, as values of the conv op's `conv_pass` argument.
 _FWD, _IGRAD, _WGRAD = 0, 1, 2
 
-# What a NAIVE single-format spec's arguments need after them to be a conv
-# op's: the conv ops take the *_accumulated schema, whose tail is a block size
-# and an outer format, none of which NAIVE has. The two families' tails differ
-# in their outer format's fields, not in their length.
+# The arguments a NAIVE single-format spec lacks for a conv op. The conv ops
+# take the *_accumulated schema, which ends with a block size, an outer_quant
+# flag and the outer format's fields; NAIVE has none of them, so these are
+# placeholders with outer_quant=False. Both families' tails have nine entries,
+# but the outer format's fields differ (outer_is_signed is the True).
 _NAIVE_TAIL = {
     "binaryK": (0, False, 0, 0, 0, True, 0, 0, 0),
     "superfp": (0, False, 0, 0, 0, 0, True, 0, 0),
@@ -57,12 +61,13 @@ _NAIVE_TAIL = {
 
 @lru_cache(maxsize=1)
 def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
-    """Each GEMM op's conv op, and the arguments a spec of it lacks.
+    """Map each GEMM op to its conv op and to the arguments a spec of it lacks there.
 
-    Keyed by the GEMM op a spec names, so a spec from ``spec_for_mac`` maps to
-    its conv op without being built twice: a NAIVE single-format spec runs on
-    the conv op of its ``*_accumulated`` twin with a NAIVE tail, the other two
-    kinds on theirs as they are.
+    The table is keyed by the GEMM op a ``_GemmSpec`` names, so a spec from
+    ``spec_for_mac`` finds its conv op without being resolved again. A NAIVE
+    single-format spec runs on the conv op of its ``*_accumulated`` twin, with
+    the NAIVE tail (``_NAIVE_TAIL``) appended; an accumulated or palette spec
+    runs on its conv op with its arguments unchanged.
     """
     ops = torch.ops.mptorch
     table: dict[Any, tuple[Any, tuple[Any, ...]]] = {}
@@ -78,10 +83,11 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed").default,
                 (),
             )
-            # The odd ops (carrier_rounding=RoundMode.RO): the single-format
-            # conv op is on its twin's accumulated schema, so it runs NAIVE
-            # with the tail and the other algorithms as their spec is; the
-            # palette one is NAIVE only, on its twin's schema.
+            # The odd ops (carrier_rounding=RoundMode.RO), the same way: the
+            # single-format odd conv op takes the accumulated schema, so a NAIVE
+            # odd spec gets the NAIVE tail and an accumulated one runs as it is;
+            # the palette odd conv op is NAIVE only and takes its GEMM twin's
+            # arguments.
             odd_conv = getattr(ops, f"custom_conv_{family}{mac}_odd").default
             table[getattr(ops, f"custom_matmul_{family}{mac}_odd").default] = (
                 odd_conv,
@@ -95,8 +101,8 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
                 getattr(ops, f"custom_conv_{family}{mac}_mixed_odd").default,
                 (),
             )
-    # The cross-family ops, named multiply family first, whose outer format
-    # (and so NAIVE's tail) is the accumulate family's.
+    # The cross-family ops, named multiply family first. Their outer format, and
+    # so the NAIVE tail, is of the accumulate format's family.
     for mul, acc in (("binaryK", "superfp"), ("superfp", "binaryK")):
         conv = getattr(ops, f"custom_conv_{mul}_{acc}").default
         table[getattr(ops, f"custom_matmul_{mul}_{acc}").default] = (conv, _NAIVE_TAIL[acc])
@@ -108,7 +114,7 @@ def _conv_ops() -> dict[Any, tuple[Any, tuple[Any, ...]]]:
 
 
 def _ntuple(value: Any, nd: int, name: str) -> tuple[int, ...]:
-    """``value`` as ``nd`` integers: an int is repeated, a sequence checked."""
+    """Return ``value`` as ``nd`` integers: an int is repeated, a sequence's length checked."""
     if isinstance(value, int):
         return (value,) * nd
     out = tuple(int(v) for v in value)
@@ -120,11 +126,12 @@ def _ntuple(value: Any, nd: int, name: str) -> tuple[int, ...]:
 def _leading_padding(
     padding: Any, kernel: tuple[int, ...], stride: tuple[int, ...], dilation: tuple[int, ...]
 ) -> tuple[int, ...]:
-    """The padding before each spatial dimension, the only side the op is told.
+    """Return the padding before each spatial dimension; the op is told only this side.
 
-    ``"same"`` pads ``d*(k - 1)`` in all, and where that is odd puts the extra
-    position after, as ``F.conv*d`` does; the op reads zero past the input's
-    end without being told how far, so the asymmetry costs no copy.
+    ``"same"`` pads ``d*(k - 1)`` positions in all and, where that number is
+    odd, puts the extra one after the input, as ``F.conv*d`` does. The op
+    reads zeros past the end of the input without being told how many, so
+    the uneven split needs no padded copy.
     """
     nd = len(kernel)
     if padding == "valid":
@@ -144,7 +151,7 @@ def _output_extent(
     stride: tuple[int, ...],
     dilation: tuple[int, ...],
 ) -> tuple[int, ...]:
-    """The forward's spatial output extent, as ``F.conv*d`` computes it."""
+    """Return the forward pass's spatial output size, as ``F.conv*d`` computes it."""
     if padding == "same":
         return size
     out = tuple(
@@ -159,14 +166,14 @@ def _output_extent(
 
 
 class _ConvOp:
-    """One resolved conv op: what a pass calls, bound once per layer.
+    """One resolved conv op, which a pass calls; it is built once per layer.
 
-    ``args`` are the spec's arguments with whatever the conv op takes after
-    them, ``prec_idx`` the pass's map for a palette op. The per-call part is
-    the GEMM's (``ops._run_gemm``): the carrier's findings and the storage
-    check for the operand dtype, and for a spec that names
-    ``carrier=torch.float64`` the widening of narrower operands and the
-    narrowing of the result back to their dtype.
+    ``args`` are the spec's arguments followed by whatever more the conv op
+    takes, and ``prec_idx`` is the pass's map for a palette op. What happens
+    on each call is what happens on each call of a GEMM (``ops._run_gemm``):
+    the carrier's findings and the storage check for the operands' dtype are
+    reported, and, for a spec that names ``carrier=torch.float64``, narrower
+    operands are widened and the result is narrowed back to their dtype.
     """
 
     __slots__ = ("op", "args", "spec", "prec_idx")
@@ -208,7 +215,7 @@ class _ConvOp:
 
 
 def _missing_map(pass_name: str, argument: str):
-    """A pass of a palette format whose map was not given: raises when reached."""
+    """A hook for a palette pass whose map was not given; it raises when the pass runs."""
 
     def missing(*_args, **_kwargs) -> torch.Tensor:
         raise ValueError(
@@ -220,7 +227,7 @@ def _missing_map(pass_name: str, argument: str):
 
 
 def _batched(x: torch.Tensor, nd: int) -> tuple[torch.Tensor, bool]:
-    """``x`` with a batch dimension, and whether one was added."""
+    """Return ``x`` with a batch dimension, and whether one had to be added."""
     if x.dim() == nd + 1:
         return x.unsqueeze(0), True
     return x, False
@@ -246,9 +253,10 @@ def _fwd_hook(run: _ConvOp):
         out_size = _output_extent(padding, lead, tuple(x.shape[2:]), kernel, s, d)
         out = run(_FWD, q_weight, x, out_size, s, lead, d, groups)
         if q_bias is not None:
-            # In place, as the Linear hooks add theirs: `out` is the op's own
-            # fresh tensor, so this is `out + bias` bit for bit without a
-            # second output-sized allocation; a wider bias promotes instead.
+            # Add the bias in place, as the Linear hooks do: `out` is a fresh
+            # tensor the op just made, so this equals `out + bias` bit for bit
+            # without allocating a second output. A bias of a wider dtype is
+            # added out of place instead, so that the result is promoted.
             view = q_bias.view(-1, *([1] * nd))
             out = out.add_(view) if q_bias.dtype == out.dtype else out + view
         return out.squeeze(0) if unbatched else out
@@ -303,11 +311,12 @@ def _wgrad_hook(run: _ConvOp):
 
 
 def _conv_formats(fwd: _GemmSpec, igrad: _GemmSpec, wgrad: _GemmSpec) -> QAffineFormats:
-    """The three convolution hooks, one resolved conv op per pass: the
-    forward in ``fwd``'s arithmetic, the input gradient in ``igrad``'s and
-    the weight gradient in ``wgrad``'s (single formats; a palette's passes
-    need their maps, which only :func:`conv_formats` takes). A spec named
-    twice is bound once."""
+    """Build a ``QAffineFormats`` with the three convolution hooks, one resolved
+    conv op per pass: the forward pass in ``fwd``'s arithmetic, the input
+    gradient in ``igrad``'s and the weight gradient in ``wgrad``'s. The specs
+    must be single-format, because a palette's passes need their maps, which
+    only :func:`conv_formats` takes. A spec given for more than one pass is
+    bound once."""
     runs = {spec: _ConvOp(spec, None) for spec in (fwd, igrad, wgrad)}
     return QAffineFormats(
         fwd_math=_fwd_hook(runs[fwd]),
@@ -325,62 +334,63 @@ def conv_formats(
 ) -> QAffineFormats:
     """Build a ``QAffineFormats`` whose three convolution passes run in ``mac``'s arithmetic.
 
-    The forward convolution, the input gradient and the weight gradient of a
-    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in ``mac``'s arithmetic.
-    Every product and every addition of every dot product is rounded as a
-    GEMM of that mac rounds it. The operands are gathered from the
+    The forward pass, the input gradient and the weight gradient of a
+    ``QConv1d``, ``QConv2d`` or ``QConv3d`` each run in ``mac``'s arithmetic:
+    every product and every addition of every dot product is rounded as a
+    GEMM with that mac rounds it. The operands are gathered from the
     convolution's tensors inside the kernel instead of being unfolded, so no
     pass allocates more than its result.
 
     The forward pass and the weight gradient are each one GEMM, bit-identical
-    to the GEMM of the same mac over ``F.unfold``'s operands.
+    to the GEMM with the same mac over ``F.unfold``'s operands.
 
     The input gradient is one GEMM per residue class of the stride, each over
-    the kernel taps that reach its positions. A strided convolution's
-    gradient therefore costs what its forward pass does. A transposed
-    convolution would cost ``stride**nd`` times more, because it sums the
-    zeros it inserts. Under a ``NAIVE`` sum and a deterministic rounding the
-    two are bit-identical, because adding a zero changes nothing there.
-    :doc:`/kernels/convolutions` has the equations and says what differs in
-    the other cases.
+    only the kernel taps that reach that class's positions. A strided
+    convolution's input gradient therefore costs what its forward pass costs,
+    where a transposed convolution would cost ``stride**nd`` times more,
+    because it also sums the zeros it inserts. Under ``NAIVE`` summation and
+    a deterministic rounding mode the two give bit-identical results, because
+    adding a zero then changes nothing. :doc:`/kernels/convolutions` has the
+    equations and says what differs in the other cases.
 
-    Any stride, padding (``"same"`` and ``"valid"`` included), dilation and
-    ``groups`` works. Groups share one launch. A depthwise convolution (one
-    channel per group) uses a sixteenth of the kernel's tile width, which is
-    correct but not fast.
+    Any stride, padding, dilation and ``groups`` work. Padding may be
+    ``"valid"``, or ``"same"`` for a convolution without stride. All groups
+    run in one kernel launch. A depthwise convolution (one channel per group)
+    is a GEMM with one row (``M = 1``), so it fills only one row of the
+    kernel's 16 x 16 tile, which is correct but not fast.
 
     Like :func:`matmul_formats`, this sets only the math hooks. The caller
-    adds operand quantization (``weight_quant``, ``input_quant`` and the
+    sets the operand quantizers (``weight_quant``, ``input_quant`` and the
     other ``*_quant`` slots) separately.
 
-    The carrier is the GEMM's: a float64 model rounds in binary64, and float32,
-    float16 and bfloat16 ones in binary32, unless the mac names
-    ``carrier=torch.float64``. Then narrower operands are widened, each pass
-    runs the binary64 kernels, and its result is narrowed back to their
-    dtype, bit-identical to the pass on the widened operands. On MPS, which
-    has no float64, binary32 is the only carrier.
+    The carrier is chosen as for a GEMM: float64 tensors round in binary64,
+    and float32, float16 and bfloat16 tensors in binary32, unless the mac
+    names ``carrier=torch.float64``. In that case narrower operands are
+    widened, each pass runs the binary64 kernels, and its result is narrowed
+    back to the operands' dtype, bit-identical to the pass on the widened
+    operands. On MPS, which has no float64, binary32 is the only carrier.
 
     Args:
         mac (SplitMac or FusedMac or Number): the dot-product arithmetic,
             resolved once through :func:`mptorch.quant.mac.spec_for_mac`. A
             bare ``Number`` means ``SplitMac(fmt, fmt)``. Every
             ``accumulate_algorithm`` applies, and a ``SplitMac`` may round
-            its products and its sums in formats of two families, as for a
-            GEMM. A palette selects the per-output-element ops, which need
-            one map per pass. A mac with ``carrier_rounding=RoundMode.RO``
-            runs the odd conv ops in every pass, under every algorithm its
-            GEMM takes (``KAHAN``, ``BLOCK`` and ``TREE`` in a build with
-            ``MPTORCH_ODD_ACCUMULATED=1``).
-        prec_idx (Tensor, optional): the forward's palette map, indexed like
-            the output with its spatial dimensions flattened: ``[Cout, OUT]``
-            with ``OUT`` the number of output positions, ``[Cout, 1]`` (one
-            format per output channel) or ``[1, OUT]``, optionally with a
-            leading batch dimension. Required by, and only by, a palette
-            ``mac``. Default: ``None``
+            its products and its sums to formats of two different families,
+            as for a GEMM. A palette selects the ops with a format per output
+            element, which need a map for each pass. A mac with
+            ``carrier_rounding=RoundMode.RO`` runs the odd conv ops in every
+            pass, under every algorithm its GEMM takes (``KAHAN``, ``BLOCK``
+            and ``TREE`` need a build with ``MPTORCH_ODD_ACCUMULATED=1``).
+        prec_idx (Tensor, optional): the forward pass's palette map, indexed
+            like the output with its spatial dimensions flattened:
+            ``[Cout, OUT]`` with ``OUT`` the number of output positions,
+            ``[Cout, 1]`` (one format per output channel) or ``[1, OUT]``,
+            optionally with a leading batch dimension. A palette ``mac``
+            requires it, and any other ``mac`` refuses it. Default: ``None``
         igrad_prec_idx (Tensor, optional): the input gradient's map, shaped
             the same way over ``[Cin, IN]``, with ``IN`` the number of input
-            positions. The classes of a strided gradient read it at their own
-            positions. Default: ``None``
+            positions. Each residue-class GEMM of a strided input gradient
+            reads the map at its own input positions. Default: ``None``
         wgrad_prec_idx (Tensor, optional): the weight gradient's map, over the
             weight as ``[Cout, Cin/groups * prod(kernel)]``, or ``[Cout, 1]``.
             Default: ``None``
@@ -391,12 +401,16 @@ def conv_formats(
 
     Raises:
         ValueError: for a palette ``mac`` without ``prec_idx``, or a map given
-            to a ``mac`` without a palette.
+            for a ``mac`` without a palette. A palette ``mac`` without
+            ``igrad_prec_idx`` or ``wgrad_prec_idx`` raises when that
+            gradient is computed.
+        TypeError: if ``mac`` is not a ``SplitMac``, a ``FusedMac`` or a
+            ``Number``.
 
     Example:
 
-        Binary8p4 products summed in a 12-bit accumulator, with the operands
-        also rounded to Binary8p4, for a strided layer. The backward pass runs
+        Binary8p4 products summed in Binary12p7, with the operands also
+        rounded to Binary8p4, for a strided layer. The backward pass computes
         both gradients in the same arithmetic::
 
             >>> import torch
@@ -421,8 +435,9 @@ def conv_formats(
             >>> conv1d(torch.randn(1, 4, 20)).shape
             torch.Size([1, 8, 16])
 
-        A palette, here one format per output channel of the forward (a
-        ``[Cout, 1]`` map), and one per pass for the two gradients::
+        A palette, here with one format per output channel of the forward
+        pass (a ``[Cout, 1]`` map), and a map for each gradient (here all
+        zeros, so every element uses entry 0)::
 
             >>> pal = SplitMac([binary8p4, BinaryK(8, 5)], BinaryK(12, 7))
             >>> per_channel = conv_formats(

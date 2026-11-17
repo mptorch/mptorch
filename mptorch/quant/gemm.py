@@ -1,32 +1,44 @@
-"""
-Factories that wire the custom-arithmetic GEMM ops
-(:func:`mptorch.quant.ops.binaryK_matmul` and its siblings) into the
-``fwd_math`` / ``bwd_igrad_math`` / ``bwd_wgrad_math`` hooks of a
-:class:`~mptorch.quant.modules.format.QAffineFormats`, under the call contract
-``CustomArithLinear`` (``mptorch/quant/modules/linear.py``) uses::
+"""Factories that make a layer's matrix products run in quantized GEMMs.
+
+Each factory returns a format container whose math hooks call a quantized
+GEMM op. For a ``QLinear`` the container is a
+:class:`~mptorch.quant.modules.format.QAffineFormats`, and
+``CustomArithLinear`` (``mptorch/quant/modules/linear.py``) calls its three
+hooks like this::
 
     fwd_math(q_input, q_weight, q_bias)        # q_input @ q_weight.T + q_bias
     bwd_igrad_math(q_igrad_output, q_weight)   # q_igrad_output @ q_weight
     bwd_wgrad_math(q_wgrad_output, q_input)    # q_wgrad_output.T @ q_input
 
-``q_input``, ``q_igrad_output`` and ``q_wgrad_output`` may carry any number of
+``q_input``, ``q_igrad_output`` and ``q_wgrad_output`` may have any number of
 leading (batch) dimensions, as ``nn.Linear`` allows. Each hook flattens them
-into one row dimension before the 2D GEMM and reshapes the result back, the
-same reshape ``CustomArithLinear._default_bwd_wgrad`` makes.
+into one row dimension before the 2D GEMM, the same reshape
+``CustomArithLinear._default_bwd_wgrad`` makes, and the forward and input
+gradient hooks restore them on the result.
 
-The six ``*_gemm_formats`` factories differ only in which op the three hooks
-call, so they share :func:`_gemm_formats` and differ only in the argument list
-they resolve. Each resolves its format once, at construction, into a
-``_GemmSpec``: a layer's format is fixed for its lifetime, and re-deriving the
-``acc_*`` fallbacks, the default exponent biases and the carrier checks on
-every forward and backward pass would cost 2.3 to 6.4 microseconds per call
-(measured by ``dev/benchmarks/timing/python_call_overhead.py``), more than the rest
-of the Python call path.
+The module holds three kinds of factory:
 
-These factories set only the ``*_math`` hooks. Elementwise operand
-quantization (``weight_quant``, ``input_quant`` and the other ``*_quant``
-slots) is layered onto the returned ``QAffineFormats`` by the caller, so that
-operand rounding and dot-product arithmetic stay independently composable.
+* the six binaryK and superfp factories (:func:`binaryK_gemm_formats`, its
+  ``_fma`` and superfp versions, and the two cross-family ones), for a
+  ``QLinear``. They differ only in which op their hooks call, so they share
+  :func:`_gemm_formats` and differ only in the arguments they resolve;
+* :func:`matmul_formats` and :func:`block_matmul_formats`, which build a
+  ``QMatmulFormats`` for a ``QMatmul``;
+* :func:`block_gemm_formats`, which makes a ``QLinear`` multiply block-format
+  operands.
+
+Each factory resolves its formats once, when it is called, into a
+``_GemmSpec``. A layer's formats are fixed for its lifetime, and redoing that
+work (the ``acc_*`` fallbacks, the default exponent biases and the carrier
+checks) on every forward and backward pass would cost 2.3 to 6.4 microseconds
+per call (measured by ``dev/benchmarks/timing/python_call_overhead.py``),
+more than the rest of the Python call path.
+
+The factories set only the math hooks, except where a block format needs an
+operand packed once (:func:`block_matmul_formats`). The caller adds the
+elementwise operand quantizers (``weight_quant``, ``input_quant`` and the
+other ``*_quant`` slots) to the returned container, so the rounding of the
+operands and the arithmetic of the dot product can be chosen independently.
 """
 
 from collections.abc import Callable
@@ -93,17 +105,17 @@ __all__ = [
     "block_gemm_formats",
 ]
 
-# What a resolved GEMM still takes per call: ``op(a) @ op(b)`` for 2D operands
-# ``a`` and ``b``, where each boolean says whether ``op`` transposes that
-# operand (a flag the kernel reads, so no transposed copy is made).
+# A resolved GEMM, called once per pass as `matmul(a, b, ta, tb)`: it computes
+# `op(a) @ op(b)` for 2D operands, where `ta` and `tb` say whether `op`
+# transposes `a` and `b` (a flag the kernel reads, so no transposed copy is made).
 _Matmul2D = Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor]
 
 
 def _flatten_leading(x: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
     """Flatten all but the last dimension of ``x`` into one leading dimension.
 
-    Returns the 2D view and the original shape, so the caller can reshape a
-    result back to the leading dimensions ``x`` came with.
+    Return the 2D tensor and the original shape, so the caller can give a
+    result the leading dimensions ``x`` had.
     """
     shape = x.shape
     return x.reshape(-1, shape[-1]), shape
@@ -112,14 +124,14 @@ def _flatten_leading(x: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
 def _gemm_formats(
     matmul: _Matmul2D, igrad: _Matmul2D | None = None, wgrad: _Matmul2D | None = None
 ) -> QAffineFormats:
-    """Build the three Linear math hooks, one resolved 2D GEMM per pass.
+    """Build the three math hooks of a Linear layer, each calling a resolved 2D GEMM.
 
-    Which operand each hook transposes, how the leading dimensions are folded
-    into one row dimension and put back, and how the bias is added are the
-    Linear call contract rather than the format's, so they are written here
-    once and each factory below passes only its resolved ``matmul``. That
-    runs every pass unless ``igrad`` (the input gradient's) or ``wgrad`` (the
-    weight gradient's) names another.
+    Which operand each hook transposes, how the leading dimensions are
+    flattened into one row dimension and restored, and how the bias is added
+    belong to the Linear layer, not to the formats, so they are written here
+    once and each factory passes only its resolved ``matmul``. That GEMM runs
+    every pass, unless ``igrad`` (for the input gradient) or ``wgrad`` (for
+    the weight gradient) gives a different one.
     """
     igrad_matmul = matmul if igrad is None else igrad
     wgrad_matmul = matmul if wgrad is None else wgrad
@@ -131,11 +143,11 @@ def _gemm_formats(
         out = matmul(x_flat, q_weight, False, True)
         out = out.reshape(*x_shape[:-1], q_weight.shape[0])
         # add_ rather than +: `out` is a view of a tensor the op allocated
-        # inside this call and nothing else references it, so folding the
-        # bias in place is bit-identical to `out + q_bias` and saves one
-        # output-sized allocation per forward. The dtype guard keeps a bias
-        # in a wider dtype promoting the way `out + q_bias` does, where
-        # `add_` would raise.
+        # inside this call, and nothing else refers to it, so adding the bias
+        # in place gives the same bits as `out + q_bias` and saves one
+        # output-sized allocation per forward. A bias of a different dtype
+        # takes `out + q_bias`, which promotes the result's dtype where `add_`
+        # would raise.
         if q_bias is None:
             return out
         return out.add_(q_bias) if q_bias.dtype == out.dtype else out + q_bias
@@ -164,8 +176,8 @@ def _plain_conv(
     groups: int,
     nd: int,
 ) -> torch.Tensor:
-    """A convolution's forward without a hook, called as a conv hook is: the
-    call ``CustomArithConvNd``'s forward makes when it has none."""
+    """The plain convolution ``CustomArithConvNd`` runs when it has no
+    ``fwd_math`` hook, with the arguments of a convolution hook."""
     conv = {1: F.conv1d, 2: F.conv2d, 3: F.conv3d}[nd]
     return conv(q_input, q_weight, q_bias, stride, padding, dilation, groups)
 
@@ -173,17 +185,19 @@ def _plain_conv(
 def _with_output[FormatsT: (QAffineFormats, QMatmulFormats)](
     formats: FormatsT, out: Callable, plain: Callable
 ) -> FormatsT:
-    """Round every forward result of ``formats`` with ``out``, after the bias.
+    """Make ``formats`` round each forward result with ``out``, after the bias is added.
 
-    ``formats.fwd_math``, or ``plain`` where it has none (``F.linear``,
-    :func:`_plain_conv` or ``torch.matmul``: the call the layer's Function
-    makes then), runs first, and ``out`` rounds what it returns. That happens
-    inside the Function's forward, which the backward never sees, so the
-    rounding is straight-through. The result is the hook's own fresh tensor
-    (every factory's here), so a ``Quant`` rounds it in place, except when it
-    widens to binary64 or the result is not contiguous (a channels_last
-    convolution's), which the in-place quantizers refuse. ``formats`` is
-    changed and returned.
+    The forward runs ``formats.fwd_math``, or ``plain`` when there is none
+    (``F.linear``, :func:`_plain_conv` or ``torch.matmul``, the call the
+    layer's autograd Function would make), and then ``out`` rounds its result.
+    The rounding happens inside the Function's forward, which the backward
+    pass does not differentiate, so its gradient passes straight through. The
+    result is a new tensor the hook allocated (true of every hook in this
+    module), so a ``Quant`` rounds it in place. The exceptions are a
+    ``Quant`` with ``carrier=torch.float64`` and a result that is not
+    contiguous (a channels_last convolution's), which the in-place quantizers
+    refuse; those round into a new tensor. ``formats`` is modified in place
+    and returned.
     """
     run = formats.fwd_math or plain
     in_place = (
@@ -236,92 +250,95 @@ def binaryK_gemm_formats(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """Build a ``QAffineFormats`` whose dot products run in a binaryK GEMM.
+    """Build a ``QAffineFormats`` whose matrix products run in a binaryK GEMM.
 
-    The returned formats set ``fwd_math``, ``bwd_igrad_math`` and
-    ``bwd_wgrad_math``. A Linear layer's forward GEMM and both of its
-    gradient GEMMs then run through
-    :func:`mptorch.quant.ops.binaryK_matmul`, which takes these same
-    arguments. Every product is rounded to the ``mul_*`` format. When
-    ``accumulate_quant`` is set, every partial sum is rounded to the
-    ``acc_*`` format.
+    The returned container sets ``fwd_math``, ``bwd_igrad_math`` and
+    ``bwd_wgrad_math``, so a Linear layer's forward product and both of its
+    gradient products run through :func:`mptorch.quant.ops.binaryK_matmul`,
+    which takes these same arguments. Every product is rounded to the
+    multiply format (the ``mul_*`` arguments). When ``accumulate_quant`` is
+    set, every partial sum is rounded to the accumulate format (the ``acc_*``
+    arguments).
 
-    The format is resolved once, here, so each pass costs only the op. Every
-    pass checks the formats against the carrier of the tensors it runs on:
-    binary64 for a float64 layer and binary32 otherwise, unless ``carrier``
-    names one. It warns with :class:`mptorch.FormatRangeWarning` about a
-    range that the carrier cannot hold.
+    The formats are resolved once, here, so each pass costs only the op. Each
+    pass checks the formats against the carrier of the tensors it runs on
+    (binary64 for a float64 layer and binary32 otherwise, unless ``carrier``
+    names one), and warns with :class:`mptorch.FormatRangeWarning` about any
+    part of their range that the carrier cannot hold.
 
     Args:
         mul_K (int): total width in bits of the multiply format.
-        mul_P (int): precision (significand bits, the implicit one included)
-            of the multiply format.
+        mul_P (int): precision of the multiply format: its significand bits,
+            including the implicit leading bit.
         mul_bias (int, optional): exponent bias of the multiply format.
-            ``None`` takes IEEE P3109's, ``2**(K-P-1)`` signed and
-            ``2**(K-P)`` unsigned. Default: ``None``
+            ``None`` takes IEEE P3109's, ``2**(K-P-1)`` if signed and
+            ``2**(K-P)`` if unsigned. Default: ``None``
         mul_is_signed (bool): whether the multiply format has a sign bit.
             Default: ``True``
-        mul_prng_bits (int): random bits drawn per stochastic rounding of a
-            product; only read when ``rounding_mode`` is ``RoundMode.SR``.
-            Default: ``0``
+        mul_prng_bits (int): number of random bits drawn to round a product
+            stochastically; read only under a stochastic rounding mode
+            (``RoundMode.SR``, ``SR_B`` or ``SR_C``). Default: ``0``
         accumulate_quant (bool): whether the running sum is rounded to the
-            ``acc_*`` format after every step. ``False`` keeps it in the
-            carrier's precision and ignores the ``acc_*`` widths.
-            Default: ``True``
-        acc_K (int, optional): width of the accumulate format. ``None`` takes
-            ``mul_K``. Default: ``None``
+            accumulate format after every step. ``False`` leaves it in the
+            carrier and ignores the ``acc_*`` widths. Default: ``True``
+        acc_K (int, optional): total width of the accumulate format. ``None``
+            takes ``mul_K``. Default: ``None``
         acc_P (int, optional): precision of the accumulate format. ``None``
             takes ``mul_P``. Default: ``None``
         acc_bias (int, optional): exponent bias of the accumulate format.
-            ``None`` takes P3109's for ``acc_K``/``acc_P``. Default: ``None``
-        acc_is_signed (bool, optional): sign bit of the accumulate format.
-            ``None`` takes ``mul_is_signed``. Default: ``None``
-        acc_prng_bits (int): random bits per stochastic rounding of a partial
-            sum. Default: ``0``
+            ``None`` takes P3109's for ``acc_K`` and ``acc_P``. Default: ``None``
+        acc_is_signed (bool, optional): whether the accumulate format has a
+            sign bit. ``None`` takes ``mul_is_signed``. Default: ``None``
+        acc_prng_bits (int): number of random bits drawn to round a partial
+            sum stochastically. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
-            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
+            summed: ``NAIVE``, ``KAHAN``, ``BLOCK`` or ``TREE``, as for
+            :func:`mptorch.quant.binaryK_matmul`.
             Default: ``AccumulateAlgorithm.NAIVE``
-        rounding_mode (RoundMode): rounding for both formats; one mode for
-            both because the kernels take it as a template parameter.
-            Default: ``RoundMode.RNE``
-        saturation_mode (SaturationMode): overflow behaviour of the multiply
-            format. Default: ``SaturationMode.SAT_NONE``
-        subnormals_mode (SubnormalsMode): what the multiply format keeps
-            below its smallest normal. Default: ``SubnormalsMode.SUBNORMALS``
-        acc_saturation_mode (SaturationMode, optional): overflow behaviour of
-            the accumulate format. ``None`` takes ``saturation_mode``.
+        rounding_mode (RoundMode): the rounding mode of every format the GEMM
+            rounds to. There is a single mode because the kernels take it as
+            a compile-time template parameter. Default: ``RoundMode.RNE``
+        saturation_mode (SaturationMode): what the multiply format does on
+            overflow. Default: ``SaturationMode.SAT_NONE``
+        subnormals_mode (SubnormalsMode): what the multiply format has below
+            its smallest normal number. Default: ``SubnormalsMode.SUBNORMALS``
+        acc_saturation_mode (SaturationMode, optional): what the accumulate
+            format does on overflow. ``None`` takes ``saturation_mode``.
             Default: ``None``
-        acc_subnormals_mode (SubnormalsMode, optional): subnormal handling of
-            the accumulate format. ``None`` takes ``subnormals_mode``.
-            Default: ``None``
-        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
-            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
-        outer_K (int, optional): width of the outer format ``BLOCK`` and
-            ``TREE`` round their total to, as for
-            :func:`mptorch.quant.binaryK_matmul`, which documents it and the
-            rest of its spelling: ``outer_P``, ``outer_bias``,
+        acc_subnormals_mode (SubnormalsMode, optional): what the accumulate
+            format has below its smallest normal number. ``None`` takes
+            ``subnormals_mode``. Default: ``None``
+        block_size (int, optional): the block size of ``BLOCK`` and ``TREE``,
+            as for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_K (int, optional): total width of the outer format, which
+            ``BLOCK`` and ``TREE`` round the sum of the blocks to. The outer
+            format's other arguments are ``outer_P``, ``outer_bias``,
             ``outer_is_signed``, ``outer_prng_bits``,
-            ``outer_saturation_mode`` and ``outer_subnormals_mode``.
-            Default: ``None``, an unrounded total.
+            ``outer_saturation_mode`` and ``outer_subnormals_mode``, all as
+            documented for :func:`mptorch.quant.binaryK_matmul`.
+            Default: ``None``, which leaves the sum of the blocks unrounded.
         carrier (torch.dtype, optional): the float arithmetic the GEMM rounds
-            in. ``None`` takes the layer's (binary64 for float64, binary32 for
-            the rest); ``torch.float64`` runs a float32 or half-precision
-            layer in binary64 too and narrows each result back to the layer's
-            dtype; ``torch.float32`` on a float64 layer raises at the call.
-            Default: ``None``
-        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
-            steps to odd, as for :func:`mptorch.quant.binaryK_matmul`,
-            for every pass of the layer. Default: ``RoundMode.RNE``
+            in. ``None`` follows the layer's dtype (binary64 for float64,
+            binary32 for the others). ``torch.float64`` also runs a float32 or
+            half-precision layer in binary64, and narrows each result back to
+            the layer's dtype. ``torch.float32`` on a float64 layer raises
+            when the layer is called. Default: ``None``
+        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds each operation
+            in the carrier to odd instead of to nearest, in every pass of the
+            layer, as for :func:`mptorch.quant.binaryK_matmul`.
+            Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set and every
         ``*_quant`` slot left ``None``.
 
     Raises:
-        ValueError: for a format no carrier can hold (precision above 53
-            bits, an exponent field past 30 bits, stochastic bits with no
-            significand left) or a ``carrier`` that names no carrier.
+        ValueError: for a format that no carrier can hold (more than 53 bits
+            of precision, an exponent field wider than 30 bits, or too many
+            stochastic-rounding bits to fit in the significand), a
+            ``carrier`` other than ``torch.float32``, ``torch.float64`` or
+            ``None``, or a ``carrier_rounding`` other than ``RNE`` or ``RO``.
+        TypeError: for a ``carrier`` that is not a ``torch.dtype``.
 
     Example::
 
@@ -447,57 +464,61 @@ def binaryK_gemm_formats_fma(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """Fused-multiply-add analog of :func:`binaryK_gemm_formats`.
+    """The fused multiply-add version of :func:`binaryK_gemm_formats`.
 
-    Each dot-product step is one fused multiply-add,
-    ``round_fma(s + a * b)``, rounded once to the ``fma_*`` format
-    (:func:`mptorch.quant.ops.binaryK_matmul_fma`). It replaces a rounded
-    multiply followed by a separately rounded add. The general contract is
-    that of :func:`binaryK_gemm_formats`: resolution at construction, the
-    carrier and the warnings.
+    Each step of the dot product is one fused multiply-add,
+    ``round_fma(s + a * b)``, rounded once to the fused format (the ``fma_*``
+    arguments; :func:`mptorch.quant.ops.binaryK_matmul_fma`), in place of a
+    rounded product followed by a separately rounded sum. Otherwise it works
+    as :func:`binaryK_gemm_formats` does: the formats are resolved when it is
+    called, and each pass checks them against its carrier and warns.
 
     Args:
         fma_K (int): total width in bits of the fused format.
-        fma_P (int): precision of the fused format, the implicit bit included.
+        fma_P (int): precision of the fused format, including the implicit
+            leading bit.
         fma_bias (int, optional): exponent bias; ``None`` takes IEEE P3109's.
             Default: ``None``
-        fma_is_signed (bool): whether the format has a sign bit.
+        fma_is_signed (bool): whether the fused format has a sign bit.
             Default: ``True``
-        fma_quant (bool): whether each fused step is rounded at all.
-            ``False`` runs unrounded fused steps in the carrier.
+        fma_quant (bool): whether each fused step is rounded to the fused
+            format. ``False`` leaves the running sum in the carrier.
             Default: ``True``
-        fma_prng_bits (int): random bits per stochastic rounding; only read
-            when ``rounding_mode`` is ``RoundMode.SR``. Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): how the products are
-            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
-            Default: ``AccumulateAlgorithm.NAIVE``
-        rounding_mode (RoundMode): rounding of each fused step.
-            Default: ``RoundMode.RNE``
-        saturation_mode (SaturationMode): overflow behaviour.
-            Default: ``SaturationMode.SAT_NONE``
-        subnormals_mode (SubnormalsMode): subnormal handling.
-            Default: ``SubnormalsMode.SUBNORMALS``
-        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
-            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
-        outer_K (int, optional): width of the outer format ``BLOCK`` and
-            ``TREE`` round their total to, as for
-            :func:`mptorch.quant.binaryK_matmul`, which documents it and the
-            rest of its spelling: ``outer_P``, ``outer_bias``,
+        fma_prng_bits (int): number of random bits drawn to round a step
+            stochastically; read only under a stochastic rounding mode
+            (``RoundMode.SR``, ``SR_B`` or ``SR_C``). Default: ``0``
+        accumulate_algorithm (AccumulateAlgorithm): how the steps are summed:
+            ``NAIVE``, ``KAHAN`` or ``BLOCK``, as for
+            :func:`mptorch.quant.binaryK_matmul`. ``TREE`` raises, since it
+            adds products in pairs and a fused multiply-add has no separate
+            product. Default: ``AccumulateAlgorithm.NAIVE``
+        rounding_mode (RoundMode): the rounding mode of each fused step (and
+            of the outer format). Default: ``RoundMode.RNE``
+        saturation_mode (SaturationMode): what the fused format does on
+            overflow. Default: ``SaturationMode.SAT_NONE``
+        subnormals_mode (SubnormalsMode): what the fused format has below its
+            smallest normal number. Default: ``SubnormalsMode.SUBNORMALS``
+        block_size (int, optional): the block size of ``BLOCK``, as for
+            :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_K (int, optional): total width of the outer format, which
+            ``BLOCK`` rounds the sum of the blocks to. The outer format's
+            other arguments are ``outer_P``, ``outer_bias``,
             ``outer_is_signed``, ``outer_prng_bits``,
-            ``outer_saturation_mode`` and ``outer_subnormals_mode``.
-            Default: ``None``, an unrounded total.
+            ``outer_saturation_mode`` and ``outer_subnormals_mode``, all as
+            documented for :func:`mptorch.quant.binaryK_matmul`.
+            Default: ``None``, which leaves the sum of the blocks unrounded.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
-        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
-            steps to odd, as for :func:`mptorch.quant.binaryK_matmul_fma`,
-            for every pass of the layer. Default: ``RoundMode.RNE``
+        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds each operation
+            in the carrier to odd, in every pass of the layer, as for
+            :func:`mptorch.quant.binaryK_matmul_fma`. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
 
     Raises:
-        ValueError: as for :func:`binaryK_gemm_formats`.
+        ValueError: as for :func:`binaryK_gemm_formats`, and for ``TREE``.
+        TypeError: as for :func:`binaryK_gemm_formats`.
 
     Example::
 
@@ -606,73 +627,77 @@ def superfp_gemm_formats(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """superfp analog of :func:`binaryK_gemm_formats`.
+    """The superfp version of :func:`binaryK_gemm_formats`.
 
-    The dot products run through :func:`mptorch.quant.ops.superfp_matmul`.
-    Products are rounded to the ``mul_*`` superfp format. When
-    ``accumulate_quant`` is set, partial sums are rounded to the ``acc_*``
-    one. A superfp format keeps a mantissa in the top ``normal_binades``
-    binades of its range and spends the rest of its codes on supernormal
-    values, which are powers of two with no mantissa. It has no subnormals,
-    so there is no ``subnormals_mode``.
-    :func:`superfp_gemm_formats_fma` is the fused-multiply-add analog.
+    The matrix products run through :func:`mptorch.quant.ops.superfp_matmul`.
+    Products are rounded to the superfp multiply format (the ``mul_*``
+    arguments). When ``accumulate_quant`` is set, partial sums are rounded to
+    the superfp accumulate format (the ``acc_*`` arguments). A superfp format
+    has a full mantissa only in the top ``normal_binades`` binades of its
+    range, and uses the rest of its codes for *supernormals*: powers of two
+    with no mantissa, which extend the range downward. It has no subnormals,
+    so there is no ``subnormals_mode``. :func:`superfp_gemm_formats_fma` is
+    the fused multiply-add version.
 
     Args:
         mul_man_bits (int): mantissa bits of the multiply format.
         mul_exp_bits (int): exponent bits of the multiply format.
-        mul_normal_binades (int): binades with a full mantissa in the multiply
-            format.
-        mul_bias (int): exponent bias of the multiply format (required; superfp
-            has no conventional default).
+        mul_normal_binades (int): number of binades with a full mantissa in
+            the multiply format.
+        mul_bias (int): exponent bias of the multiply format. It is required,
+            since superfp has no standard default.
         mul_is_signed (bool): whether the multiply format has a sign bit.
             Default: ``True``
-        mul_prng_bits (int): random bits per stochastic rounding of a product.
-            Default: ``0``
+        mul_prng_bits (int): number of random bits drawn to round a product
+            stochastically. Default: ``0``
         accumulate_quant (bool): whether partial sums are rounded to the
-            ``acc_*`` format. Default: ``True``
-        acc_man_bits (int, optional): ``None`` takes ``mul_man_bits``.
+            accumulate format. Default: ``True``
+        acc_man_bits (int, optional): mantissa bits of the accumulate format.
+            ``None`` takes ``mul_man_bits``. Default: ``None``
+        acc_exp_bits (int, optional): exponent bits of the accumulate format.
+            ``None`` takes ``mul_exp_bits``. Default: ``None``
+        acc_normal_binades (int, optional): binades with a full mantissa in
+            the accumulate format. ``None`` takes ``mul_normal_binades``.
             Default: ``None``
-        acc_exp_bits (int, optional): ``None`` takes ``mul_exp_bits``.
-            Default: ``None``
-        acc_normal_binades (int, optional): ``None`` takes
-            ``mul_normal_binades``. Default: ``None``
-        acc_bias (int, optional): ``None`` takes ``mul_bias``. Default: ``None``
-        acc_is_signed (bool, optional): ``None`` takes ``mul_is_signed``.
-            Default: ``None``
-        acc_prng_bits (int): random bits per stochastic rounding of a partial
-            sum. Default: ``0``
+        acc_bias (int, optional): exponent bias of the accumulate format.
+            ``None`` takes ``mul_bias``. Default: ``None``
+        acc_is_signed (bool, optional): whether the accumulate format has a
+            sign bit. ``None`` takes ``mul_is_signed``. Default: ``None``
+        acc_prng_bits (int): number of random bits drawn to round a partial
+            sum stochastically. Default: ``0``
         accumulate_algorithm (AccumulateAlgorithm): how the products are
-            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
+            summed: ``NAIVE``, ``KAHAN``, ``BLOCK`` or ``TREE``, as for
+            :func:`mptorch.quant.binaryK_matmul`.
             Default: ``AccumulateAlgorithm.NAIVE``
-        rounding_mode (RoundMode): rounding for both formats.
-            Default: ``RoundMode.RNE``
-        saturation_mode (SaturationMode): overflow behaviour of the multiply
-            format. Default: ``SaturationMode.SAT_NONE``
-        acc_saturation_mode (SaturationMode, optional): ``None`` takes
-            ``saturation_mode``. Default: ``None``
-        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
-            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
-        outer_man_bits (int, optional): mantissa bits of the outer format
-            ``BLOCK`` and ``TREE`` round their total to, as for
-            :func:`mptorch.quant.superfp_matmul`, which documents it and the
-            rest of its spelling: ``outer_exp_bits``,
+        rounding_mode (RoundMode): the rounding mode of every format the GEMM
+            rounds to. Default: ``RoundMode.RNE``
+        saturation_mode (SaturationMode): what the multiply format does on
+            overflow. Default: ``SaturationMode.SAT_NONE``
+        acc_saturation_mode (SaturationMode, optional): what the accumulate
+            format does on overflow. ``None`` takes ``saturation_mode``.
+            Default: ``None``
+        block_size (int, optional): the block size of ``BLOCK`` and ``TREE``,
+            as for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_man_bits (int, optional): mantissa bits of the outer format,
+            which ``BLOCK`` and ``TREE`` round the sum of the blocks to. The
+            outer format's other arguments are ``outer_exp_bits``,
             ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,
-            ``outer_prng_bits`` and ``outer_saturation_mode``.
-            Default: ``None``, an unrounded total.
+            ``outer_prng_bits`` and ``outer_saturation_mode``, all as
+            documented for :func:`mptorch.quant.superfp_matmul`.
+            Default: ``None``, which leaves the sum of the blocks unrounded.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
-        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
-            steps to odd, as for :func:`mptorch.quant.superfp_matmul`,
-            for every pass of the layer. Default: ``RoundMode.RNE``
+        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds each operation
+            in the carrier to odd, in every pass of the layer, as for
+            :func:`mptorch.quant.superfp_matmul`. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
 
     Raises:
-        ValueError: for a format no carrier can hold, a ``normal_binades``
-            that leaves no supernormal codes, or a ``carrier`` that names no
-            carrier.
+        ValueError: as for :func:`binaryK_gemm_formats`, and for a
+            ``normal_binades`` that leaves no codes for supernormals.
+        TypeError: as for :func:`binaryK_gemm_formats`.
 
     Example::
 
@@ -797,53 +822,57 @@ def superfp_gemm_formats_fma(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """superfp analog of :func:`binaryK_gemm_formats_fma`.
+    """The superfp version of :func:`binaryK_gemm_formats_fma`.
 
-    Each dot-product step is one fused multiply-add, rounded once to the
-    ``fma_*`` superfp format (:func:`mptorch.quant.ops.superfp_matmul_fma`).
+    Each step of the dot product is one fused multiply-add, rounded once to
+    the superfp fused format (:func:`mptorch.quant.ops.superfp_matmul_fma`).
     The arguments are the multiply-format arguments of
-    :func:`superfp_gemm_formats` under the ``fma_`` prefix, plus
-    ``fma_quant``, as in :func:`binaryK_gemm_formats_fma`.
+    :func:`superfp_gemm_formats` with the prefix ``fma_``, plus ``fma_quant``,
+    as in :func:`binaryK_gemm_formats_fma`.
 
     Args:
         fma_man_bits (int): mantissa bits of the fused format.
         fma_exp_bits (int): exponent bits of the fused format.
-        fma_normal_binades (int): binades with a full mantissa.
-        fma_bias (int): exponent bias (required).
-        fma_is_signed (bool): whether the format has a sign bit.
+        fma_normal_binades (int): number of binades with a full mantissa in
+            the fused format.
+        fma_bias (int): exponent bias of the fused format (required).
+        fma_is_signed (bool): whether the fused format has a sign bit.
             Default: ``True``
-        fma_quant (bool): whether each fused step is rounded at all.
+        fma_quant (bool): whether each fused step is rounded to the fused
+            format. ``False`` leaves the running sum in the carrier.
             Default: ``True``
-        fma_prng_bits (int): random bits per stochastic rounding.
-            Default: ``0``
-        accumulate_algorithm (AccumulateAlgorithm): how the products are
-            summed, as for :func:`mptorch.quant.binaryK_matmul`: ``NAIVE``,
-            ``KAHAN``, ``BLOCK`` or ``TREE`` (the last not for a fused mac).
+        fma_prng_bits (int): number of random bits drawn to round a step
+            stochastically. Default: ``0``
+        accumulate_algorithm (AccumulateAlgorithm): how the steps are summed:
+            ``NAIVE``, ``KAHAN`` or ``BLOCK``, as for
+            :func:`mptorch.quant.binaryK_matmul`. ``TREE`` raises, since a
+            fused multiply-add has no separate product to add in pairs.
             Default: ``AccumulateAlgorithm.NAIVE``
-        rounding_mode (RoundMode): rounding of each fused step.
-            Default: ``RoundMode.RNE``
-        saturation_mode (SaturationMode): overflow behaviour.
-            Default: ``SaturationMode.SAT_NONE``
-        block_size (int, optional): ``BLOCK``'s and ``TREE``'s block size, as
-            for :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
-        outer_man_bits (int, optional): mantissa bits of the outer format
-            ``BLOCK`` and ``TREE`` round their total to, as for
-            :func:`mptorch.quant.superfp_matmul`, which documents it and the
-            rest of its spelling: ``outer_exp_bits``,
+        rounding_mode (RoundMode): the rounding mode of each fused step (and
+            of the outer format). Default: ``RoundMode.RNE``
+        saturation_mode (SaturationMode): what the fused format does on
+            overflow. Default: ``SaturationMode.SAT_NONE``
+        block_size (int, optional): the block size of ``BLOCK``, as for
+            :func:`mptorch.quant.binaryK_matmul`. Default: ``None``
+        outer_man_bits (int, optional): mantissa bits of the outer format,
+            which ``BLOCK`` rounds the sum of the blocks to. The outer
+            format's other arguments are ``outer_exp_bits``,
             ``outer_normal_binades``, ``outer_bias``, ``outer_is_signed``,
-            ``outer_prng_bits`` and ``outer_saturation_mode``.
-            Default: ``None``, an unrounded total.
+            ``outer_prng_bits`` and ``outer_saturation_mode``, all as
+            documented for :func:`mptorch.quant.superfp_matmul`.
+            Default: ``None``, which leaves the sum of the blocks unrounded.
         carrier (torch.dtype, optional): as for :func:`binaryK_gemm_formats`.
             Default: ``None``
-        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds the carrier's
-            steps to odd, as for :func:`mptorch.quant.superfp_matmul_fma`,
-            for every pass of the layer. Default: ``RoundMode.RNE``
+        carrier_rounding (RoundMode): ``RoundMode.RO`` rounds each operation
+            in the carrier to odd, in every pass of the layer, as for
+            :func:`mptorch.quant.superfp_matmul_fma`. Default: ``RoundMode.RNE``
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
 
     Raises:
-        ValueError: as for :func:`superfp_gemm_formats`.
+        ValueError: as for :func:`superfp_gemm_formats`, and for ``TREE``.
+        TypeError: as for :func:`binaryK_gemm_formats`.
 
     Example::
 
@@ -924,9 +953,10 @@ def superfp_gemm_formats_fma(
     return _gemm_formats(partial(_run_gemm, spec))
 
 
-# What a matmul's three hooks call: ``op(a) @ op(b)`` under torch.matmul's
-# operand rules (batch broadcasting and 1D promotion), where the Linear hooks
-# above flatten to 2D themselves. The flags transpose ``a`` and ``b``.
+# A resolved GEMM for a matmul's hooks, called as `matmul(a, b, ta, tb)`: like
+# `_Matmul2D`, but under torch.matmul's operand rules (batch broadcasting and
+# 1D promotion) rather than on 2D operands, which the Linear hooks above make
+# by flattening. `ta` and `tb` say whether `a` and `b` are transposed.
 _MatmulNd = Callable[[torch.Tensor, torch.Tensor, bool, bool], torch.Tensor]
 
 
@@ -959,23 +989,25 @@ def binaryK_superfp_gemm_formats(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """Cross-family analog of :func:`binaryK_gemm_formats`: binaryK products, superfp sums.
+    """A version of :func:`binaryK_gemm_formats` with binaryK products and superfp sums.
 
-    The dot products run through
+    The matrix products run through
     :func:`mptorch.quant.ops.binaryK_superfp_matmul`, which documents every
-    argument: products are rounded to the binaryK ``mul_*`` format and partial
-    sums to the superfp ``acc_*`` format, which is required (an unrounded sum
-    is :func:`binaryK_gemm_formats` with ``accumulate_quant=False``). With
-    ``BLOCK`` or ``TREE`` the outer format is a superfp one.
-    ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
-    every pass, as for :func:`mptorch.quant.ops.binaryK_superfp_matmul`.
+    argument. Products are rounded to the binaryK multiply format (the
+    ``mul_*`` arguments) and partial sums to the superfp accumulate format
+    (the ``acc_*`` arguments). The accumulate format is required: for an
+    unrounded sum, use :func:`binaryK_gemm_formats` with
+    ``accumulate_quant=False``. Under ``BLOCK`` or ``TREE`` the outer format
+    is a superfp format too. ``carrier_rounding=RoundMode.RO`` rounds each
+    operation in the carrier to odd, in every pass, as for
+    :func:`mptorch.quant.ops.binaryK_superfp_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
 
     Raises:
-        ValueError: for a format no carrier can hold, or a ``carrier`` that is
-            ``torch.float64`` or names no carrier.
+        ValueError: as for :func:`superfp_gemm_formats`.
+        TypeError: as for :func:`binaryK_gemm_formats`.
 
     Example::
 
@@ -1103,24 +1135,25 @@ def superfp_binaryK_gemm_formats(
     carrier: torch.dtype | None = None,
     carrier_rounding: RoundMode = RoundMode.RNE,
 ) -> QAffineFormats:
-    """Cross-family analog of :func:`superfp_gemm_formats`: superfp products, binaryK sums.
+    """A version of :func:`superfp_gemm_formats` with superfp products and binaryK sums.
 
-    The dot products run through
+    The matrix products run through
     :func:`mptorch.quant.ops.superfp_binaryK_matmul`, which documents every
-    argument: products are rounded to the superfp ``mul_*`` format and partial
-    sums to the binaryK ``acc_*`` format, which is required (an unrounded sum
-    is :func:`superfp_gemm_formats` with ``accumulate_quant=False``). With
-    ``BLOCK`` or ``TREE`` the outer format is a binaryK one.
-    ``carrier_rounding=RoundMode.RO`` rounds the carrier's steps to odd in
-    every pass, as for :func:`mptorch.quant.ops.superfp_binaryK_matmul`.
+    argument. Products are rounded to the superfp multiply format (the
+    ``mul_*`` arguments) and partial sums to the binaryK accumulate format
+    (the ``acc_*`` arguments). The accumulate format is required: for an
+    unrounded sum, use :func:`superfp_gemm_formats` with
+    ``accumulate_quant=False``. Under ``BLOCK`` or ``TREE`` the outer format
+    is a binaryK format too. ``carrier_rounding=RoundMode.RO`` rounds each
+    operation in the carrier to odd, in every pass, as for
+    :func:`mptorch.quant.ops.superfp_binaryK_matmul`.
 
     Returns:
         QAffineFormats: with the three ``*_math`` hooks set.
 
     Raises:
-        ValueError: for a format no carrier can hold, a ``normal_binades``
-            that leaves no supernormal codes, or a ``carrier`` that is
-            ``torch.float64`` or names no carrier.
+        ValueError: as for :func:`superfp_gemm_formats`.
+        TypeError: as for :func:`binaryK_gemm_formats`.
 
     Example::
 
@@ -1221,15 +1254,15 @@ def superfp_binaryK_gemm_formats(
 def _matmul_formats(
     fwd_matmul: _MatmulNd, agrad_matmul: _MatmulNd, bgrad_matmul: _MatmulNd
 ) -> QMatmulFormats:
-    """Build the three matmul math hooks, one resolved GEMM per pass.
+    """Build the three math hooks of a matmul, each calling a resolved GEMM.
 
-    The transpose table is the whole difference from :func:`_gemm_formats`:
-    the forward is ``a @ b``, ``a``'s gradient is ``grad @ b^T`` and ``b``'s
-    is ``a^T @ grad``. Nothing is flattened and no bias is added, since a
-    matmul has no leading dimension it may fold (broadcasting over the batch
-    is part of its contract) and no bias. It takes three matmuls rather than
-    one because a palette's ``prec_idx`` map is per pass; every other format
-    passes the same matmul three times.
+    The difference from :func:`_gemm_formats` is which operands each pass
+    transposes: the forward is ``a @ b``, ``a``'s gradient is ``grad @ b^T``
+    and ``b``'s is ``a^T @ grad``. Nothing is flattened and no bias is added,
+    since a matmul broadcasts over its batch dimensions instead of merging
+    them, and has no bias. It takes one GEMM per pass because a palette needs
+    a different ``prec_idx`` map in each pass; every other format passes the
+    same GEMM three times.
     """
 
     def fwd(q_a: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
@@ -1245,14 +1278,14 @@ def _matmul_formats(
 
 
 def _mixed_matmul(spec, prec_idx: torch.Tensor | None, pass_name: str, argument: str):
-    """One pass's matmul over a palette op, or a hook that names the missing map.
+    """Return one pass's GEMM over a palette op, or, without a map, a hook that raises.
 
-    A ``prec_idx`` is indexed by *output* element, and the three passes of a
-    matmul have three different output shapes: ``[M, N]``, ``[M, K]`` and
-    ``[K, N]``. One map cannot serve all three, so a pass whose map was not
-    given gets a hook that raises naming the ``matmul_formats`` argument to
-    pass, rather than a shape error from the op or a silent fallback to
-    unquantized arithmetic.
+    A ``prec_idx`` map has one entry per *output* element, and the three
+    passes of a matmul have outputs of three different shapes: ``[M, N]``,
+    ``[M, K]`` and ``[K, N]``. One map cannot serve all three, so a pass whose
+    map was not given gets a hook that raises an error naming the
+    ``matmul_formats`` argument to pass, instead of failing with a shape error
+    from the op or silently falling back to unquantized arithmetic.
     """
     if prec_idx is None:
 
@@ -1283,23 +1316,24 @@ def matmul_formats(
     gradient ``a^T @ grad`` each run through the GEMM op that ``mac`` resolves
     to.
 
-    A palette in any of ``mac``'s slots selects the per-output-element op,
-    which needs one ``prec_idx`` map per pass. The maps are bound into the
-    hooks here instead of being passed through every call. A gradient pass
-    whose map is missing raises when it is reached; it does not fall back to
+    A ``Palette`` in any of ``mac``'s slots selects a format per output
+    element, which needs one ``prec_idx`` map per pass. The maps are bound
+    into the hooks here, so they need not be passed on every call. A gradient
+    pass whose map is missing raises when it runs; it does not fall back to
     unquantized arithmetic.
 
-    Like the four ``*_gemm_formats`` factories, this sets only the math
-    hooks. The caller adds elementwise operand quantization (``a_quant``,
-    ``b_quant``, ``agrad_quant``, ``bgrad_quant``) separately.
+    Like the six binaryK and superfp ``*_gemm_formats`` factories, this sets
+    only the math hooks. The caller adds the elementwise operand quantizers
+    (``a_quant``, ``b_quant``, ``agrad_quant``, ``bgrad_quant``) separately.
 
     Args:
         mac (SplitMac or FusedMac): the dot-product arithmetic, resolved once
             through :func:`mptorch.quant.mac.spec_for_mac`.
-        prec_idx (Tensor, optional): integer map selecting a palette entry per
-            element of the forward's output, shaped like ``a @ b`` (``[M, N]``,
-            ``[M, 1]`` or ``[1, N]``, optionally batched). Required by, and
-            only by, a palette ``mac``. Default: ``None``
+        prec_idx (Tensor, optional): integer map selecting a palette entry for
+            each element of the forward pass's output, shaped like ``a @ b``
+            (``[M, N]``, ``[M, 1]`` or ``[1, N]``, optionally batched). A
+            palette ``mac`` requires it, and any other ``mac`` rejects it.
+            Default: ``None``
         agrad_prec_idx (Tensor, optional): the map for ``a``'s gradient,
             shaped like ``grad @ b^T``. Default: ``None``
         bgrad_prec_idx (Tensor, optional): the map for ``b``'s gradient,
@@ -1310,8 +1344,9 @@ def matmul_formats(
         ``bwd_bgrad_math`` set and every ``*_quant`` slot left ``None``.
 
     Raises:
-        ValueError: if ``mac`` holds a palette and ``prec_idx`` is ``None``, or
-            if a map is given for a ``mac`` with no palette to select from.
+        ValueError: if ``mac`` holds a palette and ``prec_idx`` is ``None``,
+            or if any map is given for a ``mac`` with no palette to select
+            from.
 
     Example::
 
@@ -1346,33 +1381,36 @@ def matmul_formats(
 # --- block formats --------------------------------------------------------------
 #
 # The block GEMM (`mptorch.quant.block_matmul`) multiplies packed operands,
-# each read along its K: packed along K, or along its other dimension and read
-# transposed. So each hook packs its operands along the dimension the pass
-# reduces over, as MX training recipes do, except an operand that arrives
-# packed: a weight packed once by `BlockQuant.pack` (a `weight_quant` slot), or
-# an operand of a square-tiled format, which quantizes to the same values
-# along either axis and so serves the backward pass read transposed. A 1D or
+# and reads each along its reduction dimension K: an operand is either packed
+# along K, or packed along its other dimension and read transposed. So each
+# hook packs its operands along the dimension its pass sums over, as MX
+# training recipes do, except an operand that arrives already packed. That is
+# a weight packed once by `BlockQuant.pack` (in a `weight_quant` slot), or an
+# operand in a square-tiled format, which quantizes to the same values along
+# either axis and so can serve the backward pass, read transposed. A 1D or
 # non-square format quantizes differently along each axis, so its backward
-# re-packs the float operand, and a weight that arrives packed in one cannot
-# be used for the input gradient.
+# pass packs the float operand again, and a weight that arrives packed in such
+# a format cannot be used for the input gradient.
 
 
 def _square_tile_hint(fmt: BlockFormat) -> str:
-    """How to spell the square-tiled variant of a format, for messages."""
+    """The expression that builds the square-tiled variant of a format, for messages."""
     return f"dataclasses.replace(fmt, block_rows={fmt.block_size})"
 
 
 def _packed_operand(q: BlockQuant, x: "torch.Tensor | BlockPacked", axis: int) -> BlockPacked:
-    """``x`` packed along ``axis`` by ``q``, unless it already is a packing."""
+    """Return ``x`` packed along ``axis`` by ``q``, or ``x`` itself if it is already packed."""
     return x if isinstance(x, BlockPacked) else q.pack_fresh(x, axis)
 
 
 def _reused(x: "torch.Tensor | BlockPacked", q: BlockQuant, where: str) -> BlockPacked | None:
-    """A packing the forward pass made, for a backward pass to read along its
-    other axis, or ``None`` when the float operand was saved (and is packed
-    anew). Only a square tile quantizes the same along both axes, so a packing
-    in a 1D or non-square format, or in a format other than the one this pass
-    rounds to, raises."""
+    """Return the packing the forward pass made, for a backward pass to read
+    along its other axis, or ``None`` if the float operand was saved instead
+    (the caller then packs it again).
+
+    Only a square tile quantizes to the same values along both axes, so a
+    packing in a 1D or non-square format raises, and so does a packing in a
+    format other than the one this pass rounds to."""
     if not isinstance(x, BlockPacked):
         return None
     if x.fmt != q.fmt:
@@ -1400,28 +1438,31 @@ def block_matmul_formats(
     Each pass packs its operands along the dimension it sums over:
 
     - The forward product ``a @ b`` packs ``a`` along its last dimension and
-      ``b`` along its second-to-last (their K), in ``mac``'s two formats.
-    - ``a``'s gradient ``grad @ b^T`` packs ``grad`` along its last dimension
-      and ``b`` along its last.
-    - ``b``'s gradient ``a^T @ grad`` packs ``a`` along its second-to-last
-      dimension and ``grad`` along its second-to-last.
+      ``b`` along its second-to-last (the dimension K they share), in
+      ``mac``'s two formats.
+    - ``a``'s gradient ``grad @ b^T`` packs both ``grad`` and ``b`` along
+      their last dimension.
+    - ``b``'s gradient ``a^T @ grad`` packs both ``a`` and ``grad`` along
+      their second-to-last dimension.
 
-    A gradient pass takes the formats of the slots it fills from
-    ``agrad_mac`` / ``bgrad_mac``, which default to ``mac``. An operand whose
-    format has square tiles is packed once, by the ``a_quant`` / ``b_quant``
-    slot that this function sets for it. The gradient passes read that
-    packing through :attr:`mptorch.quant.BlockPacked.mT`. Each pass's result
-    is in the carrier (float32, or float64 in binary64), stored in the
-    operands' dtype.
+    The gradient passes take their operands' formats from ``agrad_mac`` and
+    ``bgrad_mac``, which default to ``mac``. An operand whose format has
+    square tiles is packed only once, by the ``a_quant`` or ``b_quant`` slot
+    that this function sets for it, and the gradient passes read that packing
+    transposed, through :attr:`mptorch.quant.BlockPacked.mT`. Each pass
+    computes its result in the carrier (float32 for binary32, float64 for
+    binary64) and stores it in the operands' dtype.
 
     Args:
-        mac (BlockMac): the forward's operand formats and arithmetic.
-        agrad_mac (BlockMac, optional): ``a``'s gradient's. Default: ``None``
-        bgrad_mac (BlockMac, optional): ``b``'s gradient's. Default: ``None``
+        mac (BlockMac): the forward pass's operand formats and arithmetic.
+        agrad_mac (BlockMac, optional): the same for ``a``'s gradient.
+            Default: ``None``, which takes ``mac``.
+        bgrad_mac (BlockMac, optional): the same for ``b``'s gradient.
+            Default: ``None``, which takes ``mac``.
 
     Returns:
-        QMatmulFormats: the three math hooks, and ``a_quant`` / ``b_quant``
-        for square-tiled operands.
+        QMatmulFormats: with the three math hooks set, and ``a_quant`` or
+        ``b_quant`` for each operand in a square-tiled format.
 
     Example::
 
@@ -1465,8 +1506,8 @@ def block_matmul_formats(
 
 
 def cast_quant(slot: "BlockFormat | BlockQuant | None") -> BlockQuant:
-    """A ``BlockMac`` slot as the ``BlockQuant`` it was normalized to."""
-    assert slot is not None  # BlockMac.__post_init__ fills b in from a
+    """Return a ``BlockMac`` slot as the ``BlockQuant`` that ``BlockMac`` converted it to."""
+    assert slot is not None  # BlockMac.__post_init__ sets an unset b to a
     return _as_block_quant(slot, "a BlockMac slot")
 
 
@@ -1484,10 +1525,10 @@ def block_gemm_formats(
     carrier: torch.dtype | None = None,
     tensor_scale_epilogue: bool = False,
 ) -> QAffineFormats:
-    """Build a ``QAffineFormats`` whose three Linear GEMMs are block GEMMs.
+    """Build a ``QAffineFormats`` whose three Linear products are block GEMMs.
 
-    Each hook packs what it multiplies along the dimension it sums over, in
-    the format of the tensor's role:
+    Each hook packs the tensors it multiplies along the dimension it sums
+    over, each in the format of its role:
 
     - The forward product ``x @ w^T`` packs the input along its features in
       ``input``'s format, and the weight along its input features in
@@ -1495,53 +1536,58 @@ def block_gemm_formats(
     - The input gradient ``g @ w`` packs the output gradient along its
       features in ``grad``'s format (``input``'s by default), and the weight
       along its output features.
-    - The weight gradient ``g^T @ x`` packs both along the batch.
+    - The weight gradient ``g^T @ x`` packs both along the batch dimension.
 
-    The arithmetic (``acc``, ``fused``, ``rounding``, the accumulate
-    algorithm) is that of :func:`mptorch.quant.block_matmul` and is shared by
-    the three passes. Results are in the carrier (float32, or float64 in
-    binary64), stored in the input's dtype.
+    The arithmetic (``acc``, ``fused``, ``rounding`` and the accumulate
+    algorithm) is that of :func:`mptorch.quant.block_matmul`, and all three
+    passes share it. Each pass computes its result in the carrier (float32
+    for binary32, float64 for binary64) and stores it in the layer's dtype.
 
     A weight that arrives already packed, from
-    ``weight_quant = BlockQuant(fmt, axis=1).pack``, is used as it is. It is
-    then packed once per optimizer step instead of in each hook (the memo
-    sees the step's in-place write), and in inference only once.
+    ``weight_quant = BlockQuant(fmt, axis=1).pack``, is used as it is. The
+    ``pack`` method caches its result until the weight changes, so the weight
+    is packed once per optimizer step instead of once per hook, and only once
+    in inference.
 
-    With square tiles
-    (``dataclasses.replace(fmt, block_rows=fmt.block_size)``, NVFP4's 16 x 16
-    weights) the input gradient reads that packing transposed, so the forward
-    and backward passes see the same quantized weight. A 1D or non-square
-    weight format quantizes differently along the other axis. A weight packed
-    in such a format therefore raises in the input gradient. To train with
-    one, leave ``weight_quant`` unset.
+    With square tiles (``dataclasses.replace(fmt, block_rows=fmt.block_size)``,
+    such as NVFP4 with 16 x 16 weight tiles) the input gradient reads that
+    packing transposed, so the forward and backward passes see the same
+    quantized weight. A 1D or non-square weight format quantizes differently
+    along the other axis, so a weight packed in such a format raises in the
+    input gradient. To train with one, leave ``weight_quant`` unset.
 
     For inference, :meth:`mptorch.quant.QLinear.freeze_packed_` replaces the
-    layer's float weight by its codes in ``weight``'s format, and the layer
-    then holds only those (:class:`mptorch.quant.QPackedLinear`).
+    layer's float weight with its codes in ``weight``'s format, and the layer
+    then holds only the codes (:class:`mptorch.quant.QPackedLinear`).
 
     Args:
         input (BlockFormat or BlockQuant): the input's format (a
-            ``BlockQuant`` names its rounding and tensor scale).
-        weight (BlockFormat or BlockQuant): the weight's.
-        grad (BlockFormat or BlockQuant, optional): the output gradient's.
-            Default: ``None``, ``input``'s.
-        acc (BinaryK, optional): the accumulate format. Default: ``None``
-        fused (bool): a fused multiply-add per step. Default: ``False``
-        rounding (RoundMode): the sum's rounding mode. Default:
+            ``BlockQuant`` also sets its rounding and tensor scale).
+        weight (BlockFormat or BlockQuant): the weight's format.
+        grad (BlockFormat or BlockQuant, optional): the output gradient's
+            format. Default: ``None``, which takes ``input``'s.
+        acc (BinaryK, optional): the accumulate format. Default: ``None``,
+            which leaves the sum in the carrier.
+        fused (bool): whether each step is a fused multiply-add rounded to
+            ``acc``. Default: ``False``
+        rounding (RoundMode): the rounding mode of the sum. Default:
             ``RoundMode.RNE``
-        accumulate_algorithm (AccumulateAlgorithm): as for
-            :class:`mptorch.quant.SplitMac`. Default: ``AccumulateAlgorithm.NAIVE``
-        block_size (int, optional): BLOCK's and TREE's. Default: ``None``
-        outer (BinaryK, optional): BLOCK's and TREE's outer format.
+        accumulate_algorithm (AccumulateAlgorithm): how the products are
+            summed, as for :class:`mptorch.quant.SplitMac`.
+            Default: ``AccumulateAlgorithm.NAIVE``
+        block_size (int, optional): the block size of ``BLOCK`` and ``TREE``.
             Default: ``None``
+        outer (BinaryK, optional): the outer format of ``BLOCK`` and
+            ``TREE``. Default: ``None``
         carrier (torch.dtype, optional): ``torch.float64`` packs and
             multiplies in binary64 whatever the layer's dtype, as for
             :class:`mptorch.quant.BlockMac` (a ``BlockQuant`` that names its
-            own carrier keeps it). Default: ``None``, the layer's: binary64
-            for a float64 layer, binary32 otherwise.
-        tensor_scale_epilogue (bool): apply the operands' per-tensor scales
-            to each GEMM's result rather than in the decode, as NVIDIA's NVFP4
-            GEMMs do (:func:`mptorch.quant.block_matmul`). Default: ``False``
+            own carrier keeps it). Default: ``None``, which follows the
+            layer's dtype: binary64 for a float64 layer, binary32 otherwise.
+        tensor_scale_epilogue (bool): whether to apply the operands'
+            per-tensor scales to each GEMM's result instead of while decoding
+            the elements, as NVIDIA's NVFP4 GEMMs do
+            (:func:`mptorch.quant.block_matmul`). Default: ``False``
 
     Returns:
         QAffineFormats: with the three math hooks set and every ``*_quant``
@@ -1561,7 +1607,7 @@ def block_gemm_formats(
 
     def operand(slot: "BlockFormat | BlockQuant", name: str) -> BlockQuant:
         q = _as_block_quant(slot, name)
-        # the factory's carrier packs too, unless the operand names its own
+        # the factory's carrier also applies to packing, unless the operand names its own
         if carrier is torch.float64 and q.carrier is None:
             q = replace(q, carrier=torch.float64)
         return q
@@ -1606,6 +1652,6 @@ def block_gemm_formats(
         return _stored_as(spec, out, q_wgrad_output.dtype)
 
     formats = QAffineFormats(fwd_math=fwd, bwd_igrad_math=bwd_igrad, bwd_wgrad_math=bwd_wgrad)
-    # the weight's format, which QLinear.freeze_packed_ packs a frozen weight in
+    # the weight's quantizer, which QLinear.freeze_packed_ uses to pack a frozen weight
     formats._block_weight = qw
     return formats

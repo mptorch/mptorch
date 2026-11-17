@@ -1,41 +1,49 @@
-"""What the layers' autograd Functions keep for backward.
+"""What the layers' autograd Functions keep for the backward pass.
 
 ``CustomArithLinear``, ``CustomArithConvNd`` and ``CustomArithMatmul`` need
 each quantized operand again in backward, one per gradient: the quantized
-input (or ``a``) for the weight's (``b``'s) gradient and the quantized weight
-for the input's. Each can keep the quantized tensor, a fresh copy the size of
-the operand, or keep the raw operand and quantize it again in backward. The
-second costs one more quantize pass and saves the copy, and that is a whole
-saving wherever the raw operand is alive anyway: a weight always is, as the
-layer's parameter, and an input is when the op that made it keeps its own
-output for its backward (ReLU, softmax, sigmoid) or when it is the data
-batch. Each Function's module says what a ``None`` flag means for it
-(``_LINEAR_RECOMPUTE_DEFAULT`` and its two siblings).
+input (or ``a``) for the weight's (``b``'s) gradient, and the quantized
+weight for the input's. For each operand there are two choices:
 
-A quantizer is run again only if it is known to depend on its input and the
-random generator alone -- mptorch's ``Quant`` (not in place), ``BlockQuant``
-called as a fake quantizer, and a ``Quantizer`` over one of those -- unless
-the caller sets the flag to ``True``, which is their promise that their own
-callable does too. Any other callable keeps its result saved: a QAT observer
-called twice would count a batch twice, or round differently in backward once
-its scale had moved. A quantizer whose result is not a tensor (a
-``BlockPacked``) keeps it saved too: it is compact already.
+* *keep the copy*: save the quantized tensor, a new tensor the size of the
+  operand, from the forward pass;
+* *recompute*: save the raw operand, and quantize it again in backward.
 
-Under stochastic rounding the second call must draw what the first drew, so
-the generators it reads are captured just before the forward's call and set
-back around the backward's, and left as the backward found them: the
-gradient quantizers and the math hooks draw exactly what they drew before.
-mptorch's CUDA kernels draw from their tensor's device's generator (every
-CUDA op runs on that device, ``csrc/cuda/device_guard.h``), and its CPU and
-MPS kernels from the CPU generator (``csrc/cpu/utils.h``, and
-``draw_cpu_seed`` on MPS); a caller's callable gets the CPU generator and its
-tensor's device's.
+Recomputing costs one more quantize pass and saves the copy's memory. The
+saving is real only where the raw operand stays alive anyway: a weight
+always does, as the layer's parameter, and an input does when the op that
+produced it keeps its own output for its backward (ReLU, softmax, sigmoid),
+or when it is the data batch. The module of each Function says what a
+``None`` flag means for it (``_LINEAR_RECOMPUTE_DEFAULT`` and its two
+counterparts).
 
-Under ``torch.compile`` such a replay keeps the quantized copy instead:
-Dynamo cannot trace reading or setting a generator's state, so the replay
-would break the graph, and what the copy holds is what the replay would
-return. A recompute that needs no generator state (a deterministic ``Quant``)
-traces, and runs as in eager.
+A quantizer is run a second time only if it is known to depend on nothing
+but its input and the random generators: mptorch's ``Quant`` (when not in
+place), ``BlockQuant`` called as a fake quantizer, and a ``Quantizer`` over
+either of them. The caller can set the flag to ``True`` to recompute with
+any other callable, which is their promise that it too depends on nothing
+else. Without that, any other callable keeps its result saved: a QAT
+observer called twice would count a batch twice, or round differently in
+backward once its scale had moved. A quantizer whose result is not a tensor
+(a ``BlockPacked``) also keeps its result saved, since it is already
+compact.
+
+Under stochastic rounding the second call must draw the same random bits as
+the first. So the state of the generators the quantizer reads is captured
+just before the forward's call, set back for the backward's call, and then
+restored to what backward found, so that the gradient quantizers and the
+math hooks draw exactly what they drew before. mptorch's CUDA kernels draw
+from the generator of their tensor's device (every CUDA op runs on that
+device, ``csrc/cuda/device_guard.h``), and its CPU and MPS kernels from the
+CPU generator (``csrc/cpu/utils.h``, and ``draw_cpu_seed`` on MPS). For a
+caller's own callable, both the CPU generator and its tensor's device
+generator are captured.
+
+Under ``torch.compile``, a recompute that needs generator state keeps the
+quantized copy instead: Dynamo cannot trace reading or setting a generator's
+state, so the recompute would break the graph, and the copy holds the same
+values the recompute would return. A recompute that needs no generator state
+(a deterministic ``Quant``) is traced and runs as in eager mode.
 """
 
 from collections.abc import Callable
@@ -47,14 +55,16 @@ from ..block import BlockPacked
 from ..mac import BlockQuant, Quant
 from .quantizer import Quantizer
 
-# (the CPU generator's state or None, ((device, its generator's state), ...))
+# (the CPU generator's state or None, ((device, that device's generator state), ...))
 _State = tuple[torch.Tensor | None, tuple[tuple[torch.device, torch.Tensor], ...]]
-# what backward needs to quantize a raw operand again
+# what backward needs to quantize a raw operand again: the quantizer, and the
+# generator states to run it under (None when it needs none)
 _Replay = tuple[Callable, _State | None]
 
 
 def _known(q: object) -> Quant | BlockQuant | None:
-    """The mptorch quantizer a slot runs, if it is one known to be stateless."""
+    """Return the mptorch quantizer that slot ``q`` runs, if it is one known
+    to be stateless, and ``None`` otherwise."""
     if isinstance(q, Quantizer):
         q = q.forward_quant
     if isinstance(q, Quant):
@@ -76,9 +86,12 @@ def _set_device_state(device: torch.device, state: torch.Tensor) -> None:
 
 
 def _capture(x: torch.Tensor, every: bool) -> _State:
-    """The states of the generators a quantizer of ``x`` can draw from:
-    mptorch's draws from one (``every=False``), a caller's callable from
-    the CPU's and its device's."""
+    """Capture the state of the generators a quantizer of ``x`` can draw from.
+
+    An mptorch quantizer (``every=False``) draws from one generator: the
+    CUDA device's for a CUDA tensor, the CPU's otherwise. A caller's callable
+    (``every=True``) may draw from both the CPU generator and ``x``'s device
+    generator, so both are captured."""
     kind = x.device.type
     cpu = torch.get_rng_state() if every or kind != "cuda" else None
     if kind == "cuda" or (kind == "mps" and every):
@@ -95,25 +108,33 @@ def quantize_operand(
 ) -> tuple[Any, Any, _Replay | None]:
     """Quantize one operand, and decide what backward keeps of it.
 
-    Returns ``(q_x, saved, replay)``: the quantized operand for the forward's
-    math; what to save for backward (``None`` when no gradient reads it: the
-    forward saves nothing its backward never reads); and ``None`` if ``saved``
-    is the quantized value, or the ``(quantizer, generator states)`` that
-    turns the raw ``saved`` back into it. ``q`` is a slot (``None`` is the
-    identity), ``flag`` the formats' recompute flag and ``default`` what
-    ``None`` means here. An operand that is not a tensor (a frozen layer's
-    ``BlockPacked`` weight) is passed through unquantized.
+    ``q`` is the quantizer slot (``None`` means no quantization), ``flag`` the
+    formats' recompute flag, ``default`` what a ``None`` flag means for this
+    operand, and ``needed`` whether any gradient reads the operand.
+
+    Returns ``(q_x, saved, replay)``:
+
+    * ``q_x``, the quantized operand, for the forward's math;
+    * ``saved``, what to save for backward, or ``None`` when no gradient reads
+      the operand, so that the forward saves nothing its backward never reads;
+    * ``replay``: ``None`` if ``saved`` is the quantized value, or the
+      ``(quantizer, generator states)`` that turn the raw ``saved`` back into
+      it.
+
+    An operand that is not a tensor (a frozen layer's ``BlockPacked`` weight)
+    is passed through as it is.
     """
     if not q:
         return x, (x if needed else None), None
     if type(x) is BlockPacked:
-        # Quantized already: a frozen layer's packed weight (QPackedLinear),
-        # whose codes are what its slot made before the freeze. Tested here,
-        # behind the slot, so that a layer without quantizers pays nothing,
-        # and by type, which is half an isinstance against torch.Tensor.
+        # Already quantized: a frozen layer's packed weight (QPackedLinear),
+        # whose codes are what its slot produced before the freeze. The test
+        # comes after the slot test, so that a layer without quantizers pays
+        # nothing for it, and compares the type, which costs about half as
+        # much as an isinstance check against torch.Tensor.
         return x, (x if needed else None), None
-    # _known only where it decides something: whether None may recompute,
-    # and whether True must rewind.
+    # Call _known only where its answer matters: whether a None flag may
+    # recompute, and whether a True flag must restore the generators.
     recompute, known = False, None
     if needed and (default if flag is None else flag):
         known = _known(q)
@@ -121,10 +142,11 @@ def quantize_operand(
     state = None
     if recompute and (known is None or known.rounding.is_stochastic):
         if torch.compiler.is_compiling():
-            # a replay under compile keeps the copy (the module docstring)
+            # under compile, keep the copy instead (see the module docstring)
             recompute = False
         else:
-            state = _capture(cast(torch.Tensor, x), known is None)  # not a BlockPacked, above
+            # x is a tensor here: a BlockPacked returned above
+            state = _capture(cast(torch.Tensor, x), known is None)
     q_x = q(x)
     if not needed:
         return q_x, None, None
@@ -134,9 +156,11 @@ def quantize_operand(
 
 
 def restore(saved: Any, replay: _Replay | None) -> Any:
-    """The quantized operand from what ``quantize_operand`` saved: ``saved``
-    itself, or the quantizer run again on the raw operand under the
-    generators as the forward's call saw them, which are then set back."""
+    """Return the quantized operand from what ``quantize_operand`` saved.
+
+    That is ``saved`` itself, or the quantizer run again on the raw operand,
+    with the generators set to the state the forward's call saw and then set
+    back to their current state."""
     if replay is None:
         return saved
     q, state = replay
@@ -159,9 +183,11 @@ def restore(saved: Any, replay: _Replay | None) -> Any:
 
 
 def save(ctx, a: object, b: object) -> None:
-    """Save the two operands: tensors through ``save_for_backward``, so an
-    in-place write to one before backward raises, and anything else (a
-    ``BlockPacked``) on ``ctx``, which ``save_for_backward`` does not take."""
+    """Save the two operands for backward.
+
+    Tensors go through ``save_for_backward``, so that an in-place write to one
+    before backward raises an error. Anything else (a ``BlockPacked``), which
+    ``save_for_backward`` does not accept, is stored on ``ctx``."""
     ta, tb = isinstance(a, torch.Tensor), isinstance(b, torch.Tensor)
     if (ta or a is None) and (tb or b is None):
         ctx.save_for_backward(a, b)
@@ -172,7 +198,7 @@ def save(ctx, a: object, b: object) -> None:
 
 
 def load(ctx) -> tuple[Any, Any]:
-    """The two operands ``save`` saved."""
+    """Return the two operands that ``save`` saved."""
     a, b = ctx.saved_tensors
     structs = ctx.saved_structs
     if structs is None:

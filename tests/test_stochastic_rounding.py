@@ -17,7 +17,8 @@ run every draw and count, in every region of every format: binaryK under its
 three subnormal modes, superfp's supernormal binades and the region below its
 smallest value, fixed point, both carriers, on the CPU and CUDA. The reference
 is the figure on ``Fraction``, with the neighbours from the kernels'
-deterministic casts; gfloat's three modes are a second oracle for binaryK.
+deterministic casts. gfloat's three modes are a second oracle for binaryK,
+compared result for result on every draw.
 Before cf69807, binaryK's subnormal arm and superfp's arm below its smallest
 value rounded ``|x|`` in the carrier first, and three arms ignored
 ``prng_bits`` (``dev/benchmarks/sweeps/cast_all_modes_sweep.cu sr-mean-old`` is that
@@ -27,7 +28,9 @@ Then every op that rounds stochastically takes the two new modes, CPU and CUDA
 agree bit for bit, and the Python layer knows them.
 """
 
+import functools
 import math
+import random
 from fractions import Fraction
 
 import pytest
@@ -297,32 +300,138 @@ def test_at_the_bound_b_and_c_are_a():
         assert torch.equal(CAST(x, draws, fmt.family, fmt.fields, mode.value), a)
 
 
-@pytest.mark.parametrize("mode", STOCHASTIC, ids=lambda m: m.name)
-def test_gfloat_agrees(mode):
-    """gfloat's StochasticFastest, StochasticFast and Stochastic are P3109's
-    A, B and C: its count of the draws that go up is ours, for binary8p3
-    (subnormals, no saturation in reach)."""
-    gfloat = pytest.importorskip("gfloat")
+# --- gfloat, result for result -------------------------------------------------
+#
+# P3109's three stochastic modes are the three that Fitzgibbon and Felix define in
+# "On Stochastic Rounding with Few Random Bits" (ARITH 2025, arXiv:2504.20634),
+# and gfloat implements them under other names:
+#
+#   mptorch   P3109         the paper   gfloat
+#   SR        StochasticA   SRFF        StochasticFastest
+#   SR_B      StochasticB   SRF         StochasticFast
+#   SR_C      StochasticC   SRC         Stochastic (rounding ties to even)
+#
+# These tests compare the kernel's result with gfloat's for every input under
+# every one of the 2^N draws, not just the number of draws that round up.
+# gfloat's round_ndarray returns what its round_float does, on whole arrays.
+
+GFLOAT_MODES = {R.SR: "StochasticFastest", R.SR_B: "StochasticFast", R.SR_C: "Stochastic"}
+
+
+def _p3109(K, P, signed):
+    """gfloat's description of P3109's binaryK format (extended domain)."""
+    import gfloat
     from gfloat.formats import format_info_p3109
 
-    rnd = {
-        R.SR: gfloat.RoundMode.StochasticFastest,
-        R.SR_B: gfloat.RoundMode.StochasticFast,
-        R.SR_C: gfloat.RoundMode.Stochastic,
-    }[mode]
-    fi = format_info_p3109(8, 3)
-    n = 4
-    fmt = binaryK(8, 3, 16, S, n)
-    xs = [k / 64 * 2**-15 for k in range(1, 128)] + [0.37, 1.3, 2.71, 7.9]
-    x = torch.tensor(xs)
-    up, stray, lo, hi = _counts(fmt, x, n, mode, torch.float32, "cpu")
-    assert not stray.any()
-    for i, v in enumerate(xs):
-        g = sum(
-            gfloat.round_float(fi, v, rnd, srbits=r, srnumbits=n) == hi[i].item()
-            for r in range(2**n)
-        )
-        assert int(up[i]) == (g if hi[i] != lo[i] else 0), (v, int(up[i]), g)
+    signedness = gfloat.Signedness.Signed if signed else gfloat.Signedness.Unsigned
+    return format_info_p3109(K, P, signedness)
+
+
+@functools.cache
+def _neighbours(K, P, signed):
+    """Every pair of neighbouring nonnegative finite values of the format, as
+    two float64 tensors (lower, upper). An input between them never rounds
+    past the largest finite value, so saturation, which other tests cover,
+    plays no part."""
+    import gfloat
+
+    fi = _p3109(K, P, signed)
+    codes = (gfloat.decode_float(fi, c).fval for c in range(2**K))
+    values = sorted({v for v in codes if math.isfinite(v) and v >= 0})
+    return torch.tensor(values[:-1], dtype=torch.float64), torch.tensor(
+        values[1:], dtype=torch.float64
+    )
+
+
+def _check_against_gfloat(K, P, signed, n, mode, x, device):
+    """Assert that ``_stochastic_cast`` and gfloat round every element of ``x``
+    to the same value under each of the 2^n draws."""
+    import gfloat
+
+    bias = 2 ** (K - P - 1) if signed else 2 ** (K - P)  # P3109's default
+    fields = [K, P, bias, n, int(signed), SAT.value, S.value]
+    xs = x.repeat_interleave(2**n)
+    r = torch.arange(2**n, dtype=torch.int64).repeat(x.numel())
+    # R's lowest bit sits at this bit of the draw word (`Fmt.shift`)
+    draws = r << (MAN[x.dtype] - (P - 1) - n)
+    got = CAST(xs.to(device), draws.to(device), 0, fields, mode.value).cpu().double()
+    rnd = getattr(gfloat.RoundMode, GFLOAT_MODES[mode])
+    want = gfloat.round_ndarray(
+        _p3109(K, P, signed), xs.double().numpy(), rnd, srbits=r.numpy(), srnumbits=n
+    )
+    wrong = (got != torch.from_numpy(want)).nonzero().flatten()[:5].tolist()
+    assert not wrong, [(xs[i].item(), r[i].item(), got[i].item(), want[i].item()) for i in wrong]
+
+
+# (K, P, signed, N): binary8p3 to binary8p5, one bit of precision (P = 1), a
+# six-bit format and an unsigned one
+GFLOAT_GRID = [
+    (8, 3, True, 4),
+    (8, 4, True, 3),
+    (8, 5, True, 2),
+    (8, 1, True, 3),
+    (6, 2, True, 5),
+    (8, 4, False, 4),
+]
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("mode", STOCHASTIC, ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    ("K", "P", "signed", "n"),
+    GFLOAT_GRID,
+    ids=[f"binary{K}p{P}{'s' if s else 'u'}-N{n}" for K, P, s, n in GFLOAT_GRID],
+)
+def test_gfloat_agrees_on_every_draw(K, P, signed, n, mode, device):
+    """Between every two neighbouring values of the format, subnormals
+    included, at every fraction k / 2^(N+2) of the gap between them: the ties
+    at N + 1 bits that SR_B and SR_C decide on, and the points between them.
+    A third of the inputs are repeated with a negative sign."""
+    pytest.importorskip("gfloat")
+    lo, hi = _neighbours(K, P, signed)
+    steps = torch.arange(2 ** (n + 2), dtype=torch.float64) / 2 ** (n + 2)
+    x = (lo[:, None] + (hi - lo)[:, None] * steps).flatten()  # exact: few bits
+    if signed:
+        x = torch.cat([x, -x[::3]])
+    _check_against_gfloat(K, P, signed, n, mode, x.float(), device)
+
+
+@pytest.mark.parametrize("device", float64_devices)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64], ids=["binary32", "binary64"])
+@pytest.mark.parametrize("mode", STOCHASTIC, ids=lambda m: m.name)
+@pytest.mark.parametrize(
+    ("K", "P", "n"), [(8, 4, 6), (16, 8, 9)], ids=["binary8p4-N6", "binary16p8-N9"]
+)
+def test_gfloat_agrees_below_the_draw(K, P, n, mode, dtype, device):
+    """Inputs with bits far below the N random-bit positions, which SR
+    ignores, SR_B reads one of, and SR_C rounds to nearest even on: random
+    fractions of the gap, and the ties at N + 1 bits together with the
+    carrier's next values on either side of each tie. In binary32 the inputs
+    stay within the range that carrier handles correctly, 2^-125 and up and
+    below binary32's top binade."""
+    pytest.importorskip("gfloat")
+    lo, hi = _neighbours(K, P, True)
+    if dtype is torch.float32:
+        keep = (lo >= 2.0**-125) & (hi < 2.0**127)
+        lo, hi = lo[keep], hi[keep]
+    rng = random.Random(K * 100 + n)
+    pick = torch.tensor([rng.randrange(lo.numel()) for _ in range(200)])
+    lo, hi = lo[pick], hi[pick]
+    frac = torch.tensor([rng.random() for _ in range(200)], dtype=torch.float64)
+    ties = torch.tensor(
+        [(2 * rng.randrange(2**n) + 1) / 2 ** (n + 1) for _ in range(200)], dtype=torch.float64
+    )
+    x = (lo + (hi - lo) * frac).to(dtype)
+    t = (lo + (hi - lo) * ties).to(dtype)  # exact: P + N + 1 bits
+    x = torch.cat(
+        [
+            x,
+            t,
+            torch.nextafter(t, torch.full_like(t, math.inf)),
+            torch.nextafter(t, t.new_zeros(())),
+        ]
+    )
+    _check_against_gfloat(K, P, True, n, mode, torch.cat([x, -x[::3]]), device)
 
 
 # --- every stochastic op takes the new modes ----------------------------------

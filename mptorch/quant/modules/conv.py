@@ -1,14 +1,14 @@
 """The quantized convolutions: ``CustomArithConvNd`` and ``QConv1d/2d/3d``.
 
 The three modules are thin ``nn.Conv1d``/``nn.Conv2d``/``nn.Conv3d`` subclasses
-whose ``forward`` delegates to one ``torch.autograd.Function`` parameterized
-on the number of spatial dimensions. The Function is where quantization
-happens, once per operand and once per gradient path, exactly as
-``CustomArithLinear`` does for Linear: the ``formats``' quantizers round the
-input, weight and bias before the forward convolution and the incoming
-gradient separately for the input-gradient and weight-gradient paths, and the
-three math hooks may replace each convolution with custom arithmetic. Any
-slot left ``None`` is plain PyTorch.
+whose ``forward`` calls one ``torch.autograd.Function``, which takes the
+number of spatial dimensions as an argument. The Function does the
+quantizing, once per operand and once per gradient path, exactly as
+``CustomArithLinear`` does for Linear. The quantizers in ``formats`` round
+the input, the weight and the bias before the forward convolution, and round
+the incoming gradient separately for the input-gradient and weight-gradient
+paths, and the three math hooks can replace each convolution with custom
+arithmetic. Any slot left ``None`` is plain PyTorch.
 """
 
 from typing import Literal
@@ -23,10 +23,11 @@ from .format import QAffineFormats
 
 #: What a ``None`` recompute flag means in :class:`CustomArithConvNd`, as
 #: (input, weight): both are quantized again in backward rather than kept. The
-#: weight is alive anyway as the layer's parameter, and a convolution's input
-#: usually is too, as the output a ReLU keeps for its own backward or as the
-#: data batch (``_saved``: a raw operand is kept only where it is alive anyway).
-#: A module constant for ``torch.compile``'s sake, as ``linear.py``'s.
+#: weight stays alive anyway as the layer's parameter, and a convolution's
+#: input usually does too, as the output a ReLU keeps for its own backward or
+#: as the data batch (``_saved`` keeps a raw operand only where it stays alive
+#: anyway). It is a module constant for ``torch.compile``'s sake, as in
+#: ``linear.py``.
 _CONV_RECOMPUTE_DEFAULT = (True, True)
 
 
@@ -34,15 +35,15 @@ class CustomArithConvNd(torch.autograd.Function):
     """Autograd Function for a quantized convolution, 1D, 2D or 3D.
 
     ``forward(input, weight, bias, formats, stride, padding, dilation, groups,
-    nd)`` quantizes the three operands through ``formats``' ``*_quant`` slots
-    and computes the output with ``formats.fwd_math`` (called with the
-    convolution parameters and ``nd`` as keywords) or ``F.conv{nd}d``.
-    ``backward`` quantizes the output gradient separately for the
+    nd)`` quantizes the three operands through the ``*_quant`` slots of
+    ``formats`` and computes the output with ``formats.fwd_math`` (called with
+    the convolution parameters and ``nd`` as keywords), or ``F.conv{nd}d``
+    without one. ``backward`` quantizes the output gradient separately for the
     input-gradient path (``igrad_quant``) and the weight-gradient path
-    (``wgrad_quant``), runs ``bwd_igrad_math`` / ``bwd_wgrad_math`` or
-    PyTorch's ``conv{nd}d_input`` / ``conv{nd}d_weight``, and sums the
-    ``bgrad_quant``-quantized gradient over the batch and spatial dimensions
-    for the bias. Only the first three inputs get a gradient.
+    (``wgrad_quant``), and runs ``bwd_igrad_math`` and ``bwd_wgrad_math``, or
+    PyTorch's ``conv{nd}d_input`` and ``conv{nd}d_weight`` without them. For
+    the bias, it sums the gradient quantized by ``bgrad_quant`` over the batch
+    and spatial dimensions. Only the first three inputs get a gradient.
     """
 
     @staticmethod
@@ -60,7 +61,7 @@ class CustomArithConvNd(torch.autograd.Function):
         convolution of ``grad_output`` with ``weight``, sized to ``input_size``."""
         if len(input_size) == nd + 1:
             # An unbatched input: torch.nn.grad's functions take a batched size
-            # and gradient, so the pass runs on a batch of one.
+            # and gradient, so run the pass on a batch of one.
             return CustomArithConvNd._default_bwd_igrad(
                 grad_output.unsqueeze(0),
                 weight,
@@ -126,7 +127,8 @@ class CustomArithConvNd(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, weight, bias, formats, stride, padding, dilation, groups, nd):
-        with torch._C.DisableTorchFunction():  # opaque to modes, as CustomArithLinear's
+        # hidden from torch function modes, as in CustomArithLinear
+        with torch._C.DisableTorchFunction():
             ctx.formats = formats
             ctx.stride = stride
             ctx.padding = padding
@@ -137,15 +139,11 @@ class CustomArithConvNd(torch.autograd.Function):
             ctx.weight_size = weight.shape
 
             recompute_input, recompute_weight = _CONV_RECOMPUTE_DEFAULT
-            # Save only what backward will read. q_bias is never read there, and
-            # each of the other two feeds exactly one gradient path: q_input the
-            # weight gradient, q_weight the input gradient. So a layer whose
-            # weight is frozen does not pin a quantized copy of its entire
-            # activation for the length of the backward pass, on top of the
-            # activation autograd already holds. ctx.needs_input_grad is
-            # populated before forward runs and is the same tuple backward sees.
-            # What is saved of an operand that is read is its quantized value or
-            # the raw operand, quantized again in backward (_saved).
+            # Save only what backward will read, as CustomArithLinear does:
+            # q_bias is never read there, q_input feeds only the weight
+            # gradient, and q_weight only the input gradient. For an operand
+            # that is read, what is saved is either its quantized value or the
+            # raw operand, quantized again in backward (see _saved).
             q_input, saved_input, ctx.replay_input = quantize_operand(
                 input,
                 formats.input_quant,
@@ -190,7 +188,7 @@ class CustomArithConvNd(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        with torch._C.DisableTorchFunction():  # as forward's
+        with torch._C.DisableTorchFunction():  # as in forward
             grad_output = grad_outputs[0]
             formats = ctx.formats
             stride = ctx.stride
@@ -205,13 +203,8 @@ class CustomArithConvNd(torch.autograd.Function):
 
             grad_input = grad_weight = grad_bias = None
 
-            # Quantize grad_output only for the paths that will consume it, so a
-            # frozen layer, or the first layer of a network, does not pay a full
-            # grad-output-sized quantize kernel and allocation for a tensor it
-            # then discards. Both quantizations run ahead of both math calls, in
-            # this order, so a stochastic quantizer draws from the global RNG in
-            # the same sequence however many gradients are requested; the *_math
-            # hooks may consume randomness of their own afterwards.
+            # Quantize grad_output only for the paths that use it, and run both
+            # quantizations before both math calls, as CustomArithLinear does.
             q_igrad_output = (
                 (formats.igrad_quant(grad_output) if formats.igrad_quant else grad_output)
                 if ctx.needs_input_grad[0]
@@ -229,8 +222,8 @@ class CustomArithConvNd(torch.autograd.Function):
                     if formats.bwd_igrad_math
                     else CustomArithConvNd._default_bwd_igrad
                 )
-                # A recomputed operand is quantized again only here, so its copy
-                # lives for this one convolution.
+                # A recomputed operand is quantized again only here, so its
+                # quantized copy exists only for this one convolution.
                 grad_input = bwd_igrad_math(
                     q_igrad_output,
                     restore(saved_weight, ctx.replay_weight),
@@ -264,10 +257,10 @@ class CustomArithConvNd(torch.autograd.Function):
                     formats.bgrad_quant(grad_output) if formats.bgrad_quant else grad_output
                 )
 
-                # The bias gradient sums over the batch and the spatial
-                # dimensions, everything but the channel dimension 1:
-                # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4]. An
-                # unbatched input's gradient has no batch dimension, and its
+                # The bias gradient sums over the batch and spatial dimensions,
+                # that is, every dimension but the channels, dimension 1:
+                # nd=1 -> [0, 2], nd=2 -> [0, 2, 3], nd=3 -> [0, 2, 3, 4]. For an
+                # unbatched input the gradient has no batch dimension, and the
                 # channels are dimension 0.
                 if q_bgrad_output.dim() == nd + 1:
                     dims_to_sum = list(range(1, nd + 1))
@@ -278,13 +271,13 @@ class CustomArithConvNd(torch.autograd.Function):
             return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
-# The name the 2D-only version of this Function had, kept so existing imports
-# still resolve; it is the same class.
+# The name this Function had when it handled only 2D, kept so that existing
+# imports still work; it is the same class.
 CustomArithConv2d = CustomArithConvNd
 
 
 class QConv1d(nn.Conv1d):
-    """``torch.nn.Conv1d`` with per-tensor quantization and custom arithmetic.
+    """``torch.nn.Conv1d`` with a quantizer for each tensor and custom arithmetic.
 
     It holds the same parameters as ``nn.Conv1d`` and computes the same
     convolution, but through :class:`CustomArithConvNd`. The input, the
@@ -294,9 +287,11 @@ class QConv1d(nn.Conv1d):
     whose slots are all ``None``, the layer is numerically identical to
     ``nn.Conv1d``. A ``padding_mode`` other than ``"zeros"`` is applied with
     ``F.pad`` before the Function, as ``nn.Conv1d`` does, so the Function
-    only ever sees zero padding. For backward the layer keeps its raw input
-    and weight, which it quantizes again there, unless ``formats``'
-    ``recompute_input`` / ``recompute_weight`` say otherwise.
+    only ever sees zero padding. For backward the layer keeps its input and
+    weight raw and quantizes them again there when their quantizers are
+    mptorch's stateless ones, unless the ``recompute_input`` and
+    ``recompute_weight`` flags of ``formats`` say otherwise (see
+    :class:`QAffineFormats`).
 
     Args:
         in_channels (int): channels of the input.
@@ -307,8 +302,9 @@ class QConv1d(nn.Conv1d):
             input. Default: ``0``
         dilation (int or tuple): spacing between kernel elements.
             Default: ``1``
-        groups (int): blocked connections from input to output channels.
-            Default: ``1``
+        groups (int): the number of groups the channels are split into; each
+            group of output channels sees only its own group of input
+            channels. Default: ``1``
         bias (bool): whether the layer learns an additive bias.
             Default: ``True``
         padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or
@@ -317,7 +313,7 @@ class QConv1d(nn.Conv1d):
         dtype: as for ``nn.Conv1d``. Default: ``None``
         formats (QAffineFormats, optional): the quantizers and math hooks;
             :func:`mptorch.quant.conv_formats` builds hooks that run the three
-            convolutions in a custom arithmetic. ``None`` builds an empty
+            convolutions in custom arithmetic. ``None`` builds an empty
             ``QAffineFormats()``. Default: ``None``
 
     Shape:
@@ -390,9 +386,9 @@ class QConv1d(nn.Conv1d):
 
 
 class QConv2d(nn.Conv2d):
-    """``torch.nn.Conv2d`` with per-tensor quantization and custom arithmetic.
+    """``torch.nn.Conv2d`` with a quantizer for each tensor and custom arithmetic.
 
-    The 2D twin of :class:`QConv1d`. It has the same parameters as
+    The 2D counterpart of :class:`QConv1d`. It has the same parameters as
     ``nn.Conv2d`` and computes the same convolution, through
     :class:`CustomArithConvNd`, so the quantizers and math hooks in
     ``formats`` apply. With empty formats it is numerically identical to
@@ -407,8 +403,9 @@ class QConv2d(nn.Conv2d):
             input. Default: ``0``
         dilation (int or tuple): spacing between kernel elements.
             Default: ``1``
-        groups (int): blocked connections from input to output channels.
-            Default: ``1``
+        groups (int): the number of groups the channels are split into; each
+            group of output channels sees only its own group of input
+            channels. Default: ``1``
         bias (bool): whether the layer learns an additive bias.
             Default: ``True``
         padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or
@@ -488,9 +485,9 @@ class QConv2d(nn.Conv2d):
 
 
 class QConv3d(nn.Conv3d):
-    """``torch.nn.Conv3d`` with per-tensor quantization and custom arithmetic.
+    """``torch.nn.Conv3d`` with a quantizer for each tensor and custom arithmetic.
 
-    The 3D twin of :class:`QConv1d`. It has the same parameters as
+    The 3D counterpart of :class:`QConv1d`. It has the same parameters as
     ``nn.Conv3d`` and computes the same convolution, through
     :class:`CustomArithConvNd`, so the quantizers and math hooks in
     ``formats`` apply. With empty formats it is numerically identical to
@@ -505,8 +502,9 @@ class QConv3d(nn.Conv3d):
             input. Default: ``0``
         dilation (int or tuple): spacing between kernel elements.
             Default: ``1``
-        groups (int): blocked connections from input to output channels.
-            Default: ``1``
+        groups (int): the number of groups the channels are split into; each
+            group of output channels sees only its own group of input
+            channels. Default: ``1``
         bias (bool): whether the layer learns an additive bias.
             Default: ``True``
         padding_mode (str): ``"zeros"``, ``"reflect"``, ``"replicate"`` or

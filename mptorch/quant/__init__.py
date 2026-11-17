@@ -1,3 +1,12 @@
+"""Quantizers, quantized GEMMs and convolutions, and the layers built on them.
+
+The names below are grouped as the documentation groups them: elementwise
+quantizers, the low-level GEMM functions (one per kernel op), the format
+objects that describe a dot product's arithmetic, block formats, the
+differentiable matmul functions, and the layers with the factories that
+configure them.
+"""
+
 from .block import (
     BlockPacked,
     block_matmul,
@@ -61,7 +70,7 @@ __all__ = [
     "fixedpoint_quantize_",
     "Quant",
     "Quantizer",
-    # the schema tier: one function per op, every schema argument spelled out
+    # the low-level GEMMs: one function per kernel op, every op argument spelled out
     "binaryK_matmul",
     "superfp_matmul",
     "binaryK_matmul_fma",
@@ -72,11 +81,11 @@ __all__ = [
     "superfp_matmul_fma_mixed",
     "binaryK_superfp_matmul",
     "superfp_binaryK_matmul",
-    # dot-product arithmetic, as values
+    # format objects that describe a dot product's arithmetic
     "SplitMac",
     "FusedMac",
     "Palette",
-    # block formats: packing, the block GEMM, and their value spellings
+    # block formats: packing, the block GEMM, and their format objects
     "BlockPacked",
     "block_pack",
     "block_unpack",
@@ -85,11 +94,11 @@ __all__ = [
     "block_matmul",
     "BlockQuant",
     "BlockMac",
-    # differentiable entry points
+    # differentiable matmul functions
     "qmm",
     "qbmm",
     "qmatmul",
-    # layers and their formats
+    # layers, and the factories that configure their arithmetic
     "QAffineFormats",
     "QMatmulFormats",
     "QLinear",
