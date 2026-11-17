@@ -6,11 +6,11 @@ SR, 8 random bits tensor([ 1.50000, -0.31250, -2.18750,  0.56250, -1.12500, -1.3
 Quant == function: True
 in place:          True True
 
-float32: ValueError: FixedPoint(wl=26, fl=20) asks for 25 bits of precision, its magnitude bits, and it is rounded in binary32, which has 24. binary64 holds all of it: a float64 tensor's carrier, which carrier=torch.float64 gives a narrower tensor too.
+float32: ValueError: FixedPoint(wl=26, fl=20) needs 25 bits of precision (one per magnitude bit), but it is rounded in binary32, which has 24: binary32 cannot represent every value of the format. binary64 can hold this format: use a float64 tensor, or pass carrier=torch.float64 to round a narrower tensor in binary64.
 float64: [1.5409965515136719, -0.2934284210205078]
 
 float16 result:  [1.0, 2.0]
-  warning: FixedPoint(wl=16, fl=14)'s largest value is not a float16 value; saturated results are rounded again
+  warning: FixedPoint(wl=16, fl=14)'s largest value is not a float16 value: an input above it saturates to it, and storing that result in float16 rounds it a second time
 bfloat16 result: [1.0, 1.984375] (no warning)
 
 CPU == CUDA on 65536 values in 6 modes: True

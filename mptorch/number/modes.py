@@ -1,37 +1,37 @@
-"""The modes a format is rounded under, and its domain.
+"""The enums for rounding, saturation, subnormals and accumulation, and the format domain.
 
 :class:`RoundMode`, :class:`SaturationMode`, :class:`SubnormalsMode` and
-:class:`AccumulateAlgorithm` mirror the C++ enums of ``csrc/common/modes.h``
-by name and by integer value, because the kernels receive ``.value``: a change
-to one is a change to both. :class:`Domain` exists in Python only: a format
-object folds it into its saturation mode when it is built
-(``base._resolve_domain``).
+:class:`AccumulateAlgorithm` have the same names and integer values as the C++
+enums in ``csrc/common/modes.h``, because the kernels receive ``.value``: a
+change to one must be made to the other. :class:`Domain` exists only in
+Python: when a format object is built, it records the domain in its saturation
+mode (``base._resolve_domain``).
 """
 
 from enum import Enum
 
 
 class SaturationMode(Enum):
-    """What a format does with a value beyond its largest finite one.
+    """What a format does with a result whose magnitude exceeds its largest finite value.
 
     Mirrors ``SaturationMode`` in ``csrc/common/modes.h``, by name and value.
-    Each member combines one of IEEE P3109's three saturation modes with the
-    format's *domain* (see :class:`Domain`), which P3109 chooses separately.
-    The finite domain spends on finite values the code points that the
-    extended domain spends on the infinities, and it admits only
-    ``SatFinite``. That leaves four valid combinations, one member each:
-    :attr:`SAT_FINITE` is the finite domain, and the other three are the
-    extended one.
+    IEEE P3109 specifies two separate properties: a saturation mode
+    (``SatFinite``, ``SatPropagate`` or ``SatNone``) and a *domain* (see
+    :class:`Domain`), which says whether the format has infinities. The finite
+    domain has no infinities and allows only ``SatFinite``, so four
+    combinations are valid, and each member of this enum is one of them:
+    :attr:`SAT_FINITE` is the finite domain, and the other three members are
+    in the extended domain.
 
-    On a :class:`BinaryK` or :class:`SuperFP` the domain can be given with
-    ``domain=`` instead: ``saturation=SAT_FINITE, domain=Domain.EXTENDED`` is
-    stored as :attr:`SAT_FINITE_EXTENDED`. The flat ``*_quantize`` and
-    ``*_matmul`` functions take no format object, so they name the
-    combination with the member alone.
+    A :class:`BinaryK` or :class:`SuperFP` also accepts the two properties
+    separately, as P3109 states them: ``saturation=SAT_FINITE,
+    domain=Domain.EXTENDED`` is stored as :attr:`SAT_FINITE_EXTENDED`. The flat
+    ``*_quantize`` and ``*_matmul`` functions take no format object and no
+    ``domain``, so they need the combined member.
 
-    The mode is a property of each format slot. A GEMM whose multiply
-    saturates and whose accumulate overflows to infinity can therefore be
-    expressed. A NaN input passes through every mode unchanged.
+    Each format in an operation has its own saturation mode, so a GEMM can,
+    for example, saturate its products and let its running sum overflow to
+    infinity. A NaN input stays a NaN in every mode.
 
     Example::
 
@@ -46,34 +46,38 @@ class SaturationMode(Enum):
         [1.125, 3.25, 480.0]
     """
 
-    #: P3109 ``SatFinite``, finite domain: every result beyond the largest
-    #: finite value, an infinite input included, clamps to that value.
+    #: P3109 ``SatFinite`` in the finite domain: any result beyond the largest
+    #: finite value, including an infinite input, is clamped to the largest
+    #: finite value of the same sign.
     SAT_FINITE = 0
-    #: P3109 ``SatPropagate``, extended domain: a finite result beyond the
-    #: largest finite value clamps to it, and an infinite one stays infinite.
+    #: P3109 ``SatPropagate`` in the extended domain: a finite input that
+    #: rounds beyond the largest finite value is clamped to it, and an
+    #: infinite input stays infinite.
     SAT_PROPAGATE = 1
-    #: P3109 ``SatNone``, extended domain, the default: a result beyond the
-    #: largest finite value becomes :math:`\pm\infty` under every rounding mode,
-    #: because the overflow test reads the rounded value. This differs from IEEE
-    #: 754, whose ``roundTowardZero`` never rounds a finite value to infinity.
+    #: P3109 ``SatNone`` in the extended domain, the default: a result that
+    #: rounds beyond the largest finite value becomes :math:`\pm\infty`, in
+    #: every rounding mode, because overflow is tested after rounding. This
+    #: differs from IEEE 754, where, for example, round-toward-zero never turns
+    #: a finite value into an infinity.
     SAT_NONE = 2
-    #: P3109 ``SatFinite``, extended domain: the format keeps its infinity
-    #: codes, so its largest finite value is that of :attr:`SAT_NONE` and
-    #: :attr:`SAT_PROPAGATE`. Every result beyond it, an infinite input
-    #: included, clamps to it, as under :attr:`SAT_FINITE`.
+    #: P3109 ``SatFinite`` in the extended domain: the format keeps its
+    #: infinity codes, so its largest finite value is the same as under
+    #: :attr:`SAT_NONE` and :attr:`SAT_PROPAGATE`. As under :attr:`SAT_FINITE`,
+    #: any result beyond it, including an infinite input, is clamped to it.
     SAT_FINITE_EXTENDED = 3
 
 
 class Domain(Enum):
-    r"""Whether a format spends code points on the infinities: P3109's domain.
+    r"""Whether a format has infinities: P3109's *domain*.
 
-    The *extended* domain has :math:`\pm\infty` (the top code of each sign).
-    The *finite* domain spends those codes on finite values, so its largest
-    finite value is one code higher, and it admits only the ``SatFinite``
-    saturation mode. A :class:`BinaryK` or :class:`SuperFP` takes the domain
-    as ``domain=`` and folds it into its :class:`SaturationMode` when it is
-    built. If it is left ``None``, it follows from the saturation mode: finite
-    for ``SAT_FINITE`` and extended otherwise.
+    In the *extended* domain the top code of each sign encodes
+    :math:`\pm\infty`. The *finite* domain uses those codes for finite values
+    instead, so its largest finite value is one code higher, and it allows
+    only the ``SatFinite`` saturation mode. :class:`BinaryK` and
+    :class:`SuperFP` take the domain as ``domain=`` and record it in their
+    :class:`SaturationMode` when they are built. When ``domain`` is ``None``,
+    it follows from the saturation mode: finite for ``SAT_FINITE``, extended
+    otherwise.
 
     Example::
 
@@ -85,9 +89,10 @@ class Domain(Enum):
         <Domain.FINITE: 1>
     """
 
-    #: Has :math:`\pm\infty`: P3109's ``e`` formats (``Binary8p4se``).
+    #: With :math:`\pm\infty`: P3109's ``e`` formats, such as ``Binary8p4se``.
     EXTENDED = 0
-    #: No infinities, and every code a value or the NaN: the ``f`` formats.
+    #: Without infinities, so every code is a finite value or the NaN: P3109's
+    #: ``f`` formats, such as ``Binary8p4sf``.
     FINITE = 1
 
 
@@ -95,25 +100,26 @@ class SubnormalsMode(Enum):
     """How a format handles the range below its smallest normal number.
 
     Mirrors ``SubnormalsMode`` in ``csrc/common/modes.h``, by name and value.
-    Only :attr:`SUBNORMALS` is IEEE P3109's: every P3109 format with more than
-    one bit of precision has subnormals. The other two give formats outside
-    the standard. The three differ only in where the bottom of the range is.
+    Only :attr:`SUBNORMALS` is in IEEE P3109: every P3109 format with more than
+    one bit of precision has subnormals. The other two modes give formats
+    outside the standard. The three modes differ in which values lie below
+    the smallest normal number, and so in where the format's smallest
+    positive value ``x_min`` is.
 
-    Below the bottom they all behave the same way. An input ``x`` has two
-    candidates for its magnitude, zero and the smallest value ``x_min``, and
-    the rounding mode picks between them:
+    Below ``x_min`` all three round the same way: the result's magnitude is
+    either zero or ``x_min``, and the rounding mode chooses:
 
     * :attr:`RoundMode.RNE` and :attr:`RoundMode.RNA` take the nearer one. On
-      a tie, ``RNE`` takes the zero and ``RNA`` takes ``x_min``.
-    * The directed modes take the candidate in their own direction.
+      a tie, ``RNE`` takes zero and ``RNA`` takes ``x_min``.
+    * The directed modes take the candidate in their direction.
     * :attr:`RoundMode.RO` takes ``x_min``, the nonzero candidate.
     * :attr:`RoundMode.SR` takes ``x_min`` with probability ``|x| / x_min``.
 
-    All three keep the same two special codes, which the casts' NaN detection
-    and sign handling rely on. The all-zero code is the one zero. It is
-    unsigned, as in P3109, and no cast ever returns ``-0.0``. In a signed
-    format, the code with only the sign bit set (the one that would encode
-    ``-0.0``) is the NaN.
+    All three modes give two special codes the same meaning, which the casts'
+    NaN detection and sign handling rely on. The all-zero code is the only
+    zero; it is unsigned, as in P3109, and no cast returns ``-0.0``. In a
+    signed format, the code with only the sign bit set, which would otherwise
+    encode ``-0.0``, is the NaN.
 
     Example::
 
@@ -128,35 +134,39 @@ class SubnormalsMode(Enum):
         [0.0, 0.015625]
     """
 
-    SUBNORMALS = 0  #: Gradual underflow, the default: exponent code 0 holds subnormals.
-    NORMALS = 1  #: No subnormals: below the smallest normal, zero or that normal.
-    #: No subnormals. Exponent code 0 is one more binade of normal numbers,
-    #: except its mantissa-zero code, which is still the zero (and with the
-    #: sign bit the NaN). That binade's values therefore start one step above
-    #: the power of two at its foot.
+    SUBNORMALS = 0  #: Gradual underflow, the default: exponent field 0 holds the subnormals.
+    NORMALS = 1  #: No subnormals: a value below the smallest normal rounds to zero or to it.
+    #: No subnormals: exponent field 0 holds one more binade (power-of-two
+    #: interval) of normal numbers. Its code with a zero mantissa still
+    #: encodes zero (and, with the sign bit set, the NaN), so this binade has
+    #: no value at its lowest power of two: its smallest value is one step
+    #: above it.
     EXTENDED_NORMALS = 2
 
 
 class RoundMode(Enum):
-    """How a value is rounded onto a format's grid.
+    """How a value is rounded to a value of the format.
 
     Mirrors ``RoundMode`` in ``csrc/common/modes.h``, by name and value. Each
-    member is one of IEEE P3109's rounding modes, whose name is given in
-    parentheses, and defines the result :math:`y` of rounding an input
-    :math:`x`.
+    member is one of IEEE P3109's rounding modes (P3109's name is given in
+    parentheses); the descriptions give the result :math:`y` of rounding an
+    input :math:`x`.
 
-    The rounding mode is a property of the operation, not of the format. The
-    kernels take it as a template parameter, because a runtime ``switch``
-    inside a GEMM's accumulate step cost 1.2 to 2.3 times the kernel time.
-    :class:`mptorch.quant.Quant` and :class:`mptorch.quant.SplitMac` therefore
-    carry it next to the format.
+    The rounding mode belongs to the operation, not to the format. The
+    kernels take it as a compile-time template parameter, so one mode applies
+    to a whole kernel (a GEMM's multiply and accumulate alike); choosing it at
+    run time inside a GEMM's accumulation loop made the kernels 1.2 to 2.3
+    times slower. :class:`mptorch.quant.Quant` and
+    :class:`mptorch.quant.SplitMac` therefore take the mode alongside the
+    format, not inside it.
 
-    Stochastic rounding draws each output element's random bits from a stream
-    keyed on that element's index in the output. The result does not depend
-    on how the work is split across threads or batches. P3109 defines three
-    stochastic modes, ``SR`` (``StochasticA``, also spelled ``SR_A``),
-    ``SR_B`` and ``SR_C``, which differ in how they read the ``prng_bits``
-    random bits (:doc:`/concepts`, "Stochastic rounding").
+    Stochastic rounding draws the random bits for each output element from a
+    random stream selected by that element's index in the output, so the
+    result does not depend on how the work is split across threads or
+    batches. P3109 defines three stochastic modes, ``SR`` (``StochasticA``,
+    also named ``SR_A``), ``SR_B`` and ``SR_C``, which differ in how they
+    combine the ``prng_bits`` random bits with the input (:doc:`/concepts`,
+    "Stochastic rounding").
 
     Example::
 
@@ -177,18 +187,23 @@ class RoundMode(Enum):
     RU = 2  #: The smallest :math:`y` such that :math:`y \ge x` (``TowardPositive``)
     RD = 3  #: The largest :math:`y` such that :math:`y \le x` (``TowardNegative``)
     RZ = 4  #: The largest :math:`y` such that :math:`|y| \le |x|` (``TowardZero``)
-    RO = 5  #: Round to odd (``ToOdd``)
-    #: Stochastic rounding with ``prng_bits`` = :math:`N` random bits :math:`R`
-    #: (``StochasticA``): with :math:`\eta` the fraction of :math:`|x|` between
-    #: its two neighbours, rounds away from zero iff
+    #: Round to odd (``ToOdd``): an inexact :math:`x` goes to whichever of its
+    #: two neighbours has an odd last mantissa bit
+    RO = 5
+    #: Stochastic rounding (``StochasticA``), with :math:`R` a uniformly random
+    #: integer of :math:`N` = ``prng_bits`` bits. Let :math:`\eta` be the
+    #: position of :math:`|x|` between its two neighbours, as a fraction of the
+    #: gap between them. Then :math:`x` rounds away from zero if and only if
     #: :math:`\lfloor \eta 2^N \rfloor + R \ge 2^N`
     SR = 6
-    #: ``StochasticB``: away iff :math:`\lfloor \eta 2^{N+1} \rfloor + 2R + 1 \ge 2^{N+1}`
+    #: ``StochasticB``: rounds away from zero if and only if
+    #: :math:`\lfloor \eta 2^{N+1} \rfloor + 2R + 1 \ge 2^{N+1}`
     SR_B = 7
-    #: ``StochasticC``: away iff :math:`\mathrm{RNITE}(\eta 2^N) + R \ge 2^N`,
-    #: RNITE rounding to nearest with ties to even
+    #: ``StochasticC``: rounds away from zero if and only if
+    #: :math:`\mathrm{RNITE}(\eta 2^N) + R \ge 2^N`, where RNITE rounds to the
+    #: nearest integer, ties to even
     SR_C = 8
-    SR_A = 6  #: ``StochasticA``: ``SR``'s other name (an alias)
+    SR_A = 6  #: ``StochasticA``: another name for ``SR`` (an alias)
 
     @property
     def is_stochastic(self) -> bool:
@@ -197,52 +212,59 @@ class RoundMode(Enum):
 
 
 class AccumulateAlgorithm(Enum):
-    """How the partial products of a dot product are folded into its sum.
+    """How a dot product adds up its products.
 
     Mirrors ``AccumulateAlgorithm`` in ``csrc/common/modes.h``, by name and
-    value. It selects the reduction inside a custom-arithmetic GEMM
-    (:class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac`, the
-    flat ``*_matmul`` wrappers).
+    value. It selects the summation algorithm inside a quantized GEMM, as set
+    up by :class:`mptorch.quant.SplitMac`, :class:`mptorch.quant.FusedMac` or
+    the flat ``*_matmul`` wrappers.
 
-    Notation: ``a`` and ``b`` are the two operands of one step, and ``s`` is
-    the running sum. ``round_mul`` and ``round_acc`` are the mac's two
-    roundings. ``round_acc`` is the identity when there is no accumulate
-    format. In a fused mac it is the fused format's rounding, and the step is
-    ``round_acc(fma(a, b, s))`` in place of
-    ``round_acc(s + round_mul(a * b))``. ``round_out`` is the rounding of the
-    mac's ``outer`` format (the identity without one). The products are taken
-    in order, ``k = 1 .. K``:
+    Notation: each step of the dot product multiplies ``a`` by ``b`` and adds
+    the product to the running sum ``s``. ``round_mul`` rounds to the
+    multiply format and ``round_acc`` to the accumulate format; ``round_acc``
+    does nothing when there is no accumulate format. A fused multiply-add
+    (:class:`mptorch.quant.FusedMac`) rounds once, to its fused format, so its
+    step ``round_acc(fma(a, b, s))`` replaces
+    ``round_acc(s + round_mul(a * b))``. ``round_out`` rounds to the *outer*
+    format that ``BLOCK`` and ``TREE`` use between blocks, and does nothing
+    when there is none. The steps run in order, ``k = 1 .. K``:
 
-    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, as a hardware
-      accumulator of the accumulate format does. The result is ``s``.
-    * :attr:`KAHAN`: a compensation ``c`` is carried next to the sum, also in
-      the accumulate format: ``y = round_acc(round_mul(a * b) - c)``,
+    * :attr:`NAIVE`: ``s = round_acc(s + round_mul(a * b))``, which is what a
+      hardware accumulator in the accumulate format computes. The result is
+      ``s``.
+    * :attr:`KAHAN`: Kahan's compensated summation. A correction ``c``, also
+      in the accumulate format, carries the rounding error of each addition
+      into the next step: ``y = round_acc(round_mul(a * b) - c)``,
       ``t = round_acc(s + y)``, ``c = round_acc(round_acc(t - s) - y)``,
-      ``s = t``. The result is ``s``. With no accumulate format this is
-      Kahan's summation in the carrier.
-    * :attr:`BLOCK`: the ``NAIVE`` step runs on a block's sum ``s``. After
-      every ``block_size`` products, and after the last one, the block is
-      added to a total, ``tot = round_out(tot + s)``, and ``s`` restarts from
-      zero. This gives two levels of precision: a narrow accumulate format
-      inside a block, and a wider outer format across blocks. The result is
-      ``tot``.
-    * :attr:`TREE`: the rounded products ``p1, p2, ...`` of a block of
-      ``block_size = 2**L`` are summed pairwise, in the order they arrive:
-      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` and so on up.
-      The block's root is added to the total as in ``BLOCK``. A last, partial
-      block merges the subtrees it has, smallest first. The algorithm needs a
-      product term, so a fused mac refuses it.
+      ``s = t``. The result is ``s``. Without an accumulate format this is
+      ordinary Kahan summation in the carrier.
+    * :attr:`BLOCK`: each run of ``block_size`` consecutive products is summed
+      into ``s`` with the ``NAIVE`` step. At the end of each block (and after
+      the last product) its sum is added to a total,
+      ``tot = round_out(tot + s)``, and ``s`` restarts from zero. This allows
+      two precisions: a narrow accumulate format inside each block, and a
+      wider outer format across blocks. The result is ``tot``.
+    * :attr:`TREE`: the rounded products ``p1, p2, ...`` of each block of
+      ``block_size = 2**L`` are added in pairs, the pair sums in pairs, and so
+      on, as a binary tree over the order in which they arrive:
+      ``round_acc(round_acc(p1 + p2) + round_acc(p3 + p4))`` for four
+      products. The block's sum is then added to the total as in ``BLOCK``. If
+      the last block is incomplete, the complete subtrees it has are merged,
+      smallest first. ``TREE`` needs each product as a separate term, so a
+      fused multiply-add cannot use it.
 
-    Under :attr:`RoundMode.SR` every rounding that is not an identity draws
-    once, in the order written. Nothing is padded, so a result does not
-    depend on how a backend tiles ``K``, and the CPU, CUDA and MPS kernels
-    agree to the bit in every deterministic mode (MPS up to the Apple GPU's
-    flush of binary32 subnormals in the arithmetic between roundings). An MPS
-    result is the CPU's under SR as well, since both draw from the CPU
-    generator. ``KAHAN``, ``BLOCK`` and ``TREE`` are implemented for the
-    single-format ops, the cross-family ones, the conv ops and the block
-    GEMM, in both carriers (binary32 only on MPS, which has no float64). A
-    palette raises.
+    Under :attr:`RoundMode.SR`, every rounding to a format draws one random
+    number, in the order the formulas above are written. The kernels never
+    pad ``K`` with zero products, so a result does not depend on how a
+    backend splits ``K`` into tiles: the CPU, CUDA and MPS kernels give
+    bit-identical results in every deterministic rounding mode, except that
+    the Apple GPU (MPS) flushes binary32 subnormals to zero in the arithmetic
+    between roundings. Under SR an MPS result also equals the CPU's, since
+    both draw their random bits from the CPU generator. ``KAHAN``, ``BLOCK``
+    and ``TREE`` are available for the single-format and cross-family GEMMs,
+    the convolutions and the block GEMM, in both carriers (only binary32 on
+    MPS, which has no float64). A palette (a format per output element)
+    supports only ``NAIVE``.
 
     Example::
 
@@ -251,7 +273,10 @@ class AccumulateAlgorithm(Enum):
         0
     """
 
-    NAIVE = 0  #: Quantize the running sum after every accumulation step.
-    KAHAN = 1  #: Kahan-compensated summation, the compensation in the accumulate format.
-    BLOCK = 2  #: Two-level (FABSum-style) block summation with an outer format.
-    TREE = 3  #: Pairwise summation within a block, folded with an outer format.
+    NAIVE = 0  #: Round the running sum after every addition.
+    KAHAN = 1  #: Kahan's compensated summation, the correction in the accumulate format.
+    #: Sum blocks in the accumulate format, and the block sums in the outer
+    #: format (as in FABsum).
+    BLOCK = 2
+    #: Sum each block as a binary tree, and the block sums in the outer format.
+    TREE = 3

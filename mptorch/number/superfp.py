@@ -1,8 +1,9 @@
-"""Supernormal floats, and the checks that hold one to a carrier and a dtype.
+"""Supernormal float formats, and checks that a carrier and a storage dtype can hold one.
 
-:class:`SuperFP` is the format, and its checks are binaryK's, on the same
-machinery (`binaryk`). What is superfp's own is the region layout:
-full-mantissa binades at the top and supernormal powers of two below them
+:class:`SuperFP` describes the format. Its checks work like binaryK's and use
+the same shared code (`_carrier`, `_storage`). The part specific to superfp
+is its layout of regions: binades with a full mantissa at the top of the
+range, and below them powers of two, the supernormals
 (`_superfp_regions_error`, `_superfp_extent`).
 """
 
@@ -30,50 +31,54 @@ from .modes import Domain, SaturationMode
 
 @dataclass(frozen=True)
 class SuperFP(FloatFormat):
-    """A supernormal float, as ``common/cast_superfp.h`` implements it.
+    """A supernormal floating-point format, as implemented by ``common/cast_superfp.h``.
 
-    The top ``normal_binades`` binades of the exponent range keep a full
-    ``man_bits``-bit mantissa. The remaining binades would have spent
-    ``n = (2**exp_bits - normal_binades) * 2**man_bits`` codes on mantissas.
-    Those codes instead encode the zero and ``n - 1`` further powers of two
-    below the normal binades (the supernormals). Everything below those
-    flushes to zero. The format therefore trades precision at the bottom of
-    the range for dynamic range at the same width.
+    The top ``normal_binades`` binades of the exponent range have a full
+    ``man_bits``-bit mantissa, as in an ordinary float. The other binades
+    would have used ``n = (2**exp_bits - normal_binades) * 2**man_bits``
+    codes for their mantissas; a superfp uses those codes instead for zero
+    and ``n - 1`` successive powers of two below the normal binades (the
+    *supernormals*). A value below the smallest supernormal rounds to zero or
+    to the smallest supernormal, as the rounding mode decides. The format
+    thus gives up precision at the bottom of its range in exchange for a much
+    wider range at the same bit width.
 
-    The class is deliberately not symmetric with :class:`BinaryK`:
+    The class differs from :class:`BinaryK` on purpose:
 
-    * ``bias`` is required and has no default, because the cast has no rule
-      to derive one.
-    * There is a single ``normal_binades``, not one per end of the range.
+    * ``bias`` is required, because there is no standard default to derive.
+    * Supernormals exist only at the bottom of the range, so a single
+      ``normal_binades`` describes the layout.
     * There is no ``subnormals`` mode, because the format has no subnormals.
 
-    The format spends no code point on a NaN, so signedness does not move the
-    top of the range. Its one zero is unsigned, like binaryK's. The instance
-    is frozen, and therefore hashable, because the code that resolves a
-    format memoizes on its value, as for :class:`BinaryK`.
+    The format reserves no code for NaN, so being signed or not does not
+    change its largest value. Its single zero is unsigned, as in a binaryK.
+    Like :class:`BinaryK`, the object is frozen, and therefore hashable, so
+    that the code turning it into kernel arguments can cache its result keyed
+    on the format.
 
     Args:
-        man_bits (int): stored mantissa bits in the normal region.
-        exp_bits (int): exponent field width, at least 1.
-        normal_binades (int): binades at the top of the range that keep their
-            mantissa. At least 1 and at most ``2**exp_bits - 1``, so that at
-            least one supernormal code remains.
+        man_bits (int): stored mantissa bits in the normal binades.
+        exp_bits (int): width of the exponent field, at least 1.
+        normal_binades (int): number of binades at the top of the range that
+            keep a full mantissa: from 1 to ``2**exp_bits - 1``, so that some
+            codes remain for supernormals.
         bias (int): exponent bias.
         is_signed (bool): whether the format has a sign bit. Default: ``True``.
-        prng_bits (int): width of the random mantissa drawn by
-            :attr:`RoundMode.SR`. Default: 0.
-        saturation (SaturationMode): overflow behaviour. Default:
+        prng_bits (int): number of random bits drawn by the stochastic
+            rounding modes; ignored by the other modes. Default: 0.
+        saturation (SaturationMode): what happens on overflow. Default:
             ``SaturationMode.SAT_NONE``.
-        domain (Domain, optional): whether the top code is an infinity, as
-            for :class:`BinaryK`. Default: ``None``, which follows from
+        domain (Domain, optional): whether the format has infinities, as for
+            :class:`BinaryK`. Default: ``None``, which follows from
             ``saturation``.
 
     Raises:
-        ValueError: for the finite domain with a saturation mode other than
-            ``SAT_FINITE``; for a format that neither carrier can simulate, as
-            for :class:`BinaryK`; and for a ``normal_binades`` that leaves no
-            supernormal codes. Each call checks the format against its own
-            carrier (see :class:`FormatRangeWarning`).
+        ValueError: for ``man_bits < 0``, ``exp_bits < 1``, a
+            ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, or the finite
+            domain with a saturation mode other than ``SAT_FINITE``; and, as
+            for :class:`BinaryK`, for a format that neither carrier can
+            simulate. Each call checks the format against its own carrier
+            (see :class:`FormatRangeWarning`).
         TypeError: as for :class:`BinaryK`.
 
     Example::
@@ -111,7 +116,8 @@ class SuperFP(FloatFormat):
         if self.prng_bits < 0:
             raise ValueError(f"SuperFP prng_bits must be non-negative, got {self.prng_bits}")
 
-        # Raise for what no carrier can do, and nothing more (`check_superfp`)
+        # Raise only for what no carrier can do; each call checks the format
+        # against its own carrier (`check_superfp_carrier`)
         check_superfp(
             self.man_bits,
             self.exp_bits,
@@ -125,8 +131,9 @@ class SuperFP(FloatFormat):
 
     @property
     def max_finite(self) -> float:
-        """The largest finite value: the top binade's top code, less the
-        infinity outside the finite domain (the format has no NaN).
+        """The largest finite value: the top code of the top binade, or the
+        code below it when the top code is an infinity (outside the finite
+        domain). The format has no NaN code.
 
         Example::
 
@@ -136,7 +143,7 @@ class SuperFP(FloatFormat):
             >>> SuperFP(3, 4, 2, 7, saturation=SaturationMode.SAT_FINITE).max_finite
             480.0
         """
-        reserved = int(self.saturation is not SaturationMode.SAT_FINITE)  # `_superfp_extent`
+        reserved = int(self.saturation is not SaturationMode.SAT_FINITE)  # as in `_superfp_extent`
         return _largest_finite(self.exp_bits, self.man_bits, self.bias, reserved)
 
 
@@ -152,17 +159,18 @@ def check_superfp(
     warn: bool = True,
     stacklevel: int = 3,
 ) -> None:
-    """Hold a superfp format against what a carrier can hold.
+    """Check whether a carrier can hold a superfp format.
 
-    The same contract as :func:`check_binaryK`. There is no ``is_signed``:
-    superfp spends no code point on a NaN either way, so signedness does not
-    move the top of the range.
+    Behaves as :func:`check_binaryK`. It takes no ``is_signed``: a superfp
+    reserves no code for NaN, signed or not, so signedness does not change
+    its range.
 
     Args:
         man_bits (int): stored mantissa bits.
-        exp_bits (int): exponent field width.
-        normal_binades (int): binades at the top of the range that keep their
-            mantissa; the rest encode supernormal powers of two.
+        exp_bits (int): width of the exponent field.
+        normal_binades (int): number of binades at the top of the range that
+            keep a full mantissa; the codes of the others encode the
+            supernormal powers of two.
         bias (int): the exponent bias.
         saturation (SaturationMode): overflow behaviour and domain.
             Default: ``SaturationMode.SAT_NONE``.
@@ -170,8 +178,8 @@ def check_superfp(
         carrier (torch.dtype): ``torch.float32`` or ``torch.float64``.
             Default: ``torch.float32``.
         warn (bool): whether to issue the warning. Default: ``True``.
-        stacklevel (int): how far above this function the caller's own code
-            is. Default: 3.
+        stacklevel (int): passed to ``warnings.warn``, as for
+            :func:`check_binaryK`. Default: 3.
 
     Raises:
         ValueError: as :func:`check_binaryK`, and also for a
@@ -196,7 +204,7 @@ def check_superfp_carrier(
     *,
     carrier: torch.dtype,
 ) -> None:
-    """:func:`check_binaryK_carrier` for a superfp format.
+    """The superfp counterpart of :func:`check_binaryK_carrier`.
 
     The arguments are those of :func:`check_superfp` without ``warn`` and
     ``stacklevel``, and ``carrier`` is required.
@@ -219,10 +227,11 @@ def check_superfp_storage(
     storage: torch.dtype,
     elementwise: bool = False,
 ) -> None:
-    """:func:`check_binaryK_storage` for a superfp format.
+    """The superfp counterpart of :func:`check_binaryK_storage`.
 
-    The same contract, with the format spelled as :func:`check_superfp`
-    spells it and the same ``storage`` and ``elementwise`` keywords.
+    It takes the format's parameters as :func:`check_superfp` does, and the
+    same ``storage`` and ``elementwise`` keywords as
+    :func:`check_binaryK_storage`.
 
     Raises:
         ValueError: as :func:`check_binaryK_storage`.
@@ -234,11 +243,11 @@ def check_superfp_storage(
     )
 
 
-# --- what the checks find ----------------------------------------------------
+# --- how the checks reach their findings -------------------------------------
 
 
 def _superfp_label(man_bits: int, exp_bits: int, normal_binades: int, bias: int) -> str:
-    """The format as its constructor call, for messages."""
+    """The format written as a constructor call, for messages."""
     return (
         f"SuperFP(man_bits={man_bits}, exp_bits={exp_bits}, "
         f"normal_binades={normal_binades}, bias={bias})"
@@ -246,16 +255,18 @@ def _superfp_label(man_bits: int, exp_bits: int, normal_binades: int, bias: int)
 
 
 def _superfp_regions_error(label: str, exp_bits: int, normal_binades: int) -> str | None:
-    """The one superfp layout no range can be read from, or ``None``."""
+    """Return an error for the one superfp layout whose range cannot be
+    computed, or ``None``."""
     binades = 1 << exp_bits
     if normal_binades >= binades:
-        # no supernormal codes left, which puts the supernormal floor one
-        # *above* the normal one; the cast tests supernormal-then-underflow,
-        # so the format's lowest normal binade would flush to zero
+        # No codes are left for supernormals, which puts the bottom of the
+        # supernormal region one binade *above* the bottom of the normal
+        # region. The cast tests for the supernormal region and then for
+        # underflow, so the format's lowest normal binade would round to zero.
         return (
             f"{label} leaves no supernormal codes: normal_binades must be at most "
-            f"2**exp_bits - 1 = {binades - 1}, or the cast flushes the format's "
-            f"lowest normal binade to zero"
+            f"2**exp_bits - 1 = {binades - 1}, or the cast rounds the format's lowest "
+            f"normal binade to zero"
         )
     return None
 
@@ -269,21 +280,21 @@ def _superfp_extent(
     saturation: SaturationMode,
     carrier: _Carrier,
 ) -> _Extent:
-    """A superfp format's range, as an `_Extent`.
+    """Compute a superfp format's range as an `_Extent`.
 
-    Call it only once `_width_error` and `_superfp_regions_error` have passed.
-    The normal region holds the top ``normal_binades`` binades with a full
-    mantissa; below it the ``(binades - normal_binades) * 2**man_bits`` codes
-    the other binades would have spent on mantissas encode the zero and, all
-    but that one, further powers of two, the supernormals, and everything
-    below those flushes.
+    Call it only after `_width_error` and `_superfp_regions_error` have
+    passed. The normal region is the top ``normal_binades`` binades, which
+    have a full mantissa. Below it, the
+    ``(binades - normal_binades) * 2**man_bits`` codes that the other binades
+    would have used for mantissas encode zero (one code) and successive
+    powers of two (all the others): the supernormals.
     """
     binades = 1 << exp_bits
-    # superfp spends no code on a NaN, signed or not (`make_superfp_params`)
+    # superfp reserves no code for NaN, signed or not (`make_superfp_params`)
     reserved = saturation is not SaturationMode.SAT_FINITE
     top_field, top_exp, top_code = _top_of_range(exp_bits, man_bits, bias, reserved, carrier)
     normal_cutoff = binades - bias - normal_binades
-    # the smallest supernormal, `superfp_region_cutoffs`
+    # the exponent of the smallest supernormal (`superfp_region_cutoffs`)
     bottom_exp = normal_cutoff - (binades - normal_binades) * (1 << man_bits) + 1
     step_exp = min(bottom_exp, normal_cutoff - man_bits)
     return _Extent(
@@ -295,7 +306,7 @@ def _superfp_extent(
         top_code,
         bottom_exp,
         step_exp,
-        carrier.min_simulable_exp,  # the supernormal arm reads the exponent field
+        carrier.min_simulable_exp,  # the cast reads the exponent field for supernormals
         _bottom_by_field(carrier),
         normal_cutoff,
         "SUPERNORMALS",
@@ -312,10 +323,10 @@ def _superfp_findings(
     prng_bits: int,
     carrier: torch.dtype,
 ) -> tuple[str | None, str | None]:
-    """What ``carrier`` says about a superfp format, as ``(error, warning)``.
+    """Return the findings of ``carrier`` on a superfp format, as ``(error, warning)``.
 
-    The superfp twin of `_binaryK_findings`, with the region-layout check
-    added to the width checks.
+    The superfp counterpart of `_binaryK_findings`, with the region-layout
+    check added after the width checks.
     """
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
 
@@ -341,16 +352,17 @@ def _superfp_storage_findings(
     storage: torch.dtype,
     elementwise: bool,
 ) -> tuple[str | None, str | None]:
-    """What storing a superfp result in ``storage`` says, as ``(error, warning)``.
+    """Return the findings on storing a superfp format's results in
+    ``storage``, as ``(error, warning)``.
 
-    The superfp twin of `_binaryK_storage_findings`.
+    The superfp counterpart of `_binaryK_storage_findings`.
     """
     label = _superfp_label(man_bits, exp_bits, normal_binades, bias)
     if (
         _width_error(label, exp_bits, man_bits, 0, _BINARY64) is not None
         or _superfp_regions_error(label, exp_bits, normal_binades) is not None
     ):
-        return None, None  # as for binaryK: the carrier check has said so already
+        return None, None  # as for binaryK: the carrier check reports this
     ext = _superfp_extent(label, man_bits, exp_bits, normal_binades, bias, saturation, _BINARY64)
     if ext.top_field < 1 or ext.top_exp < _BINARY64.min_normal_exp:
         return None, None

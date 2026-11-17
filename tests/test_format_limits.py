@@ -207,7 +207,7 @@ def test_formats_that_cannot_function_in_binary32_raise_at_the_call(build, match
     fmt = _silent(build)
     with pytest.raises(ValueError, match=match) as raised:
         Quant(fmt)(torch.ones(4))
-    assert "binary64 holds all of it" in str(raised.value)
+    assert "binary64 can hold this format" in str(raised.value)
     assert "carrier=torch.float64" in str(raised.value)
     _silent(lambda: Quant(fmt)(torch.ones(4, dtype=F64)))
     if stored == "warns":
@@ -231,7 +231,9 @@ def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64()
     with pytest.raises(ValueError, match="bits of precision") as raised:
         Quant(fmt)(torch.ones(4))
     assert "binary64" not in str(raised.value)
-    with pytest.warns(FormatRangeWarning, match="below binary64's 2\\^-1074"):
+    with pytest.warns(
+        FormatRangeWarning, match="finer than binary64's smallest subnormal, 2\\^-1074"
+    ):
         Quant(fmt)(torch.ones(4, dtype=F64))
 
 
@@ -242,7 +244,7 @@ def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64()
         (lambda: BinaryK(60, 54), "54 bits of precision.*binary64, which has 53"),
         (lambda: SuperFP(53, 4, 1, 7), "54 bits of precision"),
         # no finite normal value binary64 holds
-        (lambda: BinaryK(8, 4, bias=2000), "no finite normal value binary64"),
+        (lambda: BinaryK(8, 4, bias=2000), "no finite normal value in binary64"),
         # 39 exponent bits: the kernels compute `1 << exp_bits` in a 32-bit int
         (lambda: BinaryK(40, 1), "exponent bits"),
         # normal_binades == 2**exp_bits leaves superfp no supernormal codes:
@@ -254,8 +256,8 @@ def test_a_superfp_past_binary32s_precision_raises_there_and_warns_in_binary64()
         (lambda: BinaryK(8, 4, prng_bits=-1), "non-negative"),
         # fixed point's ends past binary64's (the two's complement bottom and
         # a symmetric top), and its largest value below binary64's normals
-        (lambda: FixedPoint(8, -1017), "bottom, -2\\^1024"),
-        (lambda: FixedPoint(8, -1018, symmetric=True), "largest value, in 2\\^1024"),
+        (lambda: FixedPoint(8, -1017), "most negative value, -2\\^1024"),
+        (lambda: FixedPoint(8, -1018, symmetric=True), "largest value, in the 2\\^1024 binade"),
         (lambda: FixedPoint(8, 1030), "below binary64's smallest normal"),
     ],
 )
@@ -439,25 +441,35 @@ def test_top_boundary_is_where_it_was_measured(ok, bad):
 @pytest.mark.parametrize(
     ("dtype", "ok", "bad", "match"),
     [
-        (F32, lambda: FixedPoint(8, -120), lambda: FixedPoint(8, -121), "bottom, -2\\^128"),
+        (
+            F32,
+            lambda: FixedPoint(8, -120),
+            lambda: FixedPoint(8, -121),
+            "most negative value, -2\\^128",
+        ),
         (
             F32,
             lambda: FixedPoint(8, -121, symmetric=True),
             lambda: FixedPoint(8, -122, symmetric=True),
-            "largest value, in 2\\^128",
+            "largest value, in the 2\\^128 binade",
         ),
         (
             F32,
             lambda: FixedPoint(7, -121, is_signed=False),
             lambda: FixedPoint(7, -122, is_signed=False),
-            "largest value, in 2\\^128",
+            "largest value, in the 2\\^128 binade",
         ),
-        (F64, lambda: FixedPoint(8, -1016), lambda: FixedPoint(8, -1017), "bottom, -2\\^1024"),
+        (
+            F64,
+            lambda: FixedPoint(8, -1016),
+            lambda: FixedPoint(8, -1017),
+            "most negative value, -2\\^1024",
+        ),
         (
             F64,
             lambda: FixedPoint(8, -1017, symmetric=True),
             lambda: FixedPoint(8, -1018, symmetric=True),
-            "largest value, in 2\\^1024",
+            "largest value, in the 2\\^1024 binade",
         ),
     ],
 )
@@ -948,8 +960,8 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
     [
         # Edge 1, the top: 65504 is off the grid of a format that reaches past
         # it, and rounds up out of float16's range.
-        (_quant(F16, 8, 3, bias=16), _quant(F16, 8, 3, bias=15), "rounds up out of float16"),
-        (_quant(F16, 2, 3, 4, -8), _quant(F16, 2, 3, 4, -9), "rounds up out of float16"),
+        (_quant(F16, 8, 3, bias=16), _quant(F16, 8, 3, bias=15), "round up out of float16"),
+        (_quant(F16, 2, 3, 4, -8), _quant(F16, 2, 3, 4, -9), "round up out of float16"),
         # Edge 2, EXTENDED_NORMALS' hole: 2**-bias is an input float16 has and
         # the format does not, and the value above it, (1 + 2**-3) * 2**-bias,
         # is float16's only while its 2**(-bias - 3) step is, which is up to
@@ -966,11 +978,11 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
         ),
         # Edge 3: a largest value finer than float16's grid, which an input
         # reaches only by saturating onto it.
-        (_quant(F16, 16, 12, bias=8), _quant(F16, 16, 12, bias=8, **SATF), "saturates onto it"),
+        (_quant(F16, 16, 12, bias=8), _quant(F16, 16, 12, bias=8, **SATF), "saturates to it"),
         (
             _quant(F16, 15, 11, bias=8, **SATF),
             _quant(F16, 16, 12, bias=8, **SATF),
-            "saturates onto it",
+            "saturates to it",
         ),
         # Fixed point has edges 1 and 3 (it always saturates, and has no hole).
         # Edge 1: a range past float16's. It always saturates, so an infinite
@@ -994,7 +1006,7 @@ def test_gemm_storage_precision_boundaries_raise(ok, bad, match):
         (
             _fxp_quant(F16, 11, -6, symmetric=True),
             _fxp_quant(F16, 11, -6),
-            "may round to infinity",
+            "can round up out of float16",
         ),
         # Edge 3: 2047 fits float16's 11 bits, 4095 does not; bfloat16 has 8.
         (_fxp_quant(F16, 12, 0), _fxp_quant(F16, 13, 0), "not a float16 value"),
@@ -1088,7 +1100,7 @@ def test_a_fixedpoint_range_past_float16_warns_and_says_why():
     instead: a step of 32 holds 65504, and a step of 64 does not."""
     with pytest.warns(FormatRangeWarning, match="an infinite input"):
         _fxp_quant(F16, 16, -5)()
-    with pytest.warns(FormatRangeWarning, match="may round to infinity"):
+    with pytest.warns(FormatRangeWarning, match="can round up out of float16"):
         _fxp_quant(F16, 16, -6)()
 
 
@@ -1248,13 +1260,13 @@ C64: dict[str, Any] = dict(carrier=F64)
         (
             _quant(F32, 12, 4, bias=128, **C64),
             _quant(F32, 12, 4, bias=127, **C64),
-            "rounds up out of float32",
+            "round up out of float32",
             False,
         ),
         (
             _quant(F32, 40, 30, bias=897, **C64),
             _quant(F32, 40, 30, bias=897, **C64, **SATF),
-            "saturates onto it",
+            "saturates to it",
             False,
         ),
         # float16's bounds hold for a float16 result whichever carrier made it
@@ -1267,7 +1279,7 @@ C64: dict[str, Any] = dict(carrier=F64)
         (
             _quant(F16, 8, 3, bias=16, **C64),
             _quant(F16, 8, 3, bias=15, **C64),
-            "rounds up out of float16",
+            "round up out of float16",
             False,
         ),
         # fixed point's largest value, saturated onto: float32 holds 24 bits
@@ -1298,7 +1310,7 @@ def test_the_binary64_storage_rule_is_what_the_call_does():
     infinity.
     """
     x = torch.tensor([3.4028234663852886e38], dtype=F32)
-    with pytest.warns(FormatRangeWarning, match="rounds up out of float32"):
+    with pytest.warns(FormatRangeWarning, match="round up out of float32"):
         y = binaryK_quantize(x, 12, 4, bias=127, rounding_mode=RoundMode.RU, carrier=F64)
     assert y.dtype is F32 and torch.isinf(y).all()
     assert binaryK_quantize(x.double(), 12, 4, bias=127, rounding_mode=RoundMode.RU) == 2.0**128
@@ -1412,7 +1424,7 @@ def test_block_element_must_fit_the_carrier():
     from mptorch import E8M0, BlockFormat
     from mptorch.quant import block_quantize
 
-    with pytest.raises(ValueError, match="binary64 holds entirely"):
+    with pytest.raises(ValueError, match="fits entirely in binary64"):
         BlockFormat(BinaryK(16, 3), E8M0, 32)  # 13 exponent bits: no carrier
     x = torch.randn(4, 32)
     for elem in (
@@ -1420,7 +1432,9 @@ def test_block_element_must_fit_the_carrier():
         BinaryK(8, 4, bias=130),  # a floor below 2^-125
     ):
         fmt = BlockFormat(elem, E8M0, 32)
-        with pytest.raises(ValueError, match="binary32 holds entirely.*binary64 holds it"):
+        with pytest.raises(
+            ValueError, match="fits entirely in binary32.*binary64 can hold this format"
+        ):
             block_quantize(x, fmt)
         assert block_quantize(x.double(), fmt).dtype is torch.float64
     # a fixed-point element is held to the fixed-point rule: 15 magnitude bits
@@ -1429,6 +1443,6 @@ def test_block_element_must_fit_the_carrier():
 
     block_quantize(x, BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=9), E8M0, 16))
     wide = BlockFormat(FixedPoint(16, 14, symmetric=True, prng_bits=10), E8M0, 16)
-    with pytest.raises(ValueError, match="binary32 holds entirely.*stochastic-rounding bits"):
+    with pytest.raises(ValueError, match="fits entirely in binary32.*stochastic-rounding bits"):
         block_quantize(x, wide)
     assert block_quantize(x.double(), wide).dtype is torch.float64

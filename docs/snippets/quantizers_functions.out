@@ -8,10 +8,10 @@ torch.float16  torch.float16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 torch.bfloat16 torch.bfloat16 [1.5, -0.28125, -2.25, 0.5625, -1.125, -1.375]
 
 E5M2's layout, RU, of 60000: 65536.0 in float32, inf in float16
-FormatRangeWarning: BinaryK(K=8, P=3, bias=15) reaches past float16's largest finite value, which is not on the format's grid: a float16 input near it rounds up out of float16's range and is stored as infinity, whatever the saturation mode
+FormatRangeWarning: BinaryK(K=8, P=3, bias=15) reaches beyond float16's largest finite value, which is not a value of the format: a float16 input near it can round up out of float16's range, and is then stored as infinity, whatever the saturation mode
 
 float64, 3 + 21 bits: [1.5, -0.28125, -2.0, 0.5625, -1.125, -1.375]
-bfloat16: ValueError: BinaryK(K=8, P=4, bias=8) asks for 21 stochastic-rounding bits below a 3-bit mantissa; they are drawn from the binary32 significand the rounding happens in, which has 23 bits to share. binary64 holds all of it: a float64 tensor's carrier, which carrier=torch.float64 gives a narrower tensor too.
+bfloat16: ValueError: BinaryK(K=8, P=4, bias=8) has too many stochastic-rounding bits: its 3 mantissa bits and 21 random bits must fit together in the 23 bits of binary32's mantissa. binary64 can hold this format: use a float64 tensor, or pass carrier=torch.float64 to round a narrower tensor in binary64.
 CPU == CUDA under RNE: True
 CPU == CUDA under RZ: True
 CPU == CUDA under RO: True

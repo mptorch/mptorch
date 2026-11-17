@@ -548,7 +548,7 @@ def test_finite_domain_admits_only_sat_finite():
         SaturationMode.SAT_PROPAGATE,
         SaturationMode.SAT_FINITE_EXTENDED,
     ):
-        with pytest.raises(ValueError, match="finite domain admits only SatFinite"):
+        with pytest.raises(ValueError, match="finite domain allows only SaturationMode.SAT_FINITE"):
             BinaryK(8, 4, saturation=mode, domain=Domain.FINITE)
     assert BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE, domain=Domain.FINITE) == BinaryK(
         8, 4, saturation=SaturationMode.SAT_FINITE

@@ -1354,7 +1354,7 @@ def test_format_validation():
         BlockFormat(E4M3, None, 32, scale_rounding=ScaleRounding.NEAREST)
     with pytest.raises(TypeError, match="ScaleRounding"):
         BlockFormat(E2M1, E8M0, 32, scale_rounding="up")  # type: ignore
-    with pytest.raises(ValueError, match="takes a cast scale"):
+    with pytest.raises(ValueError, match="needs a cast scale"):
         BlockFormat(E2M1, E8M0, 32, scale_rounding=ScaleRounding.FOUR_OVER_SIX_MSE)
     # the rule on a 2D tile is a format like any other
     assert BlockFormat(
@@ -1376,7 +1376,7 @@ def test_binary32_finding_per_call(device):
     in binary32 (tests/test_block_binary64.py holds the binary64 calls)."""
     fmt = BlockFormat(SuperFP(3, 5, 1, 7), E8M0, 32)
     x = torch.randn(4, 32, device=device)
-    with pytest.raises(ValueError, match="binary64 holds it"):
+    with pytest.raises(ValueError, match="binary64 can hold this format"):
         block_pack(x, fmt)
     if has_float64(device):
         assert block_pack(x.double(), fmt).carrier is torch.float64

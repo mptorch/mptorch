@@ -236,7 +236,7 @@ def test_wide_formats_are_refused_in_binary32(name):
         lambda: block_quantize(x, fmt),
         lambda: block_quantize(x.half(), fmt),
     ):
-        with pytest.raises(ValueError, match="binary64 holds it"):
+        with pytest.raises(ValueError, match="binary64 can hold this format"):
             call()
     p = block_pack(x, fmt, carrier=F64)
     assert p.carrier is F64 and p.dtype is torch.float32

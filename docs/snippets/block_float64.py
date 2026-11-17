@@ -33,7 +33,7 @@ e9m2 = BlockFormat(BinaryK(12, 3), E8M0, 32)
 try:
     block_quantize(x32, e9m2)
 except ValueError as e:
-    print("binary32 refuses it:", str(e).split("; ")[-1])
+    print("binary32 refuses it:", str(e).split(". ")[-1])
 tiny = x * 2.0**-200
 q = block_quantize(tiny, e9m2)
 print("binary64: relative error", (torch.linalg.norm(q - tiny) / torch.linalg.norm(tiny)).item())

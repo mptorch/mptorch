@@ -1,34 +1,42 @@
-"""Number formats, the modes that round into them, and what a float makes of them.
+"""Number formats, the modes for rounding to them, and checks that a float type can hold them.
 
-The enums here (:class:`RoundMode`, :class:`SaturationMode`,
-:class:`SubnormalsMode`, :class:`AccumulateAlgorithm`) mirror the C++ enums in
-``csrc/common/modes.h`` one to one, by name and by integer value. The kernels
-receive ``.value`` across the ``torch.ops`` boundary, so the two must stay in
-sync. :class:`Domain` exists in Python only: a format object folds it into
-its :class:`SaturationMode` when it is built. :class:`BinaryK` and
-:class:`SuperFP` are the frozen value types that describe a format.
+The format classes are :class:`BinaryK` and :class:`SuperFP` (floating-point
+formats), :class:`FixedPoint` and :class:`BlockFormat` (elements that share a
+scale per block), with presets for the OCP MX and NVFP4 formats. Each is a
+frozen (immutable) value.
 
-The ``check_*`` functions report what a *carrier* (the binary float a cast
-rounds in) and a *storage* dtype (the tensor a result is written to) can do
-with a format. They raise :exc:`ValueError` where the format cannot work at
-all, and warn with :class:`FormatRangeWarning` where it works over part of
-its range.
+The enums :class:`RoundMode`, :class:`SaturationMode`, :class:`SubnormalsMode`
+and :class:`AccumulateAlgorithm` have the same names and integer values as the
+C++ enums in ``csrc/common/modes.h``. The kernels receive an enum's ``.value``
+through ``torch.ops``, so the two definitions must be kept in sync.
+:class:`Domain` exists only in Python: a format object accepts it as
+``domain=`` and records it in its :class:`SaturationMode`, which is all the
+kernels see.
+
+The ``check_*`` functions test a format against two floating-point types: the
+*carrier*, the binary float (binary32 or binary64) that the cast rounds in,
+and the *storage* dtype that the result is written to, when that is narrower
+than the carrier. They raise :exc:`ValueError` when the format cannot work in
+that type at all, and warn with :class:`FormatRangeWarning` when it works over
+only part of its range.
 """
 
-# One module per format family, over the two rules they share:
+# One module per format family, plus the modules they share:
 #
-#   modes        the rounding, saturation, subnormals and accumulate modes, and Domain
-#   base         Number and FloatFormat; FormatRangeWarning, and how a call reports a finding
-#   binaryk      BinaryK, and what holds it to a carrier and a storage dtype
-#   superfp      SuperFP, likewise
-#   fixedpoint   FixedPoint, likewise
-#   block        BlockFormat and ScaleRounding, and the code layout the block kernels decode
+#   modes        the enums: rounding, saturation, subnormals, accumulation, and Domain
+#   base         the base classes Number and FloatFormat, FormatRangeWarning, and the
+#                helpers that raise or warn about a format from inside a call
+#   binaryk      BinaryK and its carrier and storage checks
+#   superfp      SuperFP and its carrier and storage checks
+#   fixedpoint   FixedPoint and its carrier and storage checks
+#   block        BlockFormat, ScaleRounding, and the code layout the block kernels decode
 #   presets      the OCP MX and NVFP4 formats, and bfp
-#   _carrier     what a carrier can hold: its bounds, and binaryK's and superfp's range rule
-#   _storage     what a narrower dtype can store: the rule every storage check reads
+#   _carrier     the limits of the binary32 and binary64 carriers, and the range check
+#                that BinaryK and SuperFP share
+#   _storage     the checks that a narrower storage dtype can hold a format's results
 #
-# A new family is a module of its own (its class, its checks and its findings),
-# a line above and its names below.
+# A new family gets a module of its own (its class, its checks and the code
+# behind them), a line in this table, and its public names imported below.
 
 from .base import FloatFormat, FormatRangeWarning, Number
 from .binaryk import BinaryK

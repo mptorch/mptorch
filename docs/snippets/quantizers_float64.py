@@ -64,7 +64,7 @@ v32 = torch.full((1_000_000,), 1 + 0.3 * 0.125)
 try:
     binaryK_quantize(v32, K=8, P=4, prng_bits=40, rounding_mode=RoundMode.SR)
 except ValueError as e:
-    print("float32:", str(e).split(";")[0])
+    print("float32:", str(e).split(". ")[0])
 sr32 = binaryK_quantize(v32, K=8, P=4, prng_bits=40, rounding_mode=RoundMode.SR, carrier=F64)
 print(
     f"float32, carrier=torch.float64: P(up) = {(sr32 > 1).double().mean().item():.4f}, {sr32.dtype}"
