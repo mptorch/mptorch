@@ -35,7 +35,7 @@ from mptorch.quant import (
     superfp_matmul_fma,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _narrowed
+from mptorch.quant.ops._checks import _narrowed
 
 from .markers import (
     HAS_ODD,

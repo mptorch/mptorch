@@ -9,7 +9,7 @@ equal in every deterministic mode: True
 bfp(8, 32) codes [96, 160, 64, 16]
 
 an E4M3 scale:   NEAREST rounding
-two's complement: a FixedPoint block element must be signed and symmetric, got FixedPoint(wl=8, fl=6, is_signed=True, symmetric=False, prng_bits=0)
+two's complement: a FixedPoint block element must be signed and symmetric, got FixedPoint(wl=8, fl=6)
 
 bfp8 x MXFP8:
  tensor([[ -5.216736,   4.229614,  -7.110840],

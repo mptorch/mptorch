@@ -57,7 +57,6 @@ from mptorch.number import (
     SubnormalsMode,
 )
 
-from .block import BlockPacked, _block_gemm_spec, _run_block_gemm, _stored_as
 from .mac import (
     BlockMac,
     BlockQuant,
@@ -68,25 +67,30 @@ from .mac import (
     spec_for_mac,
 )
 from .modules.format import QAffineFormats, QMatmulFormats
-from .ops import (
+from .ops import BlockPacked
+from .ops._odd import _checked_carrier_rounding_call
+from .ops._operands import _gemm_mixed_nd, _gemm_nd
+from .ops._spec import _run_gemm
+from .ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_odd_spec,
     _binaryK_fma_accumulated_spec,
     _binaryK_fma_odd_spec,
     _binaryK_odd_spec,
+)
+from .ops.block import _block_gemm_spec, _run_block_gemm, _stored_as
+from .ops.cross import (
     _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_odd_spec,
-    _checked_carrier_rounding_call,
-    _gemm_mixed_nd,
-    _gemm_nd,
-    _run_gemm,
-    _superfp_accumulated_odd_spec,
-    _superfp_accumulated_spec,
     _superfp_binaryK_accumulated_odd_spec,
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
+)
+from .ops.superfp import (
+    _superfp_accumulated_odd_spec,
+    _superfp_accumulated_spec,
     _superfp_fma_accumulated_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_odd_spec,

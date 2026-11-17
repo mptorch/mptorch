@@ -432,7 +432,7 @@ def test_narrowing_a_binary64_result_rounds_once(device, dtype):
     the inputs do discriminate. The two steps are spelled out here, because
     whether torch's own ``.to()`` takes them depends on the dtype and the
     platform (always for bfloat16; for float16 not on an arm64 CPU)."""
-    from mptorch.quant.ops import _narrowed
+    from mptorch.quant.ops._checks import _narrowed
 
     x = _hard_cases(dtype, 4096, torch.Generator().manual_seed(21))
     want = torch.tensor([_nearest(v, dtype) for v in x.tolist()], dtype=F64).to(dtype)

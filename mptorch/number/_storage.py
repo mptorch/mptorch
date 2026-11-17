@@ -16,7 +16,7 @@ it is written (by `SIMDTraits`' store in the elementwise quantizers,
 `store_elem` in the GEMMs, and a `static_cast` on the host). Under
 `carrier=torch.float64` the same applies to float32 tensors: the operands are
 widened, rounded in binary64, and the result is narrowed once, to nearest, by
-`mptorch.quant.ops._narrowed`. Either way the conversion is a second
+`mptorch.quant.ops._checks._narrowed`. Either way the conversion is a second
 rounding. A simulated format whose values are not all values of the storage
 dtype is therefore quantized only partially, like a simulated format that
 exceeds its carrier, with one important difference: a result above the

@@ -33,7 +33,7 @@ from mptorch.quant import (
     superfp_binaryK_matmul,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _narrowed
+from mptorch.quant.ops._checks import _narrowed
 
 from .markers import available_devices, float64_devices, requires_mps
 from .test_accumulators import (
@@ -271,7 +271,7 @@ def test_flat_wrappers_and_layouts(device, direction, algorithm):
 def test_the_mac_resolves_to_the_flat_wrappers_spec():
     """``spec_for_mac`` and the flat builders resolve to the same ``_GemmSpec``
     (op, arguments, stored format, findings), defaults included."""
-    from mptorch.quant.ops import (
+    from mptorch.quant.ops.cross import (
         _binaryK_superfp_accumulated_spec,
         _binaryK_superfp_spec,
         _superfp_binaryK_accumulated_spec,

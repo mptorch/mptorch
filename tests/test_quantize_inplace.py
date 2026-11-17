@@ -1,6 +1,6 @@
 """
 The in-place elementwise quantizers, ``binaryK_quantize_``, ``superfp_quantize_``
-and ``fixedpoint_quantize_`` (``mptorch/quant/ops.py``), and ``Quant(inplace=True)``.
+and ``fixedpoint_quantize_`` (``mptorch/quant/ops/``), and ``Quant(inplace=True)``.
 
 An in-place quantizer is its out-of-place op with the output pointer set to
 the input's: the same kernels, the same casts, and under ``RoundMode.SR`` the

@@ -422,7 +422,7 @@ def test_binaryK_matmul_stochastic_bounds_and_unbiased(device, dtype):
     # bfloat16 operand allows exactly as many as a float32 one. A result
     # narrower than its carrier is rounded once more when it is stored, but
     # that second rounding is a bound on the format the result holds (the
-    # storage check in ops.py), not on the draw.
+    # storage check in mptorch.quant.ops), not on the draw.
     prng_bits = F32_MAN_BITS - (P_fmt - 1)
 
     a = torch.rand(500, 1, device=device, dtype=dtype) * 1.8 - 0.9
@@ -496,7 +496,7 @@ def test_superfp_matmul_stochastic_bounds_and_unbiased(device, dtype):
 def test_raw_matmul_op_rejects_rank_4():
     """
     The op boundary is rank 2 or 3, strictly. 1D promotion and rank>3
-    broadcasting are Python's job (ops.py's ``_matmul_operands``, exercised
+    broadcasting are Python's job (``ops._operands._matmul_operands``, exercised
     by test_qmatmul_batched.py), so a rank-4 operand reaching the op is a bug
     in that layer and must be reported, not reshaped.
     """

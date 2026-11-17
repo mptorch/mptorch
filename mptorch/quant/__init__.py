@@ -7,14 +7,6 @@ differentiable matmul functions, and the layers with the factories that
 configure them.
 """
 
-from .block import (
-    BlockPacked,
-    block_matmul,
-    block_pack,
-    block_quantize,
-    block_quantize_,
-    block_unpack,
-)
 from .conv import conv_formats
 from .gemm import (
     binaryK_gemm_formats,
@@ -42,6 +34,7 @@ from .modules import (
     freeze_packed_,
 )
 from .ops import (
+    BlockPacked,
     binaryK_matmul,
     binaryK_matmul_fma,
     binaryK_matmul_fma_mixed,
@@ -49,6 +42,11 @@ from .ops import (
     binaryK_quantize,
     binaryK_quantize_,
     binaryK_superfp_matmul,
+    block_matmul,
+    block_pack,
+    block_quantize,
+    block_quantize_,
+    block_unpack,
     fixedpoint_quantize,
     fixedpoint_quantize_,
     superfp_binaryK_matmul,

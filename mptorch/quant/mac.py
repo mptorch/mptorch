@@ -61,15 +61,22 @@ from mptorch.number import (
     SuperFP,
 )
 
-from .block import (
+from .ops import (
     BlockPacked,
-    _block_gemm_spec,
-    _BlockGemmSpec,
+    binaryK_quantize,
+    binaryK_quantize_,
     block_pack,
     block_quantize,
     block_quantize_,
+    fixedpoint_quantize,
+    fixedpoint_quantize_,
+    superfp_quantize,
+    superfp_quantize_,
 )
-from .ops import (
+from .ops._accumulate import _checked_block_size
+from .ops._checks import _checked_carrier
+from .ops._spec import _GemmSpec
+from .ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_odd_spec,
@@ -82,19 +89,21 @@ from .ops import (
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
     _binaryK_spec,
+)
+from .ops.block import _block_gemm_spec, _BlockGemmSpec
+from .ops.cross import (
     _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_odd_spec,
     _binaryK_superfp_spec,
-    _checked_block_size,
-    _checked_carrier,
-    _GemmSpec,
-    _superfp_accumulated_odd_spec,
-    _superfp_accumulated_spec,
     _superfp_binaryK_accumulated_odd_spec,
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
+)
+from .ops.superfp import (
+    _superfp_accumulated_odd_spec,
+    _superfp_accumulated_spec,
     _superfp_fma_accumulated_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_odd_spec,
@@ -105,12 +114,6 @@ from .ops import (
     _superfp_mixed_spec,
     _superfp_odd_spec,
     _superfp_spec,
-    binaryK_quantize,
-    binaryK_quantize_,
-    fixedpoint_quantize,
-    fixedpoint_quantize_,
-    superfp_quantize,
-    superfp_quantize_,
 )
 
 __all__ = ["Quant", "Palette", "SplitMac", "FusedMac", "BlockQuant", "BlockMac"]
@@ -605,7 +608,7 @@ def _checked_accumulation(
     accumulate format if there is one, else the multiply format), because the
     outer format rounds totals of that format's values and no kernel converts
     them to another family. The block-size rule is the flat wrappers' own
-    (:func:`mptorch.quant.ops._checked_block_size`), so both API tiers raise
+    (:func:`mptorch.quant.ops._accumulate._checked_block_size`), so both API tiers raise
     the same errors.
     """
     outer = mac.outer
@@ -646,7 +649,7 @@ def _checked_carrier_rounding(
     rounded to odd is correct only if a format rounds it again afterwards, so
     ``RO`` is refused for ``FusedMac(None)``, whose fused step no format
     rounds. The bounds on the formats' precision depend on the carrier, so
-    they are worked out when the mac is resolved (``ops._odd_findings``) and
+    they are worked out when the mac is resolved (``ops._odd._odd_findings``) and
     reported on each call, for the call's carrier.
     """
     mode = mac.carrier_rounding
@@ -967,7 +970,7 @@ def _outer_fields(outer: Number | None) -> dict[str, Any]:
 def spec_for_mac(mac: Mac) -> _GemmSpec:
     """Resolve a mac to the GEMM it names, as a ``_GemmSpec`` (the op and its arguments).
 
-    The result is the same ``_GemmSpec`` that the flat ``ops.py`` wrapper for
+    The result is the same ``_GemmSpec`` that the flat wrapper in ``mptorch.quant.ops`` for
     that op builds from the same numbers. ``tests/test_number_formats.py``
     asserts that the two are equal, which keeps the two API tiers from
     drifting apart.

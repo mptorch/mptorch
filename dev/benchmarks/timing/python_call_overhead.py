@@ -63,18 +63,10 @@ from mptorch.quant import (
 from mptorch.quant.gemm import _gemm_formats, binaryK_gemm_formats, block_gemm_formats
 from mptorch.quant.mac import FusedMac, spec_for_mac
 from mptorch.quant.modules._saved import quantize_operand
-from mptorch.quant.ops import (
-    _binaryK_fma_spec,
-    _binaryK_spec,
-    _GemmSpec,
-    _run_gemm,
-    _superfp_fma_spec,
-    _superfp_spec,
-    binaryK_matmul,
-    binaryK_matmul_fma,
-    superfp_matmul,
-    superfp_matmul_fma,
-)
+from mptorch.quant.ops import binaryK_matmul, binaryK_matmul_fma, superfp_matmul, superfp_matmul_fma
+from mptorch.quant.ops._spec import _GemmSpec, _run_gemm
+from mptorch.quant.ops.binaryk import _binaryK_fma_spec, _binaryK_spec
+from mptorch.quant.ops.superfp import _superfp_fma_spec, _superfp_spec
 
 # Each case twice over: once resolved into a spec, once as the keyword call
 # that resolves on every invocation. Spelling the formats out both times is

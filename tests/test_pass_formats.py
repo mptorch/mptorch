@@ -36,7 +36,7 @@ from mptorch.quant import (
 from mptorch.quant.conv import _conv_formats
 from mptorch.quant.gemm import _gemm_formats, _plain_conv, _with_output
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _run_gemm
+from mptorch.quant.ops._spec import _run_gemm
 from tests.markers import available_devices
 
 SR = RoundMode.SR

@@ -2,7 +2,7 @@
 Which carrier the elementwise quantizers round an operand in, by its dtype.
 
 Guards ``binaryK_quantize``, ``superfp_quantize`` and ``fixedpoint_quantize``
-(``mptorch/quant/ops.py``) and the kernels behind them. A float64 tensor
+(``mptorch/quant/ops/``) and the kernels behind them. A float64 tensor
 rounds in binary64: its kernels are instantiated for ``double`` and compute
 in it. A float32, float16 or
 bfloat16 tensor rounds in binary32, whose values all three are, unless the call
@@ -53,7 +53,7 @@ import torch
 
 from mptorch.number import FormatRangeWarning, RoundMode, SaturationMode, SubnormalsMode
 from mptorch.quant import binaryK_quantize, fixedpoint_quantize, superfp_quantize
-from mptorch.quant.ops import _narrowed
+from mptorch.quant.ops._checks import _narrowed
 from tests.markers import available_devices, float64_devices
 from tests.test_binaryk_p3109 import _project
 

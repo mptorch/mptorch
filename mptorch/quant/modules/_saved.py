@@ -51,8 +51,8 @@ from typing import Any, cast
 
 import torch
 
-from ..block import BlockPacked
 from ..mac import BlockQuant, Quant
+from ..ops import BlockPacked
 from .quantizer import Quantizer
 
 # (the CPU generator's state or None, ((device, that device's generator state), ...))

@@ -49,7 +49,7 @@ from mptorch.quant import (
     block_unpack,
     qmatmul,
 )
-from mptorch.quant.ops import _narrowed
+from mptorch.quant.ops._checks import _narrowed
 
 from . import block_reference as ref
 from .markers import float64_devices

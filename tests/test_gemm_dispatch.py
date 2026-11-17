@@ -39,7 +39,7 @@ from mptorch.quant import (
     superfp_matmul_fma_mixed,
     superfp_matmul_mixed,
 )
-from mptorch.quant.ops import _narrowed
+from mptorch.quant.ops._checks import _narrowed
 from tests.markers import available_devices, float64_devices
 
 DETERMINISTIC = [rm for rm in RoundMode if not rm.is_stochastic]

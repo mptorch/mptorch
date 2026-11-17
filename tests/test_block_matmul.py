@@ -456,7 +456,7 @@ def test_validation(device):
 
 def test_raw_op_refuses_non_uint8_and_grad():
     pa, pb = _ops(4, 64, 4, MXFP8_E4M3, MXFP8_E4M3, "cpu")
-    from mptorch.quant.block import _block_gemm_spec, _format_args
+    from mptorch.quant.ops.block import _block_gemm_spec, _format_args
 
     spec = _block_gemm_spec(None, False, RoundMode.RNE, AccumulateAlgorithm.NAIVE, None, None, None)
     args = (

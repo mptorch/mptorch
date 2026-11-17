@@ -49,7 +49,8 @@ import torch
 from mptorch import AccumulateAlgorithm, BinaryK, RoundMode
 from mptorch.number import FormatRangeWarning
 from mptorch.quant import FusedMac, SplitMac, binaryK_quantize, qmm
-from mptorch.quant.ops import _binaryK_fma_spec, _binaryK_spec, _GemmSpec
+from mptorch.quant.ops._spec import _GemmSpec
+from mptorch.quant.ops.binaryk import _binaryK_fma_spec, _binaryK_spec
 
 R = RoundMode
 FORMATS = [(8, 4), (8, 3), (12, 6), (16, 8), (16, 11), (16, 12), (24, 16)]

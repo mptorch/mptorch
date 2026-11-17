@@ -45,7 +45,7 @@ what :mod:`mptorch.number` enforces.
 ``check_binaryK_storage``, ``check_superfp_storage`` and
 ``check_fixedpoint_storage``). The cast rounds in binary32, their default
 carrier, or in binary64 with ``--carrier binary64`` (the operands widened, the
-result narrowed by ``mptorch.quant.ops._narrowed``); writing the result rounds
+result narrowed by ``mptorch.quant.ops._checks._narrowed``); writing the result rounds
 it again, so the format's values must also be the dtype's. That is a third
 question, representability in the dtype, and the audit answers it twice,
 because two ops reach different parts of the format: a K=1 fused GEMM over
@@ -933,7 +933,7 @@ def audit_storage(grid: Grid, args, device: str, st: Storage, light: bool = Fals
     if grid.carrier.name == "binary64":
         # `carrier=torch.float64`: the operands widened, the result narrowed
         # once, as the wrappers do it
-        from mptorch.quant.ops import _narrowed
+        from mptorch.quant.ops._checks import _narrowed
 
         def fma(a, b, mode):
             return _narrowed(_fma(a.double(), b.double(), grid, args, mode), dt)

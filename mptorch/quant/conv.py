@@ -34,14 +34,8 @@ from mptorch.number import Number
 
 from .mac import FusedMac, Mac, SplitMac, spec_for_mac
 from .modules.format import QAffineFormats
-from .ops import (
-    _NARROW_STORAGE,
-    _check_stored,
-    _GemmSpec,
-    _named_carrier_operands,
-    _narrowed,
-    _report_findings,
-)
+from .ops._checks import _NARROW_STORAGE, _check_stored, _narrowed, _report_findings
+from .ops._spec import _GemmSpec, _named_carrier_operands
 
 __all__ = ["conv_formats"]
 
@@ -170,7 +164,7 @@ class _ConvOp:
 
     ``args`` are the spec's arguments followed by whatever more the conv op
     takes, and ``prec_idx`` is the pass's map for a palette op. What happens
-    on each call is what happens on each call of a GEMM (``ops._run_gemm``):
+    on each call is what happens on each call of a GEMM (``ops._spec._run_gemm``):
     the carrier's findings and the storage check for the operands' dtype are
     reported, and, for a spec that names ``carrier=torch.float64``, narrower
     operands are widened and the result is narrowed back to their dtype.

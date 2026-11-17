@@ -22,9 +22,10 @@ from torch import nn
 
 from mptorch.number.block import _block_label
 
-from ..block import BlockPacked, _block_format_ints, block_unpack
 from ..mac import BlockQuant
-from ..ops import _CARRIER, _call_carrier
+from ..ops import BlockPacked, block_unpack
+from ..ops._checks import _CARRIER, _call_carrier
+from ..ops.block import _block_format_ints
 from ._saved import load, quantize_operand, restore, save
 from .format import QAffineFormats
 

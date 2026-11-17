@@ -50,7 +50,7 @@ from mptorch.quant import (
     fixedpoint_quantize,
     superfp_quantize,
 )
-from mptorch.quant.block import _block_format_ints
+from mptorch.quant.ops.block import _block_format_ints
 
 from . import block_reference as ref
 from .markers import available_devices, has_float64, requires_mps

@@ -29,7 +29,7 @@ from mptorch.quant import (
     conv_formats,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _run_gemm
+from mptorch.quant.ops._spec import _run_gemm
 
 
 def benchmark_layer(layer_fn, input_shape, dtype, device="cuda", num_iters=100, warmup_iters=20):

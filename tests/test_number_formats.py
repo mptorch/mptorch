@@ -1,7 +1,7 @@
 """The format vocabulary of ``mptorch.quant.mac`` against the flat GEMM wrappers.
 
 Formats have two spellings. The schema tier is the eight ``*_matmul*`` wrappers
-in ``quant/ops.py``, one per op with every schema argument spelled out. The value
+in ``mptorch.quant.ops``, one per op with every schema argument spelled out. The value
 tier is ``BinaryK``/``SuperFP``, ``Quant``, ``SplitMac``/``FusedMac`` and
 ``Palette``, with ``qmm``/``qbmm``/``qmatmul``, ``QMatmul`` and ``Quantizer`` as the
 differentiable entry points built on it. The ops themselves take rank 2 or 3
@@ -51,7 +51,7 @@ from mptorch.quant import (
     superfp_quantize,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import (
+from mptorch.quant.ops.binaryk import (
     _binaryK_accumulated_odd_spec,
     _binaryK_accumulated_spec,
     _binaryK_fma_accumulated_odd_spec,
@@ -64,16 +64,20 @@ from mptorch.quant.ops import (
     _binaryK_mixed_spec,
     _binaryK_odd_spec,
     _binaryK_spec,
+)
+from mptorch.quant.ops.cross import (
     _binaryK_superfp_accumulated_odd_spec,
     _binaryK_superfp_accumulated_spec,
     _binaryK_superfp_odd_spec,
     _binaryK_superfp_spec,
-    _superfp_accumulated_odd_spec,
-    _superfp_accumulated_spec,
     _superfp_binaryK_accumulated_odd_spec,
     _superfp_binaryK_accumulated_spec,
     _superfp_binaryK_odd_spec,
     _superfp_binaryK_spec,
+)
+from mptorch.quant.ops.superfp import (
+    _superfp_accumulated_odd_spec,
+    _superfp_accumulated_spec,
     _superfp_fma_accumulated_odd_spec,
     _superfp_fma_accumulated_spec,
     _superfp_fma_mixed_odd_spec,
@@ -641,6 +645,63 @@ def test_the_package_keeps_every_name_number_py_had():
     assert pickle.loads(now) == f and pickle.loads(before) == f
 
 
+# What `mptorch/quant/ops.py` exported, and the public names of `quant/block.py`,
+# which moved into the package as `ops/block.py`.
+_OPS_ALL = (
+    "binaryK_quantize",
+    "binaryK_quantize_",
+    "superfp_quantize",
+    "superfp_quantize_",
+    "fixedpoint_quantize",
+    "fixedpoint_quantize_",
+    "binaryK_matmul",
+    "superfp_matmul",
+    "binaryK_matmul_fma",
+    "superfp_matmul_fma",
+    "binaryK_matmul_mixed",
+    "superfp_matmul_mixed",
+    "binaryK_matmul_fma_mixed",
+    "superfp_matmul_fma_mixed",
+    "binaryK_superfp_matmul",
+    "superfp_binaryK_matmul",
+)
+_BLOCK_PUBLIC = (
+    "BlockPacked",
+    "block_matmul",
+    "block_pack",
+    "block_quantize",
+    "block_quantize_",
+    "block_unpack",
+)
+
+
+def test_the_ops_package_keeps_every_public_name():
+    """``mptorch.quant.ops`` became a package of one module per format family,
+    and ``quant/block.py`` moved into it. Every public name of the two old
+    modules resolves from ``mptorch.quant.ops`` and from ``mptorch.quant``,
+    each is its family module's own, and a pickle that names a quantizer by
+    its old path, ``mptorch.quant.ops.binaryK_quantize``, still loads."""
+    import functools
+    import pickle
+
+    import mptorch.quant as quant
+    import mptorch.quant.ops as ops
+    from mptorch.quant.ops import binaryk, block
+
+    assert tuple(ops.__all__) == _OPS_ALL + _BLOCK_PUBLIC
+    for name in _OPS_ALL + _BLOCK_PUBLIC:
+        assert getattr(ops, name) is getattr(quant, name), name
+    assert ops.binaryK_matmul is binaryk.binaryK_matmul
+    assert quant.BlockPacked is block.BlockPacked
+
+    q = functools.partial(ops.binaryK_quantize, K=8, P=4)
+    now = pickle.dumps(q, protocol=0)  # protocol 0 names each function as text
+    assert b"mptorch.quant.ops.binaryk\nbinaryK_quantize" in now
+    before = now.replace(b"mptorch.quant.ops.binaryk\n", b"mptorch.quant.ops\n")
+    assert b"mptorch.quant.ops.binaryk" not in before
+    assert pickle.loads(before).func is ops.binaryK_quantize
+
+
 # ------------------------------------------------------------------------------------
 # The format objects themselves.
 
@@ -1178,8 +1239,8 @@ def test_scale_rounding_resolves_and_compares_by_the_rule():
 def test_block_mac_resolves_to_the_flat_spec():
     from mptorch import MXFP8_E4M3
     from mptorch.quant import BlockMac
-    from mptorch.quant.block import _block_gemm_spec
     from mptorch.quant.mac import spec_for_block_mac
+    from mptorch.quant.ops.block import _block_gemm_spec
 
     for acc, fused, rm, alg, bs, outer, epilogue in itertools.product(
         (None, BinaryK(16, 11)),

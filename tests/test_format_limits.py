@@ -89,11 +89,13 @@ from mptorch.quant import (
 )
 from mptorch.quant.gemm import binaryK_gemm_formats
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import (
+from mptorch.quant.ops.binaryk import (
     _binaryK_fma_mixed_spec,
     _binaryK_fma_spec,
     _binaryK_mixed_spec,
     _binaryK_spec,
+)
+from mptorch.quant.ops.superfp import (
     _superfp_fma_mixed_spec,
     _superfp_fma_spec,
     _superfp_mixed_spec,

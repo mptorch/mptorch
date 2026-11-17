@@ -41,7 +41,8 @@ from mptorch.quant import (
     conv_formats,
 )
 from mptorch.quant.mac import spec_for_mac
-from mptorch.quant.ops import _narrowed, _run_gemm, _run_gemm_mixed
+from mptorch.quant.ops._checks import _narrowed
+from mptorch.quant.ops._spec import _run_gemm, _run_gemm_mixed
 
 from .markers import available_devices, float64_devices, requires_cuda, requires_mps
 

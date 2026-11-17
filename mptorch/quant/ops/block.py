@@ -48,13 +48,13 @@ from mptorch.number import (
 from mptorch.number.binaryk import _binaryK_findings, check_binaryK_storage
 from mptorch.number.block import _block_label, _minifloat, check_block_carrier, check_block_storage
 
-from .ops import (
+from ._accumulate import _checked_block_size
+from ._checks import (
     _BELOW_BINARY64,
     _CARRIER,
     _NARROW_STORAGE,
     _call_carrier,
     _check_stored,
-    _checked_block_size,
     _checked_carrier,
     _Findings,
     _format_findings,
@@ -866,7 +866,7 @@ def _stored_as(spec: _BlockGemmSpec, out: torch.Tensor, dtype: torch.dtype) -> t
     When the storage dtype is narrower than the carrier, the format the result
     holds is first checked against it (the storage check of
     :func:`mptorch.number.check_binaryK_storage`). A binary64 result is
-    narrowed with a single rounding (``ops._narrowed``)."""
+    narrowed with a single rounding (``_checks._narrowed``)."""
     if dtype is out.dtype:
         return out
     wide = out.dtype is torch.float64
