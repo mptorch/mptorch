@@ -10,17 +10,10 @@ from mptorch import (
     SaturationMode,
     SubnormalsMode,
 )
-from mptorch.number import (
-    _binaryK_findings,
-    _report_per_call,
-    _superfp_findings,
-    check_binaryK_carrier,
-    check_binaryK_storage,
-    check_fixedpoint_carrier,
-    check_fixedpoint_storage,
-    check_superfp_carrier,
-    check_superfp_storage,
-)
+from mptorch.number.base import _report_per_call
+from mptorch.number.binaryk import _binaryK_findings, check_binaryK_carrier, check_binaryK_storage
+from mptorch.number.fixedpoint import check_fixedpoint_carrier, check_fixedpoint_storage
+from mptorch.number.superfp import _superfp_findings, check_superfp_carrier, check_superfp_storage
 
 __all__ = [
     "binaryK_quantize",

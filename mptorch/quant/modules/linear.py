@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from mptorch.number import _block_label
+from mptorch.number.block import _block_label
 
 from ..block import BlockPacked, _block_format_ints, block_unpack
 from ..mac import BlockQuant

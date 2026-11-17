@@ -816,7 +816,7 @@ static void grid_pairs()
 // clips, the saturations, NaN and infinity, and man_bits == 0's tie, which
 // breaks on the carrier's exponent-field parity and holds only because 1023 is
 // odd like 127. Where binary32 is not faithful the two legitimately differ,
-// so configurations outside number.py's bounds are skipped, not reported
+// so configurations outside mptorch.number's bounds are skipped, not reported
 // (faithful32 below transcribes them).
 //
 // Stochastic rounding gets the same draw on both sides: binary32 reads the low
@@ -836,7 +836,7 @@ static void grid_pairs()
 //
 // The first time it ran, 2394 of 2406 faithful configurations were identical.
 // The other twelve were two format families on the NORMALS/EXTENDED_NORMALS
-// edge that number.py then called faithful and that binary32 was not, and in
+// edge that mptorch.number then called faithful and that binary32 was not, and in
 // each the binary64 answer was P3109's:
 //
 //   man_bits 0, e7, bias 127 (floor 2^-126), NORMALS or EXTENDED_NORMALS, any
@@ -855,7 +855,7 @@ static void grid_pairs()
 //
 // The dead floor was a bug and is fixed: the range test reads the floor's own
 // exponent field. The other two are binary32 not holding the point the
-// compare needs, so number.py's bound now stops those two families a binade
+// compare needs, so mptorch.number's bound now stops those two families a binade
 // short (bias 126 and 125) and faithful32 below follows it. `image64-edges`
 // keeps the twelve: outside the bound, each must now differ from binary64 at
 // exactly the documented input and mode and nowhere else, which is what says
@@ -965,7 +965,7 @@ static void run_image(const Cfg &c, double sr_below, const BinaryKParams &bp32, 
 }
 #endif
 
-// number.py's "faithful in binary32" (`_width_error`, `_range_findings` and
+// mptorch.number's "faithful in binary32" (`_width_error`, `_range_findings` and
 // the two `_*_extent`s), transcribed: the formats for which the identity above
 // is a claim at all.
 static bool faithful32(const Cfg &c)

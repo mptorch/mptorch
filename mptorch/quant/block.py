@@ -42,13 +42,9 @@ from mptorch.number import (
     SaturationMode,
     SubnormalsMode,
     SuperFP,
-    _binaryK_findings,
-    _block_label,
-    _minifloat,
-    check_binaryK_storage,
-    check_block_carrier,
-    check_block_storage,
 )
+from mptorch.number.binaryk import _binaryK_findings, check_binaryK_storage
+from mptorch.number.block import _block_label, _minifloat, check_block_carrier, check_block_storage
 
 from .ops import (
     _BELOW_BINARY64,
@@ -86,7 +82,7 @@ def _code_fields(
     signed, exp_bits, man_bits, bias, subnormals, normal_binades), family 0 a
     binaryK and 1 a superfp, each leaving the other's field 0. A fixed-point
     element is family 0: the binaryK layout its integer code is
-    (`mptorch.number._minifloat`), under SUBNORMALS."""
+    (`mptorch.number.block._minifloat`), under SUBNORMALS."""
     mf = _minifloat(f)
     if isinstance(f, FixedPoint):
         sub = SubnormalsMode.SUBNORMALS.value

@@ -69,13 +69,10 @@ from mptorch import (
     SubnormalsMode,
     SuperFP,
 )
-from mptorch.number import (
-    FormatRangeWarning,
-    _binaryK_findings,
-    _fixedpoint_storage_findings,
-    _superfp_findings,
-    check_fixedpoint_storage,
-)
+from mptorch.number import FormatRangeWarning, check_fixedpoint_storage
+from mptorch.number.binaryk import _binaryK_findings
+from mptorch.number.fixedpoint import _fixedpoint_storage_findings
+from mptorch.number.superfp import _superfp_findings
 from mptorch.quant import (
     FusedMac,
     QLinear,

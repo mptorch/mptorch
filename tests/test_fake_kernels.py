@@ -47,8 +47,8 @@ from mptorch import (
     FormatRangeWarning,
     RoundMode,
     SuperFP,
-    number,
 )
+from mptorch.number.base import _warn_per_call
 from mptorch.quant import (
     FusedMac,
     Palette,
@@ -921,13 +921,13 @@ def test_a_refused_format_keeps_its_reason_under_compile():
 
 
 def test_the_warning_helper_carries_dynamos_constant_marker():
-    """``number._warn_per_call`` sets the attribute
+    """``mptorch.number.base._warn_per_call`` sets the attribute
     ``torch.compiler.assume_constant_result`` sets, without importing
     ``torch._dynamo``. Should torch rename it, a warning would break the
     graph again; this says so first."""
     marked = assume_constant_result(lambda: None)
-    assert set(vars(marked)) <= set(vars(number._warn_per_call))
-    assert all(getattr(number._warn_per_call, k) == v for k, v in vars(marked).items())
+    assert set(vars(marked)) <= set(vars(_warn_per_call))
+    assert all(getattr(_warn_per_call, k) == v for k, v in vars(marked).items())
 
 
 def test_compile_takes_a_dynamic_batch_without_recompiling():

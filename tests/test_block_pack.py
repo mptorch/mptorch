@@ -160,7 +160,7 @@ FOUR_OVER_SIX_TILES = {
 }
 # Block floating point (`bfp`): FixedPoint elements, sign-magnitude
 # integer codes, which the kernels run as the binaryK layout they are
-# (`mptorch.number._minifloat`) and `block_reference` as integers times 2^-fl.
+# (`mptorch.number.block._minifloat`) and `block_reference` as integers times 2^-fl.
 # One magnitude bit, odd widths, OCP MXINT8's shape, another fl (the same
 # values, emax 6) and a cast scale; 2D tiles are the tile test's, wider codes
 # WIDE_BFP's.

@@ -103,7 +103,7 @@ These come on top of what every change runs: the suite, and ruff, ty and pre-com
 | the CPU's vector tiles | `cpu_rne_tile_sweep.cpp` and `cpu_odd_tile_sweep.cpp` at each ISA; `cpu_gemm_ab.cpp` for the cost |
 | the float64 narrowing | `narrow_float64_sweep.py short` |
 | the elementwise SR path | `elementwise_sr_stats.py`, both dtypes; `cast_all_modes_sweep sr-mean` |
-| a bound in `mptorch/number.py` | `format_limits.py sweep --audit`, and with `--carrier binary64` |
+| a bound in `mptorch/number/` | `format_limits.py sweep --audit`, and with `--carrier binary64` |
 | MPS code, or a header the Metal prelude includes | on the Mac: the suite, `mps_backend.py sweep` and `bench` |
 | The odd carrier step's headers (`common/carrier_odd*.h`) | on the Mac: the suite and `mps_backend.py odd-sweep` (the Metal side); on Linux: `gates/binary_identity.py so` (their host and CUDA text) |
 | a cost you are going to claim | the matching `timing/` tool, alternated as below |

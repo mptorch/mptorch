@@ -568,6 +568,80 @@ def test_a_carrier_must_name_one(build, error, match):
 
 
 # ------------------------------------------------------------------------------------
+# The namespace of ``mptorch.number``.
+
+# The names ``mptorch.number`` had as a single module: its ``__all__``, and
+# beside it the checks ``mptorch.quant`` and ``dev/benchmarks`` call and
+# ``ScaleRounding``.
+_NUMBER_ALL = (
+    "SaturationMode",
+    "Domain",
+    "SubnormalsMode",
+    "RoundMode",
+    "AccumulateAlgorithm",
+    "Number",
+    "FloatFormat",
+    "BinaryK",
+    "SuperFP",
+    "BlockFormat",
+    "FixedPoint",
+    "FormatRangeWarning",
+    "E8M0",
+    "E4M3",
+    "E5M2",
+    "E2M1",
+    "E2M3",
+    "E3M2",
+    "MXFP8_E4M3",
+    "MXFP8_E5M2",
+    "MXFP6_E2M3",
+    "MXFP6_E3M2",
+    "MXFP4_E2M1",
+    "NVFP4",
+    "bfp",
+)
+_NUMBER_BESIDE_ALL = (
+    "ScaleRounding",
+    "check_binaryK",
+    "check_superfp",
+    "check_fixedpoint",
+    "check_binaryK_carrier",
+    "check_superfp_carrier",
+    "check_fixedpoint_carrier",
+    "check_binaryK_storage",
+    "check_superfp_storage",
+    "check_fixedpoint_storage",
+    "check_block_carrier",
+    "check_block_storage",
+)
+
+
+def test_the_package_keeps_every_name_number_py_had():
+    """``mptorch.number`` became a package of one module per format family. Its
+    ``__all__`` is the module's, every name a caller imported from it resolves,
+    each class is its submodule's own, and a pickle written before the split,
+    which names ``mptorch.number.BinaryK``, still loads."""
+    import pickle
+
+    import mptorch.number as number
+    from mptorch.number import binaryk, modes
+
+    assert tuple(number.__all__) == _NUMBER_ALL
+    for name in _NUMBER_ALL + _NUMBER_BESIDE_ALL:
+        assert hasattr(number, name), name
+    assert number.BinaryK is binaryk.BinaryK and number.RoundMode is modes.RoundMode
+
+    f = BinaryK(8, 4, saturation=SaturationMode.SAT_FINITE)
+    now = pickle.dumps(f, protocol=0)  # protocol 0 names each class as text
+    assert b"mptorch.number.binaryk\nBinaryK" in now
+    before = now.replace(b"mptorch.number.binaryk\n", b"mptorch.number\n").replace(
+        b"mptorch.number.modes\n", b"mptorch.number\n"
+    )
+    assert b"mptorch.number.binaryk" not in before and b"mptorch.number.modes" not in before
+    assert pickle.loads(now) == f and pickle.loads(before) == f
+
+
+# ------------------------------------------------------------------------------------
 # The format objects themselves.
 
 

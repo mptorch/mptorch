@@ -549,7 +549,7 @@ def test_one_step_below_binary32s_floor_rounds_wrongly(device):
 
 def _sr_bits(wl: int, is_signed: bool, dtype: torch.dtype) -> int:
     """``SR_BITS``, or as many as fit beside the format's bits in the carrier's
-    mantissa (23 in binary32, 52 in binary64), which number.py holds them to."""
+    mantissa (23 in binary32, 52 in binary64), which mptorch.number holds them to."""
     mag_bits = wl - (1 if is_signed else 0)
     return max(0, min(SR_BITS, (52 if dtype is torch.float64 else 23) - mag_bits))
 
