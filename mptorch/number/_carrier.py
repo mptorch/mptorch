@@ -160,12 +160,18 @@ def _width_error(
     """Check the bit widths, which must be valid before any code shifts by ``exp_bits``.
 
     Return the error message for the first violation, or ``None``. The
-    violations, in the order checked: a negative ``prng_bits``; an exponent
-    field wider than ``_MAX_EXP_BITS``; a mantissa wider than the carrier's;
-    and stochastic-rounding bits that do not fit in the carrier's significand
-    next to the mantissa. Each makes the format unusable, so each is an
-    error, never a warning.
+    violations, in the order checked: a negative width; a negative
+    ``prng_bits``; an exponent field wider than ``_MAX_EXP_BITS``; a mantissa
+    wider than the carrier's; and stochastic-rounding bits that do not fit in
+    the carrier's significand next to the mantissa. Each makes the format
+    unusable, so each is an error, never a warning.
     """
+    if man_bits < 0 or exp_bits < 0:
+        # `BinaryK` and `SuperFP` reject these in `__post_init__`, and a
+        # binaryK's own check words them in K and P (`_binaryK_shape_error`),
+        # but the superfp wrappers in `mptorch.quant.ops` come here unchecked
+        width = f"{man_bits} stored mantissa bits" if man_bits < 0 else f"{exp_bits} exponent bits"
+        return f"{label} has {width}: a field cannot have a negative width"
     if prng_bits < 0:
         # `BinaryK` and `SuperFP` reject a negative count in `__post_init__`, but
         # the wrappers in `mptorch.quant.ops` that take plain integers come here

@@ -1034,7 +1034,9 @@ inline float metal_sub_rn(float a, float b)
 // there is one; where there is not, it still keeps the fact that the input
 // was nonzero), and stochastic rounding takes the value with probability
 // |x| divided by it. These are the rules that clip_subnormal_range_exponent
-// and its _up variant implement for the subnormal region.
+// and its _up variant implement for the subnormal region, all but the last:
+// stochastic.h's casts make stochastic rounding's choice themselves, so it
+// has no member here.
 //
 // Only NORMALS and EXTENDED_NORMALS reach this. Under SUBNORMALS anything
 // below the smallest normal took the subnormal branch, and rounding a normal
@@ -1047,7 +1049,6 @@ enum class UnderflowMode
     NEAREST_AWAY, // at or above half, take it
     AWAY,         // any nonzero magnitude takes it: toward-away, and to-odd
     ZERO,         // toward zero
-    STOCHASTIC,   // unused (stochastic.h's casts decide SR's floors); kept so that NONE keeps its value
     // Nothing below the floor can reach the clip, so it has no underflow arm
     // at all. superfp is this case: its normal arm is entered only at or
     // above `normal_cutoff`, which a well-formed format puts at or above
@@ -1075,7 +1076,7 @@ enum class UnderflowMode
 // note says which callers want which.
 template <UnderflowMode U, class W>
 CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num, SaturationMode saturation_mode,
-                                                      W min_num, W half_num, W max_num, W rand_prob = 0)
+                                                      W min_num, W half_num, W max_num)
 {
     using F = WordTraits<W>;
     W ax = old_num & F::ABS_MASK;
@@ -1124,11 +1125,11 @@ CUDA_HOST_DEVICE_INLINE W clip_normal_range_magnitude(W old_num, W quantized_num
 // modes had been doing for nothing went with it.
 template <UnderflowMode U, class W>
 CUDA_HOST_DEVICE_INLINE W clip_normal_range_exponent(W old_num, W quantized_num, SaturationMode saturation_mode,
-                                                     W min_num, W half_num, W max_num, W rand_prob = 0)
+                                                     W min_num, W half_num, W max_num)
 {
     using F = WordTraits<W>;
     W magnitude = clip_normal_range_magnitude<U>(old_num, quantized_num, saturation_mode,
-                                                 min_num, half_num, max_num, rand_prob);
+                                                 min_num, half_num, max_num);
     W sign = old_num & F::SIGN_MASK;
     return magnitude | (sign & -(W)(magnitude != 0));
 }

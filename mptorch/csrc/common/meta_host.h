@@ -704,8 +704,8 @@ namespace mptorch::meta
     g::BlockSplitArgs split;
     split.accumulate_quant = accumulate_quant;
     split.acc = g::binaryK_widths(acc_K, acc_P, acc_bias, acc_is_signed);
-    split.acc_c = g::BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
-                                   static_cast<SubnormalsMode>(acc_subnormals_mode),
+    split.acc_c = g::BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(g::narrow_to_int(acc_saturation_mode)),
+                                   static_cast<SubnormalsMode>(g::narrow_to_int(acc_subnormals_mode)),
                                    g::narrow_to_int(acc_prng_bits)};
     return run(split);
   }

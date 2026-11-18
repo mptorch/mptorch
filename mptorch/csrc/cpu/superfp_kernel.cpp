@@ -177,9 +177,9 @@ Tensor superfp_quantize_cpu(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
 {
   // The format, and under SR its random bits, checked before anything
   // is built from them (common/stochastic_host.h).
-  mptorch::check_quantizer_format(mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias),
-                                  mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                  round_mode, "superfp_quant");
+  mptorch::check_quantizer_format(
+      mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+      mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
   // The kernel reads data_ptr() in storage order, so a strided input is
   // copied to a contiguous one first (contiguous() returns a contiguous
   // input as it is).
@@ -201,9 +201,9 @@ Tensor &superfp_quantize_cpu_(Tensor &a, int64_t man_bits, int64_t exp_bits,
               ": use superfp_quant, which copies a strided input");
   // The format, and under SR its random bits, checked before anything
   // is built from them (common/stochastic_host.h).
-  mptorch::check_quantizer_format(mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias),
-                                  mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                  round_mode, "superfp_quant");
+  mptorch::check_quantizer_format(
+      mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+      mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
   superfp_quantize_into(a, a, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
                         round_mode, saturation_mode);
   return a;

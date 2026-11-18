@@ -233,9 +233,9 @@ Tensor binaryK_quantize_cuda(
 {
     // The format, and under SR its random bits, checked before anything
     // is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias),
-                                    mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                    round_mode, "binaryK_quant");
+    mptorch::check_quantizer_format(
+        mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+        mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "binaryK_quant");
     // The kernel reads data_ptr() in storage order, so a non-contiguous input
     // would be read in the wrong order. The Python wrappers already pass a
     // contiguous tensor (mptorch/quant/ops/_checks.py's _quantizer_operand),
@@ -261,9 +261,9 @@ Tensor &binaryK_quantize_cuda_(
     mptorch::check_vector_loadable_in_place(a, "binaryK_quant_", "binaryK_quant");
     // The format, and under SR its random bits, checked before anything
     // is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias),
-                                    mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                    round_mode, "binaryK_quant");
+    mptorch::check_quantizer_format(
+        mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+        mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "binaryK_quant");
     binaryK_quantize_into(a, a, K, P, bias, prng_bits, is_signed, round_mode, saturation_mode,
                           subnormals_mode);
     return a;

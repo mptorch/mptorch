@@ -48,11 +48,11 @@ namespace mptorch::gemm
   {
     BinaryKSuperfpArgs args;
     args.mul = binaryK_widths(mul_K, mul_P, mul_bias, mul_is_signed);
-    args.mul_c = BinaryKCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
-                               static_cast<SubnormalsMode>(mul_subnormals_mode),
+    args.mul_c = BinaryKCommon{mul_is_signed, static_cast<SaturationMode>(narrow_to_int(mul_saturation_mode)),
+                               static_cast<SubnormalsMode>(narrow_to_int(mul_subnormals_mode)),
                                narrow_to_int(mul_prng_bits)};
     args.acc = superfp_widths(acc_man_bits, acc_exp_bits, acc_normal_binades, acc_bias);
-    args.acc_c = SuperfpCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
+    args.acc_c = SuperfpCommon{acc_is_signed, static_cast<SaturationMode>(narrow_to_int(acc_saturation_mode)),
                                narrow_to_int(acc_prng_bits)};
     return args;
   }
@@ -65,11 +65,11 @@ namespace mptorch::gemm
   {
     SuperfpBinaryKArgs args;
     args.mul = superfp_widths(mul_man_bits, mul_exp_bits, mul_normal_binades, mul_bias);
-    args.mul_c = SuperfpCommon{mul_is_signed, static_cast<SaturationMode>(mul_saturation_mode),
+    args.mul_c = SuperfpCommon{mul_is_signed, static_cast<SaturationMode>(narrow_to_int(mul_saturation_mode)),
                                narrow_to_int(mul_prng_bits)};
     args.acc = binaryK_widths(acc_K, acc_P, acc_bias, acc_is_signed);
-    args.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
-                               static_cast<SubnormalsMode>(acc_subnormals_mode),
+    args.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(narrow_to_int(acc_saturation_mode)),
+                               static_cast<SubnormalsMode>(narrow_to_int(acc_subnormals_mode)),
                                narrow_to_int(acc_prng_bits)};
     return args;
   }

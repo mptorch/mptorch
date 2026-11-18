@@ -36,8 +36,9 @@ namespace old_sr
         return (target + (rand_prob & mask)) & ~mask;
     }
 
-    // clip_normal_range_exponent<UnderflowMode::STOCHASTIC> (the floor asked
-    // of the input, one draw u * min_val) and <NONE>
+    // The old clip_normal_range_exponent, under its UnderflowMode::STOCHASTIC
+    // floor (the floor asked of the input, one draw u * min_val; the member
+    // is no longer in bit_helper.h) and under NONE
     inline uint32_t clip(uint32_t old_num, uint32_t quantized, SaturationMode sat, uint32_t min_num,
                          uint32_t max_num, uint32_t rand_prob, bool floor)
     {

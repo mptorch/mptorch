@@ -60,7 +60,10 @@ namespace mptorch
   // superfp format's stored mantissa bits, or a fixed-point format's
   // magnitude bits (its word length less the sign bit, if it has one). The
   // carrier stores the leading one of a fixed-point value's magnitude bits
-  // implicitly, so it holds one more of them than mantissa bits.
+  // implicitly, so it holds one more of them than mantissa bits. The two
+  // modes are the schema's integers for SaturationMode and SubnormalsMode
+  // (modes.h): both are binaryK's, only the first is superfp's, and fixed
+  // point has neither.
   //
   // The quantizers pass the schema's int64 values. A GEMM's packers have
   // already narrowed its values to int, saturating a value past int's range
@@ -71,31 +74,53 @@ namespace mptorch
   {
     FormatFamily family;
     int64_t bits;
-    int64_t exp_bits;       // binaryK and superfp
-    int64_t bias;           // binaryK and superfp
-    int64_t normal_binades; // superfp
-    int64_t fl;             // fixed point: the last bit stands for 2^-fl
+    int64_t exp_bits;        // binaryK and superfp
+    int64_t bias;            // binaryK and superfp
+    int64_t normal_binades;  // superfp
+    int64_t fl;              // fixed point: the last bit stands for 2^-fl
+    int64_t saturation_mode; // binaryK and superfp
+    int64_t subnormals_mode; // binaryK
     bool narrowed = false;
   };
 
-  inline Format binaryK_format(int64_t man_bits, int64_t exp_bits, int64_t bias)
+  // Narrows a value computed in 128 bits to int64, saturating: a value past
+  // int64's range becomes INT64_MIN or INT64_MAX, which every check refuses
+  // and a message prints as "or less" or "or more" (Shown, below).
+  inline int64_t narrow_to_int64(__int128 v)
   {
-    return Format{FormatFamily::BinaryK, man_bits, exp_bits, bias, 0, 0};
+    return v < INT64_MIN ? INT64_MIN : v > INT64_MAX ? INT64_MAX : static_cast<int64_t>(v);
   }
 
-  inline Format superfp_format(int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias)
+  // A binaryK format as a quantizer's schema gives it: P3109's (K, P), K
+  // bits in all and P of precision, which make P - 1 stored mantissa bits
+  // and an exponent field of the bits left after them and, in a signed
+  // format, the sign bit. The two are computed in 128 bits, since for a K
+  // or P near int64's limits the differences overflow an int64.
+  inline Format binaryK_format(int64_t K, int64_t P, int64_t bias, bool is_signed, int64_t saturation_mode,
+                               int64_t subnormals_mode)
   {
-    return Format{FormatFamily::Superfp, man_bits, exp_bits, bias, normal_binades, 0};
+    const __int128 k = K, p = P;
+    return Format{FormatFamily::BinaryK, narrow_to_int64(p - 1),
+                  narrow_to_int64(is_signed ? k - p : k - p + 1), bias, 0, 0, saturation_mode, subnormals_mode};
+  }
+
+  inline Format superfp_format(int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
+                               int64_t saturation_mode)
+  {
+    return Format{FormatFamily::Superfp, man_bits, exp_bits, bias, normal_binades, 0, saturation_mode, 0};
   }
 
   inline Format fixedpoint_format(int64_t mag_bits, int64_t fl)
   {
-    return Format{FormatFamily::FixedPoint, mag_bits, 0, 0, 0, fl};
+    return Format{FormatFamily::FixedPoint, mag_bits, 0, 0, 0, fl, 0, 0};
   }
 
   // A parameter as a refusal prints it. A value narrowed with saturation
-  // that sits at int's limit is that limit or any value past it, so it is
-  // printed as "2147483647 or more" or "-2147483648 or less".
+  // that sits at a limit is that limit or any value past it, so it is
+  // printed as "2147483647 or more" or "-2147483648 or less": a GEMM's value
+  // at int's limits (`narrowed`), and any value at int64's, which only a
+  // saturated difference (binaryK_format above) or the schema's own limit
+  // can be.
   struct Shown
   {
     int64_t value;
@@ -105,9 +130,9 @@ namespace mptorch
   inline std::ostream &operator<<(std::ostream &o, Shown s)
   {
     o << s.value;
-    if (s.narrowed && s.value >= INT_MAX)
+    if (s.value == INT64_MAX || (s.narrowed && s.value >= INT_MAX))
       o << " or more";
-    else if (s.narrowed && s.value <= INT_MIN)
+    else if (s.value == INT64_MIN || (s.narrowed && s.value <= INT_MIN))
       o << " or less";
     return o;
   }
@@ -127,7 +152,11 @@ namespace mptorch
   //     to mag_bits - fl (that of the binade above its top bit): each from
   //     -EXP_LIMIT to EXP_LIMIT;
   //   * a superfp format's normal_binades, from 1 to 2^exp_bits - 1, the
-  //     Python layer's bound.
+  //     Python layer's bound;
+  //   * the saturation mode (binaryK and superfp) and the subnormals mode
+  //     (binaryK), each a value of its enum in modes.h: the casts compare a
+  //     mode with the members, so an integer that names none would run as
+  //     whichever mode those comparisons select.
   // Each bound is compared with the parameter itself, so the check computes
   // nothing from a parameter that could overflow an int64. Defined out of
   // line, in format_checks.cpp, like the other checks of this header and of
@@ -197,19 +226,22 @@ namespace mptorch
 
   // Checks every format a GEMM call rounds with (check_format), in the
   // carrier it rounds in. A role's widths are a BinaryKWidths or a
-  // SuperfpWidths (gemm_args.h), whose fields the packers have narrowed to
-  // int with saturation (narrow_to_int), so each Format is marked narrowed.
+  // SuperfpWidths, and its modes those of its BinaryKCommon or SuperfpCommon
+  // (gemm_args.h), all of which the packers have narrowed to int with
+  // saturation (narrow_to_int), so each Format is marked narrowed.
   template <class Args>
   void check_args_formats(const Args &args, CarrierBits c, const char *op)
   {
-    for_each_format_role(args, [&](const auto &widths, int n_fmt, const auto &, bool rounds) {
+    for_each_format_role(args, [&](const auto &widths, int n_fmt, const auto &common, bool rounds) {
       if (rounds)
         for_each_slot(widths, n_fmt, [&](const auto &w) {
-          Format f;
+          Format f{};
           if constexpr (requires { w.normal_binades; })
-            f = superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias);
+            f = superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias,
+                               static_cast<int64_t>(common.sat));
           else
-            f = binaryK_format(w.man_bits, w.exp_bits, w.bias);
+            f = Format{FormatFamily::BinaryK, w.man_bits, w.exp_bits, w.bias, 0, 0,
+                       static_cast<int64_t>(common.sat), static_cast<int64_t>(common.sub)};
           f.narrowed = true;
           check_format(f, c, op);
         });

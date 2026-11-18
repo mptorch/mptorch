@@ -38,13 +38,8 @@ ENTRY_FILES = (
 ODD_HOST_FILES = ("carrier_odd_host.h", "carrier_odd_gemm_host.h", "carrier_odd_conv_host.h")
 
 # Functions one backend's file has and the CPU's does not: (backend, file) ->
-# {op: reason}.
-DELIBERATE_FUNCTIONS = {
-    ("mps", "custom_matmul_odd_entry.cpp"): {
-        "stochastic_cast": "_stochastic_cast is test-only and has no Metal kernel, "
-        "so its MPS entry point only raises",
-    },
-}
+# {op: reason}. There are none at present.
+DELIBERATE_FUNCTIONS: dict[tuple[str, str], dict[str, str]] = {}
 # Statements one backend's body has and the CPU's does not, each named by its
 # first tokens: (backend, op) -> (first tokens, reason). The statement runs to
 # the first `;` outside parentheses.

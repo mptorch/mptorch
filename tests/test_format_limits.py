@@ -1448,3 +1448,50 @@ def test_block_element_must_fit_the_carrier():
     with pytest.raises(ValueError, match="fits entirely in binary32.*stochastic-rounding bits"):
         block_quantize(x, wide)
     assert block_quantize(x.double(), wide).dtype is torch.float64
+
+
+@pytest.mark.parametrize(
+    "call, message",
+    [
+        (lambda x: binaryK_quantize(x, 5, 0), r"has P=0: the precision counts the implicit"),
+        (lambda x: binaryK_quantize(x, 5, -3), r"has P=-3: the precision counts the implicit"),
+        (
+            lambda x: binaryK_quantize(x, 2, 3, 0),
+            r"has P=3, more than its K=2 bits hold: they must hold the sign bit and the P - 1 "
+            r"stored mantissa bits, so P is at most 2",
+        ),
+        (
+            lambda x: binaryK_quantize(x, 4, 6, 0, is_signed=False),
+            r"has P=6, more than its K=4 bits hold: they must hold the P - 1 stored mantissa "
+            r"bits, so P is at most 5",
+        ),
+        (
+            lambda x: binaryK_matmul(x.view(2, 4), x.view(4, 2), mul_K=5, mul_P=0),
+            r"has P=0: the precision counts the implicit",
+        ),
+        (
+            lambda x: superfp_quantize(x, -1, 4, 2, 7),
+            r"has -1 stored mantissa bits: a field cannot have a negative width",
+        ),
+        (
+            lambda x: superfp_quantize(x, 3, -1, 1, 7),
+            r"has -1 exponent bits: a field cannot have a negative width",
+        ),
+    ],
+)
+def test_a_negative_width_is_refused_in_words(call, message):
+    """A format whose widths come out negative is refused with a message that
+    says so, not with the "negative shift count" of a shift by its exponent
+    width. The flat wrappers take plain integers, so they reach these checks
+    without `BinaryK`'s or `SuperFP`'s own bounds."""
+    x = torch.randn(8)
+    with pytest.raises(ValueError, match=message):
+        call(x)
+
+
+def test_an_unsigned_binaryK_may_have_no_exponent_field_beyond_its_precision():
+    """An unsigned format's K bits hold no sign bit, so P = K + 1 leaves an
+    exponent field of 0 bits, which the kernels take: it gets the range
+    checks' finding, not the shape check's."""
+    with pytest.raises(ValueError, match="has no finite normal value"):
+        binaryK_quantize(torch.randn(8), 4, 5, 0, is_signed=False)

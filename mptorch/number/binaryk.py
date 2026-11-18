@@ -229,11 +229,12 @@ def check_binaryK(
             function's caller.
 
     Raises:
-        ValueError: for a format that cannot work in the carrier: more
-            precision than the carrier has, more stochastic-rounding bits
-            than fit in the carrier's significand next to the mantissa, an
-            exponent field wider than 30 bits, a bias that puts ``1 - bias``
-            or ``2**exp_bits - 1 - bias`` outside -2^30 to 2^30 (the kernels
+        ValueError: for a format that cannot work in the carrier: a ``P``
+            below 1 or above ``K`` (``K + 1`` unsigned), more precision than
+            the carrier has, more stochastic-rounding bits than fit in the
+            carrier's significand next to the mantissa, an exponent field
+            wider than 30 bits, a bias that puts ``1 - bias`` or
+            ``2**exp_bits - 1 - bias`` outside -2^30 to 2^30 (the kernels
             compute them in a 32-bit int), a negative ``prng_bits``, or no
             finite normal value that the carrier can hold.
     """
@@ -471,6 +472,30 @@ def _binaryK_extent(
     )
 
 
+def _binaryK_shape_error(label: str, K: int, P: int, is_signed: bool) -> str | None:
+    """Return an error for a (K, P) that leaves a negative width, or ``None``.
+
+    ``P`` counts the implicit leading bit, so the format stores ``P - 1``
+    mantissa bits, and its exponent field has the bits left after them and,
+    in a signed format, the sign bit. `BinaryK` requires ``1 <= P <= K`` in
+    `__post_init__`, but the wrappers in `mptorch.quant.ops` that take plain
+    integers come here unchecked. The bound is the kernels' (an exponent
+    field of at least 0 bits), so an unsigned format may have ``P = K + 1``.
+    """
+    if P < 1:
+        return (
+            f"{label} has P={P}: the precision counts the implicit leading bit, so it is at least 1"
+        )
+    most = K if is_signed else K + 1
+    if P > most:
+        sign = "the sign bit and " if is_signed else ""
+        return (
+            f"{label} has P={P}, more than its K={K} bits hold: they must hold {sign}the "
+            f"P - 1 stored mantissa bits, so P is at most {most}"
+        )
+    return None
+
+
 @lru_cache(maxsize=512)
 def _binaryK_findings(
     K: int,
@@ -493,8 +518,10 @@ def _binaryK_findings(
     label = _binaryK_label(K, P, bias, is_signed, subnormals)
 
     def find(c: _Carrier) -> tuple[str | None, str | None]:
-        error = _width_error(label, exp_bits, man_bits, prng_bits, c) or _exponent_error(
-            label, exp_bits, bias
+        error = (
+            _binaryK_shape_error(label, K, P, is_signed)
+            or _width_error(label, exp_bits, man_bits, prng_bits, c)
+            or _exponent_error(label, exp_bits, bias)
         )
         if error is not None:
             return error, None

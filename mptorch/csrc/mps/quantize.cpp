@@ -140,8 +140,8 @@ Tensor binaryK_quantize_mps(Tensor a, int64_t K, int64_t P, int64_t bias, int64_
                             bool is_signed, int64_t round_mode, int64_t saturation_mode,
                             int64_t subnormals_mode)
 {
-  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
-                     "binaryK_quantize_mps");
+  check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+                     prng_bits, round_mode, "binaryK_quantize_mps");
   return quantize("binaryK_quantize_mps", a, round_mode, is_signed, prng_bits,
                   binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
 }
@@ -150,8 +150,8 @@ Tensor superfp_quantize_mps(Tensor a, int64_t man_bits, int64_t exp_bits, int64_
                             int64_t bias, int64_t prng_bits, bool is_signed, int64_t round_mode,
                             int64_t saturation_mode)
 {
-  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
-                     "superfp_quantize_mps");
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+                     prng_bits, round_mode, "superfp_quantize_mps");
   return quantize("superfp_quantize_mps", a, round_mode, is_signed, prng_bits,
                   superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
 }
@@ -175,8 +175,8 @@ Tensor &binaryK_quantize_mps_(Tensor &a, int64_t K, int64_t P, int64_t bias, int
   TORCH_CHECK(a.is_contiguous(), "binaryK_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use binaryK_quant, which copies a strided input");
-  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
-                     "binaryK_quantize_mps_");
+  check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+                     prng_bits, round_mode, "binaryK_quantize_mps_");
   quantize_into("binaryK_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 binaryK_format_lines(K, P, bias, is_signed, saturation_mode, subnormals_mode));
   return a;
@@ -189,8 +189,8 @@ Tensor &superfp_quantize_mps_(Tensor &a, int64_t man_bits, int64_t exp_bits, int
   TORCH_CHECK(a.is_contiguous(), "superfp_quant_ writes its argument in place and needs a "
               "contiguous tensor, got strides ", a.strides(), " for sizes ", a.sizes(),
               ": use superfp_quant, which copies a strided input");
-  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
-                     "superfp_quantize_mps_");
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+                     prng_bits, round_mode, "superfp_quantize_mps_");
   quantize_into("superfp_quantize_mps_", a, a, round_mode, is_signed, prng_bits,
                 superfp_format_lines(man_bits, exp_bits, normal_binades, bias, saturation_mode));
   return a;

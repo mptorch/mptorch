@@ -856,7 +856,7 @@ CUDA_HOST_DEVICE_INLINE T sr_superfp_normal(T origin_float, typename FloatTraits
     }
 #endif
     quantize_bits = clip_normal_range_exponent<UnderflowMode::NONE>(target, quantize_bits, p.saturation_mode,
-                                                                    word_t(0), word_t(0), p.max_num, word_t(0));
+                                                                    word_t(0), word_t(0), p.max_num);
     return reinterpret_cast<const MPTORCH_THREAD T &>(quantize_bits);
 }
 

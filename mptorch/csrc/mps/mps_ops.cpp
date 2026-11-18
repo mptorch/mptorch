@@ -13,7 +13,8 @@
 // the elementwise block ops (block_entry.cpp), the odd ops
 // (custom_matmul_odd_entry.cpp, custom_conv_odd_entry.cpp) and the test-only
 // _carrier_odd (carrier_odd_entry.cpp). There are two exceptions. The
-// test-only _stochastic_cast has no Metal kernel and raises. narrow_float64
+// test-only _stochastic_cast has no Metal kernel and raises
+// (stochastic_cast_entry.cpp). narrow_float64
 // takes a float64 tensor, which MPS cannot hold, so it keeps torch's boxed
 // CPU fallback: a call on an MPS tensor then reaches the op's own dtype
 // check and fails with its message, rather than with the dispatcher's,

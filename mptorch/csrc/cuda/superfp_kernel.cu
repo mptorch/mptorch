@@ -201,9 +201,9 @@ Tensor superfp_quantize_cuda(
 {
     // The format, and under SR its random bits, checked before anything
     // is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias),
-                                    mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                    round_mode, "superfp_quant");
+    mptorch::check_quantizer_format(
+        mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+        mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
     // The input is made contiguous, and aligned to 16 bytes for the kernel's
     // vector loads, for the reasons binaryK_quantize_cuda gives.
     auto a_c = mptorch::vector_loadable(a);
@@ -222,9 +222,9 @@ Tensor &superfp_quantize_cuda_(
     mptorch::check_vector_loadable_in_place(a, "superfp_quant_", "superfp_quant");
     // The format, and under SR its random bits, checked before anything
     // is built from them (common/stochastic_host.h).
-    mptorch::check_quantizer_format(mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias),
-                                    mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits,
-                                    round_mode, "superfp_quant");
+    mptorch::check_quantizer_format(
+        mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+        mptorch::carrier_bits(a.scalar_type() == at::kDouble), prng_bits, round_mode, "superfp_quant");
     superfp_quantize_into(a, a, man_bits, exp_bits, normal_binades, bias, prng_bits, is_signed,
                           round_mode, saturation_mode);
     return a;

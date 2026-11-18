@@ -183,7 +183,8 @@ def check_superfp(
             :func:`check_binaryK`. Default: 3.
 
     Raises:
-        ValueError: as :func:`check_binaryK`, and also for a
+        ValueError: as :func:`check_binaryK`, with a negative ``man_bits`` or
+            ``exp_bits`` in place of its bounds on ``P``, and also for a
             ``normal_binades`` outside ``1 .. 2**exp_bits - 1``, which leaves
             the format no normal binade or no supernormal codes.
     """

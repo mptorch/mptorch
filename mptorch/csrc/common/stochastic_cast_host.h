@@ -51,8 +51,7 @@ namespace mptorch::stochastic_cast
       const int K = static_cast<int>(format[0]), P = static_cast<int>(format[1]);
       j.is_signed = format[4] != 0;
       j.subnormals = static_cast<SubnormalsMode>(format[6]);
-      const Format f = binaryK_format(format[1] - 1, j.is_signed ? format[0] - format[1] : format[0] - format[1] + 1,
-                                      format[2]);
+      const Format f = binaryK_format(format[0], format[1], format[2], j.is_signed, format[5], format[6]);
       check_format(f, carrier, op);
       j.spec = sr_encode(format[3], f.bits, false, carrier, variant, op);
       // as the binaryK quantizer derives them: P - 1 mantissa bits, and
@@ -65,7 +64,7 @@ namespace mptorch::stochastic_cast
     {
       j.is_signed = format[5] != 0;
       j.subnormals = SubnormalsMode::SUBNORMALS;
-      const Format f = superfp_format(format[0], format[1], format[2], format[3]);
+      const Format f = superfp_format(format[0], format[1], format[2], format[3], format[6]);
       check_format(f, carrier, op);
       j.spec = sr_encode(format[4], f.bits, false, carrier, variant, op);
       j.sf = make_superfp_params<T>(static_cast<int>(format[0]), static_cast<int>(format[1]),

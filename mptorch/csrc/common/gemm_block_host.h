@@ -268,8 +268,8 @@ namespace mptorch::gemm
     BlockSplitArgs split;
     split.accumulate_quant = accumulate_quant;
     split.acc = binaryK_widths(acc_K, acc_P, acc_bias, acc_is_signed);
-    split.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(acc_saturation_mode),
-                                static_cast<SubnormalsMode>(acc_subnormals_mode),
+    split.acc_c = BinaryKCommon{acc_is_signed, static_cast<SaturationMode>(narrow_to_int(acc_saturation_mode)),
+                                static_cast<SubnormalsMode>(narrow_to_int(acc_subnormals_mode)),
                                 narrow_to_int(acc_prng_bits)};
     return run(split);
   }

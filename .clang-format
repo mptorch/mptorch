@@ -1,0 +1,49 @@
+# The C++ style of mptorch/csrc and dev/benchmarks: CUDA, Metal and
+# Objective-C++ sources included (no Language key, so it applies to every
+# language clang-format detects).
+#
+# It was set up after the code was written, so most existing files do not
+# follow it exactly: format the lines you change (git clang-format, or the
+# editor's format-selection), not whole files. A whole-file reformat changes
+# no token but moves lines, and with them the __LINE__ every TORCH_CHECK
+# records, so it changes host objects and needs its own gate
+# (dev/benchmarks/gates/source_identity.py).
+BasedOnStyle: LLVM
+
+# Two spaces, inside namespaces too, as most of the host code is written.
+# The device-side numerics in common/ (bit_helper.h, cast_*.h, gemm_policy.h,
+# stochastic.h and others), the .cu/.cuh kernels, the .metal sources and the
+# sweeps use four spaces and predate this file.
+IndentWidth: 2
+AccessModifierOffset: -2
+NamespaceIndentation: All
+
+# The entry files' width.
+ColumnLimit: 100
+
+# Braces on their own lines, and template headers on their own line.
+BreakBeforeBraces: Allman
+AlwaysBreakTemplateDeclarations: Yes
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+
+# A list that does not fit is aligned after its opening bracket and packed,
+# rather than moved whole onto the next line, and a function keeps its
+# return type on the line of its name.
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllArgumentsOnNextLine: false
+PenaltyReturnTypeOnItsOwnLine: 1000
+
+PointerAlignment: Right
+
+# Leave comment text alone: the comments are written to be read, and
+# reflowing them rewraps sentences.
+ReflowComments: false
+
+# Leave include and using-declaration order alone: the Metal sources are
+# flattened from their includes in order (setup.py's embed_metal_sources),
+# and sorting the using-declarations would only rewrite the 256 generated
+# instantiation units.
+SortIncludes: false
+SortUsingDeclarations: false
+IncludeBlocks: Preserve

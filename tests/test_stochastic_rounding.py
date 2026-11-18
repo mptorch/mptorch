@@ -649,6 +649,9 @@ def _width_cases(dtype):
         (c + 6, c + 1, None),  # a mantissa as wide as the carrier's
         (c + 7, c + 2, f"has {c + 1} stored mantissa bits, but {name} holds 0 to {c}"),
         (5, 0, f"has -1 stored mantissa bits, but {name} holds 0 to {c}"),
+        # K - P overflows an int64: the op computes it in 128 bits, and prints
+        # the value it saturates to as such
+        (2**63 - 1, -(2**63), "has 9223372036854775807 or more exponent bits"),
     ):
         cases.append(
             (
@@ -807,6 +810,28 @@ def test_raw_quantizers_refuse_exponents_past_the_kernels_int(device):
         BinaryK(8, 4, bias=-(2**31 - 1))
     with pytest.raises(ValueError, match="has a bias outside -1 to 1073741825"):
         SuperFP(3, 30, 1, -(2**30))
+
+
+@pytest.mark.parametrize("device", available_devices)
+def test_raw_quantizers_refuse_mode_integers_that_name_no_mode(device):
+    """A saturation, subnormals or round mode that is no value of its enum is
+    refused on every backend and on the meta device, rather than run as some
+    other mode (an unknown round mode ran as round to odd). The Python layer
+    passes the enums' values, so only a direct torch.ops call can reach this."""
+    ops = torch.ops.mptorch
+    x = torch.randn(64, device=device)
+    cases = [
+        (lambda x: ops.binaryK_quant(x, 8, 4, 8, 0, True, 0, 4, 0), "saturation mode is 4"),
+        (lambda x: ops.binaryK_quant(x, 8, 4, 8, 0, True, 0, 0, 3), "subnormals mode is 3"),
+        (lambda x: ops.superfp_quant(x, 3, 4, 2, 7, 0, True, 0, -1), "saturation mode is -1"),
+        (lambda x: ops.binaryK_quant(x, 8, 4, 8, 0, True, 9, 0, 0), "9 is not a RoundMode"),
+        (lambda x: ops.superfp_quant(x, 3, 4, 2, 7, 0, True, -1, 0), "-1 is not a RoundMode"),
+        (lambda x: ops.fixedpoint_quant(x, 8, 4, 0, True, False, 99), "99 is not a RoundMode"),
+    ]
+    for call, refusal in cases:
+        for t in (x, x.to("meta")):
+            with pytest.raises(RuntimeError, match=refusal):
+                call(t)
 
 
 @requires_odd

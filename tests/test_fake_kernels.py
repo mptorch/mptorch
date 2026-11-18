@@ -605,6 +605,29 @@ def _gemm_cases():
         "unused acc prng past int": _with(
             "custom_matmul_binaryK", accumulate_quant=False, acc_prng_bits=2**32 + 3
         ),
+        # Integers that name no SaturationMode (0 to 3) or SubnormalsMode (0 to
+        # 2), which the casts would run as one of them or as none; the one past
+        # int used to wrap to 1, SAT_PROPAGATE.
+        "mul saturation mode": _with("custom_matmul_binaryK", mul_saturation_mode=4),
+        "acc subnormals mode": _with("custom_matmul_binaryK", acc_subnormals_mode=-1),
+        "acc saturation mode": _with("custom_matmul_superfp", acc_saturation_mode=7),
+        "mul saturation mode past int": _with(
+            "custom_matmul_binaryK", mul_saturation_mode=2**32 + 1
+        ),
+        "fused palette saturation mode": _with(
+            "custom_matmul_superfp_fma_mixed", fma_saturation_mode=9
+        ),
+        "outer subnormals mode": _with(
+            "custom_matmul_binaryK_accumulated",
+            accumulate_algorithm=A.BLOCK.value,
+            block_size=16,
+            outer_quant=True,
+            outer_K=16,
+            outer_P=11,
+            outer_bias=15,
+            outer_subnormals_mode=5,
+        ),
+        "cross subnormals mode": _with("custom_matmul_superfp_binaryK", acc_subnormals_mode=3),
     }
 
 
@@ -646,6 +669,7 @@ def _conv_cases():
         "mul exp width": _with("custom_conv_binaryK", mul_K=35),
         "mul bias": _with("custom_conv_binaryK", mul_bias=-(2**31 - 1)),
         "mul bias past int": _with("custom_conv_binaryK", mul_bias=2**40),
+        "mul saturation mode": _with("custom_conv_binaryK", mul_saturation_mode=4),
     }
 
 
@@ -702,6 +726,14 @@ def _block_cases():
             acc_bias=15,
             acc_prng_bits=2**32 + 3,
         ),
+        "gemm acc saturation mode": _with(
+            "custom_matmul_block",
+            accumulate_quant=True,
+            acc_K=16,
+            acc_P=11,
+            acc_bias=15,
+            acc_saturation_mode=4,
+        ),
     }
 
 
@@ -730,6 +762,17 @@ def _other_cases():
         "superfp normal binades": _with("superfp_quant", normal_binades=0),
         "fixedpoint fl": _with("fixedpoint_quant", fl=2**31 - 1),
         "stochastic_cast bias": _with("_stochastic_cast", format=[8, 4, -(2**31 - 1), 3, 1, 2, 0]),
+        "binaryK saturation mode": _with("binaryK_quant", saturation_mode=4),
+        "binaryK subnormals mode": _with("binaryK_quant", subnormals_mode=3),
+        "superfp saturation mode": _with("superfp_quant", saturation_mode=-1),
+        "stochastic_cast saturation mode": _with("_stochastic_cast", format=[8, 4, 7, 3, 1, 7, 0]),
+        "stochastic_cast subnormals mode": _with("_stochastic_cast", format=[8, 4, 7, 3, 1, 2, 3]),
+        # P3109's (K, P) at int64's limits: K - P overflows an int64
+        "binaryK K past int64": _with("binaryK_quant", K=2**63 - 1, P=-(2**63)),
+        # The quantizers ran a round mode they do not know as round to odd.
+        "binaryK round mode int": _with("binaryK_quant", round_mode=9),
+        "superfp round mode int": _with("superfp_quant", round_mode=-1),
+        "fixedpoint round mode int": _with("fixedpoint_quant", round_mode=2**40),
     }
 
 
@@ -760,7 +803,9 @@ _GEMM_IDS = [
     "cross normal binades", "binary64 bias", "odd bias", "mul bias past int",
     "palette bias past int", "mul mantissa past int", "mul exp past int",
     "acc normal binades past int", "outer bias past int", "cross bias past int",
-    "mul prng past int", "unused acc prng past int",
+    "mul prng past int", "unused acc prng past int", "mul saturation mode",
+    "acc subnormals mode", "acc saturation mode", "mul saturation mode past int",
+    "fused palette saturation mode", "outer subnormals mode", "cross subnormals mode",
 ]  # fmt: skip
 _CONV_IDS = [
     "conv pass", "out_size entries", "stride entries", "rank", "groups", "channels", "stride",
@@ -769,20 +814,24 @@ _CONV_IDS = [
     "fma_quant palette", "cross groups", "odd kahan block size", "odd naive block size",
     "odd algorithm", "fma_quant odd", "fma_quant odd palette", "odd palette map",
     "odd cross groups", "mul prng", "mul exp width", "mul bias", "mul bias past int",
+    "mul saturation mode",
 ]  # fmt: skip
 _BLOCK_IDS = [
     "pack round mode", "pack rank", "pack dtype", "pack fmt", "unpack scales",
     "unpack data dtype", "unpack cols", "unpack dtype", "unpack batch", "quant round mode",
     "quant_ overlap", "gemm a cols", "gemm round mode", "gemm algorithm", "gemm data dtype",
     "gemm naive block size", "gemm kahan block size", "gemm acc prng", "gemm acc exp width",
-    "gemm acc bias", "gemm acc bias past int", "gemm acc prng past int",
+    "gemm acc bias", "gemm acc bias past int", "gemm acc prng past int", "gemm acc saturation mode",
 ]  # fmt: skip
 _OTHER_IDS = [
     "narrow input", "narrow dtype", "binaryK in place", "superfp in place", "fixedpoint in place",
     "carrier_odd op", "carrier_odd shape", "carrier_odd dtype", "binaryK prng", "superfp prng",
     "fixedpoint prng", "stochastic_cast prng", "binaryK exp width", "superfp exp width",
     "fixedpoint magnitude width", "stochastic_cast exp width", "binaryK bias", "superfp bias",
-    "superfp normal binades", "fixedpoint fl", "stochastic_cast bias",
+    "superfp normal binades", "fixedpoint fl", "stochastic_cast bias", "binaryK saturation mode",
+    "binaryK subnormals mode", "superfp saturation mode", "stochastic_cast saturation mode",
+    "stochastic_cast subnormals mode", "binaryK K past int64", "binaryK round mode int",
+    "superfp round mode int", "fixedpoint round mode int",
 ]  # fmt: skip
 
 
@@ -817,7 +866,10 @@ def test_a_meta_call_raises_the_cpu_message(case):
 _PRNG_CASES = [c for c in _case_ids() if c.endswith(" prng")]
 _WIDTH_CASES = [c for c in _case_ids() if c.endswith(" width")]
 _EXPONENT_CASES = [c for c in _case_ids() if c.endswith((" bias", " fl", " normal binades"))]
-_PAST_INT_CASES = [c for c in _case_ids() if c.endswith(" past int")]
+_PAST_INT_CASES = [c for c in _case_ids() if c.endswith((" past int", " past int64"))]
+_MODE_CASES = [c for c in _case_ids() if c.endswith((" saturation mode", " subnormals mode"))]
+_MODE_CASES += [c for c in _case_ids() if c.endswith(" mode past int")]
+_ROUND_MODE_CASES = [c for c in _case_ids() if c.endswith(" round mode int")]
 
 
 def _raises_in_every_mode(func, args, pattern):
@@ -887,7 +939,27 @@ def test_a_gemm_value_past_an_int_is_refused_not_wrapped(case):
     refuses and prints as "or more" or "or less". A plain narrowing wrapped
     it to a value a check could accept instead (a bias of 2**40 became 0)."""
     func, args = _case(case)
-    with pytest.raises(RuntimeError, match=r"(2147483647 or more|-2147483648 or less)"):
+    limits = r"(2147483647 or more|-2147483648 or less|9223372036854775807 or more)"
+    with pytest.raises(RuntimeError, match=limits):
+        func(*args)
+
+
+@pytest.mark.parametrize("case", _MODE_CASES)
+def test_a_format_refuses_a_mode_integer_that_names_no_mode(case):
+    """A saturation or subnormals mode that is not a value of its enum in
+    modes.h is refused, in a deterministic mode as under SR, rather than run
+    as whichever mode the casts' comparisons happen to select."""
+    func, args = _case(case)
+    mode = r"the format's (saturation|subnormals) mode is -?\d+( or more| or less)?, but a "
+    _raises_in_every_mode(func, args, mode + r"(SaturationMode|SubnormalsMode) is 0 to \d")
+
+
+@pytest.mark.parametrize("case", _ROUND_MODE_CASES)
+def test_a_quantizer_refuses_a_round_mode_it_does_not_know(case):
+    """The elementwise quantizers refuse a round mode that is not a RoundMode,
+    as the GEMMs do; they used to run it as round to odd."""
+    func, args = _case(case)
+    with pytest.raises(RuntimeError, match=r"-?\d+ is not a RoundMode"):
         func(*args)
 
 
@@ -908,6 +980,8 @@ def test_a_format_the_call_does_not_round_with_is_not_bounded():
         _with("custom_matmul_binaryK", accumulate_quant=False, acc_K=0, acc_P=0),
         # not even past an int's range, which it narrows with saturation
         _with("custom_matmul_binaryK", accumulate_quant=False, acc_K=2**40, acc_bias=-(2**40)),
+        # nor its modes
+        _with("custom_matmul_binaryK", accumulate_quant=False, acc_saturation_mode=9),
     ]
     for func, args in cases:
         func(*args)

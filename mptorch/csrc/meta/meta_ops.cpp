@@ -57,37 +57,37 @@ namespace
 } // namespace
 
 Tensor binaryK_quantize_meta(Tensor a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
-                             int64_t round_mode, int64_t, int64_t)
+                             int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
-  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
-                     "binaryK_quant");
+  check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+                     prng_bits, round_mode, "binaryK_quant");
   return quantized_like(a, "binaryK_quant");
 }
 
 Tensor &binaryK_quantize_meta_(Tensor &a, int64_t K, int64_t P, int64_t bias, int64_t prng_bits, bool is_signed,
-                               int64_t round_mode, int64_t, int64_t)
+                               int64_t round_mode, int64_t saturation_mode, int64_t subnormals_mode)
 {
   check_in_place(a, "binaryK_quant_", "binaryK_quant");
-  check_quant_format(a, mptorch::binaryK_format(P - 1, is_signed ? K - P : K - P + 1, bias), prng_bits, round_mode,
-                     "binaryK_quant");
+  check_quant_format(a, mptorch::binaryK_format(K, P, bias, is_signed, saturation_mode, subnormals_mode),
+                     prng_bits, round_mode, "binaryK_quant");
   check_quant_dtype(a, "binaryK_quant_");
   return a;
 }
 
 Tensor superfp_quantize_meta(Tensor a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades, int64_t bias,
-                             int64_t prng_bits, bool, int64_t round_mode, int64_t)
+                             int64_t prng_bits, bool, int64_t round_mode, int64_t saturation_mode)
 {
-  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
-                     "superfp_quant");
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+                     prng_bits, round_mode, "superfp_quant");
   return quantized_like(a, "superfp_quant");
 }
 
 Tensor &superfp_quantize_meta_(Tensor &a, int64_t man_bits, int64_t exp_bits, int64_t normal_binades,
-                               int64_t bias, int64_t prng_bits, bool, int64_t round_mode, int64_t)
+                               int64_t bias, int64_t prng_bits, bool, int64_t round_mode, int64_t saturation_mode)
 {
   check_in_place(a, "superfp_quant_", "superfp_quant");
-  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias), prng_bits, round_mode,
-                     "superfp_quant");
+  check_quant_format(a, mptorch::superfp_format(man_bits, exp_bits, normal_binades, bias, saturation_mode),
+                     prng_bits, round_mode, "superfp_quant");
   check_quant_dtype(a, "superfp_quant_");
   return a;
 }

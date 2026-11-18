@@ -36,6 +36,17 @@ namespace mptorch
       TORCH_CHECK(f.normal_binades >= 1 && f.normal_binades <= top_field, op, ": the format has ",
                   shown(f.normal_binades), " normal binades, but a superfp format with ", f.exp_bits,
                   " exponent bits has 1 to ", top_field);
+    const int64_t last_saturation = static_cast<int64_t>(SaturationMode::SAT_FINITE_EXTENDED);
+    TORCH_CHECK(f.saturation_mode >= 0 && f.saturation_mode <= last_saturation, op,
+                ": the format's saturation mode is ", shown(f.saturation_mode),
+                ", but a SaturationMode is 0 to ", last_saturation);
+    if (f.family == FormatFamily::BinaryK)
+    {
+      const int64_t last_subnormals = static_cast<int64_t>(SubnormalsMode::EXTENDED_NORMALS);
+      TORCH_CHECK(f.subnormals_mode >= 0 && f.subnormals_mode <= last_subnormals, op,
+                  ": the format's subnormals mode is ", shown(f.subnormals_mode),
+                  ", but a SubnormalsMode is 0 to ", last_subnormals);
+    }
   }
 
   void sr_check_prng(int64_t prng_bits, int64_t bits, bool magnitude, CarrierBits c, const char *op,
@@ -50,6 +61,7 @@ namespace mptorch
   void check_quantizer_format(const Format &f, CarrierBits c, int64_t prng_bits, int64_t round_mode,
                               const char *op)
   {
+    TORCH_CHECK(is_round_mode(round_mode), op, ": ", round_mode, " is not a RoundMode");
     check_format(f, c, op);
     if (is_stochastic_mode(round_mode))
       sr_check_prng(prng_bits, f.bits, f.family == FormatFamily::FixedPoint, c, op);
