@@ -3,8 +3,8 @@
 // The Meta ("fake") side of every op: what the meta device,
 // FakeTensorMode, torch.export and torch.compile run in an op's place to
 // learn its result's shape, dtype and strides without computing it. Only
-// meta_gemm.cpp and meta_ops.cpp include this header, so no object of the
-// real ops changes.
+// the files under meta/ include this header, so no object of the real ops
+// changes.
 //
 // A meta kernel accepts what the CPU op accepts and raises what it raises,
 // with the CPU op's messages and in its order; what it leaves out needs
@@ -730,7 +730,7 @@ namespace mptorch::meta
 {
   // run_custom_conv_odd (carrier_odd_conv_host.h). The flag-on branch needs
   // AccumulateFamily<OddArgs<B>> (carrier_odd_accumulate.h), which
-  // meta_gemm.cpp includes before it instantiates this.
+  // meta/custom_conv_odd_entry.cpp includes before it instantiates this.
   template <class Base, class Widths, class Common>
   Tensor meta_custom_conv_odd(const char *op_name, const g::OddArgs<Base> &args,
                               const g::AccumulateTail<Widths, Common> &tail, const Tensor &a,

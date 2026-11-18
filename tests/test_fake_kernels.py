@@ -1,15 +1,16 @@
 """
 Fake (Meta) kernels for every op.
 
-Every mptorch op has a Meta kernel (``mptorch/csrc/meta_ops.cpp`` and
-``meta_gemm.cpp``, over ``common/meta_host.h``): the CPU op's checks, in its
+Every mptorch op has a Meta kernel (the files under ``mptorch/csrc/meta/``,
+over ``common/meta_host.h``): the CPU op's checks, in its
 order and with its messages, and a result of the shape, dtype and layout the
 CPU op allocates, nothing computed and no RNG state drawn. It is what the
 meta device, ``FakeTensorMode``, ``torch.export`` and ``torch.compile`` run in
 the op's place. What is tested here:
 
 - **Coverage.** Every op has a Meta and an Autograd kernel. A workload of
-  public-API calls on the CPU reaches all 60, recorded by a dispatch mode.
+  public-API calls on the CPU, recorded by a dispatch mode, reaches every op
+  whose kernels the build has: all 66 under ``MPTORCH_ODD_ACCUMULATED=1``.
 - **opcheck** on every recorded call: the schema's mutation and aliasing
   claims, the fake result against the real one (sizes, strides, dtype,
   aliasing, storage offset), and AOTAutograd with symbolic shapes against

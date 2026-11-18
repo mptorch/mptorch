@@ -596,14 +596,15 @@ def get_extensions():
 
     # Sources are globbed, so a new kernel file only needs to land in the right
     # directory: csrc/ for the op schemas and the Autograd registrations,
-    # csrc/cpu/ for host kernels, csrc/cuda/ for anything that needs the CUDA
-    # toolkit, csrc/mps/ for anything that needs Metal. The GEMM and conv
-    # instantiation units, which hold nothing but explicit instantiations of
-    # the kernel templates, are in the inst/ subdirectories of csrc/cpu/ and
-    # csrc/cuda/.
+    # csrc/cpu/ for host kernels, csrc/meta/ for the Meta kernels, csrc/cuda/
+    # for anything that needs the CUDA toolkit, csrc/mps/ for anything that
+    # needs Metal. The GEMM and conv instantiation units, which hold nothing
+    # but explicit instantiations of the kernel templates, are in the inst/
+    # subdirectories of csrc/cpu/ and csrc/cuda/.
     sources = glob(csrc, "*.cpp")
     sources += glob(csrc / "cpu", "*.cpp")
     sources += glob(csrc / "cpu" / "inst", "*.cpp")
+    sources += glob(csrc / "meta", "*.cpp")
     if use_cuda:
         # csrc/cuda holds .cpp files as well as .cu files. The CUDA GEMM's entry
         # points and RNG-state draws are host code that handles at::Tensor, and

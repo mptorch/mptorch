@@ -1,7 +1,7 @@
 #pragma once
 
 // The Meta kernels of every op, registered by meta_ops.cpp: the
-// GEMM-shaped ones are meta_gemm.cpp's, the others meta_ops.cpp's. Each
+// GEMM-shaped ones are in custom_*_entry.cpp, the others in meta_ops.cpp. Each
 // takes its op's schema, as the CPU, CUDA and MPS entry points of
 // quant_ops.h do.
 
@@ -43,7 +43,7 @@ Tensor carrier_odd_meta(Tensor a, Tensor b, Tensor c, int64_t op);
 Tensor stochastic_cast_meta(Tensor x, Tensor draws, int64_t family, c10::IntArrayRef format,
                             int64_t stochastic_mode);
 
-// meta_gemm.cpp
+// custom_*_entry.cpp
 Tensor binaryK_matmul_meta(Tensor a, Tensor b, bool trans_a, bool trans_b,
                            int64_t mul_K, int64_t mul_P, int64_t mul_bias, bool mul_is_signed,
                            bool accumulate_quant, int64_t acc_K, int64_t acc_P,
@@ -331,7 +331,8 @@ Tensor block_matmul_meta(Tensor a_data, Tensor a_scales, int64_t a_cols, bool tr
                          bool outer_is_signed, int64_t outer_saturation_mode,
                          int64_t outer_subnormals_mode, int64_t outer_prng_bits, bool binary64);
 
-// The odd conv, cross-family and palette ops (meta_gemm.cpp).
+// The odd conv, cross-family and palette ops (custom_matmul_odd_entry.cpp and
+// custom_conv_odd_entry.cpp).
 Tensor binaryK_matmul_mixed_odd_meta(Tensor a, Tensor b, Tensor prec_idx, bool trans_a,
                                      bool trans_b, c10::IntArrayRef mul_K, c10::IntArrayRef mul_P,
                                      c10::IntArrayRef mul_bias, bool mul_is_signed,

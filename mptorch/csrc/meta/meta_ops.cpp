@@ -1,15 +1,15 @@
 // The Meta dispatch-key registrations of every op, and the Meta kernels
 // of the twelve that are not GEMM-shaped: the quantizers,
 // narrow_float64, the block elementwise ops and _carrier_odd. The
-// GEMM-shaped ones are meta_gemm.cpp's. A Meta kernel is what the meta
+// GEMM-shaped ones are in this directory's custom_*_entry.cpp files. A Meta kernel is what the meta
 // device, FakeTensorMode, torch.export and torch.compile run in an op's
 // place: the CPU op's checks, in its order and with its messages, and a
 // result of the shape, dtype and layout the CPU op allocates, with
 // nothing computed and no RNG state drawn (common/meta_host.h has the
 // rules and the exceptions).
 
-#include "common/meta_host.h"
-#include "common/stochastic_cast_host.h"
+#include "../common/meta_host.h"
+#include "../common/stochastic_cast_host.h"
 #include "meta_ops.h"
 #include <torch/library.h>
 
