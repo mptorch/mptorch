@@ -236,12 +236,16 @@ namespace mptorch
       if (rounds)
         for_each_slot(widths, n_fmt, [&](const auto &w) {
           Format f{};
-          if constexpr (requires { w.normal_binades; })
-            f = superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias,
-                               static_cast<int64_t>(common.sat));
-          else
+          // The family is read off common, whose type the outer lambda
+          // fixes, so the other family's branch is discarded there. A test
+          // on w stays dependent, and clang then substitutes common.sub
+          // into the superfp instantiation, where it does not exist.
+          if constexpr (requires { common.sub; })
             f = Format{FormatFamily::BinaryK, w.man_bits, w.exp_bits, w.bias, 0, 0,
                        static_cast<int64_t>(common.sat), static_cast<int64_t>(common.sub)};
+          else
+            f = superfp_format(w.man_bits, w.exp_bits, w.normal_binades, w.bias,
+                               static_cast<int64_t>(common.sat));
           f.narrowed = true;
           check_format(f, c, op);
         });
